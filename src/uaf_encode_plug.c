@@ -69,6 +69,7 @@ struct dsc$descriptor_s {
 #ifndef UAI$M_PWDMIX
 #define UAI$M_PWDMIX 0x2000000
 #endif
+
 #ifdef HAVE_PTHREADS
 #include <pthread.h>
 #define PTHREAD_MUTEX_INITIALIZER 0
@@ -78,14 +79,15 @@ struct dsc$descriptor_s {
 
 #include "uaf_raw.h"
 #include "uaf_encode.h"
-#include <pthread.h>
 #include "memdbg.h"
 
 /*
  * Declare static globals that don't change once initialized as well as
  * pthread objects used to sychronize access and/or initialization.
  */
+#ifdef HAVE_PTHREADS
 static pthread_mutex_t uaf_static = PTHREAD_MUTEX_INITIALIZER;
+#endif
 static const char *enc_set =
 	"-ABCDEFGHIJKLMNOPQRTSUVWXYZ0123456789abcedfghijklmnopqrstuvwxyz+";
 static const char *r50_set = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$._0123456789";
@@ -466,11 +468,15 @@ int uaf_getuai_info (
     /*
      * Call system to get the information and fixup.  Serialize.
      */
+#ifdef HAVE_PTHREADS
     pthread_mutex_lock ( &uaf_static );
+#endif
     username_dx.dsc$a_pointer = (char *) username;
     username_dx.dsc$w_length = strlen(username);
     status = SYS$GETUAI ( 0, &uai_ctx, &username_dx, item, 0, 0, 0 );
+#ifdef HAVE_PTHREADS
     pthread_mutex_unlock ( &uaf_static );
+#endif
     if ( (status&1) == 0 ) {
 	return status;
     }
@@ -487,9 +493,13 @@ int uaf_getuai_info (
     return status;
 #else
     if ( uai_ctx == -1 ) {
-        pthread_mutex_lock ( &uaf_static );	/* just to fool compiler */
-	uai_ctx = -2;
+#ifdef HAVE_PTHREADS
+		pthread_mutex_lock ( &uaf_static );	/* just to fool compiler */
+#endif
+		uai_ctx = -2;
+#ifdef HAVE_PTHREADS
         pthread_mutex_unlock ( &uaf_static );
+#endif
     }
     return 0;			/* Non-VMS system, always fails */
 #endif

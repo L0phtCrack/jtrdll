@@ -25,7 +25,8 @@
 #endif
 
 #include "scrypt_platform.h"
-
+#include "errno.h"
+#include "crypto_scrypt.h"
 #include "../memdbg.h"
 #include "../memory.h"
 
@@ -62,7 +63,11 @@ alloc_region(escrypt_region_t * region, size_t size)
 	return aligned;
 }
 
-static inline void
+#ifdef _MSC_VER
+__inline static void
+#else
+inline static void
+#endif
 init_region(escrypt_region_t * region)
 {
 	region->base = region->aligned = NULL;

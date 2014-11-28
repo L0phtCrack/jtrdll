@@ -47,6 +47,10 @@ extern struct fmt_main fmt_rar;
 john_register_one(&fmt_rar);
 #else
 
+#ifdef _MSC_VER
+#define atoll _atoi64
+#endif
+
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
@@ -246,7 +250,7 @@ static void init_aesni(void)
 		/* This should only happen when 'e' can't initialise, but the
 		 * previous statement suggests it did. */
 		fprintf(stderr, "AES-NI engine initialized but then failed\n");
-		abort();
+		exit(1);
 	}
 	ENGINE_finish(e);
 	ENGINE_free(e);

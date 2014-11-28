@@ -15,6 +15,8 @@
 #define _POSIX_SOURCE
 #endif
 
+#include"jtrdll.h"
+
 #ifdef _SCO_C_DIALECT
 #include <limits.h>
 #endif
@@ -189,7 +191,7 @@ static char *status_get_cps(char *buffer, int64 *c, unsigned int c_ehi)
 	}
 	if (use_ticks)
 		mul64by32(&cps, clk_tck);
-	div64by32(&cps, time);
+		div64by32(&cps, time);
 	if (c_ehi) {
 		cps.hi = cps.lo;
 		cps.lo = 0;
@@ -262,43 +264,43 @@ static char *status_get_ETA(double percent, unsigned int secs_done)
 	{
 		double chk;
 
-		t_ETA = time(NULL);
-		if (percent >= 100.0) {
-			pTm = localtime(&t_ETA);
-			strncat(s_ETA, " (", sizeof(s_ETA) - 1);
-			strftime(ETA, sizeof(ETA), timeFmt, pTm);
-			strncat(s_ETA, ETA, sizeof(s_ETA) - 1);
-			strncat(s_ETA, ")", sizeof(s_ETA) - 1);
-			return s_ETA;
-		}
-		percent /= 100;
-		sec_left = secs_done;
-		sec_left /= percent;
-		sec_left -= secs_done;
-		/* Note, many localtime() will fault if given a time_t
-		   later than Jan 19, 2038 (i.e. 0x7FFFFFFFF). We
-		   check for that here, and if so, this run will
-		   not end anyway, so simply tell user to not hold
-		   her breath */
-		chk = sec_left;
-		chk += t_ETA;
-		if (chk > 0x7FFFF000) { /* slightly less than 'max' 32 bit time_t, for safety */
-			if (100 * (int)percent > 0)
-				strncat(s_ETA, " (ETA: never)",
-				        sizeof(s_ETA) - 1);
-			return s_ETA;
-		}
-		t_ETA += sec_left;
+	t_ETA = time(NULL);
+	if (percent >= 100.0) {
 		pTm = localtime(&t_ETA);
-		strncat(s_ETA, " (ETA: ", sizeof(s_ETA) - 1);
-		if (sec_left < 24 * 3600)
-			strftime(ETA, sizeof(ETA), timeFmt24, pTm);
-		else
-			strftime(ETA, sizeof(ETA), timeFmt, pTm);
+		strncat(s_ETA, " (", sizeof(s_ETA) - 1);
+		strftime(ETA, sizeof(ETA), timeFmt, pTm);
 		strncat(s_ETA, ETA, sizeof(s_ETA) - 1);
 		strncat(s_ETA, ")", sizeof(s_ETA) - 1);
+		return s_ETA;
 	}
-	return s_ETA;
+	percent /= 100;
+	sec_left = secs_done;
+	sec_left /= percent;
+	sec_left -= secs_done;
+	/* Note, many localtime() will fault if given a time_t
+		later than Jan 19, 2038 (i.e. 0x7FFFFFFFF). We
+		check for that here, and if so, this run will
+		not end anyway, so simply tell user to not hold
+		her breath */
+	chk = sec_left;
+	chk += t_ETA;
+	if (chk > 0x7FFFF000) { /* slightly less than 'max' 32 bit time_t, for safety */
+		if (100 * (int)percent > 0)
+			strncat(s_ETA, " (ETA: never)",
+				    sizeof(s_ETA) - 1);
+		return s_ETA;
+	}
+	t_ETA += sec_left;
+	pTm = localtime(&t_ETA);
+	strncat(s_ETA, " (ETA: ", sizeof(s_ETA) - 1);
+	if (sec_left < 24 * 3600)
+		strftime(ETA, sizeof(ETA), timeFmt24, pTm);
+	else
+		strftime(ETA, sizeof(ETA), timeFmt, pTm);
+	strncat(s_ETA, ETA, sizeof(s_ETA) - 1);
+	strncat(s_ETA, ")", sizeof(s_ETA) - 1);
+}
+return s_ETA;
 }
 
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
@@ -482,3 +484,118 @@ void status_print(void)
 		status_print_cracking(percent_value);
 #endif
 }
+
+#ifdef JTRDLL
+
+unsigned long long to_ulonglong(int64 val)
+{
+	return (((unsigned long long)val.hi) << 32) | ((unsigned long long)val.lo);
+}
+
+unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi)
+{
+	int use_ticks;
+	clock_t ticks;
+	unsigned long time;
+	int64 cps;
+
+	if (!val.lo && !val.hi && !c_ehi)
+		return 0;
+
+	use_ticks = !(val.hi | c_ehi | status_restored_time);
+
+	ticks = get_time() - status.start_time;
+	if (use_ticks)
+		time = ticks;
+	else
+		time = status_restored_time + ticks / clk_tck;
+	if (!time) 
+		time = 1;
+
+	cps = val;
+	if (c_ehi)
+	{
+		cps.lo = cps.hi;
+		cps.hi = c_ehi;
+	}
+	if (use_ticks)
+	{
+		mul64by32(&cps, clk_tck);
+	}
+	div64by32(&cps, time);
+	if (c_ehi) {
+		cps.hi = cps.lo;
+		cps.lo = 0;
+	}
+
+	return to_ulonglong(cps);
+}
+
+
+JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
+{
+	int64 guess_count;
+	
+	/* percent */
+	if (status_get_progress)
+	{
+		jtrdllstatus->percent = status_get_progress();
+	}
+	else
+	{
+		jtrdllstatus->percent=0.0f;
+	}
+	
+	/* elapsed time */
+	jtrdllstatus->time=status_get_time();
+
+	/* estimated end time */
+	jtrdllstatus->eta = (unsigned int)((((double)jtrdllstatus->time) * 100.0 / jtrdllstatus->percent) - (double)jtrdllstatus->time);
+
+	/* successful guesses so far */
+	jtrdllstatus->guess_count = status.guess_count;
+
+	/* number of candidate passwords tried */
+	jtrdllstatus->candidates = to_ulonglong(status.cands);
+
+	/* successful guesses per second */
+	guess_count.lo=status.guess_count;
+	guess_count.hi=0;
+	jtrdllstatus->guesses_per_second = jtrdll_get_per_second(guess_count,0);
+
+	/* candidate passwords tried per second */
+	jtrdllstatus->candidates_per_second = jtrdll_get_per_second(status.cands,0);
+
+	/* crypts per second */
+	jtrdllstatus->crypts_per_second = jtrdll_get_per_second(status.crypts,0);
+
+	/* combinations per second */
+	jtrdllstatus->combinations_per_second = jtrdll_get_per_second(status.combs, status.combs_ehi);
+
+	/* start and end word of current work */
+	jtrdllstatus->word1[0]=0;
+	jtrdllstatus->word2[0]=0;
+	if (status.crypts.lo | status.crypts.hi) 
+	{
+		char *key;
+		key = crk_get_key1();
+		if (key)
+			strnzcpy(jtrdllstatus->word1, key, sizeof(jtrdllstatus->word1));
+		key = crk_get_key2();
+		if (key)
+			strnzcpy(jtrdllstatus->word2, key, sizeof(jtrdllstatus->word2));
+		
+		if(pers_opts.target_enc != UTF_8) {
+			char buf[PLAINTEXT_BUFFER_SIZE + 1];
+
+			cp_to_utf8_r(jtrdllstatus->word1, buf, PLAINTEXT_BUFFER_SIZE);
+			strnzcpy(jtrdllstatus->word1, buf, sizeof(jtrdllstatus->word1));
+
+			cp_to_utf8_r(jtrdllstatus->word2, buf, PLAINTEXT_BUFFER_SIZE);
+			strnzcpy(jtrdllstatus->word2, buf, sizeof(jtrdllstatus->word2));
+		}
+	}
+}
+
+
+#endif

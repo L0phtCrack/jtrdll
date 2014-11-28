@@ -32,8 +32,6 @@
  * magnum 2010-2013.
  */
 
-#include "arch.h"
-
 #if defined (_WIN64) || defined (__CYGWIN64__)
 /*
  * MS use a different x64 calling convention than everyone else:
@@ -107,10 +105,14 @@
 #ifdef UNDERSCORES
 #define DES_bs_all			_DES_bs_all
 #define DES_bs_init_asm			_DES_bs_init_asm
+
+#ifndef _OPENMP
 #define DES_bs_crypt			_DES_bs_crypt
 #define DES_bs_crypt_25			_DES_bs_crypt_25
 #define DES_bs_crypt_LM			_DES_bs_crypt_LM
 #define DES_bs_crypt_plain		_DES_bs_crypt_plain
+#endif
+
 #define DES_bs_P			_DES_bs_P
 #endif
 
@@ -124,11 +126,16 @@
 
 /* Sun's assembler can't multiply, but at least it can add... */
 #ifdef __ILP32__
-#define nptr(n)				n+n+n+n
+#define nptr(n)				(n+n+n+n)
+#define nptrx(n)				$(n+n+n+n)
 #else
-#define nptr(n)				n+n+n+n+n+n+n+n
+#define nptr(n)				(n+n+n+n+n+n+n+n)
+#define nptrx(n)				$(n+n+n+n+n+n+n+n)
 #endif
-#define nvec(n)				n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n
+#define nvec(n)				(n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n)
+#define nvecx(n)				$(n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n)
+
+
 
 #ifdef BSD
 .data
@@ -167,6 +174,7 @@ DO_SPACE(nptr(48))
 DO_ALIGN(6)
 DES_bs_P:
 DO_SPACE(nvec(64))
+
 
 #define E(i)				DES_bs_all_E+nptr(i)(%rip)
 #define B(i)				DES_bs_all_B+nvec(i)(%rip)
@@ -1080,6 +1088,8 @@ DES_bs_init_asm:
 #define iterations			%edi
 #define rounds_and_swapped		%eax
 
+#ifndef _OPENMP
+
 DO_ALIGN(6)
 .globl DES_bs_crypt
 DES_bs_crypt:
@@ -1129,18 +1139,18 @@ DES_bs_crypt_swap:
 	xor_E(84)
 	S7(B(31), B(11), B(21), B(6))
 	xor_E(90)
-	addq $nvec(96),k_ptr
+	addq nvecx(96),k_ptr
 	S8(B(4), B(26), B(14), B(20))
 	subl $1,rounds_and_swapped
 	jnz DES_bs_crypt_start
-	subq $nvec(0x300+48),k_ptr
+	subq nvecx(0x300+48),k_ptr
 	movl $0x108,rounds_and_swapped
 	subl $1,iterations
 	jnz DES_bs_crypt_swap
 	EPILOGUE
 	ret
 DES_bs_crypt_next:
-	subq $nvec(0x300-48),k_ptr
+	subq nvecx(0x300-48),k_ptr
 	movl $8,rounds_and_swapped
 	subl $1,iterations
 	jnz DES_bs_crypt_start
@@ -1195,17 +1205,17 @@ DES_bs_crypt_25_swap:
 	S7(B(31), B(11), B(21), B(6))
 	xor_B(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32, 95)
 	S8(B(4), B(26), B(14), B(20))
-	addq $nvec(96),k_ptr
+	addq nvecx(96),k_ptr
 	subl $1,rounds_and_swapped
 	jnz DES_bs_crypt_25_start
-	subq $nvec(0x300+48),k_ptr
+	subq nvecx(0x300+48),k_ptr
 	movl $0x108,rounds_and_swapped
 	subl $1,iterations
 	jnz DES_bs_crypt_25_swap
 	EPILOGUE
 	ret
 DES_bs_crypt_25_next:
-	subq $nvec(0x300-48),k_ptr
+	subq nvecx(0x300-48),k_ptr
 	movl $8,rounds_and_swapped
 	subl $1,iterations
 	jmp DES_bs_crypt_25_start
@@ -1227,8 +1237,8 @@ DES_bs_finalize_keys:
 	movdqa mask40,%xmm13
 DES_bs_finalize_keys_main_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-	addq $nvec(7),k_ptr
-	addq $nvec(8),v_ptr
+	addq nvecx(7),k_ptr
+	addq nvecx(8),v_ptr
 	subl $1,iterations
 	jnz DES_bs_finalize_keys_main_loop
 	leaq DES_bs_all_KSp(%rip),k_ptr
@@ -1257,10 +1267,10 @@ DES_bs_finalize_keys_expand_loop:
 	movdqa %xmm1,V(5)
 	movdqa (tmp1),%xmm0
 	movdqa (tmp2),%xmm1
-	addq $nptr(8),k_ptr
+	addq nptrx(8),k_ptr
 	movdqa %xmm0,V(6)
 	movdqa %xmm1,V(7)
-	addq $nvec(8),v_ptr
+	addq nvecx(8),v_ptr
 	subl $1,iterations
 	jnz DES_bs_finalize_keys_expand_loop
 	ret
@@ -1287,7 +1297,7 @@ DES_bs_crypt_LM:
 	movdqa mask80,%xmm14
 DES_bs_finalize_keys_LM_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-# bit 7
+/* bit 7 */
 	movdqa V(0),%xmm0
 	movdqa V(1),%xmm1
 	movdqa V(2),%xmm2
@@ -1317,10 +1327,10 @@ DES_bs_finalize_keys_LM_loop:
 	por %xmm4,%xmm5
 	por %xmm6,%xmm3
 	por %xmm5,%xmm0
-	addq $nvec(8),v_ptr
+	addq nvecx(8),v_ptr
 	por %xmm3,%xmm0
 	movdqa %xmm0,K(7)
-	addq $nvec(8),k_ptr
+	addq nvecx(8),k_ptr
 	subl $1,iterations
 	jnz DES_bs_finalize_keys_LM_loop
 
@@ -1424,7 +1434,7 @@ DES_bs_crypt_LM_loop:
 	xor_B_KS_p(55, 84, 56, 85, 57, 86, 58, 87, 59, 88, 60, 89)
 	S7(B(31), B(11), B(21), B(6))
 	xor_B_KS_p(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32, 95)
-	addq $nptr(96),k_ptr
+	addq nptrx(96),k_ptr
 	S8(B(4), B(26), B(14), B(20))
 	subl $1,rounds
 	jnz DES_bs_crypt_LM_loop
@@ -1450,8 +1460,8 @@ DES_bs_crypt_plain:
 	movdqa mask40,%xmm13
 DES_bs_finalize_keys_plain_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-	addq $nvec(7),k_ptr
-	addq $nvec(8),v_ptr
+	addq nvecx(7),k_ptr
+	addq nvecx(8),v_ptr
 	subl $1,iterations
 	jnz DES_bs_finalize_keys_plain_loop
 	leaq DES_bs_all_KS_p(%rip),k_ptr
@@ -1618,13 +1628,16 @@ DES_bs_crypt_plain_loop:
 	xor_B_KS_p(55, 84, 56, 85, 57, 86, 58, 87, 59, 88, 60, 89)
 	S7(B(31), B(11), B(21), B(6))
 	xor_B_KS_p(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32, 95)
-	addq $nptr(96),k_ptr
+	addq nptrx(96),k_ptr
 	S8(B(4), B(26), B(14), B(20))
 	subl $1,rounds
 	jnz DES_bs_crypt_plain_loop
 	EPILOGUE
 	ret
 #endif
+
+#endif
+
 
 #if defined(CPU_REQ_AVX) || defined(CPU_REQ_XOP)
 /*
@@ -1775,8 +1788,8 @@ const_stage3:
 	paddd t13, aa3;						\
 	movdqa aa, t2;						\
 	movdqa aa3, t23;					\
-	pslld $s, aa;						\
-	pslld $s, aa3;						\
+	pslld $(s), aa;						\
+	pslld $(s), aa3;						\
 	psrld $(32-s), t2;					\
 	psrld $(32-s), t23;					\
 	por t2, aa;						\
@@ -1803,8 +1816,8 @@ const_stage3:
 	paddd t13, aa3;						\
 	movdqa aa, t1;						\
 	movdqa aa3, t13;					\
-	pslld $s, aa;						\
-	pslld $s, aa3;						\
+	pslld $(s), aa;						\
+	pslld $(s), aa3;						\
 	psrld $(32-s), t1;					\
 	psrld $(32-s), t13;					\
 	por t1, aa;						\
@@ -1825,8 +1838,8 @@ const_stage3:
 	paddd t13, aa3;						\
 	movdqa aa, t1;						\
 	movdqa aa3, t13;					\
-	pslld $s, aa;						\
-	pslld $s, aa3;						\
+	pslld $(s), aa;						\
+	pslld $(s), aa3;						\
 	psrld $(32-s), t1;					\
 	psrld $(32-s), t13;					\
 	por t1, aa;						\

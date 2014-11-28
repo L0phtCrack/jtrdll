@@ -99,6 +99,9 @@ static void crk_init_salt(void)
 static void crk_help(void)
 {
 	static int printed = 0;
+
+#ifndef JTRDLL
+
 	if (!john_main_process || printed ||
 	    ((options.flags & FLG_STDOUT) && isatty(fileno(stdout))))
 		return;
@@ -121,6 +124,9 @@ static void crk_help(void)
 	else
 	fprintf(stderr, "Press 'q' or Ctrl-C to abort, "
 	    "almost any other key for status\n");
+
+#endif
+
 	printed = 1;
 }
 

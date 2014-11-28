@@ -15,6 +15,10 @@ extern struct fmt_main fmt_KeePass;
 john_register_one(&fmt_KeePass);
 #else
 
+#ifdef _MSC_VER
+#define atoll _atoi64
+#endif
+
 #include "sha2.h"
 
 #include <string.h>

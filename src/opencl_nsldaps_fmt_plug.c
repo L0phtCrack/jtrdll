@@ -247,7 +247,7 @@ static void *get_salt(char *ciphertext){
 	static char *realcipher;
 
 	// Cludge to be sure to satisfy the salt aligment test of 1.7.9.3 on 64-bit
-	if (!realcipher) realcipher = mem_alloc_tiny(DIGEST_SIZE + 1 + SALT_SIZE + 9 + 4, MEM_ALIGN_WORD) + 4;
+	if (!realcipher) realcipher = (char *)mem_alloc_tiny(DIGEST_SIZE + 1 + SALT_SIZE + 9 + 4, MEM_ALIGN_WORD) + 4;
 
 	memset(realcipher, 0, DIGEST_SIZE + SALT_SIZE + 9 + 4);
 

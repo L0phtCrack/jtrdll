@@ -6,6 +6,13 @@
 #ifndef _CUDA_COMMON_CUH
 #define _CUDA_COMMON_CUH
 
+#ifdef JTRDLL
+extern "C"
+{
+#include"dllio.h"
+}
+#endif
+
 extern "C"
 void HandleError(cudaError_t err, const char *file, int line);
 

@@ -112,9 +112,9 @@ static struct fmt_tests tests[] = {
 
 //Putting here for successful compilation (Needed by assembly functions).
 //Maybe useful in the future perform CPU and GPU cracking side by side
-unsigned int *nt_buffer8x, *output8x;
-unsigned int *nt_buffer4x, *output4x;
-unsigned int *nt_buffer1x, *output1x;
+//unsigned int *nt_buffer8x, *output8x;
+//unsigned int *nt_buffer4x, *output4x;
+//unsigned int *nt_buffer1x, *output1x;
 
 static cl_uint *bbbs;
 static cl_uint *res_hashes;

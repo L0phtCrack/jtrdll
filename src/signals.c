@@ -183,7 +183,7 @@ void check_abort(int be_async_signal_safe)
 
 static void sig_install_abort(void);
 
-static void sig_handle_abort(int signum)
+void sig_handle_abort(int signum)
 {
 	int saved_errno = errno;
 

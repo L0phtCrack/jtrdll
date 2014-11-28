@@ -1724,13 +1724,10 @@ err:
 void opencl_read_source(char *kernel_filename)
 {
 	char *kernel_path = path_expand(kernel_filename);
-	FILE *fp = fopen(kernel_path, "r");
+	FILE *fp = fopen(kernel_path, "rb");
 	size_t source_size, read_size;
 
 	kernel_source_file = kernel_filename;
-
-	if (!fp)
-		fp = fopen(kernel_path, "rb");
 
 	if (!fp)
 		HANDLE_CLERROR(!CL_SUCCESS, "Source kernel not found!");

@@ -15,6 +15,7 @@ john_register_one(&fmt_opencl_encfs);
 #else
 
 #include <string.h>
+
 #include <openssl/opensslv.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
@@ -51,9 +52,9 @@ john_register_one(&fmt_opencl_encfs);
 #define BINARY_ALIGN		MEM_ALIGN_WORD
 #define SALT_ALIGN			MEM_ALIGN_WORD
 
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		unsigned int
+//#define uint8_t			unsigned char
+//#define uint16_t		unsigned short
+//#define uint32_t		unsigned int
 
 #define MIN(a, b)		(((a) > (b)) ? (b) : (a))
 #define MAX(a, b)		(((a) > (b)) ? (a) : (b))
@@ -64,9 +65,14 @@ john_register_one(&fmt_opencl_encfs);
 static int *cracked;
 static int any_cracked;
 
-static const int MAX_KEYLENGTH = 32; // in bytes (256 bit)
-static const int MAX_IVLENGTH = 16;
-static const int KEY_CHECKSUM_BYTES = 4;
+//static const int MAX_KEYLENGTH = 32; // in bytes (256 bit)
+//static const int MAX_IVLENGTH = 16;
+//static const int KEY_CHECKSUM_BYTES = 4;
+
+#define MAX_KEYLENGTH 32 // in bytes (256 bit)
+#define MAX_IVLENGTH 16
+#define KEY_CHECKSUM_BYTES 4
+
 
 typedef struct {
 	unsigned int keySize;
@@ -121,6 +127,7 @@ static int split_events[] = { 2, -1, -1 };
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
 #include "memdbg.h"
+#include "memory.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -583,7 +590,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	{
 		int i;
 		unsigned char master[MAX_KEYLENGTH + MAX_IVLENGTH];
-		unsigned char tmpBuf[cur_salt->dataLen];
+		unsigned char *tmpBuf=(unsigned char *)malloc(cur_salt->dataLen);
 		unsigned int checksum = 0;
 		unsigned int checksum2 = 0;
 		memcpy(master, output[index].dk, cur_salt->keySize + cur_salt->ivLength);
@@ -594,6 +601,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		memcpy( tmpBuf, cur_salt->data+KEY_CHECKSUM_BYTES, cur_salt->keySize + cur_salt->ivLength );
 		streamDecode(tmpBuf, cur_salt->keySize + cur_salt->ivLength ,checksum, master);
 		checksum2 = MAC_32( tmpBuf,  cur_salt->keySize + cur_salt->ivLength, master);
+		free(tmpBuf);
 		if(checksum2 == checksum)
 		{
 			cracked[index] = 1;

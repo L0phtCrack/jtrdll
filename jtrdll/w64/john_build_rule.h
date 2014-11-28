@@ -1,0 +1,1 @@
+#define JOHN_BLD "lc7-dll-x64"

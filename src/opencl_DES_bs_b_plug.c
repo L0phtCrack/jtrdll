@@ -296,7 +296,7 @@ static void build_kernel_exp(int dev_id, char *options)
 	HANDLE_CLERROR(clGetProgramInfo(program[gpu_id],
 		CL_PROGRAM_BINARIES, sizeof(char *), &source, NULL), "error");
 
-	file = fopen("program.bin", "w");
+	file = fopen("program.bin", "wb");
 	if (file == NULL)
 		fprintf(stderr, "Error opening binary file\n");
 	else if (fwrite(source, source_size, 1, file) != 1)

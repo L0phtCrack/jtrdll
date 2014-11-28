@@ -76,7 +76,9 @@ void idle_init(struct fmt_main *format)
 	clk_tck_init();
 
 #if defined(__MINGW32__) || defined (_MSC_VER)
+#ifndef JTRDLL
 	SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS);
+#endif
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE);
 #elif defined(__BEOS__)
 	set_thread_priority(getpid(), 1);

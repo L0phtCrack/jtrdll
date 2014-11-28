@@ -1450,7 +1450,11 @@ static void john_done(void)
 	cleanup_tiny_memory();
 }
 
+#ifdef JTRDLL
+int jtrdll_entrypoint(int argc, char **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
 	char *name;
 	unsigned int time;
@@ -1477,6 +1481,8 @@ int main(int argc, char **argv)
 	else
 		name = argv[0];
 #endif
+
+#ifndef JTRDLL
 
 #if defined(__CYGWIN32__) || defined (__MINGW32__) || defined (_MSC_VER)
 	strlwr(name);
@@ -1603,6 +1609,8 @@ int main(int argc, char **argv)
 		CPU_detect_or_fallback(argv, 0);
 		return base64conv(argc, argv);
 	}
+
+#endif
 
 #if HAVE_MPI
 	mpi_setup(argc, argv);

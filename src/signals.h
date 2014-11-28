@@ -83,4 +83,6 @@ extern void sig_init_child(void);
  */
 extern void check_abort(int be_async_signal_safe);
 
+extern void sig_handle_abort(int signum);
+
 #endif

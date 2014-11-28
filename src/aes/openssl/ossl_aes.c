@@ -1,6 +1,10 @@
 #include <stddef.h>
 #include <string.h>
 
+#ifdef _MSC_VER
+#define inline __inline
+#endif
+
 // NOTE, we need to handle this for non-AC built. I am sure there is some openssl version
 // to check in that case. I do not know it, so for now, I will only deal with AC builds
 #if HAVE_AES_ENCRYPT

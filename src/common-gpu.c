@@ -98,6 +98,7 @@ static void* ADL_Main_Memory_Alloc(int iSize)
 
 void advance_cursor()
 {
+#ifndef JTRDLL
 	static int pos = 0;
 	char cursor[4] = { '/', '-', '\\', '|' };
 
@@ -105,6 +106,7 @@ void advance_cursor()
 		fprintf(stderr, "%c\b", cursor[pos]);
 		pos = (pos + 1) % 4;
 	}
+#endif
 }
 
 /* Function pointer to read temperature for device n */
