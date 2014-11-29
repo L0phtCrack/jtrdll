@@ -10,8 +10,10 @@
 #include <stdbool.h>
 #include "common.h"
 
+/*
 #define uint32_t unsigned int
 #define uint8_t unsigned char
+*/
 
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define MAX(a,b) ((a)>(b)?(a):(b))
@@ -36,7 +38,11 @@ typedef struct {
 	uint32_t hash[4];
 } crypt_md5_crack;
 
+#ifdef _MSC_VER
+typedef struct __declspec(align(4)) {
+#else
 typedef struct __attribute__((__aligned__(4))){
+#endif
 	uint8_t buffer[64];
 } md5_ctx ;
 

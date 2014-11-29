@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _MSC_VER
+#include "strcasestr.h"
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "params.h"

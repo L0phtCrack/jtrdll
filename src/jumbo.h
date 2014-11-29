@@ -333,7 +333,14 @@ extern int _exit(int);
 // red-herring compiler warnings
 #undef snprintf
 #define snprintf(str, size, ...) vc_fixed_snprintf((str), (size), __VA_ARGS__)
-extern int vc_fixed_snprintf(char *Dest, size_t max_cnt, const char *Fmt, ...);
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+int vc_fixed_snprintf(char *Dest, size_t max_cnt, const char *Fmt, ...);
+#ifdef __cplusplus
+}
+#endif
 #undef alloca
 #define alloca _alloca
 #undef unlink

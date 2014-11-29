@@ -30,7 +30,11 @@
 #define PLAINTEXT_LENGTH		20
 #define CIPHERTEXT_LENGTH		128
 
+#ifdef __cplusplus
+extern "C" uint8_t sha512_key_changed;
+#else
 extern uint8_t sha512_key_changed;
+#endif
 
 # define SWAP64(n) \
   (((n) << 56)					\

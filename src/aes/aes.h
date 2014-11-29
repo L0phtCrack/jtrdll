@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef AC_BUILT
-#include "../autoconfig.h"
+#include "autoconfig.h"
 #endif
 
 // Input, output, key, number of blocks

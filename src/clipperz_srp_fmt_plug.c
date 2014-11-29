@@ -287,7 +287,15 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-static inline void hex_encode(unsigned char *str, int len, unsigned char *out)
+#ifndef INLINE 
+#ifdef _MSC_VER
+#define INLINE __inline
+#else
+#define INLINE inline
+#endif
+#endif
+
+static INLINE void hex_encode(unsigned char *str, int len, unsigned char *out)
 {
 	int i;
 	for (i = 0; i < len; ++i) {

@@ -46,7 +46,7 @@
 
 #include "arch.h"
 #include "misc.h"
-#include "math.h"
+#include "jtrmath.h"
 #include "params.h"
 #include "memory.h"
 #include "signals.h"

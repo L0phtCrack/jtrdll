@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "math.h"
+#include "jtrmath.h"
 #include "params.h"
 #include "common.h"
 #include "formats.h"

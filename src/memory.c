@@ -72,7 +72,7 @@ void *mem_alloc_func(size_t size
 	res = malloc(size);
 #endif
 	if (!res) {
-		fprintf(stderr, "mem_alloc(): %s trying to allocate %zd bytes\n", strerror(ENOMEM), size);
+		fprintf(stderr, "mem_alloc(): %s trying to allocate "FMT_SIZE_T" bytes\n", strerror(ENOMEM), size);
 		error();
 	}
 

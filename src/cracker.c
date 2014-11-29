@@ -34,7 +34,7 @@
 
 #include "arch.h"
 #include "misc.h"
-#include "math.h"
+#include "jtrmath.h"
 #include "params.h"
 #include "memory.h"
 #include "signals.h"
@@ -294,7 +294,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 
 	if (index >= 0 && index < crk_params.max_keys_per_crypt) {
 		dupe = !memcmp(&crk_timestamps[index],
-		               &status.crypts, sizeof(int64));
+		               &status.crypts, sizeof(int64_t));
 		crk_timestamps[index] = status.crypts;
 	} else
 		dupe = 0;

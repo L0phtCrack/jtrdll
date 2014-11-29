@@ -15,7 +15,9 @@
 #define _POSIX_SOURCE
 #endif
 
+#ifdef JTRDLL
 #include"jtrdll.h"
+#endif
 
 #ifdef _SCO_C_DIALECT
 #include <limits.h>
@@ -38,7 +40,7 @@
 #endif
 
 #include "misc.h"
-#include "math.h"
+#include "jtrmath.h"
 #include "params.h"
 #include "cracker.h"
 #include "options.h"

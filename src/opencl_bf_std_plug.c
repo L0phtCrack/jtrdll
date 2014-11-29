@@ -7,9 +7,18 @@
 
 #ifdef HAVE_OPENCL
 
+#if AC_BUILT
+#include "autoconfig.h"
+#endif
+
 #include <stdlib.h>
 #include <string.h>
+#if !AC_BUILT || HAVE_SYS_TIME_H
 #include <sys/time.h>
+#endif
+#ifdef _MSC_VER
+#include"gettimeofday.h"
+#endif
 #include <math.h>
 
 #include "arch.h"

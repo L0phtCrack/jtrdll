@@ -15,6 +15,10 @@
 #include "options.h"
 #include "memdbg.h"
 
+#ifdef _MSC_VER
+#include "gettimeofday.h"
+#endif
+
 typedef struct {
 	cl_kernel	krnl[4];
 	size_t		lws;

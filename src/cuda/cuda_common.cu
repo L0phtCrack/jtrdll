@@ -9,9 +9,12 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "../autoconfig.h"
+#include "autoconfig.h"
+#include "jumbo.h"
+#ifndef HAVE_CUDA
 #define HAVE_CUDA
-#include "../common-gpu.h"
+#endif
+#include "common-gpu.h"
 #include "cuda.h"
 #include "cuda_common.cuh"
 
@@ -50,7 +53,7 @@ static char *human_format(size_t size)
 		size /= 1024;
 		prefid++;
 	}
-	sprintf(ret, "%zd.%zd %cB", size, (size % 1024) / 100, pref[prefid]);
+	sprintf(ret, FMT_SIZE_T"."FMT_SIZE_T" %cB", size, (size % 1024) / 100, pref[prefid]);
 	return ret;
 }
 

@@ -144,7 +144,15 @@ static void init(struct fmt_main *self)
 	                self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static int inline valid_common(char *ciphertext, struct fmt_main *self, int b64len, char *sig, int siglen)
+#ifndef INLINE 
+#ifdef _MSC_VER
+#define INLINE __inline
+#else
+#define INLINE inline
+#endif
+#endif
+
+static int INLINE valid_common(char *ciphertext, struct fmt_main *self, int b64len, char *sig, int siglen)
 {
 	char *p = ciphertext;
 	int len;

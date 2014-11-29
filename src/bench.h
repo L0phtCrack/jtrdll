@@ -18,7 +18,7 @@
 #include <time.h>
 
 #include "arch.h"
-#include "math.h"
+#include "jtrmath.h"
 #include "formats.h"
 
 /*

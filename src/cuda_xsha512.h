@@ -39,8 +39,13 @@
 
 #define CIPHERTEXT_LENGTH		136
 
+#ifdef __cplusplus
+extern "C" uint8_t xsha512_key_changed;
+extern "C" uint8_t use_extend;
+#else
 extern uint8_t xsha512_key_changed;
 extern uint8_t use_extend;
+#endif
 
 // Thanks for Lukas' code here
 #define SWAP64(n) \

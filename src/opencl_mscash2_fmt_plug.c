@@ -9,6 +9,10 @@
 
 #ifdef HAVE_OPENCL
 
+#if AC_BUILT
+#include "autoconfig.h"
+#endif
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_opencl_mscash2;
 #elif FMT_REGISTERS_H
@@ -20,7 +24,14 @@ john_register_one(&fmt_opencl_mscash2);
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+
+#if !AC_BUILT || HAVE_SYS_TIME_H
 #include <sys/time.h>
+#endif
+#ifdef _MSC_VER
+#include"gettimeofday.h"
+#endif
+
 #include "md4.h"
 #include "sha.h"
 #include "unicode.h"
@@ -267,11 +278,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount ;
 	int salt_len;
+	UTF16 salt_host[MAX_SALT_LENGTH + 1];
+
 #ifdef _DEBUG
 	struct timeval startc, endc, startg, endg ;
 	gettimeofday(&startc, NULL) ;
 #endif
-	UTF16 salt_host[MAX_SALT_LENGTH + 1];
 
 	memset(salt_host, 0, sizeof(salt_host));
 
@@ -306,8 +318,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int binary_hash_0(void *binary) {
 #ifdef _DEBUG
-	puts("binary") ;
 	unsigned int i, *b = binary ;
+	puts("binary") ;
 	for (i = 0; i < 4; i++)
 		fprintf(stderr, "%08x ", b[i]);
 	puts("") ;

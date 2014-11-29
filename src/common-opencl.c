@@ -1327,7 +1327,7 @@ void opencl_find_best_lws(
 		benchEvent[i] = NULL;
 
 	if (options.verbosity > 3)
-		fprintf(stderr, "Max local worksize %zd, ", group_size_limit);
+		fprintf(stderr, "Max local worksize "FMT_SIZE_T", ", group_size_limit);
 
 	/* Formats supporting vectorizing should have a default max keys per
 	   crypt that is a multiple of 2 and of 3 */
@@ -1495,10 +1495,10 @@ void opencl_find_best_lws(
 	strcat(config_string, LWS_CONFIG_NAME);
 
 	if (options.verbosity > 3) {
-		fprintf(stderr, "Optimal local worksize %zd\n",
+		fprintf(stderr, "Optimal local worksize "FMT_SIZE_T"\n",
 			local_work_size);
 		fprintf(stderr, "(to avoid this test on next run, put \""
-			"%s = %zd\" in john.local.conf, section [Local:" SECTION_OPTIONS
+			"%s = "FMT_SIZE_T"\" in john.local.conf, section [Local:" SECTION_OPTIONS
 			SUBSECTION_OPENCL "])\n", config_string,
 			local_work_size);
 	}
@@ -1627,10 +1627,10 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 	strcat(config_string, GWS_CONFIG_NAME);
 
 	if (options.verbosity > 3) {
-		fprintf(stderr, "Optimal global worksize %zd\n",
+		fprintf(stderr, "Optimal global worksize "FMT_SIZE_T"\n",
 			global_work_size);
 		fprintf(stderr, "(to avoid this test on next run, put \""
-			"%s = %zd\" in john.local.conf, section [Local:" SECTION_OPTIONS
+			"%s = "FMT_SIZE_T"\" in john.local.conf, section [Local:" SECTION_OPTIONS
 			SUBSECTION_OPENCL "])\n", config_string,
 			global_work_size);
 	}
@@ -2224,7 +2224,7 @@ static char *human_format(size_t size)
 		size /= 1024;
 		prefid++;
 	}
-	sprintf(ret, "%zd.%zd %cB", size, (size % 1024) / 100, pref[prefid]);
+	sprintf(ret, FMT_SIZE_T"."FMT_SIZE_T" %cB", size, (size % 1024) / 100, pref[prefid]);
 	return ret;
 }
 
