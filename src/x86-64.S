@@ -32,6 +32,8 @@
  * magnum 2010-2013.
  */
 
+ #include"arch.h"
+
 #if defined (_WIN64) || defined (__CYGWIN64__)
 /*
  * MS use a different x64 calling convention than everyone else:

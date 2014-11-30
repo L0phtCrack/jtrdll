@@ -70,8 +70,8 @@
 #endif
 
 /* Sun's assembler can't multiply, but at least it can add... */
-#define nptr(n)				n+n+n+n
-#define nvec(n)				n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n
+#define nptr(n)				(n+n+n+n)
+#define nvec(n)				(n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n)
 
 #ifdef BSD
 .data
@@ -1110,11 +1110,11 @@ DES_bs_crypt_swap:
 	xor_E(84)
 	S7(B(31), B(11), B(21), B(6), a6_p)
 	xor_E(90)
-	addl $nvec(96),k_ptr
+	addl $ nvec(96),k_ptr
 	S8(B(4), B(26), B(14), B(20), a6_p)
 	decl rounds_and_swapped
 	jnz DES_bs_crypt_start
-	subl $nvec(0x300+48),k_ptr
+	subl $ nvec(0x300+48),k_ptr
 	movl $0x108,rounds_and_swapped
 	decl iterations
 	jnz DES_bs_crypt_swap
@@ -1122,7 +1122,7 @@ DES_bs_crypt_swap:
 	popl %ebp
 	ret
 DES_bs_crypt_next:
-	subl $nvec(0x300-48),k_ptr
+	subl $ nvec(0x300-48),k_ptr
 	movl $8,rounds_and_swapped
 	decl iterations
 	jnz DES_bs_crypt_start
@@ -1179,10 +1179,10 @@ DES_bs_crypt_25_swap:
 	S7(B(31), B(11), B(21), B(6), a6_v(89))
 	xor_B(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32)
 	S8(B(4), B(26), B(14), B(20), a6_v(95))
-	addl $nvec(96),k_ptr
+	addl $ nvec(96),k_ptr
 	decl rounds_and_swapped
 	jnz DES_bs_crypt_25_start
-	subl $nvec(0x300+48),k_ptr
+	subl $ nvec(0x300+48),k_ptr
 	movl $0x108,rounds_and_swapped
 	decl iterations
 	jnz DES_bs_crypt_25_swap
@@ -1190,7 +1190,7 @@ DES_bs_crypt_25_swap:
 	popl %ebp
 	ret
 DES_bs_crypt_25_next:
-	subl $nvec(0x300-48),k_ptr
+	subl $ nvec(0x300-48),k_ptr
 	movl $8,rounds_and_swapped
 	decl iterations
 	jmp DES_bs_crypt_25_start
@@ -1203,8 +1203,8 @@ DES_bs_finalize_keys:
 	movl $0,DES_bs_all_keys_changed
 DES_bs_finalize_keys_main_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-	addl $nvec(7),k_ptr
-	addl $nvec(8),v_ptr
+	addl $ nvec(7),k_ptr
+	addl $ nvec(8),v_ptr
 	cmpl $DES_bs_all_K+nvec(56),k_ptr
 	jb DES_bs_finalize_keys_main_loop
 	pushl %esi
@@ -1233,10 +1233,10 @@ DES_bs_finalize_keys_expand_loop:
 	movdqa %xmm1,V(5)
 	movdqa (tmp1),%xmm0
 	movdqa (tmp2),%xmm1
-	addl $nptr(8),k_ptr
+	addl $ nptr(8),k_ptr
 	movdqa %xmm0,V(6)
 	movdqa %xmm1,V(7)
-	addl $nvec(8),v_ptr
+	addl $ nvec(8),v_ptr
 	cmpl $DES_bs_all_KSp+nptr(0x300),k_ptr
 	jb DES_bs_finalize_keys_expand_loop
 	popl %esi
@@ -1253,7 +1253,7 @@ DES_bs_crypt_LM:
 	movl $DES_bs_all_K,k_ptr
 DES_bs_finalize_keys_LM_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-# bit 7
+/* bit 7 */
 	SHLB1(%xmm7)
 	movdqa V(0),%xmm0
 	movdqa V(1),%xmm1
@@ -1284,10 +1284,10 @@ DES_bs_finalize_keys_LM_loop:
 	por %xmm4,%xmm5
 	por %xmm6,%xmm3
 	por %xmm5,%xmm0
-	addl $nvec(8),v_ptr
+	addl $ nvec(8),v_ptr
 	por %xmm3,%xmm0
 	movdqa %xmm0,K(7)
-	addl $nvec(8),k_ptr
+	addl $ nvec(8),k_ptr
 	cmpl $DES_bs_all_K+nvec(56),k_ptr
 	jb DES_bs_finalize_keys_LM_loop
 
@@ -1392,7 +1392,7 @@ DES_bs_crypt_LM_loop:
 	xor_B_KS_p(55, 84, 56, 85, 57, 86, 58, 87, 59, 88, 60, 89)
 	S7(B(31), B(11), B(21), B(6), a6_p)
 	xor_B_KS_p(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32, 95)
-	addl $nptr(96),k_ptr
+	addl $ nptr(96),k_ptr
 	S8(B(4), B(26), B(14), B(20), a6_p)
 	decl rounds
 	jnz DES_bs_crypt_LM_loop
@@ -1539,8 +1539,8 @@ DES_bs_crypt_plain:
 
 DES_bs_finalize_keys_plain_loop:
 	FINALIZE_NEXT_KEY_BITS_0_6
-	addl $nvec(7),k_ptr
-	addl $nvec(8),v_ptr
+	addl $ nvec(7),k_ptr
+	addl $ nvec(8),v_ptr
 	cmpl $DES_bs_all_K+nvec(56),k_ptr
 	jb DES_bs_finalize_keys_plain_loop
 	pushl %esi
@@ -1579,7 +1579,7 @@ DES_bs_crypt_plain_loop:
 	xor_B_KS_p(55, 84, 56, 85, 57, 86, 58, 87, 59, 88, 60, 89)
 	S7(B(31), B(11), B(21), B(6), a6_p)
 	xor_B_KS_p(59, 90, 60, 91, 61, 92, 62, 93, 63, 94, 32, 95)
-	addl $nptr(96),k_ptr
+	addl $ nptr(96),k_ptr
 	S8(B(4), B(26), B(14), B(20), a6_p)
 	decl rounds
 	jnz DES_bs_crypt_plain_loop
@@ -1690,8 +1690,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t2;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $ s, aa3;						\
+	pslld $ s, aa;						\
 	psrld $(32-s), t2;					\
 	por t2, aa;
 
@@ -1715,8 +1715,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t1;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $ s, aa3;						\
+	pslld $ s, aa;						\
 	psrld $(32-s), t1;					\
 	por t1, aa;
 
@@ -1734,8 +1734,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t1;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $ s, aa3;						\
+	pslld $ s, aa;						\
 	psrld $(32-s), t1;					\
 	por t1, aa;
 

@@ -42,14 +42,18 @@
 
 #include "arch.h"
 #include <string.h>
+
 #include <emmintrin.h>
-#ifdef __XOP__
+#if defined(__XOP__) && !defined(_MSC_VER)
 #include <x86intrin.h>
-#elif defined __SSE4_1__
+#endif
+#if defined __SSE4_1__
 #include <smmintrin.h>
-#elif defined __SSSE3__
+#endif
+#if defined __SSSE3__
 #include <tmmintrin.h>
 #endif
+#include <intrin.h>
 
 #include "memory.h"
 #include "md5.h"

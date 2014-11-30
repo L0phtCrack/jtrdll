@@ -29,8 +29,16 @@
 #if defined(__AVX__)
 #include <immintrin.h>
 #endif
-#if defined(__XOP__)
+#if defined(__XOP__) && !defined(_MSC_VER)
 #include <x86intrin.h>
+#endif
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
+#if defined (_MSC_VER) && !defined (_M_X64)
+__m128i _mm_set_epi64x (long long a, long long b);
+__m128i _mm_set1_epi64x(long long a);
 #endif
 
 #include "blake2b-round.h"

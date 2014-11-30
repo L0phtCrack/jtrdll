@@ -27,8 +27,6 @@
  * Note: there's some MMX code in x86.S as well (just not for bitslice DES).
  */
 
-#include "arch.h"
-
 #if DES_BS_ASM
 
 #ifdef UNDERSCORES
@@ -69,8 +67,13 @@
 #endif
 
 /* Sun's assembler can't multiply, but at least it can add... */
-#define nptr(n)				n+n+n+n
-#define nvec(n)				n+n+n+n+n+n+n+n
+#ifdef __ILP32__
+#define nptr(n)				(n+n+n+n)
+#else
+#define nptr(n)				(n+n+n+n+n+n+n+n)
+#endif
+#define nvec(n)				(n+n+n+n+n+n+n+n+n+n+n+n+n+n+n+n)
+
 
 #ifdef BSD
 .data

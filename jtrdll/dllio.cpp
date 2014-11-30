@@ -2,6 +2,7 @@
 #include<stdarg.h>
 #include<signal.h>
 #include<string.h>
+#include<memory.h>
 
 extern "C"
 {

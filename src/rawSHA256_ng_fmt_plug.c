@@ -33,14 +33,19 @@ john_register_one(&fmt_rawSHA256_ng);
 
 #include <string.h>
 #include "stdint.h"
-#include <emmintrin.h>
 
-#if defined __XOP__
+#include <emmintrin.h>
+#if defined(__XOP__) && !defined(_MSC_VER)
 #include <x86intrin.h>
-#elif defined __SSE4_1__
+#endif
+#if defined __SSE4_1__
 #include <smmintrin.h>
-#elif defined __SSSE3__
+#endif
+#if defined __SSSE3__
 #include <tmmintrin.h>
+#endif
+#if defined(_MSC_VER)
+#include <intrin.h>
 #endif
 
 #include "common.h"

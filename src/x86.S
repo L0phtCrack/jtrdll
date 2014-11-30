@@ -787,10 +787,10 @@ DES_KS_table:
 	andl b,tmp1; \
 	addl x,a; \
 	xorl d,tmp1; \
-	addl $ac,a; \
+	addl $ ac,a; \
 	addl tmp1,a; \
 	movl b,tmp1; \
-	roll $s,a; \
+	roll $ s,a; \
 	xorl c,tmp1; \
 	addl b,a
 
@@ -799,10 +799,10 @@ DES_KS_table:
 	xorl b,tmp1; \
 	addl tmp2,a; \
 	andl d,tmp1; \
-	addl $ac,a; \
+	addl $ ac,a; \
 	xorl c,tmp1; \
 	addl tmp1,a; \
-	roll $s,a; \
+	roll $ s,a; \
 	movl b,tmp1; \
 	addl b,a
 
@@ -810,22 +810,22 @@ DES_KS_table:
 	movl c,tmp1; \
 	addl tmp2,a; \
 	xorl d,tmp1; \
-	addl $ac,a; \
+	addl $ ac,a; \
 	xorl b,tmp1; \
 	movl x,tmp2; \
 	addl tmp1,a; \
-	roll $s,a; \
+	roll $ s,a; \
 	addl b,a
 
 #define II(a, b, c, d, x, s, ac) \
 	xorl d,tmp2; \
 	addl x,a; \
 	orl b,tmp2; \
-	addl $ac,a; \
+	addl $ ac,a; \
 	xorl c,tmp2; \
 	addl tmp2,a; \
 	movl $-1,tmp2; \
-	roll $s,a; \
+	roll $ s,a; \
 	addl b,a
 
 DO_ALIGN(5)
@@ -840,24 +840,24 @@ MD5_body:
 	movl x(0),a
 	movl x(1),d
 	addl $0xd76aa477,a
-	roll $S11,a
+	roll $ S11,a
 	addl $0xf8fa0bcc,d
-	addl $Cb,a
+	addl $ Cb,a
 	movl x(2),c
 	movl a,tmp1
 	movl a,tmp2
 	andl $0x77777777,tmp1
-	xorl $Cb,tmp2
-	xorl $Cc,tmp1
+	xorl $ Cb,tmp2
+	xorl $ Cc,tmp1
 	addl $0xbcdb4dd9,c
 	addl tmp1,d
-	roll $S12,d
+	roll $ S12,d
 	addl a,d
 	andl d,tmp2
-	xorl $Cb,tmp2
+	xorl $ Cb,tmp2
 	addl tmp2,c
 	movl d,tmp1
-	roll $S13,c
+	roll $ S13,c
 	xorl a,tmp1
 	addl d,c
 	andl c,tmp1
@@ -866,7 +866,7 @@ MD5_body:
 	addl $0xb18b7a77,b
 	addl tmp1,b
 	movl c,tmp1
-	roll $S14,b
+	roll $ S14,b
 	xorl d,tmp1
 	addl c,b
 	FF (a, b, c, d, x( 4), S11, 0xf57c0faf) /* 5 */
@@ -884,7 +884,7 @@ MD5_body:
 	addl $0x49b40821,b
 	xorl a,tmp1
 	addl tmp1,b
-	roll $S14,b
+	roll $ S14,b
 	movl c,tmp1
 	addl c,b
 /* Round 2 */
@@ -899,7 +899,7 @@ MD5_body:
 	addl $0xd8a1e681,c
 	xorl a,tmp1
 	addl tmp1,c
-	roll $S23,c
+	roll $ S23,c
 	movl d,tmp1
 	addl d,c
 	GG (b, c, d, a, x( 4), S24, 0xe7d3fbc8) /* 24 */
@@ -918,7 +918,7 @@ MD5_body:
 	xorl d,tmp1
 	movl x(5),tmp2
 	addl tmp1,b
-	roll $S24,b
+	roll $ S24,b
 	addl c,b
 /* Round 3 */
 	HH (a, b, c, d, x( 8), S31, 0xfffa3942) /* 33 */
@@ -940,7 +940,7 @@ MD5_body:
 	addl $0x1fa27cf8,c
 	xorl d,tmp1
 	addl tmp1,c
-	roll $S33,c
+	roll $ S33,c
 	addl d,c
 	HH (b, c, d, a,   $-1, S34, 0xc4ac5665) /* 48 */
 /* Round 4 */
@@ -959,7 +959,7 @@ MD5_body:
 	xorl b,tmp2
 	addl tmp2,d
 	movl $-1,tmp2
-	roll $S42,d
+	roll $ S42,d
 	addl a,d
 	II (c, d, a, b, x( 6), S43, 0xa3014314) /* 59 */
 	II (b, c, d, a, x(13), S44, 0x4e0811a1) /* 60 */
@@ -973,13 +973,13 @@ MD5_body:
 	xorl d,tmp2
 	addl tmp2,b
 	movl 24(%esp),tmp1
-	roll $S44,b
+	roll $ S44,b
 /* Update the state and return */
-	addl $Ca,a
-	addl $Cd,d
+	addl $ Ca,a
+	addl $ Cd,d
 	movl a,(tmp1)
 	leal Cb(b,c),b
-	addl $Cc,c
+	addl $ Cc,c
 	movl b,4(tmp1)
 	movl c,8(tmp1)
 	movl d,12(tmp1)
@@ -1079,13 +1079,13 @@ BF_body_P1:
 	xorl R,R
 	movl P(0),tmp2
 	xorl tmp3,tmp3
-	movl $P(0),BF_ptr
+	movl $ P(0),BF_ptr
 BF_loop_P_P1:
 	BF_ENCRYPT_START_P1
 	addl $8,tmp5
 	BF_ENCRYPT_END_P1
 	movl tmp5,BF_ptr
-	cmpl $P(18),tmp5
+	cmpl $ P(18),tmp5
 	movl L,-8(tmp5)
 	movl R,-4(tmp5)
 	movl P(0),tmp2

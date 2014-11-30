@@ -28,10 +28,22 @@
  * online backup system.
  */
 
+
 #include <emmintrin.h>
-#ifdef __XOP__
+#if defined(__XOP__) && !defined(_MSC_VER)
 #include <x86intrin.h>
 #endif
+#if defined __SSE4_1__
+#include <smmintrin.h>
+#endif
+#if defined __SSSE3__
+#include <tmmintrin.h>
+#endif
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
+
 
 #include <errno.h>
 #include "../stdint.h"
