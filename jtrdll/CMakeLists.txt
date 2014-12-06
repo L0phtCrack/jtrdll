@@ -347,6 +347,16 @@ TARGET_LINK_LIBRARIES( jtrdll ${OPENSSL_LIBRARIES} ${OPENCL_LIBRARIES} )
 
 ADD_DEPENDENCIES(jtrdll do_sha_copy)
 
+
+
+FOREACH(source ${jtrdll_SOURCES})
+	IF(NOT ${source} MATCHES ".*dllio.cpp$" AND NOT ${source} MATCHES ".*.cu$")
+		SET_PROPERTY(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " /FI\"dllio.h\" ")
+	ENDIF()
+ENDFOREACH()
+
+
 # build jtrexe
 ADD_EXECUTABLE( jtrexe ${CMAKE_CURRENT_SOURCE_DIR}/jtrexe.c )
 TARGET_LINK_LIBRARIES( jtrexe jtrdll )
+
