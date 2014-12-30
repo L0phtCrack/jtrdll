@@ -390,10 +390,14 @@ static void set_key(char *key, int index)
 	if (length > max_key_length)
 		max_key_length = length;
 }
+
 static char *get_key(int index)
 {
 	int length = -1;
-
+	
+	if (!saved_plain)
+		return "";
+	
 	do
 	{
 		length++;

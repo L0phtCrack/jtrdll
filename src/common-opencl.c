@@ -873,7 +873,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name,
 						sizeof(char *), &source, NULL),
 			       "error");
 
-		file = fopen(path_expand(file_name), "w");
+		file = fopen(path_expand(file_name), "wb");
 
 		if (file == NULL)
 			fprintf(stderr, "Error creating binary file %s\n",
