@@ -28,15 +28,20 @@ john_register_one(&fmt_sip);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
-#define OMP_SCALE               1
+// Tuned on core i7 quad HT
+//   1   4963K
+//  16   8486K
+//  32   8730K  ** this was chosen.
+//  64   8791k
+// 128   8908k
+#define OMP_SCALE   32
 #endif
 #include "memdbg.h"
 
 typedef struct sip_salt_t {
-	int static_hash_data_len, dynamic_hash_data_len;
-	char *static_hash_data, *dynamic_hash_data;
-	char Buf[DYNAMIC_HASH_SIZE + STATIC_HASH_SIZE + 3];
-	char login_hash[33];
+	int static_hash_data_len;
+	MD5_CTX ctx_dyna_data;
+	char static_hash_data[STATIC_HASH_SIZE+1];
 } sip_salt;
 
 static sip_salt *pSalt;
@@ -46,26 +51,28 @@ static sip_salt *pSalt;
 #define FORMAT_NAME		""
 #define ALGORITHM_NAME		"MD5 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
+#define BENCHMARK_LENGTH	0
 #define PLAINTEXT_LENGTH	32
-#define BINARY_SIZE		0
+#define BINARY_SIZE		16
 #define SALT_SIZE		sizeof(sip_salt)
-#define BINARY_ALIGN	1
+#define BINARY_ALIGN	4
 #define SALT_ALIGN		sizeof(int)
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	64
 
 static struct fmt_tests sip_tests[] = {
-/* XXX: need more test vectors, then try benchmarking for "many salts" */
 	{"$sip$*192.168.1.111*192.168.1.104*200*asterisk*REGISTER*sip*192.168.1.104**46cce857****MD5*4dfc7515936a667565228dbaa0293dfc", "123456"},
 	{"$sip$*10.0.1.20*10.0.1.10*1001*asterisk*REGISTER*sips*10.0.1.20*5061*0ef95b07****MD5*576e39e9de6a9ed053eb218f65fe470e", "q1XCLF0KaBObo797"},
+	// generated with pass_gen.pl
+	{"$sip$*192.168.163.238*192.168.163.239*50894*asterisk*REGISTER*sip*192.168.163.239**303535c9****MD5*e32c95d6ad0fecbc3967b7534d7b5b3b", "123456"},
+	{"$sip$*192.168.196.105*192.168.196.192*81670*asterisk*REGISTER*sip*192.168.196.192**747f072a****MD5*d15c84b1bdc2155db12b721d7fb9445b", "password"},
+	{"$sip$*192.168.119.6*192.168.119.154*65790*asterisk*REGISTER*sip*192.168.119.154**8d4e1a4b****MD5*dcc0d8a4c105dbf3ecf5b281f4c57356", "happy123"},
+	{"$sip$*192.168.113.63*192.168.113.78*59810*asterisk*REGISTER*sip*192.168.113.78**b778256e****MD5*cb13933a5986df471265231d08206509", "aobdataeteag"},
 	{NULL}
 };
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static unsigned char *cracked;
-static int any_cracked;
-static size_t cracked_size;
+static ARCH_WORD_32 (*crypt_key)[BINARY_SIZE/sizeof(ARCH_WORD_32)];
 static char bin2hex_table[256][2]; /* table for bin<->hex mapping */
 
 static void init(struct fmt_main *self)
@@ -80,9 +87,8 @@ static void init(struct fmt_main *self)
 	init_bin2hex(bin2hex_table);
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	any_cracked = 0;
-	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
-	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
+	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) *
+			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -226,13 +232,18 @@ static void *get_salt(char *ciphertext)
 	bin_to_hex(bin2hex_table, md5_bin_hash, MD5_LEN, static_hash, MD5_LEN_HEX);
 
 	/* Constructing first part of dynamic hash: 'USER:REALM:' */
-	salt.dynamic_hash_data = salt.Buf;
-	snprintf(salt.dynamic_hash_data, DYNAMIC_HASH_SIZE, "%s:%s:", login.user, login.realm);
-	salt.dynamic_hash_data_len = strlen(salt.dynamic_hash_data);
+	MD5_Init(&md5_ctx);
+	MD5_Update(&md5_ctx, login.user, strlen(login.user));
+	MD5_Update(&md5_ctx, ":", 1);
+	MD5_Update(&md5_ctx, login.realm, strlen(login.realm));
+	MD5_Update(&md5_ctx, ":", 1);
+	memcpy(&(salt.ctx_dyna_data), &md5_ctx, sizeof(md5_ctx));
+	// we now construct the MD5_CTX with this data loaded. Thus we no longer store this buffer.
+	//snprintf(salt.dynamic_hash_data, DYNAMIC_HASH_SIZE, "%s:%s:", login.user, login.realm);
+	//salt.dynamic_hash_data_len = strlen(salt.dynamic_hash_data);
 
 	/* Construct last part of final hash data: ':NONCE(:CNONCE:NONCE_COUNT:QOP):<static_hash>' */
 	/* no qop */
-	salt.static_hash_data = &(salt.Buf[salt.dynamic_hash_data_len+1]);
 	if(!strlen(login.qop))
 		snprintf(salt.static_hash_data, STATIC_HASH_SIZE, ":%s:%s", login.nonce, static_hash);
 	/* qop/conce/cnonce_count */
@@ -248,25 +259,35 @@ static void *get_salt(char *ciphertext)
 	printf("Starting bruteforce against user '%s' (%s: '%s')\n",
 			login.user, login.algorithm, login.hash);
 #endif
-	strcpy(salt.login_hash, login.hash);
+
 	return &salt;
 }
-
 
 static void set_salt(void *salt)
 {
 	pSalt = (sip_salt*)salt;
 }
 
+static void * binary(char *ciphertext) {
+	static char *bin_val;
+	char *p;
+	int i;
+
+	if (!bin_val) bin_val = (char*)mem_alloc_tiny(BINARY_SIZE, MEM_ALIGN_WORD);
+	p = strrchr(ciphertext, '*') + 1;
+	for (i = 0; i < BINARY_SIZE; ++i) {
+		bin_val[i] =
+		    (atoi16[ARCH_INDEX(*p)] << 4) |
+		    atoi16[ARCH_INDEX(p[1])];
+		p += 2;
+	}
+
+	return (void *)bin_val;
+}
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
 	int index = 0;
-
-	if (any_cracked) {
-		memset(cracked, 0, cracked_size);
-		any_cracked = 0;
-	}
 
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -276,11 +297,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		/* password */
 		MD5_CTX md5_ctx;
 		unsigned char md5_bin_hash[MD5_LEN];
-		char dynamic_hash[MD5_LEN_HEX+1], final_hash[MD5_LEN_HEX+1];
+		char dynamic_hash[MD5_LEN_HEX+1];
 
 		/* Generate dynamic hash including pw (see above) */
-		MD5_Init(&md5_ctx);
-		MD5_Update(&md5_ctx, (unsigned char*)pSalt->dynamic_hash_data, pSalt->dynamic_hash_data_len);
+		//MD5_Init(&md5_ctx);
+		//MD5_Update(&md5_ctx, (unsigned char*)pSalt->dynamic_hash_data, pSalt->dynamic_hash_data_len);
+		// salt.ctx_dyna_data contains the ctx already loaded.
+		memcpy(&md5_ctx, &(pSalt->ctx_dyna_data), sizeof(md5_ctx));
+
 		MD5_Update(&md5_ctx, (unsigned char*)saved_key[index], strlen(saved_key[index]));
 		MD5_Final(md5_bin_hash, &md5_ctx);
 		bin_to_hex(bin2hex_table, md5_bin_hash, MD5_LEN, dynamic_hash, MD5_LEN_HEX);
@@ -289,29 +313,24 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		MD5_Init(&md5_ctx);
 		MD5_Update(&md5_ctx, (unsigned char*)dynamic_hash, MD5_LEN_HEX);
 		MD5_Update(&md5_ctx, (unsigned char*)pSalt->static_hash_data, pSalt->static_hash_data_len);
-		MD5_Final(md5_bin_hash, &md5_ctx);
-		bin_to_hex(bin2hex_table, md5_bin_hash, MD5_LEN, final_hash, MD5_LEN_HEX);
-
-		/* Check for match */
-		if(!strncmp(final_hash, pSalt->login_hash, MD5_LEN_HEX)) {
-			cracked[index] = 1;
-#ifdef _OPENMP
-#pragma omp atomic
-#endif
-			any_cracked |= 1;
-		}
+		MD5_Final((unsigned char*)crypt_key[index], &md5_ctx);
 	}
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	return any_cracked;
+	int index;
+	for (index = 0; index < count; index++)
+		if ( ((ARCH_WORD_32*)binary)[0] == ((ARCH_WORD_32*)&(crypt_key[index][0]))[0] )
+			return 1;
+	return 0;
+
 }
 
 static int cmp_one(void *binary, int index)
 {
-	return cracked[index];
+	return !memcmp(binary, crypt_key[index], BINARY_SIZE);
 }
 
 static int cmp_exact(char *source, int index)
@@ -330,6 +349,14 @@ static char *get_key(int index)
 {
 	return saved_key[index];
 }
+
+static int get_hash_0(int index) { return crypt_key[index][0] & 0xf; }
+static int get_hash_1(int index) { return crypt_key[index][0] & 0xff; }
+static int get_hash_2(int index) { return crypt_key[index][0] & 0xfff; }
+static int get_hash_3(int index) { return crypt_key[index][0] & 0xffff; }
+static int get_hash_4(int index) { return crypt_key[index][0] & 0xfffff; }
+static int get_hash_5(int index) { return crypt_key[index][0] & 0xffffff; }
+static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
 
 struct fmt_main fmt_sip = {
 	{
@@ -357,14 +384,20 @@ struct fmt_main fmt_sip = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		fmt_default_binary,
+		binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash_0,
+			fmt_default_binary_hash_1,
+			fmt_default_binary_hash_2,
+			fmt_default_binary_hash_3,
+			fmt_default_binary_hash_4,
+			fmt_default_binary_hash_5,
+			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
 		set_salt,
@@ -373,7 +406,13 @@ struct fmt_main fmt_sip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			get_hash_0,
+			get_hash_1,
+			get_hash_2,
+			get_hash_3,
+			get_hash_4,
+			get_hash_5,
+			get_hash_6
 		},
 		cmp_all,
 		cmp_one,

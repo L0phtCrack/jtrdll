@@ -36,6 +36,7 @@ john_register_one(&fmt_o5logon);
 static int omp_t = 1;
 #include <omp.h>
 #define OMP_SCALE               512 // tuned on core i7
+//#define OMP_SCALE                8192 // tuned on K8-Dual HT
 #endif
 #include "memdbg.h"
 
@@ -97,13 +98,6 @@ static void init(struct fmt_main *self)
 	Buf = mem_alloc_tiny(128, 1);
 	sprintf(Buf, "%s %s", self->params.algorithm_name, get_AES_type_string());
 	self->params.algorithm_name=Buf;
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)

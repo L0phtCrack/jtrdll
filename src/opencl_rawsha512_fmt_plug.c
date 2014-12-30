@@ -37,8 +37,8 @@ john_register_one(&fmt_opencl_xsha512);
 #include "options.h"
 #include "opencl_rawsha512.h"
 
-#define RAW_FORMAT_LABEL		"Raw-SHA512-opencl"
-#define RAW_FORMAT_NAME			""
+#define FORMAT_LABEL			"Raw-SHA512-opencl"
+#define FORMAT_NAME			""
 #define RAW_FORMAT_TAG			"$SHA512$"
 #define X_FORMAT_LABEL			"XSHA512-opencl"
 #define X_FORMAT_NAME			"Mac OS X 10.7 salted"
@@ -48,8 +48,6 @@ john_register_one(&fmt_opencl_xsha512);
 #define BENCHMARK_COMMENT		""
 #define RAW_BENCHMARK_LENGTH		-1
 #define X_BENCHMARK_LENGTH		0
-
-#define OCL_CONFIG			"rawsha512"
 
 static sha512_salt			* salt;
 static uint32_t				* plaintext, * saved_idx;	// plaintext ciphertexts
@@ -390,11 +388,7 @@ static void init(struct fmt_main * self) {
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL,
 		warn, 1, self, create_clobj, release_clobj,
-		BUFFER_SIZE, gws_limit);
-
-	//Limit worksize using index limitation.
-	while (global_work_size > gws_limit)
-		global_work_size -= local_work_size;
+		2 * BUFFER_SIZE, gws_limit);
 
 	//Auto tune execution from shared/included code.
 	autotune_run(self, 1, gws_limit,
@@ -433,7 +427,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt) {
 	static char out[8 + CIPHERTEXT_LENGTH_RAW + 1];
 
 	if (!strncmp(ciphertext, "$SHA512$", 8))
-		return ciphertext;
+		ciphertext += 8;
 
 	memcpy(out, "$SHA512$", 8);
 	memcpy(out + 8, ciphertext, CIPHERTEXT_LENGTH_RAW + 1);
@@ -671,8 +665,8 @@ static int get_hash_6(int index) { return calculated_hash[index] & 0x7ffffff; }
 /* ------- Format structure ------- */
 struct fmt_main fmt_opencl_rawsha512 = {
 	{
-		RAW_FORMAT_LABEL,
-		RAW_FORMAT_NAME,
+		FORMAT_LABEL,
+		FORMAT_NAME,
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		RAW_BENCHMARK_LENGTH,

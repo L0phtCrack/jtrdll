@@ -74,8 +74,7 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 
 #define LOOP_COUNT		(((cur_salt->iterations - 1 + HASH_LOOPS - 1)) / HASH_LOOPS)
 #define STEP			0
-#define SEED			64
-#define OCL_CONFIG		"pbkdf2-sha1"
+#define SEED			256
 
 static const char * warn[] = {
 	"P xfer: "  ,  ", init: "   , ", loop: " , ", final: ", ", res xfer: "
@@ -207,8 +206,14 @@ static void init(struct fmt_main *self)
 #if 0
 	me = self;
 #endif
-	if ((v_width = opencl_get_vector_width(gpu_id,
-	                                       sizeof(cl_int))) > 1) {
+	opencl_preinit();
+	/* VLIW5 does better with just 2x vectors due to GPR pressure */
+	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
+		v_width = 2;
+	else
+		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+
+	if (v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
 		         ALGORITHM_NAME " %ux", v_width);
@@ -231,16 +236,13 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
 		warn, 2, self, create_clobj, release_clobj,
-	        sizeof(pbkdf2_state), 0);
+	        v_width * sizeof(pbkdf2_state), 0);
 
 	//Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
 	autotune_run(self, 2*999+4, 0,
 		(cpu(device_info[gpu_id]) ? 1000000000 : 5000000000ULL));
 	self->methods.crypt_all = crypt_all;
-
-	self->params.min_keys_per_crypt = local_work_size * v_width;
-	self->params.max_keys_per_crypt = global_work_size * v_width;
 }
 
 static char *prepare(char *fields[10], struct fmt_main *self)
@@ -282,14 +284,6 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		return Buf;
 	}
 	return fields[1];
-}
-
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -492,9 +486,10 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 	/// Run kernels
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
 
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_loop, 1, NULL, &global_work_size, lws, 0, NULL, NULL), "Run loop kernel");
+	BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_loop, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run loop kernel");
 	BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
-	opencl_process_event();
 
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_final, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run intermediate kernel");
 

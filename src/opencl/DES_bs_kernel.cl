@@ -51,12 +51,32 @@
 /*
  * This software is Copyright (c) 2012 Sayantan Datta <std2048 at gmail dot com>
  * and it is hereby released to the general public under the following terms:
- * Redistribution and use in source and binary forms, with or without modification, are permitted.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted.
  * Based on Solar Designer implementation of DES_bs_b.c in jtr-v1.7.9
  */
 
 #include "opencl_DES_WGS.h"
 #include "opencl_device_info.h"
+
+/*
+ * Some devices/drivers has problems with the optimized 'goto' program flow.
+ * Some AMD driver versions can't build the "fast goto" version but those who
+ * can runs faster. Hawaii on 14.9 fails, Tahiti on 14.9 does not (!?).
+ *
+ * Nvidia can build either kernel but GTX980 is significantly faster with the
+ * "safe goto" version (7% faster for one salt, 16% for many salts).
+ *
+ * OSX' Intel HD4000 driver [1.2(Sep25 2014 22:26:04)] fails building the
+ * "fast goto" version.
+ */
+#if nvidia_sm_5x(DEVICE_INFO) || gpu_intel(DEVICE_INFO) ||	  \
+	(gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR >= 1573 && !defined(__Tahiti__))
+//#warning Using 'safe goto' kernel
+#define SAFE_GOTO
+#else
+//#warning Using 'fast goto' kernel
+#endif
 
 #define ARCH_WORD     			int
 #define DES_BS_DEPTH                    32
@@ -308,9 +328,7 @@ inline void cmp( __private unsigned DES_bs_vector *B,
 	  volatile __global uint *output,
 	  int section) {
 
-
 	int value[2] , mask, i, bit;
-
 
 	for(i = 0; i < num_loaded_hash; i++) {
 
@@ -326,14 +344,12 @@ inline void cmp( __private unsigned DES_bs_vector *B,
 			mask |= B[bit] ^ -((value[1] >> (bit & 0x1F)) & 1);
 			mask |= B[bit + 1] ^ -((value[1] >> ((bit + 1) & 0x1F)) & 1);
 
-			if (mask == ~(int)0) goto next_hash;
+			//if (mask == ~(int)0) break;
 		}
 
-		atomic_max( &output[i],section + 1) ;
-
-	next_hash: ;
+		if (mask != ~(int)0)
+			atomic_max(&output[i], section + 1);
 	}
-
 }
 #undef GET_BIT
 
@@ -1130,13 +1146,17 @@ __kernel void DES_bs_25_b( constant uint *index768
 #ifndef RV7xx
 		__local ushort _local_index768[768] ;
 #endif
-		int iterations, rounds_and_swapped;
+		int iterations;
+#ifndef SAFE_GOTO
+		int rounds_and_swapped;
+#endif
+		long int k = 0, i;
 
-		long int k=0, i;
+		if (DES_bs_all[section].keys_changed) {
+			DES_bs_all[section].keys_changed = 0;
+			DES_bs_finalize_keys(section, DES_bs_all, local_offset_K, _local_K);
+		}
 
-		if (DES_bs_all[section].keys_changed)
-			goto finalize_keys;
-body:
 		{
 			vtype zero = vzero;
 			DES_bs_clear_block
@@ -1147,7 +1167,9 @@ body:
 				output[i] = 0;
 
 		k=0;
+#ifndef SAFE_GOTO
 		rounds_and_swapped = 8;
+#endif
 		iterations = 25;
 
 #ifndef RV7xx
@@ -1157,43 +1179,52 @@ body:
 
 		barrier(CLK_LOCAL_MEM_FENCE);
 #endif
-
+#ifdef SAFE_GOTO
+	for (iterations = 24; iterations >= 0; iterations--) {
+		for (k = 0; k < 768; k += 96) {
+			H1();
+			H2();
+		}
+		for (i = 0; i < 32 && iterations; i++) {
+			tmp = B[i];
+			B[i] = B[i + 32];
+			B[i + 32] = tmp;
+		}
+	}
+#else
 start:
 		loop_body();
 
 		if (rounds_and_swapped > 0) goto start;
 		k -= (0x300 + 48);
 		rounds_and_swapped = 0x108;
+
 		if (--iterations) goto swap;
+#endif
 
 		cmp(B, binary, num_loaded_hash, output, section);
 
-		tmp = 0 ;
+		tmp = 0;
 		for (i = 0; i < num_loaded_hash; i++) {
-				tmp = tmp | output[i];
-			if(tmp) break ;
+			tmp = tmp | output[i];
+			if (tmp) break;
 		}
 
-		if(tmp || (!num_loaded_hash))
+		if (tmp || (!num_loaded_hash))
+
 		for (i = 0; i < 64; i++)
 			B_global[global_offset_B + i] = (DES_bs_vector)B[i] ;
-
 		return;
-
+#ifndef SAFE_GOTO
 swap:
 		H2();
 		k += 96;
 		if (--rounds_and_swapped) goto start;
-
 next:
 		k -= (0x300 - 48);
 		rounds_and_swapped = 8;
 		iterations--;
 		goto start;
-
-finalize_keys:
-		DES_bs_all[section].keys_changed = 0;
-	        DES_bs_finalize_keys(section, DES_bs_all, local_offset_K, _local_K);
-		goto body;
+#endif
 }
 #endif

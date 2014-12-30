@@ -38,8 +38,8 @@ john_register_one(&fmt_sevenzip);
 #define FORMAT_NAME		"7-Zip"
 #define FORMAT_TAG		"$7z$"
 #define TAG_LENGTH		4
-#define ALGORITHM_NAME		"(experimental) SHA256 32/" ARCH_BITS_STR
-#define BENCHMARK_COMMENT	""
+#define ALGORITHM_NAME		"SHA256 AES 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT	" (512K iterations)"
 #define BENCHMARK_LENGTH	-1
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		1
@@ -120,14 +120,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (strlen(p) > 2)
 		goto err;
 	NumCyclesPower = atoi(p);
-	if (NumCyclesPower > 24 || NumCyclesPower < 0) // FIXME: 0 is probably not allowed
+	if (NumCyclesPower > 24 || NumCyclesPower < 1)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* salt length */
 		goto err;
-	if (strlen(p) > 2)
-		goto err;
 	len = atoi(p);
-	if(len > 16 || len < 0) /* salt length */	// FIXME: why is 0 allowed here?
+	if(len > 16 || len < 0) /* salt length */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* salt */
 		goto err;
@@ -140,26 +138,24 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* iv */
 		goto err;
-	// FIXME: ishex check missing, and p+(2*len) should be "0000..."
+	if (!ishex(p))
+		goto err;
+	if (strlen(p) > len*2 && strcmp(p+len*2, "0000000000000000"))
+		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* crc */
 		goto err;
-	// FIXME: anything known about min/max length and value of crc?
+	if (!isdecu(p))
+		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* data length */
 		goto err;
-	// FIXME: is data length really an integer, or can it be long?
-	//        as long as "len = atoi(p);" is used, max. length is <= 10
-	if(strlen(p) > 10)	// FIXME: shouldn't long instead of int be allowed here?
-		goto err;
-	len = atoi(p);		// FIXME: undefined behavior
-	if (len >= INT_MAX)	// FIXME: atoi() might return INT_MAX in case of overflow
-		goto err;
-	if (len < 0)
-		goto err;
+	len = atoi(p);
 	if ((p = strtok(NULL, "$")) == NULL) /* unpacksize */
+		goto err;
+	if (!isdec(p))	/* no way to validate, other than atoi() works for it */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* data */
 		goto err;
-	if (strlen(p) != len * 2)
+	if (strlen(p) != len * 2)	/* validates data_len atoi() */
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -200,7 +196,7 @@ static void *get_salt(char *ciphertext)
 		cs->iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtok(NULL, "$"); /* crc */
-	cs->crc = atoi(p);
+	cs->crc = atou(p); /* unsigned function */
 	p = strtok(NULL, "$");
 	cs->length = atoi(p);
 	p = strtok(NULL, "$");

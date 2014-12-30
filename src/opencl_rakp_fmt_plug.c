@@ -59,7 +59,6 @@ john_register_one(&fmt_opencl_rakp);
 #define BINARY_ALIGN            1
 #define SALT_ALIGN              1
 
-#define OCL_CONFIG              "rakp"
 #define HEXCHARS                "0123456789abcdef"
 
 #define STEP                    0
@@ -119,7 +118,17 @@ static size_t get_task_max_size()
 
 static size_t get_default_workgroup()
 {
-	return 0;
+#if 0
+	return get_task_max_work_group_size(); // GTX980: 35773K c/s
+#elif 1
+	return 0; // 39064K c/s
+#else
+	if (cpu(device_info[gpu_id]))
+		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
+			8 : 1;
+	else
+		return 64; // 36962K c/s
+#endif
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -160,7 +169,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	gws *= v_width;
 
 	keys = mem_alloc((PLAINTEXT_LENGTH + 1) * gws);
-	idx = mem_alloc(sizeof(*idx) * gws);
+	idx = mem_calloc(sizeof(*idx) * gws);
 	digest = mem_alloc(gws * BINARY_SIZE);
 
 	salt_buffer = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, SALT_STORAGE_SIZE, NULL, &ret_code);
@@ -216,9 +225,16 @@ static void init(struct fmt_main *self)
 {
 	char build_opts[64];
 	static char valgo[48] = "";
+	size_t gws_limit;
 
-	if ((v_width = opencl_get_vector_width(gpu_id,
-	                                       sizeof(cl_int))) > 1) {
+	opencl_preinit();
+	/* VLIW5 does better with just 2x vectors due to GPR pressure */
+	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
+		v_width = 2;
+	else
+		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+
+	if (v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
 		         ALGORITHM_NAME " %ux", v_width);
@@ -227,6 +243,12 @@ static void init(struct fmt_main *self)
 	snprintf(build_opts, sizeof(build_opts), "-DV_WIDTH=%u", v_width);
 	opencl_init("$JOHN/kernels/rakp_kernel.cl", gpu_id, build_opts);
 
+        // Current key_idx can only hold 26 bits of offset so
+        // we can't reliably use a GWS higher than 4M or so.
+	gws_limit = MIN((1 << 26) * 4 / (v_width * BUFFER_SIZE),
+	                get_max_mem_alloc_size(gpu_id) /
+	                (v_width * BUFFER_SIZE));
+
 	// create kernel to execute
 	crypt_kernel = clCreateKernel(program[gpu_id], "rakp_kernel", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
@@ -234,10 +256,10 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
 	                       self, create_clobj, release_clobj,
-	                       BUFFER_SIZE, 0);
+	                       v_width * BUFFER_SIZE, gws_limit);
 
 	//Auto tune execution from shared/included code.
-	autotune_run(self, ROUNDS, 0, 200);
+	autotune_run(self, ROUNDS, gws_limit, 200);
 }
 
 static void clear_keys(void)
@@ -374,8 +396,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = local_work_size ? (count + (v_width * local_work_size) - 1) / (v_width * local_work_size) * local_work_size : count / v_width;
-
+	global_work_size = local_work_size ? ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size : count / v_width;
 	scalar_gws = global_work_size * v_width;
 
 	//fprintf(stderr, "%s(%d) lws %zu gws %zu sgws %zu kidx %u\n", __FUNCTION__, count, local_work_size, global_work_size, scalar_gws, key_idx);
@@ -392,10 +413,6 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	HANDLE_CLERROR(
 		clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]),
 		"Error beginning execution of the kernel");
-
-	HANDLE_CLERROR(
-		clFinish(queue[gpu_id]),
-		"Error waiting for kernel to finish executing");
 
 	HANDLE_CLERROR(
 		clEnqueueReadBuffer(queue[gpu_id], digest_buffer, CL_TRUE, 0, sizeof(cl_uint) * scalar_gws, digest, 0, NULL, multi_profilingEvent[3]),

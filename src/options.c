@@ -267,7 +267,7 @@ static struct opt_entry opt_list[] = {
 
 #define JOHN_USAGE \
 "John the Ripper password cracker, version " JOHN_VERSION _MP_VERSION DEBUG_STRING " [" JOHN_BLD "]\n" \
-"Copyright (c) 1996-2013 by " JOHN_COPYRIGHT "\n" \
+"Copyright (c) 1996-2014 by " JOHN_COPYRIGHT "\n" \
 "Homepage: http://www.openwall.com/john/\n" \
 "\n" \
 "Usage: %s [OPTIONS] [PASSWORD-FILES]\n" \
@@ -395,6 +395,9 @@ void opt_print_hidden_usage(void)
 #ifdef HAVE_OPENCL
 	printf(", opencl");
 #endif
+#endif
+#ifdef _OPENMP
+	printf(", omp");
 #endif
 	printf("\n");
 	puts("--subformat=FORMAT        pick a benchmark format for --format=crypt");

@@ -32,6 +32,7 @@ john_register_one(&fmt_cloud_keychain);
 #include "johnswap.h"
 #include "stdint.h"
 #include "sha2.h"
+#include "pbkdf2_hmac_sha512.h"
 #ifdef _OPENMP
 #include <omp.h>
 #define OMP_SCALE               1
@@ -40,21 +41,31 @@ john_register_one(&fmt_cloud_keychain);
 
 #define FORMAT_LABEL		"cloudkeychain"
 #define FORMAT_NAME		"1Password Cloud Keychain"
+#ifdef MMX_COEF_SHA512
+#define ALGORITHM_NAME		"PBKDF2-SHA512  " SHA512_ALGORITHM_NAME
+#else
 #define ALGORITHM_NAME		"PBKDF2-SHA512 32/" ARCH_BITS_STR
+#endif
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define HASH_LENGTH		64
 #define BINARY_SIZE 		0
 #define BINARY_ALIGN		1
-#define PLAINTEXT_LENGTH	32 /* FIXME */
+#define PLAINTEXT_LENGTH	125
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
+#ifdef MMX_COEF_SHA512
+#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
+#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
+#else
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
+#endif
 
 #define SALTLEN 32
 #define IVLEN 16
 #define CTLEN 2048
+#define EHMLEN 32
 #define PAD_SIZE		128
 
 static struct fmt_tests cloud_keychain_tests[] = {
@@ -80,7 +91,7 @@ static struct custom_salt {
 	unsigned int cryptextlen;
 	unsigned char cryptext[CTLEN];
 	unsigned int expectedhmaclen;
-	unsigned char expectedhmac[CTLEN]; // XXX this can't be that big
+	unsigned char expectedhmac[EHMLEN];
 	unsigned int hmacdatalen;
 	unsigned char hmacdata[CTLEN];
 } *cur_salt;
@@ -113,81 +124,74 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 15;
 	if ((p = strtok(ctcopy, "$")) == NULL)	/* salt length */
 		goto err;
-	if (strlen(p) >= 10)
-		goto err;
 	len = atoi(p);
-	if(len < 0 || len > SALTLEN) // FIXME: is saltlen 0 allowed?
-		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if(strlen(p) != len * 2)
+	if (!ishex(p))
+		goto err;
+	if(strlen(p) != len * 2)	/* validates salt_len also */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
 		goto err;
-	if(strlen(p) > 10)
-		goto err;
-	len = atoi(p);
-	if (len >= INT_MAX)	// FIXME: overflow; undefined atopi() behavior
-		goto err;
-	if (len < 0) //	FIXME: <= 0?
+	if (!isdecu(p))
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* masterkey length */
 		goto err;
-	if (strlen(p) >= 10)
-		goto err;
 	len = atoi(p);
-	if(len > CTLEN || len <= 0)	// FIXME: is 0 allowed?
-		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* masterkey */
 		goto err;
-	if(strlen(p) != len * 2)
+	if (!ishex(p))
+		goto err;
+	if(strlen(p) != len * 2)	/* validates masterkey_len also */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* plaintext length */
 		goto err;
-	// FIXME: is plaintext length integer?
+	if (!isdecu(p))
+		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* iv length */
 		goto err;
 	len = atoi(p);
-	if(len > IVLEN || len < 0)	// FIXME: is 0 allowed?
+	if(len > IVLEN || len < 0)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* iv */
 		goto err;
-	if(strlen(p) != len * 2)
+	if(strlen(p) != len * 2)	/* validates iv_len */
+		goto err;
+	if (!ishex(p))
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* cryptext length */
 		goto err;
-	if (strlen(p) >= 10)
-		goto err;
 	len = atoi(p);
-	if (len > CTLEN || len < 0)	// FIXME: is 0 allowed?
+	if (len > CTLEN || len < 0)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* cryptext */
 		goto err;
-	if(strlen(p) != len * 2)
+	if (!ishex(p))
+		goto err;
+	if(strlen(p) != len * 2)	/* validates cryptext_len */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* expectedhmac length */
 		goto err;
-	if (strlen(p) >= 10)
-		goto err;
 	len = atoi(p);
-	if (len > CTLEN || len < 0)	// FIXME: is 0 allowed?
+	if (len > EHMLEN || len < 0)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* expectedhmac */
 		goto err;
-	if(strlen(p) != len * 2)
+	if (!ishex(p))
+		goto err;
+	if(strlen(p) != len * 2)	/* validates expectedhmac_len */
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* hmacdata length */
-		goto err;
-	if (strlen(p) >= 10)
 		goto err;
 	len = atoi(p);
 	if (len > CTLEN || len < 0)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* hmacdata */
 		goto err;
-	if(strlen(p) != len * 2)
+	if (!ishex(p))
 		goto err;
-
+	if(strlen(p) != len * 2)	/* validates hmacdata_len */
+		goto err;
 
 	MEM_FREE(keeptr);
 	return 1;
@@ -213,7 +217,7 @@ static void *get_salt(char *ciphertext)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtok(NULL, "$");
-	cs.iterations = atoi(p);
+	cs.iterations = atou(p);
 	p = strtok(NULL, "$");
 	cs.masterkeylen = atoi(p);
 	p = strtok(NULL, "$");
@@ -221,7 +225,7 @@ static void *get_salt(char *ciphertext)
 		cs.masterkey[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtok(NULL, "$");
-	cs.plaintextlen = atoi(p);
+	cs.plaintextlen = atou(p);
 	p = strtok(NULL, "$");
 	cs.ivlen = atoi(p);
 	p = strtok(NULL, "$");
@@ -286,35 +290,6 @@ static void hmac_sha256(uint8_t * pass, uint8_t passlen, uint8_t * salt,
 	SHA256_Final((uint8_t *) ret, &ctx);
 }
 
-static void hmac_sha512(uint8_t * pass, uint8_t passlen, uint8_t * salt,
-                        uint8_t saltlen, uint32_t add, uint64_t * ret)
-{
-	uint8_t i, ipad[PAD_SIZE], opad[PAD_SIZE];
-	SHA512_CTX ctx;
-	memset(ipad, 0x36, PAD_SIZE);
-	memset(opad, 0x5c, PAD_SIZE);
-
-	for (i = 0; i < passlen; i++) {
-		ipad[i] ^= pass[i];
-		opad[i] ^= pass[i];
-	}
-
-	SHA512_Init(&ctx);
-	SHA512_Update(&ctx, ipad, PAD_SIZE);
-	SHA512_Update(&ctx, salt, saltlen);
-	if (add > 0) {
-#if ARCH_LITTLE_ENDIAN
-		add = JOHNSWAP(add);
-#endif
-		SHA512_Update(&ctx, &add, 4);	}
-	SHA512_Final((uint8_t *) ret, &ctx);
-
-	SHA512_Init(&ctx);
-	SHA512_Update(&ctx, opad, PAD_SIZE);
-	SHA512_Update(&ctx, (uint8_t *) ret, HASH_LENGTH);
-	SHA512_Final((uint8_t *) ret, &ctx);
-}
-
 static int ckcdecrypt(unsigned char *key)
 {
 	uint64_t tmp[8];
@@ -330,28 +305,35 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
 	int index = 0;
+
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 	{
-		uint64_t key[8];
-		uint64_t tmp[8];
-		int i, j, l;
-
-		l = strlen(saved_key[index]);
-		hmac_sha512((unsigned char*)saved_key[index], l,
-		            (uint8_t *) cur_salt->salt, cur_salt->saltlen,
-		            1, tmp);
-		memcpy(key, tmp, HASH_LENGTH);
-
-		for (i = 1; i < cur_salt->iterations; i++) {
-			hmac_sha512((unsigned char*)saved_key[index], l,
-			            (uint8_t *) tmp, HASH_LENGTH, 0, tmp);
-			for (j = 0; j < 8; j++)
-				key[j] ^= tmp[j];
+#ifdef SSE_GROUP_SZ_SHA512
+		int lens[SSE_GROUP_SZ_SHA512], i;
+		unsigned char *pin[SSE_GROUP_SZ_SHA512];
+		uint64_t key[SSE_GROUP_SZ_SHA512][8];
+		union {
+			ARCH_WORD_32 *pout[SSE_GROUP_SZ_SHA512];
+			unsigned char *poutc;
+		} x;
+		for (i = 0; i < SSE_GROUP_SZ_SHA512; ++i) {
+			lens[i] = strlen(saved_key[index+i]);
+			pin[i] = (unsigned char*)saved_key[index+i];
+			x.pout[i] = (ARCH_WORD_32*)(key[i]);
 		}
+		pbkdf2_sha512_sse((const unsigned char **)pin, lens, cur_salt->salt, cur_salt->saltlen, cur_salt->iterations, &(x.poutc), HASH_LENGTH, 0);
+		for (i = 0; i < SSE_GROUP_SZ_SHA512; ++i)
+			cracked[index+i] = ckcdecrypt((unsigned char*)(key[i]));
+#else
+		uint64_t key[8];
+		pbkdf2_sha512((const unsigned char*)(saved_key[index]), strlen(saved_key[index]),
+			cur_salt->salt, cur_salt->saltlen,
+			cur_salt->iterations, (unsigned char*)key, HASH_LENGTH, 0);
 		cracked[index] = ckcdecrypt((unsigned char*)key);
+#endif
 	}
 	return count;
 }

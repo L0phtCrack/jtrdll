@@ -24,9 +24,8 @@ john_register_one(&fmt_sniffed_lastpass);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include <openssl/aes.h>
-//#include <openssl/evp.h>
 #include "pbkdf2_hmac_sha256.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -81,7 +80,7 @@ static int *cracked;
 static struct custom_salt {
 	unsigned int iterations;
 	char username[129];
-	unsigned char encrypted_username[40];
+	unsigned char encrypted_username[40+3];
 	unsigned char length;
 } *cur_salt;
 
@@ -114,7 +113,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
 		goto err;
-	if (strlen(p) > 10)	// FIXME: overflows/undefined behavior in atoi() still possible
+	if (!isdec(p))
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* data */
 		goto err;
@@ -146,8 +145,7 @@ static void *get_salt(char *ciphertext)
 	p = strtok(NULL, "$");
 	cs.iterations = atoi(p);
 	p = strtok(NULL, "$");
-	base64_decode(p, strlen(p), (char*)cs.encrypted_username);
-
+	base64_convert(p, e_b64_mime, strlen(p), (char*)cs.encrypted_username, e_b64_raw, sizeof(cs.encrypted_username)-3, 0);
 	MEM_FREE(keeptr);
 	return (void *)&cs;
 }

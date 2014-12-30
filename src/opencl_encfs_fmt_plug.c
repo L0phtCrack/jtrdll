@@ -91,6 +91,9 @@ static encfs_cpu_salt *cur_salt;
 
 static struct fmt_tests tests[] = {
 	{"$encfs$192*181474*0*20*f1c413d9a20f7fdbc068c5a41524137a6e3fb231*44*9c0d4e2b990fac0fd78d62c3d2661272efa7d6c1744ee836a702a11525958f5f557b7a973aaad2fd14387b4f", "openwall"},
+	{"$encfs$128*181317*0*20*e9a6d328b4c75293d07b093e8ec9846d04e22798*36*b9e83adb462ac8904695a60de2f3e6d57018ccac2227251d3f8fc6a8dd0cd7178ce7dc3f", "Jupiter"},
+	{"$encfs$256*714949*0*20*472a967d35760775baca6aefd1278f026c0e520b*52*ac3b7ee4f774b4db17336058186ab78d209504f8a58a4272b5ebb25e868a50eaf73bcbc5e3ffd50846071c882feebf87b5a231b6", "Valient Gough"},
+	{"$encfs$256*120918*0*20*e6eb9a85ee1c348bc2b507b07680f4f220caa763*52*9f75473ade3887bca7a7bb113fbc518ffffba631326a19c1e7823b4564ae5c0d1e4c7e4aec66d16924fa4c341cd52903cc75eec4", "Alo3San1t@nats"},
 	{NULL}
 };
 
@@ -114,9 +117,8 @@ static cl_kernel pbkdf2_init, pbkdf2_loop, pbkdf2_final;
 #define HASH_LOOPS		(3 * 251)
 #define ITERATIONS		181474 /* Just for auto tune */
 #define LOOP_COUNT		(((currentsalt.iterations - 1 + HASH_LOOPS - 1)) / HASH_LOOPS)
-#define OCL_CONFIG		"encfs"
 #define STEP			0
-#define SEED			64
+#define SEED			128
 
 static const char * warn[] = {
 	"P xfer: "  ,  ", init: "   , ", loop: " , ", final: ", ", res xfer: "
@@ -160,7 +162,7 @@ struct fmt_main *me;
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
-	gws *= v_width;
+	global_work_size = gws *= v_width;
 
 	key_buf_size = 64 * gws;
 
@@ -367,8 +369,14 @@ static void init(struct fmt_main *self)
 #if 0
 	me = self;
 #endif
-	if ((v_width = opencl_get_vector_width(gpu_id,
-	                                       sizeof(cl_int))) > 1) {
+	opencl_preinit();
+	/* VLIW5 does better with just 2x vectors due to GPR pressure */
+	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
+		v_width = 2;
+	else
+		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+
+	if (v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
 		         OCL_ALGORITHM_NAME " %ux" CPU_ALGORITHM_NAME, v_width);
@@ -391,22 +399,13 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
 		warn, 2, self, create_clobj, release_clobj,
-	        sizeof(pbkdf2_state), 0);
+	        v_width * sizeof(pbkdf2_state), 0);
 
 	//Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0, 10000000000ULL);
+	autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
+	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
 	self->methods.crypt_all = crypt_all;
-
-	self->params.min_keys_per_crypt = local_work_size * v_width;
-	self->params.max_keys_per_crypt = global_work_size * v_width;
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -632,9 +631,8 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 	/// Run kernels
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
 
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_loop, 1, NULL, &global_work_size, lws, 0, NULL, NULL), "Run loop kernel");
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_loop, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run loop kernel");
-	BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
-	opencl_process_event();
 
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_final, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run intermediate kernel");
 
@@ -659,6 +657,16 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
+#if FMT_MAIN_VERSION > 11
+static unsigned int iteration_count(void *salt)
+{
+	encfs_cpu_salt *my_salt;
+
+	my_salt = salt;
+	return (unsigned int) my_salt->iterations;
+}
+#endif
+
 struct fmt_main fmt_opencl_encfs = {
 	{
 		FORMAT_LABEL,
@@ -675,7 +683,9 @@ struct fmt_main fmt_opencl_encfs = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			"iteration count",
+		},
 #endif
 		tests
 	}, {
@@ -688,7 +698,9 @@ struct fmt_main fmt_opencl_encfs = {
 		fmt_default_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			iteration_count,
+		},
 #endif
 		fmt_default_source,
 		{

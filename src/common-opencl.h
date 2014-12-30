@@ -138,8 +138,7 @@ int opencl_prepare_dev(int sequential_id);
 void opencl_init(char *kernel_filename, int sequential_id, char *options);
 
 /* used by opencl_DES_bs_b.c */
-void opencl_build(int sequential_id, char *opts, int save,
-		  char *file_name, int showLog);
+void opencl_build(int sequential_id, char *opts, int save, char *file_name);
 
 /* Build kernel (if not cached), and cache it */
 void opencl_build_kernel(char *kernel_filename, int sequential_id,
@@ -159,8 +158,10 @@ size_t get_kernel_max_lws(int sequential_id, cl_kernel crypt_kernel);
 cl_uint get_max_compute_units(int sequential_id);
 cl_uint get_processors_count(int sequential_id);
 cl_uint get_processor_family(int sequential_id);
+/* Vendor id for hardware */
 int get_vendor_id(int sequential_id);
 int get_platform_id(int sequential_id);
+/* Vendor id for openCL platform */
 int get_platform_vendor_id(int platform_id);
 int get_device_version(int sequential_id);
 int get_byte_addressable(int sequential_id);

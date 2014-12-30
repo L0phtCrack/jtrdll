@@ -50,7 +50,6 @@ john_register_one(&fmt_opencl_cryptMD5);
 #define MIN_KEYS_PER_CRYPT	1 /* These will change in init() */
 #define MAX_KEYS_PER_CRYPT	1
 
-#define OCL_CONFIG		"md5crypt"
 #define STEP                    0
 #define SEED                    1024
 #define ROUNDS_DEFAULT          1000
@@ -308,7 +307,7 @@ static void init(struct fmt_main *self)
 		sizeof(crypt_md5_password), 0);
 
 	//Auto tune execution from shared/included code.
-	autotune_run(self, 1000, 0, 100000000);
+	autotune_run(self, 1000, 0, 500);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -381,8 +380,9 @@ static void *binary(char *ciphertext)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = (((count + local_work_size - 1) / local_work_size) * local_work_size);
+	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
 
 	///Copy data to GPU memory
 	if (new_keys)
@@ -392,7 +392,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	///Run kernel
 	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-		NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[1]),
+		NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]),
 		"Set ND range");
 	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_FALSE,
 		0, outsize, outbuffer, 0, NULL, multi_profilingEvent[2]),

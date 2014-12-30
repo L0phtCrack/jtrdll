@@ -107,7 +107,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
 	static char out[8 + CIPHERTEXT_LENGTH + 1];
 
 	if (!strncmp(ciphertext, "$BLAKE2$", 8))
-		return ciphertext;
+		ciphertext += 8;
 
 	memcpy(out, "$BLAKE2$", 8);
 	memcpy(out + 8, ciphertext, CIPHERTEXT_LENGTH + 1);
@@ -234,7 +234,7 @@ struct fmt_main fmt_rawBLAKE2 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

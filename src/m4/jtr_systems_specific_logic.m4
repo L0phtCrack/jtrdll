@@ -17,7 +17,24 @@ case "$host_os" in
   cygwin*)
     AC_MSG_CHECKING([for *2john helper type])
     AS_IF([test "x$enable_ln_s" != xno], [AC_MSG_RESULT([ln -s])], [AC_SUBST([EXE_EXT], [.exe])] [AC_MSG_RESULT([.exe (symlink.c)])])
-	;;
+    AC_CHECK_FUNCS([_get_osfhandle])
+    # check for GetFileSizeEx was more of a bioch. I had to revert
+    # to doing a build/link probe. I could not find a way to do it with
+    # AC_CHECK_FUNCS, or AC_CHECK_LIB or AC_SEARCH_LIBS. Things just failed.
+    AC_MSG_CHECKING([for GetFileSizeEx])
+    AC_LINK_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <windows.h>
+        #include <io.h>
+        extern void exit(int);
+        int main(){long long l; GetFileSizeEx(0,&l); exit(0);}]]
+    )]
+    ,AC_DEFINE([HAVE_GETFILESIZEEX], 1, ["Enable if GetFileSizeEx function is available"])
+     [AC_MSG_RESULT([yes])]
+    ,[AC_MSG_RESULT(no)]
+    )
+    ;;
   mingw*)
      AC_SUBST([EXE_EXT], [.exe])
      AC_MSG_CHECKING([for *2john helper type])
@@ -49,11 +66,17 @@ case "$host_os" in
   freebsd*)
     # From legacy Makefile's FreeBSD targets
     JTR_LIST_ADD(CFLAGS_EXTRA, [-D__BSD_VISIBLE])
+    AS_IF([test "x$CPU_BIT_STR" = x32], ASFLAGS="$ASFLAGS -DBSD")
     ;;
 
   linux*|cygwin*)
     # For exposing memmem()
     AS_IF([test "x$ac_cv_func_memmem" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_GNU_SOURCE])])
+    ;;
+
+  mingw*)
+    # For understanding really basic things like printf("%zu", ...)
+    JTR_LIST_ADD(CFLAGS_EXTRA, [-D__USE_MINGW_ANSI_STDIO])
     ;;
 esac
 
@@ -61,8 +84,8 @@ esac
 # Add large file support - this typically requires a feature macro on 32-bit.
 #############################################################################
 case "$host" in
-  i?86*linux*)
-    AS_IF([test "x$ac_cv_func_lseek64" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE])])
+  *linux*|arm*|alpha*|powerpcle|powerpc*)
+    AS_IF([test x${CPU_BIT_STR} = x32 && test "x$ac_cv_func_lseek64" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE])])
     ;;
   i?86*darwin*)
     AS_IF([test "x$ac_cv_func_fseeko" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_DARWIN_C_SOURCE])])

@@ -61,7 +61,6 @@ john_register_one(&fmt_ocl_rar5);
 
 #define KERNEL_NAME		"pbkdf2_sha256_kernel"
 #define SPLIT_KERNEL_NAME	"pbkdf2_sha256_loop"
-#define OCL_CONFIG		"rar5"
 
 #define MIN(a, b)		(((a) < (b)) ? (a) : (b))
 #define MAX(a, b)		(((a) > (b)) ? (a) : (b))
@@ -192,7 +191,10 @@ static void init(struct fmt_main *self)
 {
 	char build_opts[64];
 
-        snprintf(build_opts, sizeof(build_opts), "-DHASH_LOOPS=%u", HASH_LOOPS);
+	snprintf(build_opts, sizeof(build_opts),
+	         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%u",
+	         HASH_LOOPS, PLAINTEXT_LENGTH);
+
         opencl_init("$JOHN/kernels/pbkdf2_hmac_sha256_kernel.cl",
             gpu_id, build_opts);
 
@@ -211,7 +213,8 @@ static void init(struct fmt_main *self)
 
 	//Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, ITERATIONS, 0, 10000000000ULL);
+	autotune_run(self, ITERATIONS, 0,
+	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
 	self->methods.crypt_all = crypt_all;
 }
 
@@ -245,7 +248,7 @@ static void opencl_limit_gws(int count)
 
 static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 {
-	int i, count = *pcount;
+	int count = *pcount;
 	size_t gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -257,33 +260,31 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 #endif
 
 	/// Copy data to gpu
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
 		CL_FALSE, 0, gws * sizeof(pass_t), host_pass, 0,
 		NULL, multi_profilingEvent[0]), "Copy data to gpu");
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt,
-		CL_FALSE, 0, sizeof(salt_t), host_salt, 0, NULL, multi_profilingEvent[1]),
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt,
+		CL_FALSE, 0, sizeof(salt_t), host_salt, 0, NULL,
+	        multi_profilingEvent[1]),
 	    "Copy salt to gpu");
 
 	/// Run kernel
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
 		1, NULL, &gws, lws, 0, NULL,
 		multi_profilingEvent[2]), "Run kernel");
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
+	BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 
-	for(i = 0; i < 1; i++) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-			1, NULL, &gws, lws, 0, NULL,
-			multi_profilingEvent[3]), "Run split kernel");
-		HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
-		opencl_process_event();
-	}
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
+		1, NULL, &gws, lws, 0, NULL,
+		NULL), "Run split kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
+		1, NULL, &gws, lws, 0, NULL,
+		multi_profilingEvent[3]), "Run split kernel");
+
 	/// Read the result back
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
-		CL_FALSE, 0, gws * sizeof(crack_t), host_crack, 0,
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
+		CL_TRUE, 0, gws * sizeof(crack_t), host_crack, 0,
 		NULL, multi_profilingEvent[4]), "Copy result back");
-
-	/// Await completion of all the above
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 
 	return count;
 }
@@ -313,8 +314,6 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
 		1, NULL, &global_work_size, &local_work_size, 0, NULL,
 		profilingEvent), "Run kernel");
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
-
 
 	for(i = 0; i < loops; i++) {
 		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
@@ -325,11 +324,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	}
 	/// Read the result back
 	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
-		CL_FALSE, 0, global_work_size * sizeof(crack_t), host_crack, 0,
+		CL_TRUE, 0, global_work_size * sizeof(crack_t), host_crack, 0,
 		NULL, NULL), "Copy result back");
-
-	/// Await completion of all the above
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 
 	// special wtf processing [SIC]
 	for (i = 0; i < count; i++) {

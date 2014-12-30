@@ -19,19 +19,22 @@ john_register_one(&fmt_cuda_cryptsha512);
 #include "misc.h"
 #include "cuda_cryptsha512.h"
 #include "cuda_common.h"
+// these MUST be defined prior to loading cryptsha512_valid.h
+#define BINARY_SIZE			64
+#define SALT_LENGTH			16
+#define CIPHERTEXT_LENGTH		86
+#include "cryptsha512_common.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"sha512crypt-cuda"
 #define FORMAT_NAME		"crypt(3) $6$"
 
-#define ALGORITHM_NAME		"SHA512 CUDA"
+#define ALGORITHM_NAME		"SHA512 CUDA (inefficient, please use sha512crypt-opencl instead)"
 
 #define BENCHMARK_COMMENT	" (rounds=5000)"
 #define BENCHMARK_LENGTH	-1
 
 #define PLAINTEXT_LENGTH	15
-#define CIPHERTEXT_LENGTH	34
-#define BINARY_SIZE		(3+16+86)
 #define MD5_DIGEST_LENGTH 	16
 
 #define BINARY_ALIGN		8
@@ -52,7 +55,11 @@ static char currentsalt[64];
 static crypt_sha512_salt _salt;
 
 static struct fmt_tests tests[] = {
-
+	{"$6$LKO/Ute40T3FNF95$6S/6T2YuOIHY0N3XpLKABJ3soYcXD9mB7uVbtEZDj/LNscVhZoZ9DEH.sBciDrMsHOWOoASbNLTypH/5X26gN0", "U*U*U*U*"},
+	{"$6$LKO/Ute40T3FNF95$wK80cNqkiAUzFuVGxW6eFe8J.fSVI65MD5yEm8EjYMaJuDrhwe5XXpHDJpwF/kY.afsUs1LlgQAaOapVNbggZ1", "U*U***U"},
+	{"$6$LKO/Ute40T3FNF95$YS81pp1uhOHTgKLhSMtQCr2cDiUiN03Ud3gyD4ameviK1Zqz.w3oXsMgO6LrqmIEcG3hiqaUqHi/WEE2zrZqa/", "U*U***U*"},
+	{"$6$OmBOuxFYBZCYAadG$WCckkSZok9xhp4U1shIZEV7CCVwQUwMVea7L3A77th6SaE9jOPupEMJB.z0vIWCDiN9WLh2m9Oszrj5G.gt330", "*U*U*U*U"},
+	{"$6$ojWH1AiTee9x1peC$QVEnTvRVlPRhcLQCk/HnHaZmlGAAjCfrAN0FtOsOnUk5K5Bn/9eLHHiRzrTzaIKjW9NTLNIBUCtNVOowWS2mN.", ""},
 	{"$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1", "Hello world!"},
 #ifdef DEBUG //Special test cases.
 	{"$6$saltstring$fgNTR89zXnDUV97U5dkWayBBRaB0WIBnu6s4T7T8Tz1SbUyewwiHjho25yWVkph2p18CmUkqXh4aIyjPnxdgl0","john"},
@@ -80,6 +87,7 @@ static void done()
  MEM_FREE(inbuffer);
  MEM_FREE(outbuffer);
 }
+
 static void init(struct fmt_main *self)
 {
   //Allocate memory for hashes and passwords
@@ -89,96 +97,6 @@ static void init(struct fmt_main *self)
   //Initialize CUDA
   cuda_init();
 }
-
-static int valid(char *ciphertext,struct fmt_main *self)
-{
-	uint32_t i, j;
-	int len = strlen(ciphertext);
-	char *p;
-
-	if (strncmp(ciphertext, "$6$", 3) != 0)
-		return 0;
-	p = strrchr(ciphertext, '$');
-	if (p == NULL)
-		return 0;
-	for (i = p - ciphertext + 1; i < len; i++) {
-		int found = 0;
-		for (j = 0; j < 64; j++)
-			if (itoa64[j] == ARCH_INDEX(ciphertext[i]))
-				found = 1;
-		if (found == 0) {
-			puts("not found");
-			return 0;
-		}
-	}
-	if (len - (p - ciphertext + 1) != 86)
-		return 0;
-	return 1;
-}
-
-static int findb64(char c)
-{
-	int ret = ARCH_INDEX(atoi64[(uint8_t) c]);
-	return ret != 0x7f ? ret : 0;
-}
-
-static void magic(char *crypt, unsigned char *alt)
-{
-
-#define _24bit_from_b64(I,B2,B1,B0) \
-  {\
-      uint8_t c1,c2,c3,c4,b0,b1,b2;\
-      uint32_t w;\
-      c1=findb64(crypt[I+0]);\
-      c2=findb64(crypt[I+1]);\
-      c3=findb64(crypt[I+2]);\
-      c4=findb64(crypt[I+3]);\
-      w=c4<<18|c3<<12|c2<<6|c1;\
-      b2=w&0xff;w>>=8;\
-      b1=w&0xff;w>>=8;\
-      b0=w&0xff;w>>=8;\
-      alt[B2]=b0;\
-      alt[B1]=b1;\
-      alt[B0]=b2;\
-  }
-	uint32_t w;
-	_24bit_from_b64(0, 0, 21, 42);
-	_24bit_from_b64(4, 22, 43, 1);
-	_24bit_from_b64(8, 44, 2, 23);
-	_24bit_from_b64(12, 3, 24, 45);
-	_24bit_from_b64(16, 25, 46, 4);
-	_24bit_from_b64(20, 47, 5, 26);
-	_24bit_from_b64(24, 6, 27, 48);
-	_24bit_from_b64(28, 28, 49, 7);
-	_24bit_from_b64(32, 50, 8, 29);
-	_24bit_from_b64(36, 9, 30, 51);
-	_24bit_from_b64(40, 31, 52, 10);
-	_24bit_from_b64(44, 53, 11, 32);
-	_24bit_from_b64(48, 12, 33, 54);
-	_24bit_from_b64(52, 34, 55, 13);
-	_24bit_from_b64(56, 56, 14, 35);
-	_24bit_from_b64(60, 15, 36, 57);
-	_24bit_from_b64(64, 37, 58, 16);
-	_24bit_from_b64(68, 59, 17, 38);
-	_24bit_from_b64(72, 18, 39, 60);
-	_24bit_from_b64(76, 40, 61, 19);
-	_24bit_from_b64(80, 62, 20, 41);
-
-	w = findb64(crypt[85]) << 6 | findb64(crypt[84]) << 0;
-	alt[63] = (w & 0xff);
-}
-
-
-static void *binary(char *ciphertext)
-{
-	static unsigned char b[BINARY_SIZE];
-	char *p = strrchr(ciphertext, '$');
-	memset(b, 0, BINARY_SIZE);
-	if(p!=NULL)
-	  magic(p+1, b);
-	return (void *) b;
-}
-
 
 static void *salt(char *ciphertext)
 {
@@ -355,7 +273,7 @@ struct fmt_main fmt_cuda_cryptsha512 = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		salt,
 #if FMT_MAIN_VERSION > 11
 		{

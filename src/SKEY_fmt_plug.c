@@ -99,7 +99,6 @@ static int
 skey_valid(char *ciphertext, struct fmt_main *self)
 {
 	char *p, *q, buf[24];
-	int hexlen;
 
 	if (*ciphertext == '#')
 		return (0);
@@ -124,8 +123,7 @@ skey_valid(char *ciphertext, struct fmt_main *self)
 	}
 
 	p = strrchr(ciphertext, ' ');
-	hexlen = strspn(++p, HEXCHARS);
-	if (hexlen != (2 * SKEY_BINKEY_SIZE) || hexlen != strlen(p))
+	if (hexlen(++p) != (2 * SKEY_BINKEY_SIZE))
 		return 0;
 
 	if (!skey_salt(ciphertext))
@@ -239,13 +237,13 @@ skey_cmp_all(void *binary, int count)
 static int
 skey_cmp_one(void *binary, int count)
 {
-	return (1);	/* XXX - fallthrough from skey_cmp_all() */
+	return 1;
 }
 
 static int
 skey_cmp_exact(char *source, int count)
 {
-	return (1);	/* XXX - fallthrough from skey_cmp_one() */
+	return 1;
 }
 
 #if FMT_MAIN_VERSION > 11

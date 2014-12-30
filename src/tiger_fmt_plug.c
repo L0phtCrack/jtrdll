@@ -25,7 +25,18 @@ john_register_one(&fmt_tiger);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
-#define OMP_SCALE               1 // XXX
+// OMP_SCALE tuned on core i7 quad core HT
+// 1   -   235k
+// 64  -  7723k
+// 128 - 10311K
+// 256 - 12043K
+// 512 - 13543
+// 1k  - 14256k
+// 2k  - 14860k  ** this one chosen
+// 4k  - 15093k
+// 8k  - 14935k
+// 16k - 14931k
+#define OMP_SCALE  (1024*2)
 #endif
 #include "memdbg.h"
 
@@ -82,6 +93,19 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		if(atoi16[ARCH_INDEX(*p++)]==0x7f)
 			return 0;
 	return 1;
+}
+
+static char *split(char *ciphertext, int index, struct fmt_main *self)
+{
+	static char out[TAG_LENGTH + BINARY_SIZE*2 + 1];
+	
+	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
+		ciphertext += TAG_LENGTH;
+	
+	memcpy(out, FORMAT_TAG, TAG_LENGTH);
+	strnzcpy(out + TAG_LENGTH, ciphertext, BINARY_SIZE*2 + 1);
+	strupr(out + TAG_LENGTH);
+	return out;
 }
 
 static void *get_binary(char *ciphertext)
@@ -194,7 +218,7 @@ struct fmt_main fmt_tiger = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -205,7 +229,7 @@ struct fmt_main fmt_tiger = {
 		fmt_default_reset,
 		prepare,
 		valid,
-		fmt_default_split,
+		split,
 		get_binary,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11

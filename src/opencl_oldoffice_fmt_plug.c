@@ -110,7 +110,6 @@ static cl_kernel oldoffice_utf16, oldoffice_md5, oldoffice_sha1;
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
-#define OCL_CONFIG		"oldoffice"
 #define STEP			0
 #define SEED			1024
 
@@ -119,7 +118,7 @@ static cl_kernel oldoffice_utf16, oldoffice_md5, oldoffice_sha1;
 #include "memdbg.h"
 
 static const char * warn[] = {
-	"xfer: ",  ", xfer: ",  ", md5: ",  ", rc4: ",  ", xfer: ",  ", xfer: "
+	"xP: ",  ", xI: ",  ", enc: ",  ", md5+rc4: ",  ", xR: "
 };
 
 /* ------- Helper functions ------- */
@@ -132,6 +131,7 @@ static size_t get_task_max_work_group_size()
 	                                                 oldoffice_md5));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0,
 	                                                 oldoffice_sha1));
+	s = MIN(s, 64);
 	return s;
 }
 
@@ -221,6 +221,7 @@ static void done(void)
 static void init(struct fmt_main *self)
 {
 	char build_opts[96];
+	size_t gws_limit = 4 << 20;
 
 	if (pers_opts.target_enc == UTF_8)
 		max_len = self->params.plaintext_length =
@@ -242,18 +243,11 @@ static void init(struct fmt_main *self)
 
 	// Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL,
-		warn, 3, self, create_clobj, release_clobj,
-		2 * max_len, 0);
+	                       warn, 3, self, create_clobj, release_clobj,
+	                       2 * sizeof(mid_t), gws_limit);
 
 	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000000000);
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
+	autotune_run(self, 1, gws_limit, 1000000000);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -409,11 +403,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int index, count = *pcount;
 	int m = cur_salt->has_mitm;
+	size_t lws;
+
+	/* kernel is made for lws 64, using local memory */
+	lws = local_work_size ? local_work_size : 64;
 
 	/* Don't do more than requested */
-	global_work_size = (count + local_work_size - 1) / local_work_size * local_work_size;
+	global_work_size = (count + lws - 1) / lws * lws;
 
-	//fprintf(stderr, "%s(%d) lws %zu gws %zu kidx %u m %d\n", __FUNCTION__, count, local_work_size, global_work_size, key_idx, m);
+	//fprintf(stderr, "%s(%d) lws %zu gws %zu kidx %u m %d k %d\n", __FUNCTION__, count, lws, global_work_size, key_idx, m, new_keys);
 
 	if (new_keys) {
 		/* Self-test kludge */
@@ -422,15 +420,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, key_offset, key_idx - key_offset, saved_key + key_offset, 0, NULL, multi_profilingEvent[0]), "Failed transferring keys");
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_idx, CL_FALSE, idx_offset, 4 * (global_work_size + 1) - idx_offset, saved_idx + (idx_offset / 4), 0, NULL, multi_profilingEvent[1]), "Failed transferring index");
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_utf16, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[2]), "Failed running first kernel");
+		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_utf16, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[2]), "Failed running first kernel");
 
 		new_keys = 0;
 	}
 
 	if(cur_salt->type < 3) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_md5, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[3]), "Failed running second kernel");
+		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_md5, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[3]), "Failed running second kernel");
 	} else {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_sha1, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[3]), "Failed running first kernel");
+		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], oldoffice_sha1, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[3]), "Failed running first kernel");
 	}
 
 	if (bench_running || m) {
@@ -444,9 +442,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			break;
 		}
 	} else {
-		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_salt, CL_TRUE, 0, SALT_SIZE, cur_salt, 0, NULL, multi_profilingEvent[4]), "Failed transferring salt");
+		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_salt, CL_TRUE, 0, SALT_SIZE, cur_salt, 0, NULL, NULL), "Failed transferring salt");
 		if ((any_cracked = cur_salt->has_mitm))
-			HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * global_work_size, cracked, 0, NULL, multi_profilingEvent[5]), "failed reading results back");
+			HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * global_work_size, cracked, 0, NULL, multi_profilingEvent[4]), "failed reading results back");
 	}
 
 	return count;

@@ -47,7 +47,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#if !AC_BUILT || HAVE_LIMITS_H
 #include <limits.h>
+#endif
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
@@ -76,7 +78,7 @@
 static int inline_thr = MAX_INLINE_SIZE;
 #define MAX_THR (LINE_BUFFER_SIZE/2 - PATH_BUFFER_SIZE - PLAINTEXT_BUFFER_SIZE*2)
 
-static void process_file5(const char *archive_name);
+static int process_file5(const char *archive_name);
 
 /* Derived from unrar's encname.cpp */
 static void DecodeFileName(unsigned char *Name, unsigned char *EncName,
@@ -164,7 +166,7 @@ static void process_file(const char *archive_name)
 	size_t bestsize = 0;
 	char *base_aname;
 	unsigned char buf[CHUNK_SIZE];
-	uint16_t archive_header_head_flags, file_header_head_flags;
+	uint16_t archive_header_head_flags, file_header_head_flags, head_size;
 	unsigned char *pos;
 	int diff;
 	int found = 0;
@@ -193,14 +195,14 @@ static void process_file(const char *archive_name)
 			/* jump to "Rar!" signature */
 			while (!feof(fp)) {
 				count = fread(buf, 1, CHUNK_SIZE, fp);
-				if( (pos = memmem(buf, count, "Rar!", 4))) {
+				if( (pos = memmem(buf, count, "\x52\x61\x72\x21\x1a\x07\x00", 7))) {
 					diff = count - (pos - buf);
 					jtr_fseek64(fp, - diff, SEEK_CUR);
 					jtr_fseek64(fp, 7, SEEK_CUR);
 					found = 1;
 					break;
 				}
-				jtr_fseek64(fp, -3, SEEK_CUR);
+				jtr_fseek64(fp, -6, SEEK_CUR);
 			}
 			if (!found) {
 				fprintf(stderr, "! %s: Not a RAR file\n", archive_name);
@@ -209,15 +211,12 @@ static void process_file(const char *archive_name)
 		}
 		else {
 			/* try to detect RAR 5 files */
-			if (memcmp(marker_block, "\x52\x61\x72\x21\x1a\x07\x01\x00", 7) == 0) {
-				//fprintf(stderr, "! %s: Not a RAR 3.x file, try running rar5tojohn.py on me!\n", archive_name);
-				//goto err;
-				fclose(fp);
-				MEM_FREE(best);
-				MEM_FREE(gecos);
-				process_file5(archive_name);
-				return;
-			}
+			fclose(fp);
+            fp = NULL;
+			MEM_FREE(best);
+			MEM_FREE(gecos);
+			if (process_file5(archive_name))
+                return;
 			fprintf(stderr, "! %s: Not a RAR file\n", archive_name);
 			goto err;
 		}
@@ -235,19 +234,30 @@ static void process_file(const char *archive_name)
 	} else
 		type = 1;
 
+	/* we need to skip ahead, if there is a comment block in the main header. It causes that
+	 * header tp be larger that a simple 13 byte block.
+	 */
+	head_size = archive_header_block[6] << 8 | archive_header_block[5];
+	if (head_size > 13)
+		fseek(fp, head_size-13, SEEK_CUR);
+
 next_file_header:
 	/* file header block */
 	count = fread(file_header_block, 32, 1, fp);
 
 	if (feof(fp))  {
+#ifdef DEBUG
 		fprintf(stderr, "! %s: End of file\n", archive_name);
+#endif
 		goto BailOut;
 	}
 
 	assert(count == 1);
 
 	if (type == 1 && file_header_block[2] == 0x7a) {
+#ifdef DEBUG
 		fprintf(stderr, "! %s: Comment block present?\n", archive_name);
+#endif
 	}
 	else if (type == 1 && file_header_block[2] != 0x74) {
 		fprintf(stderr, "! %s: Not recognising any more headers.\n", archive_name);
@@ -262,7 +272,9 @@ next_file_header:
 	if (type == 0) {
 		unsigned char buf[24];
 
+#ifdef DEBUG
 		fprintf(stderr, "! -hp mode entry found in %s\n", base_aname);
+#endif
 		printf("%s:$RAR3$*%d*", base_aname, type);
 		jtr_fseek64(fp, -24, SEEK_END);
 		count = fread(buf, 24, 1, fp);
@@ -361,8 +373,11 @@ next_file_header:
 				fprintf(stderr, "Unicode:   %s\n", file_name);
 			} else
 				fprintf(stderr, "UTF8 name: %s\n", file_name);
-		} else
+		}
+#ifdef DEBUG
+        else
 			fprintf(stderr, "file name: %s\n", file_name);
+#endif
 
 		/* We duplicate file name to the GECOS field, for single mode */
 		gecos_len += snprintf(&gecos[gecos_len], PATH_BUFFER_SIZE - 1, "%s ", (char*)file_name);
@@ -394,7 +409,9 @@ next_file_header:
 		}
 
 		if ((file_header_head_flags & 0xe0)>>5 == 7) {
+#ifdef DEBUG
 			fprintf(stderr, "! Is a directory, skipping\n");
+#endif
 			jtr_fseek64(fp, file_header_pack_size, SEEK_CUR);
 			goto next_file_header;
 		}
@@ -479,7 +496,9 @@ next_file_header:
 
 BailOut:
 		if (*best) {
+#ifdef DEBUG
 			fprintf(stderr, "Found a valid -p mode candidate in %s\n", base_aname);
+#endif
 			strncat(best, gecos, LINE_BUFFER_SIZE - best_len - 1);
 			puts(best);
 		} else
@@ -575,9 +594,7 @@ static int ProcessExtra50(FILE *fp, uint64_t extra_size, uint64_t HeadSize, uint
         bytes_left -= (uint32_t)FieldSize;
         if (bytes_left < 0) return 0;
         if (!read_vuint(fp, &FieldType, &bytes_read)) return 0;
-
         // fprintf (stderr, "in Extra50.  FieldSize=%d FieldType=%d\n", FieldSize, FieldType);
-
         if (HeaderType == HEAD_FILE || HeaderType == HEAD_SERVICE) {
             if (FieldType == FHEXTRA_CRYPT) {
                 unsigned char InitV[SIZE_INITV];
@@ -685,7 +702,7 @@ static size_t read_rar5_header(FILE *fp, size_t CurBlockPos, uint8_t *HeaderType
         if (!read_vuint(fp, &FileFlags, &header_bytes_read)) return 0;
         if (!read_vuint(fp, &UnpSize, &header_bytes_read)) return 0;
         if (!read_vuint(fp, &FileAttr, &header_bytes_read)) return 0;
-       
+
         if ((FileFlags & FHFL_UTIME) != 0) {
             if (!read_uint32(fp, &tmp, &header_bytes_read)) return 0;
             //mtime = tmp;
@@ -694,7 +711,7 @@ static size_t read_rar5_header(FILE *fp, size_t CurBlockPos, uint8_t *HeaderType
         if ((FileFlags & FHFL_CRC32) != 0) {
             if (!read_uint32(fp, &FileHashCRC32, &header_bytes_read)) return 0;
         }
-        
+
         if (!read_vuint(fp, &CompInfo, &header_bytes_read)) return 0;
         if (!read_vuint(fp, &HostOS, &header_bytes_read)) return 0;
         if (!read_vuint(fp, &NameSize, &header_bytes_read)) return 0;
@@ -710,7 +727,7 @@ static size_t read_rar5_header(FILE *fp, size_t CurBlockPos, uint8_t *HeaderType
 }
 
 /* handle rar5 files */
-static void process_file5(const char *archive_name) {
+static int process_file5(const char *archive_name) {
 	//fprintf(stderr, "! %s: Not a RAR 3.x file, try running rar5tojohn.py on me!\n", archive_name);
 	char Magic[8], buf[CHUNK_SIZE], *pos;
 	size_t count, NextBlockPos, CurBlockPos;
@@ -718,33 +735,30 @@ static void process_file5(const char *archive_name) {
 	FILE *fp;
 
 	fp = fopen(archive_name, "rb");
-	if (!fp) { fprintf(stderr, "error opening file %s\n", archive_name); return; }
+	if (!fp) { fprintf(stderr, "error opening file %s\n", archive_name); return 0; }
 	if (fread(Magic, 1, 8, fp) != 8) {
         fclose(fp);
         fprintf (stderr, "Error reading rar signature from file %s\n", archive_name);
-        return;
+        return 0;
     }
 	if (memcmp(Magic, "\x52\x61\x72\x21\x1a\x07\x01\x00", 8)) { /* handle SFX archives */
 		if (memcmp(Magic, "MZ", 2) == 0) {
 			/* jump to "Rar!" signature */
 			while (!feof(fp)) {
 				count = fread(buf, 1, CHUNK_SIZE, fp);
-				if( (pos = (char*)memmem(buf, count, "Rar!", 4))) {
+				if( (pos = (char*)memmem(buf, count, "\x52\x61\x72\x21\x1a\x07\x01\x00", 8))) {
 					diff = count - (pos - buf);
 					jtr_fseek64(fp, - diff, SEEK_CUR);
 					jtr_fseek64(fp, 8, SEEK_CUR);
 					found = 1;
 					break;
 				}
-				jtr_fseek64(fp, -3, SEEK_CUR);
+				jtr_fseek64(fp, -7, SEEK_CUR);
 			}
-			if (!found) {
-				fprintf(stderr, "! %s: Not a RAR file\n", archive_name);
-				goto err;
-			}
+            if (!found)
+                goto err;
 		}
 	}
-	NextBlockPos = 0;
 	while (1) {
 		uint8_t HeaderType;
 		CurBlockPos = (size_t)jtr_ftell64(fp);
@@ -754,8 +768,11 @@ static void process_file5(const char *archive_name) {
 		// fprintf (stderr, "NextBlockPos is %d Headertype=%d curblockpos=%d\n", NextBlockPos, HeaderType, CurBlockPos);
 		jtr_fseek64(fp, NextBlockPos, SEEK_SET);
 	}
+    if (fp) fclose(fp);
+    return 1;
 err:;
 	if (fp) fclose(fp);
+    return 0;
 }
 
 

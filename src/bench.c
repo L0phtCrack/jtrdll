@@ -112,6 +112,14 @@ static void bench_install_handler(void)
 #endif
 }
 
+/* Mutes ASAN problems. We pass a buffer long enough for any use */
+#define fmt_set_key(key, index)	  \
+	{ \
+		static char buf_key[PLAINTEXT_BUFFER_SIZE]; \
+		strncpy(buf_key, key, sizeof(buf_key)); \
+		format->methods.set_key(buf_key, index); \
+	}
+
 static void bench_set_keys(struct fmt_main *format,
 	struct fmt_tests *current, int cond)
 {
@@ -136,8 +144,7 @@ static void bench_set_keys(struct fmt_main *format,
 			} else
 				break;
 		} while (1);
-
-		format->methods.set_key(plaintext, index);
+		fmt_set_key(plaintext, index);
 	}
 }
 
@@ -176,7 +183,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 
 	if (format->params.binary_size > binary_size) {
 		binary_size = format->params.binary_size;
-		binary = mem_alloc_tiny(binary_size, MEM_ALIGN_WORD);
+		binary = mem_alloc_tiny(binary_size, MEM_ALIGN_SIMD);
 		memset(binary, 0x55, binary_size);
 	}
 
@@ -634,6 +641,7 @@ AGAIN:
 #endif
 
 next:
+		fflush(stdout);
 		fmt_done(format);
 		MEMDBG_checkSnapshot_possible_exit_on_error(memHand, 0);
 

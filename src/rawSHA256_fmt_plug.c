@@ -80,17 +80,13 @@ static struct fmt_tests tests[] = {
 	{HEX_TAG "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f", "12345678"},
 	{HEX_TAG "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ""},
 	{HEX_TAG "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", ""},
-	/* FIXME: Other implementations don't treat the "cisco4" hashes as valid: */
-#ifdef DEBUG
 	{"LcV6aBcc/53FoCJjXQMd7rBUDEpeevrK8V5jQVoJEhU", "password"},
 	{CISCO_TAG "LcV6aBcc/53FoCJjXQMd7rBUDEpeevrK8V5jQVoJEhU", "password"},
-#endif
 	{"a49c2c9d0c006c8cb55a9a7a38822b83e0cd442614cb416af952fa50156761dc", "openwall"},
 	{"9e7d3e56996c5a06a6a378567e62f5aa7138ebb0f55c0bdaf73666bf77f73380", "mot\xf6rhead"},
 	{"1b4f0e9851971998e732078544c96b36c3d01cedf7caa332359d6f1d83567014", "test1"},
 	{"fd61a03af4f77d870fc21e05e7e80678095c92d808cfb3b5c279ee04c74aca13", "test3"},
 	{"d150eb0383c8ef7478248d7e6cf18db333e8753d05e15a8a83714b7cf63922b3", "thatsworking"},
-#ifdef DEBUG
 	{"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646", "1234567890"},
 	{CISCO_TAG "OsOmQzwozC4ROs/CzpczJoShdCeW9lp7k/tGrPS5Kog", "1"},
 	{CISCO_TAG "d7kgbEk.P6mpKdduC66fUy1BF0MImo3eyJ9uI/JbMRk", "openwall"},
@@ -111,7 +107,6 @@ static struct fmt_tests tests[] = {
 	{"d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, // 55
 	{CISCO_TAG "hUsuWZSE8dZERUBYNwRK8Aa8VxEGIHsuZFUCjNj2.Ac", "verylongbutweakpassword"},
 	{CISCO_TAG "fLUL1VG98zYDf9Q.M40nZ5blVT3M6UBex74Blw.UDCc", "thismaximumpasswordlength"},
-#endif
 #endif
 	{NULL}
 };

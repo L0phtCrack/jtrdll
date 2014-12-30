@@ -95,7 +95,6 @@ static struct fmt_tests tests[] = {
 	{NULL}
 };
 
-#define OCL_CONFIG             "ssha"
 #define STEP                   0
 #define SEED                   1024
 
@@ -131,7 +130,6 @@ static size_t get_default_workgroup()
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
 {
-	global_work_size = kpc;
 	self->params.min_keys_per_crypt = self->params.max_keys_per_crypt = kpc;
 	pinned_saved_keys = clCreateBuffer(context[gpu_id], CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, PLAINTEXT_LENGTH * kpc, NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating page-locked memory");
@@ -174,8 +172,6 @@ static void create_clobj(size_t kpc, struct fmt_main *self)
 
 	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 2, sizeof(buffer_out),
 		(void *) &buffer_out), "Error setting argument 2");
-
-	global_work_size = kpc;
 }
 
 static void release_clobj(void){
@@ -224,13 +220,10 @@ static void fmt_ssha_init(struct fmt_main *self)
 	// Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 1, NULL, warn,
 	                       1, self, create_clobj, release_clobj,
-	                       PLAINTEXT_LENGTH, 0);
+	                       2 * PLAINTEXT_LENGTH, 0);
 
 	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 100000000);
-
-	self->params.min_keys_per_crypt = local_work_size;
-	self->params.max_keys_per_crypt = global_work_size;
+	autotune_run(self, 1, 0, 1000);
 }
 
 
@@ -351,12 +344,13 @@ static int cmp_exact(char *source, int index){
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = (count + local_work_size - 1) / local_work_size * local_work_size;
+	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
 
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_keys, CL_FALSE, 0, PLAINTEXT_LENGTH * global_work_size, saved_plain, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_plain");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueNDRangeKernel");
+	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueNDRangeKernel");
 	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish error");
 
 	// read back partial hashes

@@ -53,7 +53,7 @@ john_register_one(&fmt_ocl_rar);
 #endif
 
 #define STEP			0
-#define SEED			64
+#define SEED			256
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
@@ -119,7 +119,6 @@ static pthread_mutex_t *lockarray;
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 
-#define OCL_CONFIG		"rar"
 static const char * warn[] = {
 	"key xfer: "  ,  ", len xfer: "   , ", init: " , ", loop: " ,
 	", final: ", ", key xfer: ", ", iv xfer: "
@@ -166,6 +165,7 @@ typedef struct {
 	unsigned long long pack_size;
 	unsigned long long unp_size;
 	int method;
+	unsigned char blob_hash[20]; // holds an sha1, but could be 'any' hash.
 	// raw_data should be word aligned, and 'ok'
 	unsigned char raw_data[1];
 } rarfile;
@@ -489,6 +489,7 @@ static void *get_salt(char *ciphertext)
 	rarfile *psalt;
 	unsigned char tmp_salt[8];
 	int inlined = 1;
+	SHA_CTX ctx;
 
 	if (!ptr) ptr = mem_alloc_tiny(sizeof(rarfile*),sizeof(rarfile*));
 	saltcopy += 7;		/* skip over "$RAR3$*" */
@@ -505,6 +506,7 @@ static void *get_salt(char *ciphertext)
 		for (i = 0; i < 16; i++)
 			psalt->raw_data[i] = atoi16[ARCH_INDEX(encoded_ct[i * 2])] * 16 + atoi16[ARCH_INDEX(encoded_ct[i * 2 + 1])];
 		psalt->blob = psalt->raw_data;
+		psalt->pack_size = 16;
 	} else {
 		char *p = strtok(NULL, "*");
 		char crc_c[4];
@@ -587,6 +589,9 @@ static void *get_salt(char *ciphertext)
 			psalt->crc.w = JOHNSWAP(~psalt->crc.w);
 #endif
 	}
+	SHA1_Init(&ctx);
+	SHA1_Update(&ctx, psalt->blob, psalt->pack_size);
+	SHA1_Final(psalt->blob_hash, &ctx);
 	MEM_FREE(keep_ptr);
 #if HAVE_MMAP
 	psalt->dsalt.salt_alloc_needs_free = inlined;
@@ -641,7 +646,7 @@ static void init(struct fmt_main *self)
 	//Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
 	autotune_run(self, ITERATIONS, 0,
-		(cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
+	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
 	self->methods.crypt_all = crypt_all;
 
 #if defined (_OPENMP)
@@ -667,16 +672,6 @@ static void init(struct fmt_main *self)
 		CRC32_t crc;
 		CRC32_Init(&crc);
 	}
-}
-
-static int hexlen(char *q)
-{
-	char *s = q;
-	size_t len = strlen(q);
-
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return (len == (size_t)(q - s)) ? (int)(q - s) : -1 - (int)(q - s);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -888,23 +883,20 @@ static MAYBE_INLINE int check_huffman(unsigned char *next) {
 static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	int k, ev = 0;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[ev++]), "failed in clEnqueueWriteBuffer saved_key");
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * gws, saved_len, 0, NULL, multi_profilingEvent[ev++]), "failed in clEnqueueWriteBuffer saved_len");
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * gws, saved_len, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer saved_len");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarInit, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[ev++]), "failed in clEnqueueNDRangeKernel");
-	for (k = 0; k < 1; k++) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[ev]), "failed in clEnqueueNDRangeKernel");
-		HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
-		opencl_process_event();
-	}
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarFinal, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[++ev]), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarInit, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, NULL), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[3]), "failed in clEnqueueNDRangeKernel");
+
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarFinal, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[4]), "failed in clEnqueueNDRangeKernel");
 	// read back aes key & iv
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_key, CL_FALSE, 0, 16 * gws, aes_key, 0, NULL, multi_profilingEvent[++ev]), "failed in reading key back");
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_iv, CL_TRUE, 0, 16 * gws, aes_iv, 0, NULL, multi_profilingEvent[++ev]), "failed in reading iv back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_key, CL_FALSE, 0, 16 * gws, aes_key, 0, NULL, multi_profilingEvent[5]), "failed in reading key back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_iv, CL_TRUE, 0, 16 * gws, aes_iv, 0, NULL, multi_profilingEvent[6]), "failed in reading iv back");
 
 	return count;
 }

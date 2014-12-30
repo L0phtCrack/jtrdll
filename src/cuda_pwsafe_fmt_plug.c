@@ -98,6 +98,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (strlen(p) < 64)
 		goto err;
+	if (strspn(p, "0123456789abcdef") != 64)
+		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	if (atoi(p) == 0)
@@ -105,6 +107,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != 64)
+		goto err;
+	if (strspn(p, "0123456789abcdef") != 64)
 		goto err;
 	MEM_FREE(keeptr);
 	return 1;
@@ -191,6 +195,13 @@ static char *get_key(int index)
         return ret;
 }
 
+#if FMT_MAIN_VERSION > 11
+static unsigned int iteration_count(void *salt)
+{
+	return ((pwsafe_salt*)salt)->iterations;
+}
+#endif
+
 struct fmt_main fmt_cuda_pwsafe = {
 	{
 		FORMAT_LABEL,
@@ -207,7 +218,9 @@ struct fmt_main fmt_cuda_pwsafe = {
 		KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			"iteration count",
+		},
 #endif
 		pwsafe_tests
 	}, {
@@ -220,7 +233,9 @@ struct fmt_main fmt_cuda_pwsafe = {
 		fmt_default_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			iteration_count,
+		},
 #endif
 		fmt_default_source,
 		{

@@ -371,7 +371,7 @@ char *RemoveHEX(char *output, char *input) {
 
 /*********************************************************************************
  * Detects a 'valid' md5-gen format. This function is NOT locked to anything. It
- * takes it's detection logic from the provided fmt_main pointer. Within there,
+ * takes its detection logic from the provided fmt_main pointer. Within there,
  * is a 'private' data pointer.  When john first loads the md5-gen, it calls a
  * function which builds proper 'private' data for EACH type of md5-gen. Then
  * john will call valid on EACH of those formats, asking each one if a string is
@@ -519,25 +519,6 @@ static int valid(char *ciphertext, struct fmt_main *pFmt)
 			}
 		}
 	}
-	if ( (pPriv->pSetup->flags & MGF_HDAA_SALT) == MGF_HDAA_SALT) {
-		// has a very complex salt function.  Requires certain fields, AND for these to be in proper order!!!
-		char *cp = strchr(&ciphertext[12], '$');
-		if (!cp) return 0;
-		if (cp[1] == '$') return 0; // if salt is 'empty', return false.
-		cp = strchr(&cp[1], '$');
-		if (!cp || strncmp(cp,"$$U",3) || cp[3] == '$') return 0; // if next is not U or U is 'empty', return false.
-		cp = strstr(&cp[3], "$$F2");
-		if (!cp || cp[4] == '$') return 0; // if next is not F2 or F2 is 'empty', return false.
-		cp = strstr(&cp[4], "$$F3");
-		if (!cp || cp[4] == '$') return 0; // if next is not F3 or F3 is 'empty', return false.
-		cp = strstr(&cp[4], "$$F4");
-		if (!cp || cp[4] == '$') return 0; // if next is not F4 or F4 is 'empty', return false.
-		cp = strchr(&cp[4], '$');
-		if (!cp || cp[1] == '$') return 0; // if next is empty
-		cp = strchr(&cp[1], '$');
-		if (!cp || !cp[1]) return 0; // if last is empty
-	}
-
 	return 1;
 }
 
@@ -2161,75 +2142,6 @@ static void *salt(char *ciphertext)
 		}
 		*cpo = 0;
 	}
-	if (curdat.dynamic_hdaa_salt) {
-		//=$dynamic_1060$679066476e67b5c7c4e88f04be567f8b$8c12bd8f728afe56d45a0ce846b70e5a$$Uuser$$F2myrealm$$F3GET$/$$F400000001$4b61913cec32e2c9$auth:nocode
-		//digest authentication scheme :
-		//H1 = md5(user:realm:password)
-		//H2 = md5(method:digestURI)
-		//response = H3 = md5(h1:nonce:nonceCount:ClientNonce:qop:h2)
-
-		// salt is:
-		//8c12bd8f728afe56d45a0ce846b70e5a$$Uuser$$F2myrealm$$F3GET$/$$F400000001$4b61913cec32e2c9$auth
-		//change this to:  (abcd is base-64 number)
-		//abcd                            :8c12bd8f728afe56d45a0ce846b70e5a:00000001:4b61913cec32e2c9:auth:H1$$Uuser$$F2myrealm
-
-		unsigned char *cp2, *cp3, *cp4, *cpTmp = mem_alloc(strlen(Salt) + 200);  // larger than needed, 100% assured.
-		unsigned char *cpU2 = mem_alloc(strlen(Salt));
-		static unsigned cnt = 1;
-		unsigned i, j;
-		MD5_CTX ctx;
-		unsigned char Buf[16], h1_input[64];
-
-		memset(cpTmp, ' ', 33);
-
-		j = cnt++;
-		cp2 = cpTmp;
-		for (i = 0; i < 4; ++i) {
-			*cp2++ = itoa64[j%64];
-			j /= 64;
-		}
-		cp3 = (unsigned char*)strstr(Salt, "$$U");
-		*cp3++ = 0;
-		cp2 = cpU2;
-		*cp2++ = '$';
-		while (strncmp((char*)cp3, "$$F3", 4))
-			*cp2++ = *cp3++;
-		*cp2 = 0;
-		cp2 = &cpTmp[32];
-		*cp2++ = ':';
-		strcpy((char*)cp2, Salt);
-		cp2 += strlen((char*)cp2);
-		*cp2++ = ':';
-		cp4 = h1_input;
-		cp3 += 4;
-		while (strncmp((char*)cp3, "$$F4", 4)) {
-			if (*cp3 == '$') { *cp4++ = ':'; ++cp3; continue; }
-			*cp4++ = *cp3++;
-		}
-		*cp4 = 0;
-		MD5_Init(&ctx);
-		MD5_Update(&ctx, h1_input, strlen((char*)h1_input));
-		MD5_Final(Buf, &ctx);
-
-		cp3 += 4;
-		while (*cp3) {
-			if (*cp3 == '$') { *cp2++ = ':'; ++cp3; continue; }
-			*cp2++ = *cp3++;
-		}
-		*cp2++ = ':';
-		cp3 = Buf;
-		for (i = 0; i < 16; ++i)
-		{
-			*cp2++ = dynamic_itoa16[(*cp3)>>4];
-			*cp2++ = dynamic_itoa16[(*cp3)&0xF];
-			++cp3;
-		}
-		*cp2 = 0;
-		strcat((char*)cpTmp, (char*)cpU2);
-		strcpy(Salt, (char*)cpTmp);
-		MEM_FREE(cpU2);
-		MEM_FREE(cpTmp);
-	}
 
 	the_real_len = salt_external_to_internal_convert((unsigned char*)Salt, (unsigned char*)saltIntBuf);
 
@@ -2534,7 +2446,7 @@ static void * binary_b64_4x6(char *ciphertext)
 }
 
 /*********************************************************************************
- * Here is the main mdg_generic fmt_main. NOTE in it's default settings, it is
+ * Here is the main mdg_generic fmt_main. NOTE in its default settings, it is
  * ready to handle base-16 hashes.  The phpass stuff will be linked in later, IF
  * needed.
  *********************************************************************************/
@@ -2662,7 +2574,7 @@ static void Dynamic_Load_itoa16_w2()
  *  Here are some 'helpers' to our helpers, when it comes to
  *  loading data into the mmx/sse buffers.  We have several
  *  of these common helper functions, and use them in 'most'
- *  of the helper primatives, instead of having the same
+ *  of the helper primitives, instead of having the same
  *  code being inlined in each of them.
  **************************************************************
  *************************************************************/
@@ -4475,7 +4387,7 @@ void DynamicFunc__FreeBSDMD5Crypt(DYNA_OMP_PARAMS) {
 	static int bFirst=1;
 	if (bFirst) {
 		bFirst = 0;
-		fprintf(stderr, "\nERROR, DynamicFunc__FreeBSDMD5Crypt() dynamic primative is no longer supported.\nThis format is invalid and will not process\n");
+		fprintf(stderr, "\nERROR, DynamicFunc__FreeBSDMD5Crypt() dynamic primitive is no longer supported.\nThis format is invalid and will not process\n");
 	}
 }
 
@@ -5194,7 +5106,6 @@ void DynamicFunc__overwrite_from_last_output2_to_input1_as_base16_no_size_fix(DY
 			*cpo++ = dynamic_itoa16[*cpi&0xF];
 		}
 		//MD5_swap(w,w,4);
-		// if swapped, then HDAA fails on big endian systems.
 	}
 }
 
@@ -5240,7 +5151,6 @@ void DynamicFunc__overwrite_from_last_output_as_base16_no_size_fix(DYNA_OMP_PARA
 			*cpo++ = dynamic_itoa16[*cpi&0xF];
 		}
 		//MD5_swap(w,w,4);
-		// if swapped, then HDAA fails on big endian systems.
 	}
 }
 
@@ -5437,7 +5347,6 @@ void DynamicFunc__overwrite_from_last_output_to_input2_as_base16_no_size_fix(DYN
 			*cpo++ = dynamic_itoa16[*cpi&0xF];
 		}
 		//MD5_swap(w,w,4);
-		// if swapped, then HDAA fails on big endian systems.
 	}
 }
 /**************************************************************
@@ -5482,7 +5391,6 @@ void DynamicFunc__overwrite_from_last_output2_as_base16_no_size_fix(DYNA_OMP_PAR
 			*cpo++ = dynamic_itoa16[*cpi&0xF];
 		}
 		//MD5_swap(w,w,4);
-		// if swapped, then HDAA fails on big endian systems.
 	}
 }
 
@@ -6829,8 +6737,6 @@ static void dyna_setupOMP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt) {
 }
 #endif
 
-// XXX fix me at some point!
-ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 {
 	int i, j, cnt, cnt2, x;
@@ -6857,7 +6763,6 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 	if (Setup->pFuncs[0] == DynamicFunc__InitialLoadKeys_md5crypt_ToOutput2_Base16_to_Input1_offset32)
 		Setup->startFlags |= MGF_KEYS_BASE16_IN1_Offset32;
 
-	curdat.dynamic_hdaa_salt     = ((Setup->flags     &MGF_HDAA_SALT)==MGF_HDAA_SALT) ? 1 : 0;
 	curdat.dynamic_40_byte_input = ((Setup->startFlags&MGF_INPUT_20_BYTE)==MGF_INPUT_20_BYTE) ? 1 : 0;
 	curdat.dynamic_48_byte_input = ((Setup->startFlags&MGF_INPUT_24_BYTE)==MGF_INPUT_24_BYTE) ? 1 : 0;
 	curdat.dynamic_64_byte_input = ((Setup->startFlags&MGF_INPUT_32_BYTE)==MGF_INPUT_32_BYTE) ? 1 : 0;
@@ -7140,10 +7045,10 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 		pFmt->params.algorithm_name = "32/" ARCH_BITS_STR " 96x1 (MD5_body)";
 #endif
 #endif
+#else
 #ifdef MMX_COEF
 		pFmt->params.algorithm_name = "128/128 " SSE_type " 4x4x" STRINGIZE(MD5_SSE_PARA);
 		pFmt->params.max_keys_per_crypt = 16*MD5_SSE_PARA;
-#endif
 #else
 		// In non-sse mode, 1 test runs as fast as 128. But validity checking is MUCH faster if
 		// we leave it at only 1.
@@ -7153,6 +7058,7 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 		pFmt->params.algorithm_name = "32/" ARCH_BITS_STR " 1x2  (MD5_body)";
 #else
 		pFmt->params.algorithm_name = "32/" ARCH_BITS_STR " (MD5_body)";
+#endif
 #endif
 #endif
 		pFmt->params.min_keys_per_crypt = 1;
@@ -7509,7 +7415,7 @@ int dynamic_Register_formats(struct fmt_main **ptr)
 	if (single != -1) {
 		// user wanted only a 'specific' format.  Simply load that one.
 		m_allow_rawhash_fixup = 1;
-		if (dynamic_IS_VALID(single) == 0)
+		if (dynamic_IS_VALID(single, 1) == 0)
 			return 0;
 		pFmts = mem_alloc_tiny(sizeof(pFmts[0]), MEM_ALIGN_WORD);
 		if (!LoadOneFormat(single, pFmts))
@@ -7519,13 +7425,13 @@ int dynamic_Register_formats(struct fmt_main **ptr)
 	}
 
 	for (count = i = 0; i < 5000; ++i) {
-		if (dynamic_IS_VALID(i) == 1)
+		if (dynamic_IS_VALID(i, 1) == 1)
 			++count;
 	}
 	// Ok, now we know how many formats we have.  Load them
 	pFmts = mem_alloc_tiny(sizeof(pFmts[0])*count, MEM_ALIGN_WORD);
 	for (idx = i = 0; i < 5000; ++i) {
-		if (dynamic_IS_VALID(i) == 1) {
+		if (dynamic_IS_VALID(i, 1) == 1) {
 			if (LoadOneFormat(i, &pFmts[idx]) == 0)
 				--count;
 			else

@@ -19,7 +19,7 @@
  * the members of that structure.  This will make your structure 'look'
  * just like a dyna_salt_john_core structure. That is the structure
  * that john core code uses, so john core can access your structure,
- * without having to know it's full internal structure. Then define the
+ * without having to know its full internal structure. Then define the
  * rest of the salt structure to be the 'real' salt structure you need
  * for the runtime of your hash.  In your format structure, set the salt_size
  * to be sizeof(dyna_salt*)  and set the FMT_DYNA_SALT format flag. See
@@ -96,5 +96,5 @@ void dyna_salt_smash(void *p, char c) {
 }
 int dyna_salt_smash_check(void *p, unsigned char c) {
 	dyna_salt_john_core *p1 = *((dyna_salt_john_core**)p);
-	return (((unsigned char*)p)[p1->dyna_salt.salt_cmp_offset+p1->dyna_salt.salt_cmp_size-1] == c);
+	return (((unsigned char*)p1)[p1->dyna_salt.salt_cmp_offset+p1->dyna_salt.salt_cmp_size-1] == c);
 }

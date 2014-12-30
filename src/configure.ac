@@ -18,8 +18,12 @@ dnl checks for compiler characteristics
 dnl checks for library functions
 dnl checks for system services
 
+dnl this MUST be done early, so that the proper JtR overridden help message
+dnl creation macro is the one that gets set first.
+m4_include([m4/jtr_specific_configure_help_message.m4])
+
 AC_PREREQ([2.69])
-AC_INIT([john], [1.8.0.2-bleeding-jumbo],[john-users mailing list at openwall.com])
+AC_INIT([john], [1.8.0.2-jumbo-1-bleeding],[john-users mailing list at openwall.com])
 ##  AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_SRCDIR([john.c])
 AC_CONFIG_HEADERS([autoconfig.h])
@@ -33,6 +37,7 @@ m4_include([m4/ax_prog_cc_mpi.m4])
 m4_include([m4/ax_lang_compiler_ms.m4])
 m4_include([m4/ax_check_gnu_make.m4])
 m4_include([m4/jtr_x86_logic.m4])
+m4_include([m4/jtr_arm_logic.m4])
 m4_include([m4/jtr_generic_logic.m4])
 m4_include([m4/jtr_systems_specific_logic.m4])
 m4_include([m4/jtr_utility_macros.m4])
@@ -55,7 +60,9 @@ AC_ARG_WITH(commoncrypto, [AS_HELP_STRING([--with-commoncrypto],[Use CommonCrypt
 AC_ARG_WITH(endian, [AS_HELP_STRING([--with-endian=little|big],[Set endianness for target if it doesn't detect properly])],,[endian=unknown])
 
 AC_ARG_ENABLE([memdbg], [AC_HELP_STRING([--enable-memdbg], [Enable memdbg memory debugging (safe level)])], [memdbg=$enableval], [memdbg=no])
-AC_ARG_ENABLE([memdbg-ex], [AC_HELP_STRING([--enable-memdbg-ex], [Enable memdbg memory debugging (expanded level)])], [memdbgex=$enableval], [memdbgex=no])
+AC_ARG_ENABLE([memdbg-ex], [AC_HELP_STRING([--enable-memdbg-ex], [* Enable memdbg memory debugging (expanded level)])], [memdbgex=$enableval], [memdbgex=no])
+AC_ARG_ENABLE([asan], [AS_HELP_STRING([--enable-asan], [* Build with AddressSanitizer])], [asan=$enableval], [asan=no])
+AC_ARG_ENABLE([plugin-dependencies], [AS_HELP_STRING([--disable-plugin-dependencies], [Do not create best-effort Makefile dependencies for plugins])], [plug_deps=$enableval], [plug_deps=yes])
 
 # Define Features. OpenMP and OpenCL are defined in their respective macros.
 # We define "--disable-FEATURE" when default is "auto".
@@ -160,7 +167,11 @@ AS_IF([test "x$JTR_FLAG_CHECK_WORKS" = xyes],
    CFLAGS_EX=""
    JTR_FLAG_CHECK([-Wall], 1)
    JTR_FLAG_CHECK([-Wdeclaration-after-statement], 1)
+if test "x$asan" = xyes ; then
+   JTR_FLAG_CHECK([-fno-omit-frame-pointer], 1)
+else
    JTR_FLAG_CHECK([-fomit-frame-pointer], 1)
+fi
    # gcc bug workaround, see issue 632
    JTR_FLAG_CHECK([--param allow-store-data-races=0], 1)
    # Silly OSX warnings
@@ -188,6 +199,7 @@ AC_CACHE_SAVE
 AC_PATH_PROG([SORT], [sort])
 AC_PATH_PROG([AR], [ar])
 AC_PATH_PROG([FIND], [find])
+AC_PATH_PROG([PERL], [perl])
 AS_IF([test -z "$AS"], [AS="$CC"])
 AS_IF([test -z "$LD"], [LD="$CC"])
 
@@ -200,23 +212,26 @@ if test "x$PKG_CONFIG" = x || test "x$enable_pkg_config" == xno ; then
 else
 	AC_MSG_RESULT([yes])
 fi
-
 # Cross-compile compliant size checks
 # size_t and off_t are post-poned to after feature macros are set
-AC_CHECK_SIZEOF([char])
-AC_CHECK_SIZEOF([unsigned char])
+# *****************************************************************
+
+dnl *** AC_CHECK_SIZEOF([char])
+dnl *** AC_CHECK_SIZEOF([unsigned char])
 AC_CHECK_SIZEOF([short])
-AC_CHECK_SIZEOF([unsigned short])
+dnl *** AC_CHECK_SIZEOF([unsigned short])
 AC_CHECK_SIZEOF([int])
-AC_CHECK_SIZEOF([unsigned])
-AC_CHECK_SIZEOF([unsigned int])
+dnl *** AC_CHECK_SIZEOF([unsigned])
+dnl *** AC_CHECK_SIZEOF([unsigned int])
 AC_CHECK_SIZEOF([long])
 AC_CHECK_SIZEOF([long long])
-AC_CHECK_SIZEOF([double])
-AC_CHECK_SIZEOF([long double])
+dnl *** AC_CHECK_SIZEOF([double])
+dnl *** AC_CHECK_SIZEOF([long double])
 AC_CHECK_SIZEOF([int *])
-AC_CHECK_SIZEOF([long long *])
+dnl ** AC_CHECK_SIZEOF([long long *])
 AC_CHECK_SIZEOF([void *])
+dnl  Not sure how to do sizeof function pointer in configure. I will add this one to jumbo.h 'by hand'
+dnl AC_CHECK_SIZEOF([int *function()]
 
 # Available arch.h's:
 # alpha.h
@@ -238,12 +253,16 @@ AC_CHECK_SIZEOF([void *])
 # x86-sse.h
 #
 # See http://ftp.netbsd.org/pub/NetBSD/NetBSD-release-6/src/external/bsd/pcc/dist/pcc/configure.ac for many alternatives
+# *****************************************************************
 #
 cpu_family="unkown"
+CPU_STR="$host_cpu"
 case "$host_cpu" in
   alpha*) ARCH_LINK=alpha.h endian=little ;;
   armeb) ARCH_LINK=arm32le.h endian=big ;;
-  arm*) ARCH_LINK=arm32le.h endian=little ;;
+  arm*) ARCH_LINK=arm32le.h endian=little
+        JTR_ARM_SPECIAL_LOGIC
+        ;;
   ia64) ARCH_LINK=ia64.h endian=little cpu_family=intel ;;
   i?86) ARCH_LINK=x86-any.h endian=little cpu_family=intel ;;
   m68k*) ARCH_LINK=autoconf_arch.h endian=big ;;
@@ -265,10 +284,9 @@ esac
 # NOTE, later, we will probably do this by parsing the host or target to figure
 # out the system, then have a switch statement, based upon the system, calling
 # the proper JTR_cputype_SPECIAL_LOGIC function (and of course have to write
-# macros for each environment.  We probaby should fall back to calling
+# macros for each environment.  We probably should fall back to calling
 # make -f Makefile.legacy clean generic or failing with an echo of that message,
 # for any environment we do not handle.
-CPU_STR="$host_cpu"
 AS_IF([test "x$cpu_family" = xintel], [JTR_X86_SPECIAL_LOGIC])
 AC_MSG_CHECKING([for arch.h alternative])
 AC_MSG_RESULT([${ARCH_LINK}])
@@ -351,7 +369,8 @@ AS_IF([test "x$with_openssl" != xno],
    PKG_CHECK_MODULES([OPENSSL], [openssl],
       AC_DEFINE(HAVE_LIBCRYPTO,1,[Define to 1 if you have the `crypto' library (-lcrypto).])
          AC_DEFINE(HAVE_LIBSSL,1,[Define to 1 if you have the `ssl' library (-lssl).]),
-	    AC_MSG_FAILURE([JtR requires OpenSSL being installed],1))
+	    AC_MSG_FAILURE([JtR requires OpenSSL and OpenSSL-devel being installed. Install if not installed.
+Try using --disable-pkg-config and possibly helping configure find oSSL by providing hints in CFLAGS and LDFLAGS],1))
 else
    AS_IF([test "x${OPENSSL_CFLAGS}${OPENSSL_LIBS}" != "x"],
       [AC_MSG_CHECKING([supplied paths for OpenSSL])]
@@ -384,35 +403,6 @@ LIBS=""
 AC_SEARCH_LIBS([crypt],[crypt],[AC_DEFINE(HAVE_CRYPT,1,[Define to 1 if you have the `crypt' library (-lcrypt).])])
 AC_SUBST(CRYPT_LIBS, [$LIBS])
 LIBS="$BACKUP_LIBS"
-# Check for Kerberos 5 libs.
-krb5_found=no
-AC_CHECK_HEADER([krb5.h],
-  [AC_SEARCH_LIBS([krb5_is_thread_safe], [krb5 k5crypto])]
-  [AC_SEARCH_LIBS([krb5_c_string_to_key], [krb5 k5crypto])]
-  [AC_SEARCH_LIBS([krb5_c_string_to_key_with_params], [krb5 k5crypto])]
-  [AC_SEARCH_LIBS([krb5_free_keyblock_contents], [krb5 k5crypto],
-    [AS_IF([test "x$ac_cv_search_krb5_c_string_to_key" = "xnone required"],
-      [AC_DEFINE([HAVE_MKSHIM],1,[Define to 1 if you have Heimdal with MKShim.])]
-      [krb5_found="yes (Heimdal w/ MKShim)"],
-      [AC_CHECK_HEADERS([heim_err.h heimdal/heim_err.h],
-        [AC_DEFINE([HAVE_HEIMDAL],1,[Define to 1 if you have Heimdal krb5.])]
-        #[krb5_found="yes, Heimdal"]
-        [krb5_found="no (Heimdal found)"]
-       ,[krb5_found="yes (MIT)"])]
-    )]
-    [AC_DEFINE([HAVE_KRB5],1,[Define to 1 if you have the Kerberos 5 libs.])]
-    [AC_SUBST(KRB5_LIBS, ["$LIBS"])]
-  )]
-  [LIBS="$BACKUP_LIBS"]
-)
-# if nether of these functions found, then totally scrap all krb5 usage.  HOWEVER, this puts a lot of
-# DEFINE XYZ 0 into the autoconfig.h file, so we MUST use #if xyz and NOT #ifdef xyz since xyz 'is' defined.
-AS_IF([test "x$ac_cv_search_krb5_c_string_to_key" = xno -a "x$ac_cv_search_krb5_c_string_to_key_with_params" = xno],
-  [AC_DEFINE([HAVE_KRB5],0,[Define to 1 if you have the Kerberos 5 libs.])]
-  [AC_SUBST(KRB5_LIBS, [""])]
-  [krb5_found="no"]
-  [AC_DEFINE([HAVE_MKSHIM],0,[Define to 1 if you have Heimdal with MKShim.])]
-  [AC_DEFINE([HAVE_HEIMDAL],0,[Define to 1 if you have Heimdal krb5.])] )
 
 AC_CHECK_HEADERS([gmp.h] [gmp/gmp.h], [AC_CHECK_LIB([gmp],[__gmpz_init], AC_DEFINE([HAVE_LIBGMP],1,[Define to 1 if you have the `gmp' library (-lgmp).]) [AC_SUBST(GMP_LIBS, [-lgmp])])] [break])
 AC_CHECK_HEADER([skey.h], [AC_CHECK_LIB([skey],[skey_set_algorithm],
@@ -479,7 +469,7 @@ CFLAGS_ORIG="$CFLAGS"
 LIBS="$OPENSSL_LIBS $COMMONCRYPTO_LIBS $LIBS"
 CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
 AS_IF([test "$with_commoncrypto" = yes], [AC_DEFINE([HAVE_SHA256],1,[Define to 1 if you have the `SHA256' function.])])
-AC_CHECK_FUNCS([EVP_aes_256_xts SHA256 WHIRLPOOL AES_encrypt EVP_sha512 BIO_new])
+AC_CHECK_FUNCS([EVP_aes_256_xts SHA256 WHIRLPOOL RIPEMD160 AES_encrypt EVP_sha512 BIO_new])
 LIBS="$LIBS_ORIG"
 CFLAGS="$CFLAGS_ORIG"
 
@@ -508,12 +498,19 @@ JTR_CUDA
 
 # Checks for header files.
 # Eg. if sys/times.h is found, the below will define HAVE_SYS_TIMES_H
-AC_CHECK_HEADERS([OS.h arpa/inet.h crypt.h fcntl.h limits.h locale.h \
+AC_CHECK_HEADERS([arpa/inet.h crypt.h fcntl.h limits.h locale.h \
                   net/ethernet.h netdb.h netinet/in.h netinet/in_systm.h \
-                  stddef.h stdint.h stdlib.h string.h strings.h \
+                  stdint.h string.h strings.h \
                   sys/ethernet.h sys/file.h sys/param.h sys/socket.h \
-                  sys/time.h sys/timeb.h sys/times.h sys/types.h termios.h \
-                  unistd.h unixlib/local.h wchar.h windows.h])
+                  sys/time.h sys/times.h sys/types.h termios.h \
+                  unistd.h unixlib/local.h windows.h])
+dnl -----------------------------------------
+dnl AC_CHECK_HEADERS([OS.h])        dnl (wrapped with __BEOS__)
+dnl AC_CHECK_HEADERS([stddef.h])    dnl too many to worry about. If this is an issue later, we will deal with it.
+dnl AC_CHECK_HEADERS([stdlib.h ])   dnl too many to worry about. If this is an issue later, we will deal with it. NOTE, it is included sometime earlier on some other check
+dnl AC_CHECK_HEADERS([sys/timeb.h]) dnl (wrapped with windows/msc/cygwin wrappers)
+dnl AC_CHECK_HEADERS([wchar.h ])    dnl (wrapped with __linux__ & HAVE_LIBDL)
+dnl -----------------------------------------
 # Quirks for Solaris and OpenBSD
 AC_CHECK_HEADERS([net/if.h], [], [],[
 #ifdef HAVE_SYS_SOCKET_H
@@ -580,24 +577,49 @@ AC_CHECK_TYPES([ptrdiff_t])
 
 # Checks for library functions.
 AC_FUNC_ERROR_AT_LINE
-AC_FUNC_FORK
 AC_FUNC_MMAP
 
+# JtR's usage of fork does not work on cygwin, even though the AC_FUNC_FORK says it should
+case "$host_os" in
+  mingw*|cygwin*)
+    # FORK is known to 'compile' but to fail and not be usable.
+    ac_cv_func_fork=no
+    ac_cv_func_fork_works=no
+    ac_cv_func_vfork=no
+    ac_cv_func_vfork_works=no
+    AC_MSG_CHECKING([for working fork])
+    AC_MSG_RESULT([no - os disabled])
+    AC_MSG_CHECKING([for working vfork])
+    AC_MSG_RESULT([no - os disabled])
+    ;;
+  *)
+    AC_FUNC_FORK
+    ;;
+esac
 # until we write a rpl_malloc replacement, we CAN NOT look for AC_FUNC_MALLOC.
 #AC_FUNC_MALLOC
 # we need a rpl_realloc before using this one.
 #AC_FUNC_REALLOC
 
+dnl --------------------------------------------------------------------
+dnl these checks HAVE to be there (we have code using them)
+dnl   setenv/putenv  fseek/ftell set,   memmem  sleep
+dnl   stri*cmp/strcasecmp strlwr/strupr
+dnl --------------------------------------------------------------------
 AC_CHECK_FUNCS([fseek64 fseeko fseeko64 _fseeki64 lseek64 lseek ftell64 ftello \
-               ftello64 _ftelli64 fopen64 _fopen64 memmem sleep atexit \
-               endpwent floor ftruncate gethostbyname gettimeofday inet_ntoa \
-               isascii mkdir rmdir setenv putenv strcasecmp strncasecmp \
+               ftello64 _ftelli64 fopen64 _fopen64 memmem sleep \
+               setenv putenv strcasecmp strncasecmp \
                stricmp strcmpi _stricmp _strcmpi strnicmp strncmpi _strnicmp \
-               _strncmpi strrchr strcspn strspn strtol strtoul strlwr strupr \
+               _strncmpi strlwr strupr \
                bzero atoll _atoi64 snprintf sprintf_s])
-#AC_CHECK_FUNCS([memchr memmove memset munmap pow \
-#                select setlocale socket strchr \
-#                strdup strerror strstr])
+dnl AC_CHECK_FUNCS([memchr memmove memset munmap pow \
+dnl                 select setlocale socket strchr \
+dnl                 strdup strerror strstr
+dnl  these extras removed for issue #910
+dnl                 endpwent isascii mkdir rmdir atexit floor
+dnl                 ftruncate gethostbyname gettimeofday inet_ntoa
+dnl                 strrchr strcspn strspn strtol strtoul
+dnl ])
 AC_CACHE_SAVE
 
 AC_SUBST([CC_CPU],["${CPU_BEST_FLAGS}"])
@@ -663,7 +685,7 @@ else
    esac
 fi
 if test "x$aesni_options" != xDISABLED; then
-   AC_CACHE_CHECK([for yasm that supports "$aesni_options]", [ac_cv_path_YASM],
+   AC_CACHE_CHECK([for yasm that supports "$aesni_options"], [ac_cv_path_YASM],
       [AC_PATH_PROGS_FEATURE_CHECK([YASM], [yasm],
          [[yasmout=`$ac_path_YASM $aesni_options 2>&1 | grep "No input files"`
            test "x$yasmout" != x \
@@ -691,6 +713,13 @@ AC_CHECK_SIZEOF([size_t])
 AC_CHECK_SIZEOF([off_t])
 CFLAGS="$CFLAGS_BACKUP"
 
+if test "x$asan" = xyes ; then
+   CFLAGS=`echo $CFLAGS | sed 's/-g //g; s/-O2 //g'`
+   CFLAGS=`echo $CFLAGS | sed 's/-g$//g; s/-O2$//g'`
+   CFLAGS="-g -O1 -fsanitize=address $CFLAGS"
+   LDFLAGS="-fsanitize=address $LDFLAGS"
+fi
+
 #add ARCH_LITTLE_ENDIAN to command line, IF we know it is big or little
 if test "x$endian" = "xbig"; then
    CFLAGS="$CFLAGS -DARCH_LITTLE_ENDIAN=0"
@@ -713,11 +742,19 @@ AC_CONFIG_LINKS([arch.h:$ARCH_LINK])
 # which corresponds to full UCS-2 or Unicode BMP.
 AS_IF([test "x$enable_nt_unicode" != xno], [AC_DEFINE([NT_FULL_UNICODE],1,[Define to 1 if you want support for 4-byte UTF-8 in fast MS formats.])])
 
+# code to create M4_INCLUDES (all ./m4/*.m4 )
+AC_SUBST([M4_INCLUDES],[`echo m4/*.m4`])
+
 ####################################################
 # Code  to create @PLUGFORMATS_OBJS@ and
 # john_buildrule.h moved from Makefile.in to here.
 ####################################################
+echo "configure: creating *_plug.c object rules"
 AC_SUBST([PLUGFORMATS_OBJS],[`echo *_plug.c | sed "s/\.c/.o/g"`])
+if test "x$plug_deps" = xyes -a "x$PERL" != x ; then
+   echo "configure: creating Makefile dependencies"
+   AC_SUBST([PLUGFORMATS_DEPS],[`$PERL ./plugin_deps.pl *_plug.c`])
+fi
 echo "configure: creating ./john_build_rule.h"
 echo "#define JOHN_BLD \"${host_os} ${CPU_BIT_STR}-bit${using_x32} ${CPU_STR}-autoconf\"" > john_build_rule.h
 
@@ -814,9 +851,15 @@ else
 fi
 
 if test "x$MEMDBG_CFLAGS" = "x"; then
-   memdbg_settings="release (off)"
+   memdbg_settings="disabled"
 else
    memdbg_settings=${MEMDBG_CFLAGS}
+fi
+
+if test "x$asan" = xyes ; then
+   asan="enabled"
+else
+   asan="disabled"
 fi
 
 AS_IF([test "x$osx_assembler_warn" = xyes],
@@ -846,14 +889,16 @@ Generic crypt(3) format ..................... ${using_crypt}
 
 Optional libraries found:
 Rexgen (extra cracking mode) ................ ${using_rexgen}
-GMP (performance) ........................... ${ac_cv_lib_gmp___gmpz_init}
-Kerberos5 (krb5-18 format) .................. ${krb5_found}
+GMP (performance for SRP formats) ........... ${ac_cv_lib_gmp___gmpz_init}
 PCAP (vncpcap2john and SIPdump) ............. ${using_pcap}
 BZ2 (gpg2john extra decompression logic) .... ${using_bz2}
+
+Development options (these may hurt performance when enabled):
 Memdbg memory debugging settings ............ ${memdbg_settings}
+AddressSanitizer ("ASAN") ................... ${asan}
 
 Install missing libraries to get any needed features that were omitted.
 
-Configure finished.  Do '${use_make} -s' to compile.
+Configure finished.  Now '${use_make} clean && ${use_make} -s' to compile.
 EOF
 dnl =======================================================================

@@ -29,7 +29,7 @@ john_register_one(&fmt_sshng);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
-#define OMP_SCALE               64
+#define OMP_SCALE               512 // Tuned K8-dual HT
 #endif
 
 #include "arch.h"
@@ -97,17 +97,10 @@ static void init(struct fmt_main *self)
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
-}
-
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int len;
+	int len, cipher;
 	if (strncmp(ciphertext, "$sshng$", 7) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -115,6 +108,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 7;
 	if ((p = strtok(ctcopy, "$")) == NULL)	/* cipher */
 		goto err;
+	cipher = atoi(p);
 	if ((p = strtok(NULL, "$")) == NULL)	/* salt len */
 		goto err;
 	len = atoi(p);
@@ -135,7 +129,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (!ishex(p))
 		goto err;
-
+	if (cipher == 2) {
+		if ((p = strtok(NULL, "$")) == NULL)	/* rounds */
+			goto err;
+		if (!isdec(p))
+			goto err;
+	}
 	MEM_FREE(keeptr);
 	return 1;
 

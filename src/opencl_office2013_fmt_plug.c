@@ -97,8 +97,7 @@ static cl_kernel GenerateSHA512pwhash, Generate2013key;
 #define HASH_LOOPS		100 /* Lower figure gives less X hogging */
 #define ITERATIONS		100000
 #define STEP			0
-#define SEED			64
-#define OCL_CONFIG		"office2013"
+#define SEED			128
 
 static const char * warn[] = {
 	"xfer: ", ", xfer: ", ", init: ", ", loop: ", ",  final: ", ", xfer: "
@@ -128,11 +127,17 @@ static size_t get_task_max_size()
 
 static size_t get_default_workgroup()
 {
+#if 1
+	return get_task_max_work_group_size(); // GTX980: 1292 c/s
+#elif 1
+	return 0; // 1290 c/s
+#else
 	if (cpu(device_info[gpu_id]))
 		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
 			8 : 1;
 	else
-		return 64;
+		return 64; // 1290 c/s
+#endif
 }
 
 static void create_clobj(size_t gws, struct fmt_main *self)
@@ -302,6 +307,11 @@ static void init(struct fmt_main *self)
 	char build_opts[64];
 	static char valgo[32] = "";
 
+	opencl_preinit();
+	/* VLIW5 can't take the register pressure from vectorizing this.
+	   Well it can, and it does get faster but only at a GWS that will
+	   give a total time for crypt_all() of > 30 seconds. */
+	if (options.v_width || !amd_vliw5(device_info[gpu_id]))
 	if ((v_width = opencl_get_vector_width(gpu_id,
 	                                       sizeof(cl_long))) > 1) {
 		/* Run vectorized kernel */
@@ -329,25 +339,16 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
 		warn, 3, self, create_clobj, release_clobj,
-		UNICODE_LENGTH, 0);
+		v_width * UNICODE_LENGTH, 0);
 
 	//Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, ITERATIONS + 4, 0, 10000 * HASH_LOOPS / ITERATIONS);
+	autotune_run(self, ITERATIONS + 4, 0,
+	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
 	self->methods.crypt_all = crypt_all;
-
-	self->params.min_keys_per_crypt = local_work_size * v_width;
-	self->params.max_keys_per_crypt = global_work_size * v_width;
 
 	if (pers_opts.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -482,22 +483,23 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
 	size_t gws, scalar_gws;
-	int e = 0;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	gws = ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size;
+	gws = ((count + (v_width * (local_work_size ? local_work_size : 1) - 1)) / (v_width * (local_work_size ? local_work_size : 1))) * (local_work_size ? local_work_size : 1);
 	scalar_gws = gws * v_width;
 
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * scalar_gws, saved_key, 0, NULL, multi_profilingEvent[e++]), "failed in clEnqueueWriteBuffer saved_key");
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * scalar_gws, saved_len, 0, NULL, multi_profilingEvent[e++]), "failed in clEnqueueWriteBuffer saved_len");
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * scalar_gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * scalar_gws, saved_len, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer saved_len");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], GenerateSHA512pwhash, 1, NULL, &scalar_gws, &local_work_size, 0, NULL, multi_profilingEvent[e++]), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], GenerateSHA512pwhash, 1, NULL, &scalar_gws, lws, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, &local_work_size, 0, NULL, multi_profilingEvent[e++]), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, NULL), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[3]), "failed in clEnqueueNDRangeKernel");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], Generate2013key, 1, NULL, &gws, &local_work_size, 0, NULL, multi_profilingEvent[e++]), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], Generate2013key, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[4]), "failed in clEnqueueNDRangeKernel");
 
 	// read back aes key
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_key, CL_TRUE, 0, 16 * scalar_gws, key, 0, NULL, multi_profilingEvent[e++]), "failed in reading key back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_key, CL_TRUE, 0, 16 * scalar_gws, key, 0, NULL, multi_profilingEvent[5]), "failed in reading key back");
 
 	return count;
 }

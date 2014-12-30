@@ -26,7 +26,13 @@ john_register_one(&fmt_radmin);
 #include "options.h"
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE               1
+// Tuned on core i7 quad HT
+//   1   7445K
+//  16  12155K
+//  32  12470K  ** this was chosen.
+//  64  12608k
+// 128  12508k
+#define OMP_SCALE     32
 #endif
 #include "memdbg.h"
 
@@ -70,13 +76,6 @@ static void init(struct fmt_main *self)
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-}
-
-static int ishex(char *q)
-{
-       while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-               q++;
-       return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)

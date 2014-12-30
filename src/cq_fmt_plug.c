@@ -15,7 +15,7 @@ john_register_one(&fmt_cq);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE 2048 // XXX
+#define OMP_SCALE 256	// core i7 no HT
 #endif
 
 #include "arch.h"
@@ -35,11 +35,11 @@ john_register_one(&fmt_cq);
 #define BENCHMARK_LENGTH    -1
 #define PLAINTEXT_LENGTH    32
 #define SALT_SIZE           64  // XXX double check this
-#define SALT_ALIGN          MEM_ALIGN_NONE  // XXX
+#define SALT_ALIGN          MEM_ALIGN_NONE
 #define BINARY_SIZE         4
 #define BINARY_ALIGN        sizeof(ARCH_WORD_32)
 #define MIN_KEYS_PER_CRYPT  1
-#define MAX_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT  512
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static ARCH_WORD_32 (*crypt_key)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
@@ -347,27 +347,32 @@ static struct fmt_tests cq_tests[] = {
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	char *p, *q;
+	char *p, *q, *tmpstr;
 	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		return 0;
 
-	p = strrchr(ciphertext, '$');
+	tmpstr = strdup(ciphertext);
+	q = p = &tmpstr[TAG_LENGTH];
+	p[-1] = 0;
+	p = strrchr(p, '$');
 	if (!p)
-		return 0;
+		goto Err;
 
 	p += 1;
 	if (strlen(p) != BINARY_SIZE * 2)
-		return 0;
+		goto Err;
 
-	p = ciphertext + TAG_LENGTH;
-	q = strchr(p, '$');
-	if (!p)
-		return 0;
+	if (!ishex(p))
+		goto Err;
 
-	if ((q - p) >= SALT_SIZE)
-		return 0;
+	if ((p - q) >= SALT_SIZE || p <= q)
+		goto Err;
 
+	MEM_FREE(tmpstr);
 	return 1;
+Err:;
+	MEM_FREE(tmpstr);
+	return 0;
 }
 
 static void *get_salt(char *ciphertext)
@@ -427,6 +432,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
+#endif
+#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (index = 0; index < count; index++)
 #endif
 	{
@@ -438,10 +445,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int i;
+	int i = 0;
 
-	for (i = 0; i < count; ++i) {
-		if ((*(unsigned int*) binary) == *(unsigned int*) crypt_key[i])
+#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
+	for (i = 0; i < count; ++i)
+#endif
+	{
+		if ((*(unsigned int*)binary) == *(unsigned int*)crypt_key[i])
 			return 1;
 	}
 

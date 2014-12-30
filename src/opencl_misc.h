@@ -22,11 +22,14 @@
 
 #include "opencl_device_info.h"
 
-#if cpu(DEVICE_INFO) || gpu_amd(DEVICE_INFO) || nvidia_sm_5x(DEVICE_INFO)
+#if !gpu_nvidia(DEVICE_INFO) || nvidia_sm_5x(DEVICE_INFO)
 #define USE_BITSELECT
-#elif gpu_nvidia(DEVICE_INFO) && !nvidia_sm_5x(DEVICE_INFO)
+#elif gpu_nvidia(DEVICE_INFO)
 #define OLD_NVIDIA
 #endif
+
+#define MIN(a, b)		(((a) < (b)) ? (a) : (b))
+#define MAX(a, b)		(((a) > (b)) ? (a) : (b))
 
 #define CONCAT(TYPE,WIDTH)	TYPE ## WIDTH
 #define VECTOR(x, y)		CONCAT(x, y)
@@ -48,20 +51,34 @@
 #define MAYBE_CONSTANT	__constant
 #endif
 
-/* Warning: This macro can't be used with eg. SWAP32(*p++) because it will
-   be incremented twice */
 #ifdef USE_BITSELECT
-//#define SWAP32(n)	(as_uint(as_uchar4(n).s3210))
-#define SWAP32(n)	bitselect(rotate(n, 24U), rotate(n, 8U), 0x00FF00FFU)
+inline uint SWAP32(uint x)
+{
+	return bitselect(rotate(x, 24U), rotate(x, 8U), 0x00FF00FFU);
+}
+
+#define SWAP64(n)	bitselect( \
+		bitselect(rotate(n, 24UL), \
+		          rotate(n, 8UL), 0x000000FF000000FFUL), \
+		bitselect(rotate(n, 56UL), \
+		          rotate(n, 40UL), 0x00FF000000FF0000UL), \
+		0xFFFF0000FFFF0000UL)
 #else
 inline uint SWAP32(uint x)
 {
 	x = rotate(x, 16U);
 	return ((x & 0x00FF00FF) << 8) + ((x >> 8) & 0x00FF00FF);
 }
+
+// You would not believe how many driver bugs variants of this macro reveal
+#define SWAP64(n)	  \
+            (((n)             << 56)   | (((n) & 0xff00)     << 40) |   \
+            (((n) & 0xff0000) << 24)   | (((n) & 0xff000000) << 8)  |   \
+            (((n) >> 8)  & 0xff000000) | (((n) >> 24) & 0xff0000)   |   \
+            (((n) >> 40) & 0xff00)     | ((n)  >> 56))
 #endif
 
-#if defined(USE_BITSELECT) || defined(SCALAR)
+#if defined(SCALAR)
 #define VSWAP32 SWAP32
 #else
 /* Vector-capable swap32() */
@@ -72,28 +89,66 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 }
 #endif
 
+#if gpu_nvidia(DEVICE_INFO)
+// Faster on nvidia, no difference on AMD
+#ifdef __ENDIAN_LITTLE__
+#define GET_UINT32BE(n, b, i)	(n) = SWAP32(((uint*)(b))[(i) >> 2])
+#define PUT_UINT32BE(n, b, i)	((uint*)(b))[(i) >> 2] = SWAP32(n)
+#else
+#define GET_UINT32BE(n, b, i)	(n) = ((uint*)(b))[(i) >> 2]
+#define PUT_UINT32BE(n, b, i)	((uint*)(b))[(i) >> 2] = (n)
+#endif
+
+#else /* Safe code for any arch */
+
+#define GET_UINT32BE(n, b, i)	  \
+	{ \
+		(n) = ((uint) (b)[(i)] << 24) \
+			| ((uint) (b)[(i) + 1] << 16) \
+			| ((uint) (b)[(i) + 2] <<  8) \
+			| ((uint) (b)[(i) + 3]      ); \
+	}
+
+#define PUT_UINT32BE(n, b, i)	  \
+	{ \
+		(b)[(i)    ] = (uchar) ((n) >> 24); \
+		(b)[(i) + 1] = (uchar) ((n) >> 16); \
+		(b)[(i) + 2] = (uchar) ((n) >>  8); \
+		(b)[(i) + 3] = (uchar) ((n)      ); \
+	}
+#endif
+
+/* Any device can do 8-bit reads BUT these macros are scalar only! */
 #define GETCHAR(buf, index) (((uchar*)(buf))[(index)])
 #define GETCHAR_G(buf, index) (((__global uchar*)(buf))[(index)])
+#define GETCHAR_L(buf, index) (((__local uchar*)(buf))[(index)])
 #define GETCHAR_BE(buf, index) (((uchar*)(buf))[(index) ^ 3])
+#define GETCHAR_MC(buf, index) (((MAYBE_CONSTANT uchar*)(buf))[(index)])
 #define LASTCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & (0xffffff00U << ((((index) & 3) ^ 3) << 3))) + ((val) << ((((index) & 3) ^ 3) << 3))
 
-#if gpu_amd(DEVICE_INFO) || no_byte_addressable(DEVICE_INFO) || !defined(SCALAR)
+#if no_byte_addressable(DEVICE_INFO) || !defined(SCALAR) /* 32-bit stores */
 #define PUTCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << (((index) & 3) << 3))) + ((val) << (((index) & 3) << 3))
-#define PUTCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << ((((index) & 3) ^ 3) << 3))) + ((val) << ((((index) & 3) ^ 3) << 3))
 #define PUTCHAR_G	PUTCHAR
+#define PUTCHAR_L	PUTCHAR
+#define PUTCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << ((((index) & 3) ^ 3) << 3))) + ((val) << ((((index) & 3) ^ 3) << 3))
 #define PUTCHAR_BE_G	PUTCHAR_BE
 #define PUTSHORT(buf, index, val) (buf)[(index)>>1] = ((buf)[(index)>>1] & ~(0xffffU << (((index) & 1) << 4))) + ((val) << (((index) & 1) << 4))
 #define PUTSHORT_BE(buf, index, val) (buf)[(index)>>1] = ((buf)[(index)>>1] & ~(0xffffU << ((((index) & 1) ^ 3) << 4))) + ((val) << ((((index) & 1) ^ 3) << 4))
+#define XORCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2]) ^ ((val) << (((index) & 3) << 3))
 #define XORCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2]) ^ ((val) << ((((index) & 3) ^ 3) << 3))
-#else
+
+#else /* 8-bit stores */
 #define PUTCHAR(buf, index, val) ((uchar*)(buf))[index] = (val)
 #define PUTCHAR_G(buf, index, val) ((__global uchar*)(buf))[(index)] = (val)
+#define PUTCHAR_L(buf, index, val) ((__local uchar*)(buf))[(index)] = (val)
 #define PUTCHAR_BE(buf, index, val) ((uchar*)(buf))[(index) ^ 3] = (val)
 #define PUTCHAR_BE_G(buf, index, val) ((__global uchar*)(buf))[(index) ^ 3] = (val)
 #define PUTSHORT(buf, index, val) ((ushort*)(buf))[index] = (val)
 #define PUTSHORT_BE(buf, index, val) ((ushort*)(buf))[(index) ^ 1] = (val)
+#define XORCHAR(buf, index, val) ((uchar*)(buf))[(index)] ^= (val)
 #define XORCHAR_BE(buf, index, val) ((uchar*)(buf))[(index) ^ 3] ^= (val)
 #endif
+
 
 /* requires int/uint */
 #define dump_stuff_msg(msg, x, size) do {	  \

@@ -41,14 +41,10 @@
 
 #if HAVE_LIBGMP
 #if HAVE_GMP_GMP_H
-#include "gmp/gmp.h"
+#include <gmp/gmp.h>
 #else
-#include "gmp.h"
+#include <gmp.h>
 #endif
-#endif
-
-#if HAVE_KRB5
-#include <krb5.h>
 #endif
 
 #include "regex.h"
@@ -212,10 +208,6 @@ static void listconf_list_build_info(void)
 	printf("\n");
 #endif
 
-#ifdef KRB5_PVNO
-	// I have no idea how to get version info
-	printf("Kerberos version %d support enabled\n", KRB5_PVNO);
-#endif
 #if HAVE_REXGEN
 	// JS_REGEX_BUILD_VERSION not reported here.
 	// It was defined as 122 in an earlier version, but is
@@ -471,16 +463,22 @@ void listconf_parse_late(void)
 		/* This will make the majority of OpenCL formats
 		   also do "quick" run. But if LWS or
 		   GWS was already set, we do not overwrite. */
-		setenv("LWS", "7", 0);
-		setenv("GWS", "49", 0);
-		setenv("BLOCKS", "7", 0);
-		setenv("THREADS", "7", 0);
+		setenv("LWS", "1", 0);
+		setenv("GWS", "1", 0);
+		setenv("BLOCKS", "1", 0);
+		setenv("THREADS", "1", 0);
 #endif
 		format = fmt_list;
 		do {
 			int ntests = 0;
 
-			fmt_init(format);	/* required for --encoding support */
+			/* Some encodings change max plaintext length when
+			   encoding is used, or KPC when under OMP */
+			if ((!strstr(format->params.label, "-opencl") &&
+			     !strstr(format->params.label, "-cuda")) ||
+			    (format->params.flags & FMT_UTF8 &&
+			     pers_opts.target_enc != ASCII))
+				fmt_init(format);
 
 			if (format->params.tests) {
 				while (format->params.tests[ntests++].ciphertext);
@@ -536,27 +534,37 @@ void listconf_parse_late(void)
 		/* This will make the majority of OpenCL formats
 		   also do "quick" run. But if LWS or
 		   GWS was already set, we do not overwrite. */
-		setenv("LWS", "7", 0);
-		setenv("GWS", "49", 0);
-		setenv("BLOCKS", "7", 0);
-		setenv("THREADS", "7", 0);
+		setenv("LWS", "1", 0);
+		setenv("GWS", "1", 0);
+		setenv("BLOCKS", "1", 0);
+		setenv("THREADS", "1", 0);
 #endif
 		format = fmt_list;
 		do {
 			int ntests = 0;
 
-			fmt_init(format);	/* required for --encoding support */
+			/* Some encodings change max plaintext length when
+			   encoding is used, or KPC when under OMP */
+			if ((!strstr(format->params.label, "-opencl") &&
+			     !strstr(format->params.label, "-cuda")) ||
+			    (format->params.flags & FMT_UTF8 &&
+			     pers_opts.target_enc != ASCII))
+				fmt_init(format);
 
 			if (format->params.tests) {
 				while (format->params.tests[ntests++].ciphertext);
 				ntests--;
 			}
 			/*
-			 * attributes should be printed in the same sequence
-			 * as with format-details, but human-readable
+			 * According to doc/OPTIONS, attributes should be printed in
+			 * the same sequence as with format-details, but human-readable.
 			 */
 			printf("Format label                         %s\n", format->params.label);
-			printf("Disabled in configuration file       %s\n",
+			/*
+			 * Indented (similar to the flags), because this information is not printed
+			 * for --list=format-details
+			 */
+			printf(" Disabled in configuration file      %s\n",
 			       cfg_get_bool(SECTION_DISABLED,
 			                    SUBSECTION_FORMATS,
 			                    format->params.label, 0)
@@ -623,6 +631,10 @@ void listconf_parse_late(void)
 		format = fmt_list;
 		do {
 			int ShowIt = 1, i;
+
+			if (format->params.flags & FMT_DYNAMIC)
+				fmt_init(format); // required for thin formats, these adjust their methods here
+
 			if (options.listconf[14] == '=' || options.listconf[14] == ':') {
 				ShowIt = 0;
 				if (!strcasecmp(&options.listconf[15], "valid")     ||
@@ -789,6 +801,8 @@ void listconf_parse_late(void)
 				printf("\tcmp_exact()\n");
 				printf("\n\n");
 			}
+			if (format->params.flags & FMT_DYNAMIC)
+				fmt_done(format); // required for thin formats
 		} while ((format = format->next));
 		exit(EXIT_SUCCESS);
 	}
@@ -800,10 +814,10 @@ void listconf_parse_late(void)
 		/* This will make the majority of OpenCL formats
 		   also do "quick" run. But if LWS or
 		   GWS was already set, we do not overwrite. */
-		setenv("LWS", "7", 0);
-		setenv("GWS", "49", 0);
-		setenv("BLOCKS", "7", 0);
-		setenv("THREADS", "7", 0);
+		setenv("LWS", "1", 0);
+		setenv("GWS", "1", 0);
+		setenv("BLOCKS", "1", 0);
+		setenv("THREADS", "1", 0);
 #endif
 		do {
 			int ntests = 0;
@@ -813,7 +827,11 @@ void listconf_parse_late(void)
 			 * support, because some formats (like Raw-MD5u)
 			 * change their tests[] depending on the encoding.
 			 */
-			fmt_init(format);
+			if ((!strstr(format->params.label, "-opencl") &&
+			     !strstr(format->params.label, "-cuda")) ||
+			    (format->params.flags & FMT_UTF8 &&
+			     pers_opts.target_enc != ASCII))
+				fmt_init(format);
 
 			if (format->params.tests) {
 				while (format->params.tests[ntests].ciphertext) {
@@ -840,25 +858,27 @@ void listconf_parse_late(void)
 					for (i = 0; ciphertext[i]; i++) {
 						if (ciphertext[i] == '\x0a' ||
 						    ciphertext[i] == separator) {
-							skip = 2;
+							skip |= 2;
 							fprintf(stderr,
 							        "Test %s %d: ciphertext contains line feed or separator character '%c'\n",
 							        format->params.label, ntests, separator);
 							break;
 						}
 					}
-					printf("%s%c%d",
-					       format->params.label, separator, ntests);
-					if (skip < 2) {
-						printf("%c%s",
-						       separator,
-						       ciphertext);
-						if (!skip)
+					if (skip != 3) { // if they are both missing, simply do not output a line at all
+						printf("%s%c%d",
+							   format->params.label, separator, ntests);
+						if (skip < 2) {
 							printf("%c%s",
-							       separator,
-							       format->params.tests[ntests].plaintext);
+								   separator,
+								   ciphertext);
+							if (!skip)
+								printf("%c%s",
+									   separator,
+									   format->params.tests[ntests].plaintext);
+						}
+						printf("\n");
 					}
-					printf("\n");
 					ntests++;
 				}
 			}

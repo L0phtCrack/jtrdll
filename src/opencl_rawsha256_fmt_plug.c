@@ -36,8 +36,6 @@ john_register_one(&fmt_opencl_rawsha256);
 
 #define ALGORITHM_NAME			"SHA256 OpenCL (inefficient, development use mostly)"
 
-#define OCL_CONFIG			"rawsha256"
-
 static uint32_t				* plaintext, * saved_idx;	// plaintext ciphertexts
 static uint32_t				* calculated_hash;		// calculated (partial) hashes
 
@@ -132,8 +130,6 @@ static void crypt_one(int index, sha256_hash * hash) {
 /* ------- Create and destroy necessary objects ------- */
 static void create_clobj(size_t gws, struct fmt_main * self)
 {
-	self->params.min_keys_per_crypt = self->params.max_keys_per_crypt = gws;
-
 	pinned_saved_keys = clCreateBuffer(context[gpu_id],
 			CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
 			BUFFER_SIZE * gws, NULL, &ret_code);
@@ -315,11 +311,7 @@ static void init(struct fmt_main * self) {
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL,
 		warn, 1, self, create_clobj, release_clobj,
-		BUFFER_SIZE, gws_limit);
-
-	//Limit worksize using index limitation.
-	while (global_work_size > gws_limit)
-		global_work_size -= local_work_size;
+		2 * BUFFER_SIZE, gws_limit);
 
 	//Auto tune execution from shared/included code.
 	autotune_run(self, 1, gws_limit,

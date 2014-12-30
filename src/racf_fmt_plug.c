@@ -34,7 +34,7 @@ john_register_one(&fmt_racf);
 #include "options.h"
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE               64
+#define OMP_SCALE               2048 // tuned K8-dual HT
 static int omp_t = 1;
 #endif
 #include "memdbg.h"
@@ -195,6 +195,7 @@ static void *get_salt(char *ciphertext)
 	username = strtok(ctcopy, "*");
 	/* process username */
 	strncpy((char*)cs.userid, username, 8);
+	cs.userid[8] = 0; // terminate username at 8 bytes
 	ascii2ebcdic(cs.userid);
 	process_userid(cs.userid);
 #ifdef RACF_DEBUG

@@ -24,7 +24,7 @@ john_register_one(&fmt_pst);
 #include "pkzip.h"  // includes the 'inline' crc table.
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE               8
+#define OMP_SCALE               16384 // core i7 no HT
 static int omp_t = 1;
 #endif
 #include "memdbg.h"
@@ -68,13 +68,6 @@ static void init(struct fmt_main *self)
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-}
-
-static int ishex(char *q)
-{
-       while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-               q++;
-       return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)

@@ -43,7 +43,7 @@
 
 #if (AC_BUILT && HAVE_WHIRLPOOL) ||	\
    (!AC_BUILT && OPENSSL_VERSION_NUMBER >= 0x10000000 && !HAVE_NO_SSL_WHIRLPOOL)
-#include "openssl/whrlpool.h"
+#include <openssl/whrlpool.h>
 #else
 // on my 32 bit cygwin builds, this code is about 4x slower than the oSSL code.
 #define WHIRLPOOL_CTX             sph_whirlpool_context
@@ -125,7 +125,7 @@ void DynamicFunc__LargeHash_OUTMode_raw(DYNA_OMP_PARAMS) {
  *****  these helpers.  Then the caller will update any length values if needed
  *****  based upon what the output pointer was, and what was returned by these
  *****  helpers.  Doing things like this will reduce the size of the large hash
- *****  primative functions.
+ *****  primitive functions.
  ******************************************************************************/
 static inline unsigned char *hex_out_buf(unsigned char *cpi, unsigned char *cpo, int in_byte_cnt) {
 	int j;

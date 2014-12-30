@@ -14,6 +14,7 @@
 #include "common.h"
 #include "DES_std.h"
 #include "memdbg.h"
+#include "misc.h"
 
 #if ARCH_BITS >= 64
 
@@ -618,7 +619,8 @@ void DES_raw_set_key(char *key)
 
 void DES_std_set_key(char *key)
 {
-	int i, j, k, l;
+	unsigned i, j;
+	int k, l;
 #if !DES_ASM
 	ARCH_WORD *value1, *value2;
 #endif

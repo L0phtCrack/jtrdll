@@ -29,7 +29,7 @@ john_register_one(&fmt_pkzip);
 #define USE_PKZIP_MAGIC 1
 #include "pkzip.h"
 
-#include "zlib.h"
+#include <zlib.h>
 #include "pkzip_inffixed.h"  // This file is a data file, taken from zlib
 #include "loader.h"
 
@@ -395,7 +395,7 @@ static void init(struct fmt_main *self)
 	// http://www.garykessler.net/library/file_sigs.html
 	// http://en.wikipedia.org/wiki/List_of_file_signatures
 	// http://toorcon.techpathways.com/uploads/headersig.txt
-	// 	FIXME: not available, 2012-12-28)
+	// 	not available, 2012-12-28)
 	// 	archive.org still has a version:
 	// 	http://web.archive.org/web/20110725085828/http://toorcon.techpathways.com/uploads/headersig.txt
 	// there are many more.
@@ -921,7 +921,7 @@ static int cmp_exact(char *source, int index)
 	}
 	/* we have a stand alone function to handle this more complex method of
 	 * loading from file, decrypting, decompressing, and crc'ing the data
-	 * It is complex enough of a task, to have it's own function. */
+	 * It is complex enough of a task, to have its own function. */
 	return cmp_exact_loadfile(index);
 }
 

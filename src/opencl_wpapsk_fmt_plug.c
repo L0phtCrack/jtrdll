@@ -41,8 +41,7 @@ static unsigned int *inbuffer;
 
 #define ITERATIONS		4095
 #define HASH_LOOPS		105 // factors 3, 3, 5, 7, 13
-#define STEP			0
-#define SEED			64
+#define SEED			256
 
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
@@ -99,11 +98,17 @@ static size_t get_task_max_size()
 
 static size_t get_default_workgroup()
 {
+#if 1
+	return get_task_max_work_group_size(); // GTX980: 195629 c/s
+#elif 1
+	return 0; // 190650 c/s
+#else
 	if (cpu(device_info[gpu_id]))
 		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
 			8 : 1;
 	else
-		return 64;
+		return 64; // 181414 c/s
+#endif
 }
 
 static void create_clobj(size_t gws, struct fmt_main *self)
@@ -213,8 +218,14 @@ static void init(struct fmt_main *self)
 	char build_opts[256];
 	static char valgo[32] = "";
 
-	if ((v_width = opencl_get_vector_width(gpu_id,
-	                                       sizeof(cl_int))) > 1) {
+	opencl_preinit();
+	/* VLIW5 does better with just 2x vectors due to GPR pressure */
+	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
+		v_width = 2;
+	else
+		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+
+	if (v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
 		         ALGORITHM_NAME " %ux", v_width);
@@ -250,16 +261,13 @@ static void init(struct fmt_main *self)
 	// Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 2 * HASH_LOOPS, split_events,
 		warn, 2, self, create_clobj, release_clobj,
-		sizeof(wpapsk_state), 0);
+		2 * v_width * sizeof(wpapsk_state), 0);
 
 	// Auto tune execution from shared/included code.
 	self->methods.crypt_all = crypt_all_benchmark;
 	autotune_run(self, 2 * ITERATIONS * 2 + 2, 0,
-	             10000 * HASH_LOOPS / (2 * ITERATIONS));
+	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
 	self->methods.crypt_all = crypt_all;
-
-	self->params.min_keys_per_crypt = local_work_size * v_width;
-	self->params.max_keys_per_crypt = global_work_size * v_width;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)

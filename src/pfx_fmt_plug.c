@@ -31,6 +31,7 @@ john_register_one(&fmt_pfx);
 #ifdef _OPENMP
 #include <omp.h>
 #define OMP_SCALE               2 // tuned on core i7
+//#define OMP_SCALE              32 // tuned on K8-dual HT  (20% faster)
 #endif
 #include <string.h>
 #include "arch.h"
@@ -38,6 +39,7 @@ john_register_one(&fmt_pfx);
 #include "formats.h"
 #include "params.h"
 #include "misc.h"
+#include "memory.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "PFX"
@@ -57,6 +59,9 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static int any_cracked, *cracked;
 static size_t cracked_size;
 
+// this will almost certainly have to be a dyna salt, with raw salt internal
+// into hash, and with PKCS12 structure in 'off-limits' land.  OR replace
+// oSSL code with native code.
 static struct custom_salt {
 	int len;
 	PKCS12 pfx;
@@ -103,19 +108,12 @@ static void init(struct fmt_main *self)
 	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
 }
 
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
-}
-
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	char *ctcopy;
-	char *keeptr;
-	char *p;
-	int res;
+	char *ctcopy, *p, *keeptr, *decoded = NULL;
+	PKCS12 *p12 = NULL;
+	BIO *bp = NULL;
+	int len, i;
 	if (strncmp(ciphertext, "$pfx$", 5))
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -123,17 +121,35 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 6;
 	if ((p = strtok(ctcopy, "*")) == NULL)	/* length */
 		goto err;
-	res = atoi(p);
+	len = atoi(p);
+	if (!isdec(p))
+		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* data */
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if(strlen(p) != res * 2)
+	if(strlen(p) != len * 2)
 		goto err;
+	decoded = (char *) mem_alloc(len + 1);
+	for (i = 0; i < len; i++)
+		decoded[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			atoi16[ARCH_INDEX(p[i * 2 + 1])];
+	decoded[len] = 0;
+	bp = BIO_new(BIO_s_mem());
+	if (!bp)
+		goto err;
+	BIO_write(bp, decoded, len);
+	if(!(p12 = d2i_PKCS12_bio(bp, NULL)))
+		goto err;
+
+	if (bp)	BIO_free(bp);
+	MEM_FREE(decoded);
 	MEM_FREE(keeptr);
 	return 1;
 
 err:
+	if (bp)	BIO_free(bp);
+	MEM_FREE(decoded);
 	MEM_FREE(keeptr);
 	return 0;
 }
@@ -148,6 +164,8 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	PKCS12 *p12 = NULL;
 	BIO *bp;
+
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += 6;	/* skip over "$pfx$*" */
 	p = strtok(ctcopy, "*");
 	cs.len = atoi(p);
@@ -169,7 +187,6 @@ static void *get_salt(char *ciphertext)
 		exit(-3);
 	}
 	/* save custom_salt information */
-	memset(&cs, 0, sizeof(cs));
 	memcpy(&cs.pfx, p12, sizeof(PKCS12));
 	BIO_free(bp);
 	MEM_FREE(decoded_data);

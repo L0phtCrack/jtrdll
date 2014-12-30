@@ -46,10 +46,8 @@ john_register_one(&fmt_opencl_mysqlsha1);
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
-#define OCL_CONFIG              "mysql-sha1"
-
 #define STEP 0
-#define SEED 64
+#define SEED 256
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
@@ -190,12 +188,16 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 static void init(struct fmt_main *self)
 {
 	char build_opts[64];
-
-	local_work_size = global_work_size = 0;
+	size_t gws_limit;
 
 	snprintf(build_opts, sizeof(build_opts),
 	        "-DPLAINTEXT_LENGTH=%u", PLAINTEXT_LENGTH);
 	opencl_init("$JOHN/kernels/msha_kernel.cl", gpu_id, build_opts);
+
+        // Current key_idx can only hold 26 bits of offset so
+        // we can't reliably use a GWS higher than 4M or so.
+        gws_limit = MIN((1 << 26) * 4 / PLAINTEXT_LENGTH,
+                        get_max_mem_alloc_size(gpu_id) / PLAINTEXT_LENGTH);
 
 	// create kernel to execute
 	crypt_kernel = clCreateKernel(program[gpu_id], "mysqlsha1_crypt_kernel", &ret_code);
@@ -204,10 +206,10 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL,
 		warn, 2, self, create_clobj, release_clobj,
-		PLAINTEXT_LENGTH, 0);
+		2 * PLAINTEXT_LENGTH, gws_limit);
 
 	//Auto tune execution from shared/included code.
-	autotune_run(self, 2, 0, 100000000);
+	autotune_run(self, 2, gws_limit, 200);
 }
 
 static void clear_keys(void)
@@ -301,9 +303,9 @@ static int cmp_exact(char *source, int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	/* Don't do more than requested */
-	global_work_size = (count + local_work_size - 1) / local_work_size * local_work_size;
+	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
 
 	/* Self-test cludge */
 	if (idx_offset > 4 * (global_work_size + 1))
@@ -314,7 +316,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_idx, CL_FALSE, idx_offset, sizeof(cl_uint) * (global_work_size + 1) - idx_offset, saved_idx + (idx_offset / sizeof(cl_uint)), 0, NULL, multi_profilingEvent[1]), "Failed transferring index");
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
+	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
 
 	// read back partial hashes
 	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(cl_uint) * global_work_size, output, 0, NULL, multi_profilingEvent[3]), "failed in reading data back");

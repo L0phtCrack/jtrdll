@@ -31,7 +31,13 @@ john_register_one(&fmt_blackberry1);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
-#define OMP_SCALE               8 // XXX
+// OMP_SCALE tests (intel core i7)
+// 8   - 77766
+// 64  - 80075
+// 128 - 82016  -test=0 is still almost instant.
+// 256 - 81753
+// 512 - 80537
+#define OMP_SCALE		128
 #endif
 #include "memdbg.h"
 
@@ -46,7 +52,7 @@ static int omp_t = 1;
 #define PLAINTEXT_LENGTH	125
 #define BINARY_SIZE		64
 #define BINARY_ALIGN		4
-#define MAX_SALT_SIZE		64 // XXX
+#define MAX_SALT_SIZE		64
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
 #define MIN_KEYS_PER_CRYPT	1
@@ -79,13 +85,6 @@ static void init(struct fmt_main *self)
 	                self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static int ishex(char *q)
-{
-        while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-                q++;
-        return !*q;
-}
-
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr;
@@ -102,11 +101,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if(strlen(p) != BINARY_SIZE * 2)
 		goto err;
-	if (!ishex(p))
+	if (!ishexuc(p))
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL) /* salt */
 		goto err;
 	if(strlen(p) > MAX_SALT_SIZE)
+		goto err;
+	p = strtok(NULL, "$");
+	if (p)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -124,7 +126,7 @@ static void *get_salt(char *ciphertext)
 
 	memset(&cs, 0, sizeof(cs));
 	p = strrchr(ciphertext, '$') + 1;
-	strncpy((char*)cs.salt, p, MAX_SALT_SIZE);
+	strcpy((char*)cs.salt, p);
 
 	return (void *)&cs;
 }

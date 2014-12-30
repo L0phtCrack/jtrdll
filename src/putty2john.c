@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#if !AC_BUILT || HAVE_LIMITS_H
 #include <limits.h>
+#endif
 #include <sys/types.h>
 #if !AC_BUILT || HAVE_FCNTL_H
 #include <fcntl.h>
@@ -27,7 +29,7 @@
 #include "jumbo.h"
 #include "memdbg.h"
 #if _MSC_VER
-#include "io.h"
+#include <io.h>
 #endif
 
 #define smalloc(z) safemalloc(z,1)

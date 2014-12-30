@@ -48,7 +48,7 @@ static int mask_has_8bit;
 
 /*
  * cand and rec_cand is the number of remaining candidates.
- * So, it's value decreases as cracking progress.
+ * So, its value decreases as cracking progress.
  */
 static unsigned long long cand, rec_cand;
 
@@ -1432,7 +1432,7 @@ char *stretch_mask(char *mask, parsed_ctx *parsed_mask)
 
 	strncpy(stretched_mask, mask, j);
 	k = 0;
-	while (k <= options.force_maxlength) {
+	while (k < options.force_maxlength) {
 		i = strlen(mask) - 1;
 		if (mask[i] == '\\' && i - 1 >= 0) {
 			i--;

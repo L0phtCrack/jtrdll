@@ -47,7 +47,11 @@
 #ifndef SPH_TYPES_H__
 #define SPH_TYPES_H__
 
+#include "autoconfig.h"
+
+#if !AC_BUILT || HAVE_LIMITS_H
 #include <limits.h>
+#endif
 #include "arch.h"
 
 /*
@@ -561,7 +565,7 @@ typedef __arch_dependant__ sph_s64;
 
 /**
  * When defined, this macro indicates that unaligned memory accesses
- * are possible with only a minor penalty, and thus should be prefered
+ * are possible with only a minor penalty, and thus should be preferred
  * over strategies which first copy data to an aligned buffer.
  */
 #define SPH_UNALIGNED
@@ -1573,7 +1577,7 @@ sph_dec32le(const void *src)
  * For most hash functions, using this inline assembly trick changes
  * hashing speed by less than 5% and often _reduces_ it. The biggest
  * gains are for MD4 (+11%) and CubeHash (+30%). For all others, it is
- * less then 10%. The speed gain on CubeHash is probably due to the
+ * less than 10%. The speed gain on CubeHash is probably due to the
  * chronic shortage of registers that CubeHash endures; for the other
  * functions, the generic code appears to be efficient enough already.
  *

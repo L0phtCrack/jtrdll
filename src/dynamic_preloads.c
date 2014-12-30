@@ -32,6 +32,7 @@
 #include "formats.h"
 #include "md5.h"
 #include "dynamic.h"
+#include "config.h"
 #include "memdbg.h"
 
 // This set of defines will turn on testing of the MAX_LENGTH hashes. Some of them can cause changes in
@@ -95,7 +96,7 @@
 //dynamic_37 -->sha1(lc($u).$p) (SMF)
 //dynamic_38 -->sha1($s.sha1($s.sha1($p))) (Wolt3BB)
 //dynamic_39 -->md5($s.pad_16($p))      (Net-md5 passed password, long salts)
-//dynamic_40 -->sha1($s.pad_16($p))     (Net-sha1 passed password, long salts)
+//dynamic_40 -->sha1($s.pad_20($p))     (Net-sha1 passed password, long salts)
 	// Try to group sha224 here (from dyna-50 to dyna-59)
 //dynamic_50 -->sha224($p)
 //dynamic_51 -->sha224($s.$p)
@@ -774,39 +775,6 @@ static struct fmt_tests _Preloads_20[] =
 	{NULL}
 };
 
-//dynamic_21 --> HDAA HTTP Digest access authentication
-static DYNAMIC_primitive_funcp _Funcs_21[] =
-{
-	//MGF_HDAA_SALT
-	//MGF_FLD2
-	//MGF_FLD3
-	DynamicFunc__clean_input,
-	DynamicFunc__append_userid,
-	DynamicFunc__append_input1_from_CONST1,
-	DynamicFunc__append_fld2,
-	DynamicFunc__append_input1_from_CONST1,
-	DynamicFunc__append_keys,
-	DynamicFunc__crypt_md5,
-	DynamicFunc__SSEtoX86_switch_output1,
-	DynamicFunc__clean_input_kwik,
-	DynamicFunc__append_salt,
-	DynamicFunc__overwrite_from_last_output_as_base16_no_size_fix,
-	DynamicFunc__crypt_md5,
-	NULL
-};
-static struct fmt_tests _Preloads_21[] =
-{
-	{"$dynamic_21$679066476e67b5c7c4e88f04be567f8b$8c12bd8f728afe56d45a0ce846b70e5a$$Uuser$$F2myrealm$$F3GET$/$$F400000001$4b61913cec32e2c9$auth","nocode"},
-	{"$dynamic_21$faa6cb7d676e5b7c17fcbf966436aa0c$af32592775d27b1cd06356b3a0db9ddf$$Umoi$$F2myrealm$$F3GET$/$$F400000001$8e1d49754a25aea7$auth","kikou"},
-	{NULL}
-};
-static DYNAMIC_Constants _Const_21[] =
-{
-	// constants not needed in the DynamicFunc__POCrypt call, but left here for documentation reasons.
-	{1, ":"},
-	{0, NULL}
-};
-
 //dynamic_22 --> md5(sha1($p))
 static DYNAMIC_primitive_funcp _Funcs_22[] =
 {
@@ -1198,7 +1166,7 @@ static struct fmt_tests _Preloads_39[] =
 };
 
 //$ ./pass_gen.pl  'dynamic=40'
-//dynamic_40 -->sha1($s.pad_16($p))     (Net-sha1 passed password, long salts)
+//dynamic_40 -->sha1($s.pad_20($p))     (Net-sha1 passed password, long salts)
 static DYNAMIC_primitive_funcp _Funcs_40[] =
 {
 	//MGF_INPUT_20_BYTE
@@ -3345,7 +3313,12 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_18: md5($s.Y.$p.0xF7.$s) (Post.Office MD5)",  _Funcs_18,_Preloads_18,_Const_18,     MGF_SALTED|MGF_NOTSSE2Safe, MGF_POSetup, 32, 32 },
 	{ "dynamic_19: Cisco PIX (MD5)",            _Funcs_19,_Preloads_19,_ConstDefault, MGF_INPBASE64_4x6, MGF_POOR_OMP, 0, 16, 16 },
 	{ "dynamic_20: Cisco ASA (MD5 salted)",     _Funcs_20,_Preloads_20,_ConstDefault, MGF_INPBASE64_4x6|MGF_SALTED, MGF_NO_FLAG, 4, 12, 12 },
+#if 0
+	// this format has been removed. It has served its purpose. Now, the HDAA
+	// format does SIMD, and is much faster and better than this format.
+	// BUT do not ever re-use dynamic_21 for other formats....
 	{ "dynamic_21: HTTP Digest Access Auth",    _Funcs_21,_Preloads_21,_Const_21,     MGF_HDAA_SALT|MGF_USERNAME|MGF_FLD2|MGF_FLD3|MGF_FLD4|MGF_SALTED, MGF_NO_FLAG, 0, 26, 26 },
+#endif
 	{ "dynamic_22: md5(sha1($p))",              _Funcs_22,_Preloads_22,_ConstDefault, MGF_StartInX86Mode, MGF_KEYS_INPUT },
 	{ "dynamic_23: sha1(md5($p))",              _Funcs_23,_Preloads_23,_ConstDefault, MGF_NO_FLAG, MGF_INPUT_20_BYTE|MGF_KEYS_INPUT },
 	{ "dynamic_24: sha1($p.$s)",                _Funcs_24,_Preloads_24,_ConstDefault, MGF_FLAT_BUFFERS|MGF_SALTED, MGF_NO_FLAG|MGF_INPUT_20_BYTE, -24 },
@@ -3365,7 +3338,7 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_37: sha1(lc($u).$p) (SMF)",      _Funcs_37,_Preloads_37,_ConstDefault,MGF_FLAT_BUFFERS| MGF_USERNAME, MGF_INPUT_20_BYTE, -23 },
 	{ "dynamic_38: sha1($s.sha1($s.sha1($p))) (Wolt3BB)",  _Funcs_38,_Preloads_38,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -23 },
 	{ "dynamic_39: md5($s.pad16($p)) (net-md5)",  _Funcs_39,_Preloads_39,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_NO_FLAG, -230, 16, 16 },
-	{ "dynamic_40: sha1($s.pad16($p)) (net-sha1)",  _Funcs_40,_Preloads_40,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -230, 20, 20 },
+	{ "dynamic_40: sha1($s.pad20($p)) (net-sha1)",  _Funcs_40,_Preloads_40,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -230, 20, 20 },
 
 	// Try to group sha224 here (from dyna-50 to dyna-59)
 	{ "dynamic_50: sha224($p)",                  _Funcs_50,_Preloads_50,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE|MGF_POOR_OMP },
@@ -3517,12 +3490,14 @@ int dynamic_RESERVED_PRELOAD_SETUP(int cnt, struct fmt_main *pFmt)
 //   but the format is INCLUDED in the build.  A couple things are still left
 //   in the parser as invalid (such as non-colon separators, etc).
 // 1 is valid.
-int dynamic_IS_VALID(int i)
+int dynamic_IS_VALID(int i, int force)
 {
 	char Type[20];
 	sprintf(Type, "dynamic_%d", i);
 	if (i < 0 || i >= 5000)
 		return -1;
+	if (!force && cfg_get_bool(SECTION_DISABLED, SUBSECTION_FORMATS, Type, 0))
+		return 0;
 	if (i < 1000) {
 		int j,len;
 		len=strlen(Type);

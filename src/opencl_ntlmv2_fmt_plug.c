@@ -56,8 +56,6 @@ john_register_one(&fmt_opencl_NTLMv2);
 #define CIPHERTEXT_LENGTH       32 /* hex chars */
 #define TOTAL_LENGTH            (12 + 3 * SALT_MAX_LENGTH + 1 + SERVER_CHALL_LENGTH + 1 + CLIENT_CHALL_LENGTH_MAX + 1 + CIPHERTEXT_LENGTH + 1)
 
-#define OCL_CONFIG              "ntlmv2"
-
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
@@ -99,7 +97,7 @@ static cl_mem pinned_key, pinned_idx, pinned_result, pinned_salt;
 static cl_kernel ntlmv2_nthash;
 
 #define STEP 0
-#define SEED 64
+#define SEED 256
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
@@ -126,11 +124,17 @@ static size_t get_task_max_size()
 
 static size_t get_default_workgroup()
 {
+#if 0
+	return get_task_max_work_group_size(); // GTX980: 53986K c/s
+#elif 0
+	return 0; // 53986K
+#else
 	if (cpu(device_info[gpu_id]))
 		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
 			8 : 1;
 	else
-		return 64;
+		return 64; // 54878K c/s
+#endif
 }
 
 static void create_clobj(size_t gws, struct fmt_main *self)
@@ -280,6 +284,7 @@ static void init(struct fmt_main *self)
 {
 	char build_opts[96];
 	static char valgo[32] = "";
+	size_t gws_limit;
 
 	if ((v_width = opencl_get_vector_width(gpu_id,
 	                                       sizeof(cl_int))) > 1) {
@@ -288,6 +293,8 @@ static void init(struct fmt_main *self)
 		         ALGORITHM_NAME " %ux", v_width);
 		self->params.algorithm_name = valgo;
 	}
+
+	gws_limit = (4 << 20) / v_width;
 
 	if (pers_opts.target_enc == UTF_8)
 		max_len = self->params.plaintext_length = 3 * PLAINTEXT_LENGTH;
@@ -306,10 +313,10 @@ static void init(struct fmt_main *self)
 	//Initialize openCL tuning (library) for this format.
 	opencl_init_auto_setup(SEED, 0, NULL,
 		warn, 3, self, create_clobj, release_clobj,
-		max_len, 0);
+		2 * v_width * max_len, gws_limit);
 
 	//Auto tune execution from shared/included code.
-	autotune_run(self, 11, 0, 1000000000);
+	autotune_run(self, 11, gws_limit, 500);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -474,9 +481,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
 	size_t scalar_gws;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
 	/* Don't do more than requested */
-	global_work_size = ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size;
+	global_work_size = local_work_size ? ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size : count / v_width;
 	scalar_gws = global_work_size * v_width;
 
 	/* Self-test cludge */
@@ -486,11 +494,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	if (new_keys) {
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, key_offset, key_idx - key_offset, saved_key + key_offset, 0, NULL, multi_profilingEvent[0]), "Failed transferring keys");
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_idx, CL_FALSE, idx_offset, 4 * (scalar_gws + 1) - idx_offset, saved_idx + (idx_offset / 4), 0, NULL, multi_profilingEvent[1]), "Failed transferring index");
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], ntlmv2_nthash, 1, NULL, &scalar_gws, &local_work_size, 0, NULL, multi_profilingEvent[2]), "Failed running first kernel");
+		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], ntlmv2_nthash, 1, NULL, &scalar_gws, lws, 0, NULL, multi_profilingEvent[2]), "Failed running first kernel");
 
 		new_keys = 0;
 	}
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, multi_profilingEvent[3]), "Failed running second kernel");
+	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Failed running second kernel");
 	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, 4 * scalar_gws, output, 0, NULL, multi_profilingEvent[4]), "failed reading results back");
 
 	partial_output = 1;

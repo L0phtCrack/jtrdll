@@ -88,8 +88,6 @@ static aes_fptr_cbc aesFunc;
 #define SEED                    65536
 #define ROUNDS                  1
 
-#define OCL_CONFIG              "o5logon"
-
 static const char * warn[] = {
         "pass xfer: ",  ", index xfer: ",  ", crypt: ",  ", result xfer: "
 };
@@ -167,7 +165,6 @@ static void create_clobj(size_t gws, struct fmt_main *self)
         HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 3, sizeof(buffer_out), (void *) &buffer_out), "Error setting argument 3");
 
         cracked = mem_alloc(sizeof(*cracked) * gws);
-        global_work_size = gws;
 }
 
 static void release_clobj(void){
@@ -212,7 +209,7 @@ static void init(struct fmt_main *self)
         opencl_init("$JOHN/kernels/o5logon_kernel.cl", gpu_id, NULL);
 
         // Current key_idx can only hold 26 bits of offset so
-        // we can't reliably use a GWS higher than 4.7M or so.
+        // we can't reliably use a GWS higher than 4M or so.
         gws_limit = MIN((1 << 26) * 4 / BUFSIZE,
                         get_max_mem_alloc_size(gpu_id) / BUFSIZE);
 
@@ -223,24 +220,13 @@ static void init(struct fmt_main *self)
         //Initialize openCL tuning (library) for this format.
         opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
                                self, create_clobj, release_clobj,
-                               BUFSIZE, gws_limit);
-
-        //Limit worksize using index limitation.
-        while (global_work_size > gws_limit)
-                global_work_size -= local_work_size;
+                               2 * BUFSIZE, gws_limit);
 
         //Auto tune execution from shared/included code.
         autotune_run(self, ROUNDS, gws_limit,
                 (cpu(device_info[gpu_id]) ? 500000000ULL : 1000000000ULL));
 
 /* ---- End OpenCL Modifications ---- */
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)

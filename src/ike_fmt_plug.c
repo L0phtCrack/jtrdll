@@ -106,13 +106,6 @@ static void init(struct fmt_main *self)
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static int ishex(char *q)
-{
-       while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-               q++;
-       return !*q;
-}
-
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ptr, *ctcopy, *keeptr;
@@ -134,55 +127,55 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 
 	MEM_FREE(keeptr);
@@ -318,7 +311,7 @@ struct fmt_main fmt_ike = {
 #if FMT_MAIN_VERSION > 11
 		{
 #if IKE_REPORT_TUNABLE_COSTS
-			"hash algorithm used for hmac [1:MD5/2:SHA1]",
+			"hash algorithm used for hmac [1:MD5 2:SHA1]",
 #else
 			NULL
 #endif

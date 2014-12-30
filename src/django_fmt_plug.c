@@ -45,6 +45,7 @@ john_register_one(&fmt_django);
 #include "options.h"
 #include "johnswap.h"
 #include "base64.h"
+#include "base64_convert.h"
 #include "pbkdf2_hmac_sha256.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -112,7 +113,6 @@ static void init(struct fmt_main *self)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int iterations;
 	if (strncmp(ciphertext, "$django$*", 9) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -129,19 +129,17 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
 		goto err;
-	if (strlen(p) > 10) // FIXME: strlen 10 still allows undefined behavior in atoi!
-		goto err;
-	iterations=atoi(p);
-	if (iterations <= 0 || iterations >= INT_MAX ) // FIXME: atoi undefined behavior
+	if (!isdec(p))
 		goto err;
 	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (strlen(p) > (SALT_SIZE + 2) / 3 * 4)
+	if (strlen(p)  > SALT_SIZE)
 		goto err;
 	if ((p = strtok(NULL, "")) == NULL)	/* hash */
 		goto err;
-	if (strlen(p) > HASH_LENGTH)
+	if (strlen(p)-1 != base64_valid_length(p,e_b64_mime,flg_Base64_MIME_TRAIL_EQ) || strlen(p)-1 > HASH_LENGTH-1)  {
 		goto err;
+	}
 	MEM_FREE(keeptr);
 	return 1;
 
@@ -270,7 +268,7 @@ static char *get_key(int index)
 }
 
 #if FMT_MAIN_VERSION > 11
-unsigned int iteration_count(void *salt)
+static unsigned int iteration_count(void *salt)
 {
 	struct custom_salt *my_salt;
 

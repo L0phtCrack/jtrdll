@@ -83,7 +83,6 @@ static unsigned int omp_t = 1;
 
 typedef struct
 {
-	char	**request;
 	size_t	h1tmplen;
 	size_t	h3tmplen;
 	char	h1tmp[HTMP];
@@ -162,18 +161,44 @@ static void init(struct fmt_main *self)
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	int nb = 0;
-	int i;
+	char *ctcopy, *keeptr, *p;
 
 	if (strncmp(ciphertext, MAGIC, sizeof(MAGIC) - 1) != 0)
 		return 0;
-	for (i = 0; ciphertext[i] != 0; i++) {
-		if (ciphertext[i] == SEPARATOR) {
-			nb++;
-		}
-	}
-	if (nb == 10)
-		return 1;
+	ctcopy = strdup(ciphertext);
+	keeptr = ctcopy;
+	ctcopy += sizeof(MAGIC)-1;
+
+	if ((p = strtok(ctcopy, "$")) == NULL) /* hash */
+		goto err;
+	if (!ishexlc(p) || strlen(p) != 32)
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* user */
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* realm */
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* method */
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* uri */
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* nonce */
+		goto err;
+	if (!ishexlc(p) )
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* noncecount */
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* clientnonce */
+		goto err;
+	if (!ishexlc(p) )
+		goto err;
+	if ((p = strtok(ctcopy, "$")) == NULL) /* qop */
+		goto err;
+
+	MEM_FREE(keeptr);
+	return 1;
+
+err:
+	MEM_FREE(keeptr);
 	return 0;
 }
 
@@ -544,7 +569,7 @@ static char *mystrndup(const char *s, size_t n)
 	size = n;
 	if (tmp < size)
 		size = tmp;
-	if ((ret = mem_alloc_tiny(sizeof(char) * size + 1, MEM_ALIGN_WORD)) == NULL)
+	if ((ret = mem_alloc(sizeof(char) * size + 1)) == NULL)
 		return NULL;
 	memmove(ret, s, size);
 	ret[size] = 0;
@@ -563,7 +588,7 @@ static void *salt(char *ciphertext)
 {
 	int nb;
 	int i;
-	char **request;
+	char *request[SIZE_TAB];
 	char *str;
 	reqinfo_t *r;
 #ifdef __MMX__
@@ -576,7 +601,6 @@ static void *salt(char *ciphertext)
 	MD5_CTX ctx;
 
 	/* parse the password string */
-	request = mem_alloc_tiny(sizeof(char*) * SIZE_TAB, MEM_ALIGN_WORD);
 	r = mem_calloc_tiny(sizeof(*r), MEM_ALIGN_WORD);
 	for (nb = 0, i = 1; ciphertext[i] != 0; i++) {
 		if (ciphertext[i] == SEPARATOR) {
@@ -584,6 +608,9 @@ static void *salt(char *ciphertext)
 			request[nb] = mystrndup(&ciphertext[i], reqlen(&ciphertext[i]));
 			nb++;
 		}
+	}
+	while (nb < SIZE_TAB) {
+		request[nb++] = NULL;
 	}
 
 	/* calculate h2 (h2 = md5(method:digestURI))*/
@@ -605,10 +632,12 @@ static void *salt(char *ciphertext)
 	         request[R_NONCE], request[R_NONCECOUNT], request[R_CLIENTNONCE],
 	         request[R_QOP], (char*)conv);
 
-	r->request = request;
 	r->h1tmplen = strlen(r->h1tmp);
 	r->h3tmplen = strlen(&r->h3tmp[CIPHERTEXT_LENGTH]) + CIPHERTEXT_LENGTH;
 
+	for (nb=0; nb < SIZE_TAB; ++nb) {
+		MEM_FREE(request[nb]);
+	}
 	return r;
 }
 

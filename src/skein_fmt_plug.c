@@ -27,10 +27,21 @@ john_register_one(&fmt_skein_512);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
-#define OMP_SCALE               1 // FIXME
+// OMP_SCALE tuned on core i7 quad core HT
+//        256bt  512bt
+// 1   -  233k   232k
+// 64  - 5406k  5377k
+// 128 - 6730k  6568k
+// 256 - 7618k  7405k
+// 512 - 8243k  8000k
+// 1k  - 8610k  8408k  ** this level chosen
+// 2k  - 8804k  8610k
+// 4k  - 8688k  8648k
+#define OMP_SCALE  1024
 #endif
 #include "memdbg.h"
 
+// Skein-256 or Skein-512 are the real format labels.
 #define FORMAT_LABEL		"Skein"
 #define FORMAT_NAME		""
 #define FORMAT_TAG		"$skein$"
@@ -100,6 +111,19 @@ static int valid256(char *ciphertext, struct fmt_main *self)
 static int valid512(char *ciphertext, struct fmt_main *self)
 {
 	return valid(ciphertext, self, 128);
+}
+
+static char *split(char *ciphertext, int index, struct fmt_main *self)
+{
+	static char out[TAG_LENGTH + BINARY_SIZE512*2 + 1];
+	
+	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
+		ciphertext += TAG_LENGTH;
+	
+	memcpy(out, FORMAT_TAG, TAG_LENGTH);
+	strnzcpy(out + TAG_LENGTH, ciphertext, BINARY_SIZE512*2 + 1);
+	strlwr(out + TAG_LENGTH);
+	return out;
 }
 
 static void *get_binary_256(char *ciphertext)
@@ -256,7 +280,7 @@ struct fmt_main fmt_skein_256 = {
 		BINARY_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -267,7 +291,7 @@ struct fmt_main fmt_skein_256 = {
 		fmt_default_reset,
 		prepare,
 		valid256,
-		fmt_default_split,
+		split,
 		get_binary_256,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11
@@ -319,7 +343,7 @@ struct fmt_main fmt_skein_512 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -330,7 +354,7 @@ struct fmt_main fmt_skein_512 = {
 		fmt_default_reset,
 		prepare,
 		valid512,
-		fmt_default_split,
+		split,
 		get_binary_512,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11

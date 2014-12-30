@@ -79,7 +79,7 @@ static int main_opencl_event;
 static struct fmt_main *self;
 static void (*create_clobj)(size_t gws, struct fmt_main *self);
 static void (*release_clobj)(void);
-static const char *config_name;
+static char fmt_base_name[128];
 static size_t gws_limit;
 
 cl_device_id devices[MAX_GPU_DEVICES];
@@ -204,6 +204,65 @@ int get_sequential_id(unsigned int dev_id, unsigned int platform_id)
 		return -1;
 
 	return (platforms[i].platform ? pos + dev_id : -1);
+}
+
+static char *opencl_driver_ver(int sequential_id)
+{
+	static char ret[64];
+	char dname[MAX_OCLINFO_STRING_LEN];
+	char *p;
+	int major = 0, minor = 0;
+
+	clGetDeviceInfo(devices[sequential_id], CL_DRIVER_VERSION,
+	                sizeof(dname), dname, NULL);
+
+	p = dname;
+	while (*p && !isdigit((int)*p))
+		p++;
+	if (*p) {
+		major = atoi(p);
+		while (*p && isdigit((int)*p))
+			p++;
+		while (*p && !isdigit((int)*p))
+			p++;
+		if (*p) {
+			minor = atoi(p);
+		}
+	}
+	snprintf(ret, sizeof(ret), "-DDEV_VER_MAJOR=%d -DDEV_VER_MINOR=%d",
+	         major, minor);
+
+	return ret;
+}
+
+static char* ns2string(cl_ulong nanosec)
+{
+	char *buf = mem_alloc_tiny(16, MEM_ALIGN_NONE);
+	int s, ms, us, ns;
+
+	ns = nanosec % 1000; nanosec /= 1000;
+	us = nanosec % 1000; nanosec /= 1000;
+	ms = nanosec % 1000;
+	s = nanosec / 1000;
+
+	if (s) {
+		if (ms)
+			snprintf(buf, 16, "%d.%03ds", s, ms);
+		else
+			snprintf(buf, 16, "%ds", s);
+	} else if (ms) {
+		if (us)
+			snprintf(buf, 16, "%d.%03dms", ms, us);
+		else
+			snprintf(buf, 16, "%dms", ms);
+	} else if (us) {
+		if (ns)
+			snprintf(buf, 16, "%d.%03dus", us, ns);
+		else
+			snprintf(buf, 16, "%dus", us);
+	} else
+		snprintf(buf, 16, "%dns", ns);
+	return buf;
 }
 
 static int get_if_device_is_in_use(int sequential_id)
@@ -687,7 +746,7 @@ void opencl_done()
 	/* Reset in case we load another format after this */
 	local_work_size = global_work_size = duration_time = 0;
 	opencl_v_width = 1;
-
+	fmt_base_name[0] = 0;
 	opencl_initialized = 0;
 
 	gpu_device_list[0] = gpu_device_list[1] = -1;
@@ -695,30 +754,36 @@ void opencl_done()
 
 static char *opencl_get_config_name(char *format, char *config_name)
 {
-	static char full_name[128];
+	static char config_item[128];
 
-	full_name[0] = '\0';
-	strcat(full_name, format);
-	strcat(full_name, config_name);
-
-	return full_name;
+	snprintf(config_item, sizeof(config_item), "%s%s",
+	         format, config_name);
+	return config_item;
 }
 
 void opencl_get_user_preferences(char *format)
 {
 	char *tmp_value;
 
-	if (format)
-	if ((tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
-		opencl_get_config_name(format, LWS_CONFIG_NAME))))
+	if (format) {
+		snprintf(fmt_base_name, sizeof(fmt_base_name), "%s", format);
+		if ((tmp_value = strrchr(fmt_base_name, (int)'-')))
+			*tmp_value = 0;
+		strlwr(fmt_base_name);
+	} else
+		fmt_base_name[0] = 0;
+
+	if (format &&
+	    (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
+		opencl_get_config_name(fmt_base_name, LWS_CONFIG_NAME))))
 		local_work_size = atoi(tmp_value);
 
 	if ((tmp_value = getenv("LWS")))
 		local_work_size = atoi(tmp_value);
 
-	if (format)
-	if ((tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
-		opencl_get_config_name(format, GWS_CONFIG_NAME))))
+	if (format &&
+	    (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
+		opencl_get_config_name(fmt_base_name, GWS_CONFIG_NAME))))
 		global_work_size = atoi(tmp_value);
 
 	if ((tmp_value = getenv("GWS")))
@@ -727,19 +792,16 @@ void opencl_get_user_preferences(char *format)
 	if (local_work_size)
 		// Ensure a valid multiple is used.
 		global_work_size = GET_MULTIPLE_OR_ZERO(global_work_size,
-						local_work_size);
+		                                        local_work_size);
 
 	if (format &&
 	    (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
-		opencl_get_config_name(format, DUR_CONFIG_NAME))))
+		opencl_get_config_name(fmt_base_name, DUR_CONFIG_NAME))))
 		duration_time = atoi(tmp_value) * 1000000ULL;
 	else
 	if ((tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
 		"Global" DUR_CONFIG_NAME)))
 		duration_time = atoi(tmp_value) * 1000000ULL;
-
-	// Save the format config string.
-	config_name = format;
 }
 
 static void dev_init(int sequential_id)
@@ -791,7 +853,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	                                 "GlobalBuildOpts")))
 		global_opts = OPENCLBUILDOPTIONS;
 
-	sprintf(include, "-I %s %s %s%s%s%d %s %s", path_expand(pathname),
+	sprintf(include, "-I %s %s %s%s%s%d %s %s %s", path_expand(pathname),
 		global_opts,
 #ifdef __APPLE__
 		"-DAPPLE ",
@@ -802,6 +864,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		"-DDEVICE_IS_CPU " : "",
 		"-DDEVICE_INFO=", device_info[sequential_id],
 		"-D_OPENCL_COMPILER",
+	        opencl_driver_ver(sequential_id),
 		opts ? opts : "");
 
 	if (options.verbosity > 3)
@@ -809,11 +872,11 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	return include;
 }
 
-void opencl_build(int sequential_id, char *opts, int save, char *file_name,
-		  int showLog)
+void opencl_build(int sequential_id, char *opts, int save, char *file_name)
 {
 	cl_int build_code;
-	char *build_log; size_t log_size;
+	char *build_log, *build_opts;
+	size_t log_size;
 	const char *srcptr[] = { kernel_source };
 
 	assert(kernel_loaded);
@@ -822,9 +885,9 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name,
 					  NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error while creating program");
 
+	build_opts = include_source("$JOHN/kernels", sequential_id, opts);
 	build_code = clBuildProgram(program[sequential_id], 0, NULL,
-		include_source("$JOHN/kernels", sequential_id, opts),
-		 NULL, NULL);
+		build_opts, NULL, NULL);
 
 	HANDLE_CLERROR(clGetProgramBuildInfo(program[sequential_id],
 					     devices[sequential_id],
@@ -840,8 +903,10 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name,
 		       "Error while getting build info");
 
 	// Report build errors and warnings
-	if ((build_code != CL_SUCCESS) && showLog ) {
+	if ((build_code != CL_SUCCESS)) {
 		// Give us much info about error and exit
+		if (options.verbosity <= 3)
+			fprintf(stderr, "Options used: %s\n", build_opts);
 		fprintf(stderr, "Build log: %s\n", build_log);
 		fprintf(stderr, "Error %d building kernel %s. DEVICE_INFO=%d\n",
 		        build_code, kernel_source_file,
@@ -849,8 +914,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name,
 		HANDLE_CLERROR (build_code, "clBuildProgram failed.");
 	}
 	// Nvidia may return a single '\n' that we ignore
-	else if (options.verbosity >= LOG_VERB && strlen(build_log) > 1 &&
-		 showLog)
+	else if (options.verbosity >= LOG_VERB && strlen(build_log) > 1)
 		fprintf(stderr, "Build log: %s\n", build_log);
 	MEM_FREE(build_log);
 
@@ -947,6 +1011,7 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 	size_t gws;
 	int count, tidx = 0;
 	void *salt;
+	char *ciphertext;
 
 	bench_running = 1;
 
@@ -1014,7 +1079,10 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 	// Set salt
 	dyna_salt_init(self);
 	dyna_salt_create();
-	salt = self->methods.salt(self->params.tests[0].ciphertext);
+	if (!self->params.tests[0].fields[1])
+		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
+	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+	salt = self->methods.salt(ciphertext);
 	self->methods.set_salt(salt);
 
 	// Warm-up run
@@ -1037,7 +1105,7 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 	if (*lastEvent == NULL)
 		lastEvent = firstEvent;
 
-	HANDLE_CLERROR(clWaitForEvents(1, firstEvent), "MaitForEvents failed");
+	HANDLE_CLERROR(clWaitForEvents(1, firstEvent), "WaitForEvents failed");
 	HANDLE_CLERROR(clFinish(queue[sequential_id]), "clFinish error");
 	HANDLE_CLERROR(clGetEventProfilingInfo(*firstEvent,
 					       CL_PROFILING_COMMAND_SUBMIT,
@@ -1055,8 +1123,8 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 		numloops = 1;
 	else if (numloops > 10)
 		numloops = 10;
-	//fprintf(stderr, "%zu, %zu, time: %zu, loops: %d\n", endTime,
-	//	startTime, (endTime-startTime), numloops);
+	//fprintf(stderr, "%zu, %zu, time: %s, loops: %d\n", endTime,
+	//	startTime, ns2string(endTime - startTime), numloops);
 
 	// Find minimum time
 	for (optimal_work_group = my_work_group = wg_multiple;
@@ -1086,12 +1154,12 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 			if (self->methods.crypt_all(&count, NULL) < 0) {
 				startTime = endTime = 0;
 				if (options.verbosity > 3)
-					fprintf(stderr, " Error occured\n");
+					fprintf(stderr, " Error occurred\n");
 				break;
 			}
 
 			HANDLE_CLERROR(clWaitForEvents(1, firstEvent),
-					   "MaitForEvents failed");
+					   "WaitForEvents failed");
 			HANDLE_CLERROR(clFinish(queue[sequential_id]),
 				       "clFinish error");
 			HANDLE_CLERROR(clGetEventProfilingInfo(*firstEvent,
@@ -1102,8 +1170,8 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 					   CL_PROFILING_COMMAND_END,
 					   sizeof(cl_ulong), &endTime, NULL),
 				       "Failed to get profiling info");
-			//fprintf(stderr, "%zu, %zu, time: %zu\n", endTime,
-			//	startTime, (endTime-startTime));
+			//fprintf(stderr, "%zu, %zu, time: %s\n", endTime,
+			//	startTime, ns2string(endTime-startTime));
 			sumStartTime += startTime;
 			sumEndTime += endTime;
 		}
@@ -1113,8 +1181,8 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 			kernelExecTimeNs = sumEndTime - sumStartTime;
 			optimal_work_group = my_work_group;
 		}
-		//fprintf(stderr, "LWS %d time=%llu ns\n",(int) my_work_group,
-		//	(unsigned long long)sumEndTime-sumStartTime);
+		//fprintf(stderr, "LWS %d time=%s\n",(int) my_work_group,
+		//	ns2string(sumEndTime-sumStartTime));
 	}
 	// Release profiling queue and create new with profiling disabled
 	clReleaseCommandQueue(queue[sequential_id]);
@@ -1164,6 +1232,8 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	cl_event benchEvent[MAX_EVENTS];
 	int number_of_events = 0;
 	void *salt;
+	int amd_bug;
+	char *ciphertext;
 
 	bench_running = 1;
 
@@ -1195,7 +1265,10 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	// Set salt
 	dyna_salt_init(self);
 	dyna_salt_create();
-	salt = self->methods.salt(self->params.tests[0].ciphertext);
+	if (!self->params.tests[0].fields[1])
+		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
+	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+	salt = self->methods.salt(ciphertext);
 	self->methods.set_salt(salt);
 
 	// Activate events. Then clear them later.
@@ -1208,7 +1281,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		runtime = looptime = 0;
 
 		if (options.verbosity > 3)
-			fprintf(stderr, " (error occured)");
+			fprintf(stderr, " (error occurred)");
 		clear_profiling_events();
 		release_clobj();
 		dyna_salt_remove(salt);
@@ -1223,9 +1296,11 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	for (i = 0; i < number_of_events; i++) {
 		char mult[32] = "";
 
+		amd_bug = 0;
+
 		HANDLE_CLERROR(
 			clWaitForEvents(1, multi_profilingEvent[i]),
-				"MaitForEvents failed");
+				"WaitForEvents failed");
 		HANDLE_CLERROR(
 			clGetEventProfilingInfo(*multi_profilingEvent[i],
 						CL_PROFILING_COMMAND_START,
@@ -1239,6 +1314,25 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 						NULL),
 			"Failed in clGetEventProfilingInfo II");
 
+		/* Work around AMD bug. It randomly claims that a kernel
+		   run took less than a microsecond, fooling our auto tune */
+		if (endTime - startTime < 1000) {
+			amd_bug = 1;
+
+			HANDLE_CLERROR(
+			clGetEventProfilingInfo(*multi_profilingEvent[i],
+						CL_PROFILING_COMMAND_SUBMIT,
+						sizeof (cl_ulong), &startTime,
+			                        NULL),
+			"Failed in clGetEventProfilingInfo I");
+			HANDLE_CLERROR(
+			clGetEventProfilingInfo(*multi_profilingEvent[i],
+						CL_PROFILING_COMMAND_END,
+						sizeof (cl_ulong), &endTime,
+						NULL),
+			"Failed in clGetEventProfilingInfo II");
+		}
+
 		if ((split_events) && (i == split_events[0] ||
 				       i == split_events[1] ||
 				       i == split_events[2])) {
@@ -1251,16 +1345,17 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 			runtime += (endTime - startTime);
 
 		if (options.verbosity > 4)
-			fprintf(stderr, "%s%s%.2fms", warnings[i], mult,
-				(double)(endTime - startTime) / 1000000.);
+			fprintf(stderr, "%s%s%s%s", warnings[i], mult,
+			        ns2string(endTime - startTime),
+			        (amd_bug) ? "*" : "");
 
 		/* Single-invocation duration limit */
 		if (duration_time && (endTime - startTime) > duration_time) {
 			runtime = looptime = 0;
 
 			if (options.verbosity > 4)
-				fprintf(stderr, " (exceeds %d ms)",
-				        (int)(duration_time / 1000000));
+				fprintf(stderr, " (exceeds %s)",
+				        ns2string(duration_time));
 			break;
 		}
 	}
@@ -1268,7 +1363,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		fprintf(stderr, "\n");
 
 	if (split_events)
-		runtime += ((looptime / total) * (rounds / hash_loops));
+		runtime += (looptime * rounds) / (hash_loops * total);
 
 	clear_profiling_events();
 	release_clobj();
@@ -1317,9 +1412,9 @@ void opencl_find_best_lws(
 	size_t my_work_group, optimal_work_group;
 	size_t max_group_size, wg_multiple, sumStartTime, sumEndTime;
 	cl_ulong startTime, endTime, kernelExecTimeNs = CL_ULONG_MAX;
-	char config_string[128];
 	cl_event benchEvent[MAX_EVENTS];
 	void *salt;
+	char *ciphertext;
 
 	bench_running = 1;
 
@@ -1389,7 +1484,10 @@ void opencl_find_best_lws(
 	// Set salt
 	dyna_salt_init(self);
 	dyna_salt_create();
-	salt = self->methods.salt(self->params.tests[0].ciphertext);
+	if (!self->params.tests[0].fields[1])
+		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
+	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+	salt = self->methods.salt(ciphertext);
 	self->methods.set_salt(salt);
 
 	// Warm-up run
@@ -1406,7 +1504,7 @@ void opencl_find_best_lws(
 
 	HANDLE_CLERROR(
 		clWaitForEvents(1, &benchEvent[main_opencl_event]),
-		"MaitForEvents failed");
+		"WaitForEvents failed");
 	HANDLE_CLERROR(clFinish(queue[sequential_id]), "clFinish error");
 	HANDLE_CLERROR(clGetEventProfilingInfo(benchEvent[main_opencl_event],
 					       CL_PROFILING_COMMAND_START,
@@ -1451,13 +1549,13 @@ void opencl_find_best_lws(
 				startTime = endTime = 0;
 
 				if (options.verbosity > 3)
-					fprintf(stderr, " Error occured\n");
+					fprintf(stderr, " Error occurred\n");
 				break;
 			}
 
 			HANDLE_CLERROR(
 				clWaitForEvents(1, &benchEvent[main_opencl_event]),
-				"MaitForEvents failed");
+				"WaitForEvents failed");
 			HANDLE_CLERROR(clFinish(queue[sequential_id]),
 				       "clFinish error");
 			HANDLE_CLERROR(clGetEventProfilingInfo(benchEvent[main_opencl_event],
@@ -1490,6 +1588,7 @@ void opencl_find_best_lws(
 	HANDLE_CLERROR(ret_code, "Error creating command queue");
 	local_work_size = optimal_work_group;
 
+<<<<<<< HEAD
 	config_string[0] = '\0';
 	strcat(config_string, config_name);
 	strcat(config_string, LWS_CONFIG_NAME);
@@ -1502,6 +1601,8 @@ void opencl_find_best_lws(
 			SUBSECTION_OPENCL "])\n", config_string,
 			local_work_size);
 	}
+=======
+>>>>>>> e2780ff24f529b0f13268ecbd5119b78b7bdc23f
 	dyna_salt_remove(salt);
 	bench_running = 0;
 }
@@ -1513,16 +1614,15 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 	size_t optimal_gws = local_work_size;
 	unsigned long long speed, best_speed = 0;
 	cl_ulong run_time, min_time = CL_ULONG_MAX;
-	char config_string[128];
 
 	/*
 	 * max_run_time is either:
 	 *   - total running time for crypt_all(), in ns
-	 *   - single duration of a kernel run, is ms
+	 *   - single duration of a kernel run, is ms (max. 1000)
 	 */
 
 	/* Does format specify max. single duration? */
-	if (max_run_time < 1000 &&
+	if (max_run_time <= 1000 &&
 	    (!duration_time || duration_time > max_run_time * 1000000)) {
 		duration_time = max_run_time * 1000000;
 		max_run_time = 0;
@@ -1531,12 +1631,12 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 	if (options.verbosity > 3) {
 		if (!max_run_time)
 		fprintf(stderr, "Calculating best global worksize (GWS); "
-			"max. %2.1f ms single kernel invocation.\n",
-			(float) duration_time / 1000000.);
+			"max. %s single kernel invocation.\n",
+		        ns2string(duration_time));
 		else
 		fprintf(stderr, "Calculating best global worksize (GWS); "
-			"max. %2.1f s total for crypt_all()\n",
-			(float) max_run_time / 1000000000.);
+			"max. %s total for crypt_all()\n",
+		        ns2string(max_run_time));
 	}
 
 	if (options.verbosity > 4)
@@ -1579,22 +1679,14 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 		if (run_time < min_time)
 			min_time = run_time;
 
-		if (options.verbosity > 3) {
-			if (rounds > 1)
-				fprintf(stderr, "gws: %9zu\t%10llu c/s%12llu "
-					"rounds/s%8.3f sec per crypt_all()",
-					num, (long long)(kpc / (run_time /
-								1000000000.)),
-					speed, (float)run_time / 1000000000.);
-			else
-				fprintf(stderr, "gws: %9zu\t%10llu c/s %8.3f "
-					"ms per crypt_all()",
-					num, (long long) (kpc / (run_time /
-								 1000000000.)),
-					(float)run_time / 1000000.);
-		}
+		if (options.verbosity > 3)
+			fprintf(stderr, "gws: %9zu\t%10llu c/s%12llu "
+			        "rounds/s%10s per crypt_all()",
+			        num, (long long)(kpc / (run_time / 1E9)),
+			        speed, ns2string(run_time));
 
-		if (max_run_time && run_time > max_run_time) {
+		if (best_speed && speed < 2 * best_speed &&
+		    max_run_time && run_time > max_run_time) {
 			if (!optimal_gws)
 				optimal_gws = num;
 
@@ -1605,7 +1697,8 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 
 		if (speed > (1.01 * best_speed)) {
 			if (options.verbosity > 3)
-				fprintf(stderr, "+");
+				fprintf(stderr,
+				        (speed > 2 * best_speed) ? "!" : "+");
 			best_speed = speed;
 			optimal_gws = num;
 		}
@@ -1621,6 +1714,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 				     &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating command queue");
 	global_work_size = optimal_gws;
+<<<<<<< HEAD
 
 	config_string[0] = '\0';
 	strcat(config_string, config_name);
@@ -1634,6 +1728,8 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 			SUBSECTION_OPENCL "])\n", config_string,
 			global_work_size);
 	}
+=======
+>>>>>>> e2780ff24f529b0f13268ecbd5119b78b7bdc23f
 }
 
 static void opencl_get_dev_info(int sequential_id)
@@ -1752,7 +1848,7 @@ void opencl_build_kernel_opt(char *kernel_filename, int sequential_id,
 			     char *opts)
 {
 	opencl_read_source(kernel_filename);
-	opencl_build(sequential_id, opts, 0, NULL, 1);
+	opencl_build(sequential_id, opts, 0, NULL);
 }
 
 void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
@@ -1788,6 +1884,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 			strcat(bin_name, opts);
 			strcat(bin_name, "_");
 		}
+		strcat(bin_name, opencl_driver_ver(sequential_id));
 		strcat(bin_name, dev_name);
 		sprintf(pnum, "_%d", platform_id);
 		strcat(bin_name, pnum);
@@ -1812,7 +1909,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 				fflush(stdout);
 			}
 			opencl_read_source(kernel_filename);
-			opencl_build(sequential_id, opts, 1, bin_name, 1);
+			opencl_build(sequential_id, opts, 1, bin_name);
 		}
 		if (warn && options.verbosity > 2) {
 			if ((runtime = (unsigned long)(time(NULL) - startTime))
@@ -2028,29 +2125,44 @@ cl_uint get_processor_family(int sequential_id)
 
 	if gpu_amd(device_info[sequential_id]) {
 
-		if ((strstr(dname, "Cedar") ||
+		if ((strstr(dname, "Cedar") ||       //AMD Radeon VLIW5
 			strstr(dname, "Redwood") ||
 			strstr(dname, "Juniper") ||
 			strstr(dname, "Cypress") ||
 			strstr(dname, "Hemlock") ||
-			strstr(dname, "Caicos") ||
+			strstr(dname, "Caicos") ||   //AMD Radeon VLIW5 Gen 2
 			strstr(dname, "Turks") ||
 			strstr(dname, "Barts") ||
-			strstr(dname, "Cayman") ||
-			strstr(dname, "Antilles") ||
 			strstr(dname, "Wrestler") ||
+			strstr(dname, "Ontario") ||
 			strstr(dname, "Zacate") ||
 			strstr(dname, "WinterPark") ||
-			strstr(dname, "BeaverCreek"))) {
+			strstr(dname, "BeaverCreek") ||
+			strstr(dname, "Cayman") ||  //AMD Radeon VLIW4
+			strstr(dname, "Antilles") ||
+			strstr(dname, "Devastator") ||
+			strstr(dname, "R7")         //AMD Radeon VLIW4
+		    )) {
 
 			if (strstr(dname, "Cayman") ||
-				strstr(dname, "Antilles"))
+				strstr(dname, "Antilles") ||
+				strstr(dname, "Devastator") ||
+				strstr(dname, "R7"))
 				return DEV_AMD_VLIW4;
 			else
 				return DEV_AMD_VLIW5;
 
-		} else
+		} else {
+			/*
+			* Graphics IP v6:
+			*   - Cape Verde, Hainan, Oland, Pitcairn, Tahiti
+			* Graphics IP v7:
+			*   - Bonaire, Havaii, Kalindi, Mullins, Spectre, Spooky
+			* Graphics IP v8:
+			*   - Iceland
+			*/
 			return DEV_AMD_GCN;
+		}
 	}
 	return DEV_UNKNOWN;
 }
@@ -2142,27 +2254,21 @@ int get_device_version(int sequential_id)
 
 char *get_opencl_header_version()
 {
-	static char *opencl_versions[] = {
-		"1.0","1.1","1.2","1.3","1.4","1.5",
-	};
-	int version = -1;
-	#ifdef CL_VERSION_1_5
-	version = 5;
-	#elif CL_VERSION_1_4
-	version = 4;
-	#elif CL_VERSION_1_3
-	version = 3;
-	#elif CL_VERSION_1_2
-	version = 2;
-	#elif CL_VERSION_1_1
-	version = 1;
-	#elif CL_VERSION_1_0
-	version = 0;
-	#endif
-	if (version == -1 || version > 5 ) {
-		return "Unknown";
-	}
-	return opencl_versions[version];
+#ifdef CL_VERSION_2_2
+	return "2.2";
+#elif CL_VERSION_2_1
+	return "2.1";
+#elif CL_VERSION_2_0
+	return "2.0";
+#elif CL_VERSION_1_2
+	return "1.2";
+#elif CL_VERSION_1_1
+	return "1.1";
+#elif CL_VERSION_1_0
+	return "1.0";
+#else
+	return "Unknown";
+#endif
 }
 
 char *get_error_name(cl_int cl_error)

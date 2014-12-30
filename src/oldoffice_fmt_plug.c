@@ -31,7 +31,7 @@ john_register_one(&fmt_oldoffice);
 #include "unicode.h"
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE               64
+#define OMP_SCALE               256
 #endif
 #include "memdbg.h"
 
@@ -113,13 +113,6 @@ static void init(struct fmt_main *self)
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
 	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
 	cur_salt = &cs;
-}
-
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)

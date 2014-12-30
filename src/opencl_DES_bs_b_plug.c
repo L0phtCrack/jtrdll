@@ -397,11 +397,29 @@ void DES_bs_select_device(struct fmt_main *fmt)
 	}
 
 	/* Cap LWS at kernel limit */
+	if (local_work_size > 64)
+		local_work_size = 64;
+
 	if (local_work_size >
 	    get_kernel_max_lws(gpu_id, krnl[gpu_id][0]))
 		local_work_size =
 			get_kernel_max_lws(gpu_id, krnl[gpu_id][0]);
 
+	/* Cludge for buggy AMD CPU driver */
+	if (cpu(device_info[gpu_id]) &&
+	    get_platform_vendor_id(get_platform_id(gpu_id)) == DEV_AMD)
+		local_work_size = 1;
+
+	/* Cludge for old buggy Intel driver */
+	if (cpu(device_info[gpu_id]) &&
+	    get_platform_vendor_id(get_platform_id(gpu_id)) == DEV_INTEL) {
+		char dev_ver[MAX_OCLINFO_STRING_LEN];
+
+		clGetDeviceInfo(devices[gpu_id], CL_DEVICE_VERSION,
+		                MAX_OCLINFO_STRING_LEN, dev_ver, NULL);
+		if (strstr(dev_ver, "Build 15293.6649"))
+			local_work_size = 1;
+	}
 
 	/* ...but ensure GWS is still a multiple of LWS */
 	global_work_size = ((global_work_size + local_work_size - 1) /
@@ -528,7 +546,7 @@ int opencl_DES_bs_crypt_25(int *pcount, struct db_salt *salt)
 			modify_src();
 			clReleaseProgram(program[gpu_id]);
 			//build_kernel( gpu_id, "-fno-bin-amdil -fno-bin-source -fbin-exe") ;
-			opencl_build(gpu_id, "-fno-bin-amdil -fno-bin-source -fbin-exe", 0, NULL, 1);
+			opencl_build(gpu_id, "-fno-bin-amdil -fno-bin-source -fbin-exe", 0, NULL);
 			krnl[gpu_id][pos] = clCreateKernel(program[gpu_id], "DES_bs_25", &err) ;
 			if (err) {
 				fprintf(stderr, "Create Kernel DES_bs_25 FAILED\n");

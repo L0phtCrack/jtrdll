@@ -33,15 +33,14 @@ john_register_one(&fmt_opencl_zip);
 #include "gladman_fileenc.h"
 #include "options.h"
 #include "stdint.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL		"zip-opencl"
 #define FORMAT_NAME		"ZIP"
 #define ALGORITHM_NAME		"PBKDF2-SHA1 OpenCL AES"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1001
-#define MIN_KEYS_PER_CRYPT	1024*9
-#define MAX_KEYS_PER_CRYPT	MIN_KEYS_PER_CRYPT
+#define MIN_KEYS_PER_CRYPT	1
+#define MAX_KEYS_PER_CRYPT	1
 # define SWAP(n) \
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 
@@ -54,8 +53,6 @@ john_register_one(&fmt_opencl_zip);
 #define FORMAT_TAG		"$zip2$"
 #define FORMAT_CLOSE_TAG	"$/zip2$"
 #define TAG_LENGTH		6
-
-#define OCL_CONFIG		"zip"
 
 typedef struct {
 	uint32_t length;
@@ -113,14 +110,78 @@ static struct fmt_tests zip_tests[] = {
 
 static unsigned char (*crypt_key)[BINARY_SIZE];
 
+static cl_int cl_error;
 static zip_password *inbuffer;
 static zip_hash *outbuffer;
 static zip_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
 
-#define insize (sizeof(zip_password) * global_work_size)
-#define outsize (sizeof(zip_hash) * global_work_size)
-#define settingsize (sizeof(zip_salt))
+size_t insize, outsize, settingsize;
+
+#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
+#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
+
+#define STEP			0
+#define SEED			256
+
+// This file contains auto-tuning routine(s). Has to be included after formats definitions.
+#include "opencl-autotune.h"
+#include "memdbg.h"
+
+static const char * warn[] = {
+	"xfer: ",  ", crypt: ",  ", xfer: "
+};
+
+/* ------- Helper functions ------- */
+static size_t get_task_max_work_group_size()
+{
+	return autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
+}
+
+static size_t get_task_max_size()
+{
+	return 0;
+}
+
+static size_t get_default_workgroup()
+{
+	if (cpu(device_info[gpu_id]))
+		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
+			8 : 1;
+	else
+		return 64;
+}
+
+static void create_clobj(size_t gws, struct fmt_main *self)
+{
+	insize = sizeof(zip_password) * gws;
+	outsize = sizeof(zip_hash) * gws;
+	settingsize = sizeof(zip_salt);
+
+	inbuffer = mem_calloc(insize);
+	outbuffer = mem_alloc(outsize);
+	crypt_key = mem_calloc(sizeof(*crypt_key) * gws);
+
+	mem_in =
+	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, insize, NULL,
+	    &cl_error);
+	HANDLE_CLERROR(cl_error, "Error allocating mem in");
+	mem_setting =
+	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, settingsize,
+	    NULL, &cl_error);
+	HANDLE_CLERROR(cl_error, "Error allocating mem setting");
+	mem_out =
+	    clCreateBuffer(context[gpu_id], CL_MEM_WRITE_ONLY, outsize, NULL,
+	    &cl_error);
+	HANDLE_CLERROR(cl_error, "Error allocating mem out");
+
+	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 0, sizeof(mem_in),
+		&mem_in), "Error while setting mem_in kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 1, sizeof(mem_out),
+		&mem_out), "Error while setting mem_out kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 2, sizeof(mem_setting),
+		&mem_setting), "Error while setting mem_salt kernel argument");
+}
 
 static void release_clobj(void)
 {
@@ -143,9 +204,7 @@ static void done(void)
 
 static void init(struct fmt_main *self)
 {
-	cl_int cl_error;
 	char build_opts[64];
-	cl_ulong maxsize;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DKEYLEN=%d -DSALTLEN=%d -DOUTLEN=%d",
@@ -155,62 +214,16 @@ static void init(struct fmt_main *self)
 	opencl_init("$JOHN/kernels/pbkdf2_hmac_sha1_unsplit_kernel.cl",
 	                gpu_id, build_opts);
 
-	/* Read LWS/GWS prefs from config or environment */
-	opencl_get_user_preferences(OCL_CONFIG);
-
-	if (!local_work_size)
-		local_work_size = cpu(device_info[gpu_id]) ? 1 : 64;
-
-	if (!global_work_size)
-		global_work_size = MAX_KEYS_PER_CRYPT;
-
 	crypt_kernel = clCreateKernel(program[gpu_id], "derive_key", &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
 
-	/* Note: we ask for the kernel's max size, not the device's! */
-	maxsize = get_kernel_max_lws(gpu_id, crypt_kernel);
+	// Initialize openCL tuning (library) for this format.
+	opencl_init_auto_setup(SEED, 0, NULL,
+	                       warn, 1, self, create_clobj, release_clobj,
+	                       sizeof(zip_password), 0);
 
-	while (local_work_size > maxsize)
-		local_work_size >>= 1;
-
-	/// Allocate memory
-	inbuffer =
-		(zip_password *) mem_calloc(sizeof(zip_password) *
-		                            global_work_size);
-	outbuffer =
-	    (zip_hash *) mem_alloc(sizeof(zip_hash) * global_work_size);
-
-	crypt_key = mem_calloc(sizeof(*crypt_key) * global_work_size);
-
-	/// Allocate memory
-	mem_in =
-	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, insize, NULL,
-	    &cl_error);
-	HANDLE_CLERROR(cl_error, "Error allocating mem in");
-	mem_setting =
-	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, settingsize,
-	    NULL, &cl_error);
-	HANDLE_CLERROR(cl_error, "Error allocating mem setting");
-	mem_out =
-	    clCreateBuffer(context[gpu_id], CL_MEM_WRITE_ONLY, outsize, NULL,
-	    &cl_error);
-	HANDLE_CLERROR(cl_error, "Error allocating mem out");
-
-	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 0, sizeof(mem_in),
-		&mem_in), "Error while setting mem_in kernel argument");
-	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 1, sizeof(mem_out),
-		&mem_out), "Error while setting mem_out kernel argument");
-	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 2, sizeof(mem_setting),
-		&mem_setting), "Error while setting mem_salt kernel argument");
-
-	self->params.max_keys_per_crypt = global_work_size;
-	if (!local_work_size)
-		opencl_find_best_workgroup(self);
-
-	self->params.min_keys_per_crypt = local_work_size;
-
-	if (options.verbosity > 2)
-		fprintf(stderr, "Local worksize (LWS) %d, Global worksize (GWS) %d\n", (int)local_work_size, (int)global_work_size);
+	// Auto tune execution from shared/included code.
+	autotune_run(self, 1, 0, 1000);
 }
 
 static const char *ValidateZipFileData(u8 *Fn, u8 *Oh, u8 *Ob, unsigned len, u8 *Auth) {
@@ -267,7 +280,7 @@ static const char *ValidateZipFileData(u8 *Fn, u8 *Oh, u8 *Ob, unsigned len, u8 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	u8 *ctcopy, *keeptr, *p, *cp, *Fn=0, *Oh=0, *Ob=0;
-	const char *sFailStr;
+	const char *sFailStr="Truncated hash, pkz_GetFld() returned NULL";
 	unsigned val;
 	int ret = 0;
 	int zip_file_validate=0;
@@ -279,41 +292,52 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	keeptr = ctcopy;
 
 	p = &ctcopy[TAG_LENGTH+1];
-	p = pkz_GetFld(p, &cp);		// type
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// type
+		goto Bail;
 	if (!cp || *cp != '0') { sFailStr = "Out of data, reading count of hashes field"; goto Bail; }
 
-	p = pkz_GetFld(p, &cp);		// mode
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// mode
+		goto Bail;
 	if (cp[1] || *cp < '1' || *cp > '3') {
 		sFailStr = "Invalid aes mode (only valid for 1 to 3)"; goto Bail; }
 	val = *cp - '0';
 
-	p = pkz_GetFld(p, &cp);		// file_magic enum (ignored for now, just a place holder)
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// file_magic enum (ignored for now, just a place holder)
+		goto Bail;
 
-	p = pkz_GetFld(p, &cp);		// salt
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// salt
+		goto Bail;
 	if (!pkz_is_hex_str(cp) || strlen((char*)cp) != SALT_LENGTH(val)<<1)  {
 		sFailStr = "Salt invalid or wrong length"; goto Bail; }
 
-	p = pkz_GetFld(p, &cp);		// validator
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// validator
+		goto Bail;
 	if (!pkz_is_hex_str(cp) || strlen((char*)cp) != 4)  {
 		sFailStr = "Validator invalid or wrong length (4 bytes hex)"; goto Bail; }
 
-	p = pkz_GetFld(p, &cp);		// Data len.
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// Data len.
+		goto Bail;
 	if (!pkz_is_hex_str(cp))  {
 		sFailStr = "Data length invalid (not hex number)"; goto Bail; }
 	sscanf((const char*)cp, "%x", &val);
 
-	p = pkz_GetFld(p, &cp);		// data blob, OR file structure
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// data blob, OR file structure
+		goto Bail;
 	if (!strcmp((char*)cp, "ZFILE")) {
-		p = pkz_GetFld(p, &Fn);
-		p = pkz_GetFld(p, &Oh);
-		p = pkz_GetFld(p, &Ob);
+		if ((p = pkz_GetFld(p, &Fn)) == NULL)
+			goto Bail;
+		if ((p = pkz_GetFld(p, &Oh)) == NULL)
+			goto Bail;
+		if ((p = pkz_GetFld(p, &Ob)) == NULL)
+			goto Bail;
 		zip_file_validate = 1;
 	} else {
 		if (!pkz_is_hex_str(cp) || strlen((char*)cp) != val<<1)  {
 			sFailStr = "Inline data blob invalid (not hex number), or wrong length"; goto Bail; }
 	}
 
-	p = pkz_GetFld(p, &cp);		// authentication_code
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// authentication_code
+		goto Bail;
 	if (!pkz_is_hex_str(cp) || strlen((char*)cp) != BINARY_SIZE<<1)  {
 		sFailStr = "Authentication data invalid (not hex number), or not 20 hex characters"; goto Bail; }
 
@@ -327,7 +351,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		}
 	}
 
-	p = pkz_GetFld(p, &cp);		// Trailing signature
+	if ((p = pkz_GetFld(p, &cp)) == NULL)		// Trailing signature
+		goto Bail;
 	if (strcmp((char*)cp, FORMAT_CLOSE_TAG)) {
 		sFailStr = "Invalid trailing zip2 signature"; goto Bail; }
 	ret = 1;
@@ -487,6 +512,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
 	int index;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+
+	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
 
 	if (saved_salt->v.type) {
 		// This salt passed valid() but failed get_salt().
@@ -495,24 +523,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		return count;
 	}
 
-	global_work_size = (count + local_work_size - 1) / local_work_size * local_work_size;
-
 	/// Copy data to gpu
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
-		insize, inbuffer, 0, NULL, NULL), "Copy data to gpu");
+		insize, inbuffer, 0, NULL, multi_profilingEvent[0]),
+		"Copy data to gpu");
 
 	/// Run kernel
 	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-		NULL, &global_work_size, &local_work_size, 0, NULL, profilingEvent),
-	    "Run kernel");
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
+		NULL, &global_work_size, lws, 0, NULL,
+		multi_profilingEvent[1]),
+		"Run kernel");
 
 	/// Read the result back
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_FALSE, 0,
-		outsize, outbuffer, 0, NULL, NULL), "Copy result back");
-
-	/// Await completion of all the above
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
+	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0,
+		outsize, outbuffer, 0, NULL, multi_profilingEvent[2]),
+		"Copy result back");
 
 #ifdef _OPENMP
 #pragma omp parallel for

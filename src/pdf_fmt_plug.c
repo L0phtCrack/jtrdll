@@ -142,6 +142,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
+	if (!ishexlc(p))
+		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* length_u */
 		goto err;
 	res = atoi(p);
@@ -150,6 +152,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if ((p = strtok(NULL, "*")) == NULL)	/* u */
 		goto err;
 	if (strlen(p) != res * 2)
+		goto err;
+	if (!ishexlc(p))
 		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* length_o */
 		goto err;
@@ -160,19 +164,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
+	if (!ishexlc(p))
+		goto err;
 	MEM_FREE(keeptr);
 	return 1;
 
 err:
 	MEM_FREE(keeptr);
 	return 0;
-}
-
-static int ishex(char *q)
-{
-       while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-               q++;
-       return !*q;
 }
 
 static int old_valid(char *ciphertext, struct fmt_main *self)
@@ -188,11 +187,11 @@ static int old_valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 14;
 	if (!(ptr = strtok(ctcopy, "*"))) /* o_string */
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*"))) /* u_string */
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*"))) /* fileIDLen */
 		goto error;
@@ -200,7 +199,7 @@ static int old_valid(char *ciphertext, struct fmt_main *self)
 		goto error;
 	if (!(ptr = strtok(NULL, "*"))) /* fileID */
 		goto error;
-	if (!ishex(ptr))
+	if (!ishexlc(ptr))
 		goto error;
 	if (!(ptr = strtok(NULL, "*"))) /* encryptMetaData */
 		goto error;

@@ -155,6 +155,7 @@ typedef struct {
 	unsigned long long pack_size;
 	unsigned long long unp_size;
 	int method;
+	unsigned char blob_hash[20]; // holds an sha1, but could be 'any' hash.
 	// raw_data should be word aligned, and 'ok'
 	unsigned char raw_data[1];
 } rarfile;
@@ -294,6 +295,7 @@ static void *get_salt(char *ciphertext)
 	rarfile *psalt;
 	unsigned char tmp_salt[8];
 	int inlined = 1;
+	SHA_CTX ctx;
 
 	if (!ptr) ptr = mem_alloc_tiny(sizeof(rarfile*),sizeof(rarfile*));
 	saltcopy += 7;		/* skip over "$RAR3$*" */
@@ -310,6 +312,7 @@ static void *get_salt(char *ciphertext)
 		for (i = 0; i < 16; i++)
 			psalt->raw_data[i] = atoi16[ARCH_INDEX(encoded_ct[i * 2])] * 16 + atoi16[ARCH_INDEX(encoded_ct[i * 2 + 1])];
 		psalt->blob = psalt->raw_data;
+		psalt->pack_size = 16;
 	} else {
 		char *p = strtok(NULL, "*");
 		char crc_c[4];
@@ -392,6 +395,9 @@ static void *get_salt(char *ciphertext)
 			psalt->crc.w = JOHNSWAP(~psalt->crc.w);
 #endif
 	}
+	SHA1_Init(&ctx);
+	SHA1_Update(&ctx, psalt->blob, psalt->pack_size);
+	SHA1_Final(psalt->blob_hash, &ctx);
 	MEM_FREE(keep_ptr);
 #if HAVE_MMAP
 	psalt->dsalt.salt_alloc_needs_free = inlined;
@@ -447,16 +453,6 @@ static void init(struct fmt_main *self)
 		CRC32_t crc;
 		CRC32_Init(&crc);
 	}
-}
-
-static int hexlen(char *q)
-{
-	char *s = q;
-	size_t len = strlen(q);
-
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return (len == (size_t)(q - s)) ? (int)(q - s) : -1 - (int)(q - s);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -675,26 +671,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 	for (index = 0; index < count; index++) {
 		int i16 = index*16;
-		unsigned int i, j;
-#if ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED
-		unsigned char RawPsw[UNICODE_LENGTH + 8 + sizeof(int)];
-#else
-		unsigned char RawPsw[UNICODE_LENGTH + 8];
-#endif
+		unsigned int i;
+		unsigned char RawPsw[UNICODE_LENGTH + 8 + 3];
 		int RawLength;
-		SHA_CTX ctx;
+		SHA_CTX ctx, tempctx;
 		unsigned int digest[5];
-#if ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED
-		unsigned int *PswNum;
-#endif
+		unsigned char *PswNum, tempout[20];
 
-#if ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED
 		RawLength = saved_len[index] + 8 + 3;
-		PswNum = (unsigned int*) &RawPsw[saved_len[index] + 8];
-		*PswNum = 0;
-#else
-		RawLength = saved_len[index] + 8;
-#endif
+		PswNum = (unsigned char*) &RawPsw[saved_len[index] + 8];
+		PswNum[1] = PswNum[2] = 0;
 		/* derive IV and key for AES from saved_key and
 		   saved_salt, this code block is based on unrarhp's
 		   and unrar's sources */
@@ -702,39 +688,22 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		memcpy(RawPsw + saved_len[index], saved_salt, 8);
 		SHA1_Init(&ctx);
 		for (i = 0; i < ROUNDS; i++) {
-#if !(ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED)
-			unsigned char PswNum[3];
-#endif
-
-			SHA1_Update(&ctx, RawPsw, RawLength);
-#if ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED
-			*PswNum += 1;
-#else
 			PswNum[0] = (unsigned char) i;
-			PswNum[1] = (unsigned char) (i >> 8);
-			PswNum[2] = (unsigned char) (i >> 16);
-			SHA1_Update(&ctx, PswNum, 3);
-#endif
+			if ( ((unsigned char) i) == 0) {
+				PswNum[1] = (unsigned char) (i >> 8);
+				PswNum[2] = (unsigned char) (i >> 16);
+			}
+			SHA1_Update(&ctx, RawPsw, RawLength);
 			if (i % (ROUNDS / 16) == 0) {
-				SHA_CTX tempctx = ctx;
-				unsigned int tempout[5];
-
-				SHA1_Final((unsigned char*) tempout, &tempctx);
-#if ARCH_LITTLE_ENDIAN
-				aes_iv[i16 + i / (ROUNDS / 16)] = (unsigned char)JOHNSWAP(tempout[4]);
-#else
-				aes_iv[i16 + i / (ROUNDS / 16)] = (unsigned char)tempout[4];
-#endif
+				tempctx = ctx;
+				SHA1_Final(tempout, &tempctx);
+				aes_iv[i16 + i / (ROUNDS / 16)] = tempout[19];
 			}
 		}
 		SHA1_Final((unsigned char*)digest, &ctx);
-#if ARCH_LITTLE_ENDIAN
-		for (j = 0; j < 5; j++)	/* reverse byte order */
-			digest[j] = JOHNSWAP(digest[j]);
-#endif
-		for (i = 0; i < 4; i++)
-			for (j = 0; j < 4; j++)
-				aes_key[i16 + i * 4 + j] = (unsigned char)(digest[i] >> (j * 8));
+		for (i = 0; i < 4; i++)	/* reverse byte order */
+			digest[i] = JOHNSWAP(digest[i]);
+		memcpy(&aes_key[i16], (unsigned char*)digest, 16);
 	}
 
 #ifdef _OPENMP

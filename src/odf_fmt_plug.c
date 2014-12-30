@@ -99,13 +99,6 @@ static void init(struct fmt_main *self)
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static int ishex(char *q)
-{
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
-		q++;
-	return !*q;
-}
-
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy;
@@ -133,11 +126,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
 		goto err;
-	if (strlen(p) > 10) // FIXME: atoi() overflow still possible
+	if (!isdec(p))
 		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* key size */
-		goto err;
-	if (strlen(p) >= 10)
 		goto err;
 	res = atoi(p);
 	if (res != 16 && res != 32)
@@ -145,8 +136,6 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if ((p = strtok(NULL, "*")) == NULL)	/* checksum field (skipped) */
 		goto err;
 	if ((p = strtok(NULL, "*")) == NULL)	/* iv length */
-		goto err;
-	if (strlen(p) >= 10)
 		goto err;
 	res = atoi(p);
 	if (res > 16 || res < 0)

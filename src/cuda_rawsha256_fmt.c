@@ -97,6 +97,9 @@ static struct fmt_tests sha256_tests[] = {
 #define TESTS			sha224_tests
 #define FMT_MAIN		fmt_cuda_rawsha224
 static struct fmt_tests sha224_tests[] = {
+	{"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01", "password"},
+	{FORMAT_TAG "7e6a4309ddf6e8866679f61ace4f621b0e3455ebac2e831a60f13cd1", "12345678"},
+	{FORMAT_TAG "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", ""},
 	{"d6d8ff02342ea04cf65f8ab446b22c4064984c29fe86f858360d0319", "openwall"},
 	{FORMAT_TAG "d6d8ff02342ea04cf65f8ab446b22c4064984c29fe86f858360d0319", "openwall"},
 	{NULL}
@@ -162,6 +165,18 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return 1;
 }
 
+static char *split(char *ciphertext, int index, struct fmt_main *self)
+{
+	static char out[TAG_LEN + CIPHERTEXT_LENGTH + 1];
+
+	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LEN))
+		ciphertext += TAG_LEN;
+
+	memcpy(out, FORMAT_TAG, TAG_LEN);
+	memcpy(out + TAG_LEN, ciphertext, CIPHERTEXT_LENGTH + 1);
+	strlwr(out + TAG_LEN);
+	return out;
+}
 
 static void *binary(char *ciphertext)
 {
@@ -288,7 +303,7 @@ struct fmt_main FMT_MAIN = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -299,7 +314,7 @@ struct fmt_main FMT_MAIN = {
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
-		fmt_default_split,
+		split,
 		binary,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11

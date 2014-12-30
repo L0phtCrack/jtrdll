@@ -25,6 +25,9 @@
 #include <sys/stat.h>
 #ifdef _MSC_VER
 #include "missing_getopt.h"
+#include <io.h>
+#else
+#include <unistd.h>
 #endif
 #include "memory.h"
 #include "misc.h"
@@ -249,88 +252,166 @@ static void hex_to_raw(const char *from, int len, unsigned char *to) {
  * have to allocate a large buffer, decrypt to one, and re-encrypt just to do a
  * conversion.  With these functions we should be able to walk through a buffer
  ******************************************************************************************/
-static int mime_to_cryptBS(const char *cpi, char *cpo, int flags) {
+static int mime_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, mime_to_cryptBS, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode((char*)cpi, len_left < 4 ? len_left : 4, Tmp);
-		base64_encode_iBS((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_iBS((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int mime_to_crypt(const char *cpi, char *cpo, int flags) {
+static int mime_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, mime_to_crypt, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode((char*)cpi, len_left < 4 ? len_left : 4, Tmp);
-		base64_encode_i((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_i((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int crypt_to_cryptBS(const char *cpi, char *cpo, int flags) {
+static int crypt_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, crypt_to_cryptBS, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode_i((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
-		base64_encode_iBS((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_iBS((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int crypt_to_mime(const char *cpi, char *cpo, int flags) {
+static int crypt_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, crypt_to_mime, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode_i((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
-		base64_encode((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int cryptBS_to_mime(const char *cpi, char *cpo, int flags) {
+static int cryptBS_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, cryptBS_to_mime, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode_iBS((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
-		base64_encode((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int cryptBS_to_crypt(const char *cpi, char *cpo, int flags) {
+static int cryptBS_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = len_left;
+	int len_left = strlen(cpi);
+	int use_bytes=3;
+	if (to_len < len_left) {
+		fprintf(stderr, "ERROR, cryptBS_to_crypt, output buffer not large enough\n");
+		error();
+	}
 	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			--use_bytes;
+			if (len_left < 3)
+				--use_bytes;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
 		base64_decode_iBS((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
-		base64_encode_i((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_i((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 4;
 		cpo += 4;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
 
@@ -339,109 +420,276 @@ static int cryptBS_to_crypt(const char *cpi, char *cpo, int flags) {
  * time, and not have to allocate a large buffer, decrypt to one, and re-encrypt just
  * to do a conversion.  With these functions we should be able to walk through a buffer
  ******************************************************************************************/
-static int hex_to_cryptBS(const char *cpi, char *cpo, int flags) {
+static int hex_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = 0;
+	int len=0, len_left = strlen(cpi), this_len=4;
+	int use_bytes=3;
 	while (len_left > 0) {
-		if (len_left < 6) memset(Tmp,0,3);
+		if (len_left < 6) {
+			--use_bytes;
+			if (len_left < 4)
+				--use_bytes;
+			memset(Tmp,0,3);
+			if (len_left == 2) this_len = 2;
+			else this_len = 3;
+		}
+		if (len+this_len > to_len)  // can overflow by 1
+			break;
 		hex_to_raw((const char*)cpi, len_left < 6 ? len_left : 6, (unsigned char*)Tmp);
-		base64_encode_iBS((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_iBS((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 6;
 		cpo += 4;
-		if (len_left >= 6) len += 4;
-		else if (len_left ==2) len +=2;
-		else len += 3;
+		len += this_len;
 		len_left -= 6;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int hex_to_crypt(const char *cpi, char *cpo, int flags) {
+static int hex_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = 0;
+	int len=0, len_left = strlen(cpi), this_len=4;
+	int use_bytes=3;
 	while (len_left > 0) {
-		if (len_left < 6) memset(Tmp,0,3);
+		if (len_left < 6) {
+			--use_bytes;
+			if (len_left < 4)
+				--use_bytes;
+			memset(Tmp,0,3);
+			if (len_left == 2) this_len = 2;
+			else this_len = 3;
+		}
+		if (len+this_len > to_len)  // can overflow by 1
+			break;
 		hex_to_raw((const char*)cpi, len_left < 6 ? len_left : 6, (unsigned char*)Tmp);
-		base64_encode_i((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode_i((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 6;
 		cpo += 4;
-		if (len_left >= 6) len += 4;
-		else if (len_left ==2) len +=2;
-		else len += 3;
+		len = this_len;
 		len_left -= 6;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int hex_to_mime(const char *cpi, char *cpo, int flags) {
+static int hex_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
-	int len, len_left = strlen(cpi);
-	len = 0;
+	int len=0, len_left = strlen(cpi), this_len=4;
+	int use_bytes=3;
 	while (len_left > 0) {
-		if (len_left < 6) memset(Tmp,0,3);
+		if (len_left < 6) {
+			--use_bytes;
+			if (len_left < 4)
+				--use_bytes;
+			memset(Tmp,0,3);
+			if (len_left == 2) this_len = 2;
+			else this_len = 3;
+		}
+		if (len+this_len > to_len)  // can overflow by 1
+			break;
 		hex_to_raw((const char*)cpi, len_left < 6 ? len_left : 6, (unsigned char*)Tmp);
-		base64_encode((const unsigned char*)Tmp, 3, cpo, flags);
+		base64_encode((const unsigned char*)Tmp, use_bytes, cpo, flags);
 		cpi += 6;
 		cpo += 4;
-		if (len_left >= 6) len += 4;
-		else if (len_left ==2) len +=2;
-		else len += 3;
+		len += this_len;
 		len_left -= 6;
+		*cpo = 0;
 	}
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int cryptBS_to_hex(const char *cpi, int len_left, char *cpo, int flags) {
+static int cryptBS_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {
-		if(len_left<4) {if(len_left<=2)this_len=1;else this_len=2;}
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > (to_len>>1))  // can overflow by 1
+			break;
 		base64_decode_iBS((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
 		raw_to_hex((const unsigned char*)Tmp, this_len, (char*)cpo);
 		cpi += 4;
 		cpo += 6;
 		len += this_len;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	len <<= 1;
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int crypt_to_hex(const char *cpi, int len_left, char *cpo, int flags) {
+static int crypt_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {
-		if(len_left<4) {if(len_left<=2)this_len=1;else this_len=2;}
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > (to_len>>1))  // can overflow by 1
+			break;
 		base64_decode_i((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)Tmp);
 		raw_to_hex((const unsigned char*)Tmp, this_len, (char*)cpo);
 		cpi += 4;
 		cpo += 6;
 		len += this_len;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	len <<= 1;
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
-static int mime_to_hex(const char *cpi, int len_left, char *cpo, int flags) {
+static int cryptBS_to_raw(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	int len, this_len=3;
+	len = 0;
+	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > to_len)
+			break;
+		base64_decode_iBS((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)cpo);
+		cpi += 4;
+		cpo += 3;
+		len += this_len;
+		len_left -= 4;
+	}
+	return len;
+}
+static int crypt_to_raw(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	int len, this_len=3;
+	len = 0;
+	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > to_len)
+			break;
+		base64_decode_i((char*)cpi, len_left < 4 ? len_left : 4, (unsigned char*)cpo);
+		cpi += 4;
+		cpo += 3;
+		len += this_len;
+		len_left -= 4;
+	}
+	return len;
+}
+
+static int mime_to_raw(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	int len, this_len=3;
+	len = 0;
+	while (len_left > 0) {
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > to_len)
+			break;
+		base64_decode((char*)cpi, len_left < 4 ? len_left : 4, cpo);
+		cpi += 4;
+		cpo += 3;
+		len += this_len;
+		len_left -= 4;
+	}
+	return len;
+}
+static int raw_to_mime(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	char Tmp[3], *cpo_o = cpo;
+	int len = 0;
+	while (len_left > 0) {
+		if(len_left<3) {
+			memset(Tmp, 0, 3);
+			memcpy(Tmp, cpi, len_left);
+			cpi = Tmp;
+		}
+		if (len+(len_left>3?3:len_left) > to_len)
+			break;
+		base64_encode((const unsigned char*)cpi, (len_left>3?3:len_left), cpo, flags);
+		cpi += 3;
+		cpo += 4;
+		len_left -= 3;
+		len += 4;
+		*cpo = 0;
+	}
+	return strlen(cpo_o);
+}
+static int raw_to_crypt(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	char Tmp[3], *cpo_o = cpo;
+	int len = 0;
+	while (len_left > 0) {
+		if(len_left<3) {
+			memset(Tmp, 0, 3);
+			memcpy(Tmp, cpi, len_left);
+			cpi = Tmp;
+		}
+		if (len+(len_left>3?3:len_left) > to_len)
+			break;
+		base64_encode_i((const unsigned char*)cpi, (len_left>3?3:len_left), cpo, flags);
+		cpi += 3;
+		cpo += 4;
+		len_left -= 3;
+		len += 4;
+		*cpo = 0;
+	}
+	return strlen(cpo_o);
+}
+static int raw_to_cryptBS(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
+	char Tmp[3], *cpo_o = cpo;
+	int len = 0;
+	while (len_left > 0) {
+		if(len_left<3) {
+			memset(Tmp, 0, 3);
+			memcpy(Tmp, cpi, len_left);
+			cpi = Tmp;
+		}
+		if (len+(len_left>3?3:len_left) > to_len)
+			break;
+		base64_encode_iBS((const unsigned char*)cpi, (len_left>3?3:len_left), cpo, flags);
+		cpi += 3;
+		cpo += 4;
+		len_left -= 3;
+		len += 4;
+		*cpo = 0;
+	}
+	return strlen(cpo_o);
+}
+
+static int mime_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
 	char Tmp[3], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {
-		if(len_left<4) {if(len_left<=2)this_len=1;else this_len=2;}
+		char tmp[4];
+		if(len_left<4) {
+			if(len_left<=2)this_len=1;else this_len=2;
+			memset(tmp, 0, 4);
+			memcpy(tmp, cpi, len_left);
+			cpi = tmp;
+		}
+		if (len+this_len > (to_len>>1))  // can overflow by 1
+			break;
 		base64_decode((char*)cpi, len_left < 4 ? len_left : 4, (char*)Tmp);
 		raw_to_hex((const unsigned char*)Tmp, this_len, (char*)cpo);
 		cpi += 4;
 		cpo += 6;
 		len += this_len;
 		len_left -= 4;
+		*cpo = 0;
 	}
-	len <<= 1;
-	cpo_o[len] = 0;
 	return strlen(cpo_o);
 }
 
@@ -526,28 +774,28 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 					if ((from_t*2+1) > to_t)
 						return ERR_base64_to_buffer_sz;
 					raw_to_hex((unsigned char*)from, from_len, (char*)to);
-					if (flags&flg_Base64_HEX_UPCASE)
+					if ( (flags&flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE)
 						strupr((char*)to);
 					return from_len<<1;
 				}
 				case e_b64_mime:	/* mime */
 				{
-					base64_encode((unsigned char*)from, from_len, (char*)to, flags);
-					if (flags & flg_Base64_MIME_PLUS_TO_DOT)
+					int len = raw_to_mime((const char *)from, from_len, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT)
 						mime_deplus((char*)to);
-					if (flags & flg_Base64_MIME_DASH_UNDER)
+					if ( (flags&flg_Base64_MIME_DASH_UNDER) == flg_Base64_MIME_DASH_UNDER)
 						mime_dash_under((char*)to);
-					return strlen((char*)to);
+					return len;
 				}
 				case e_b64_crypt:	/* crypt encoding */
 				{
-					base64_encode_i((unsigned char*)from, from_len, (char*)to, flags);
-					return strlen((char*)to);
+					int len = raw_to_crypt((const char *)from, from_len, (char *)to, to_len, flags);
+					return len;
 				}
 				case e_b64_cryptBS:	/* crypt encoding, network order (used by WPA, cisco9, etc) */
 				{
-					base64_encode_iBS((unsigned char*)from, from_len, (char*)to, flags);
-					return strlen((char*)to);
+					int len = raw_to_cryptBS((const char *)from, from_len, (char *)to, to_len, flags);
+					return len;
 				}
 				default:
 					return ERR_base64_unk_to_type;
@@ -568,7 +816,7 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 					if (to_len < from_len+1)
 						return ERR_base64_to_buffer_sz;
 					strcpy((char*)to, (const char*)from);
-					if (flags&flg_Base64_HEX_UPCASE)
+					if ( (flags&flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE)
 						strupr((char*)to);
 					else
 						strlwr((char*)to);
@@ -576,21 +824,21 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 				}
 				case e_b64_mime:	/* mime */
 				{
-					int len = hex_to_mime((const char *)from, (char *)to, flags);
-					if (flags & flg_Base64_MIME_PLUS_TO_DOT)
+					int len = hex_to_mime((const char *)from, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT)
 						mime_deplus((char*)to);
-					if (flags & flg_Base64_MIME_DASH_UNDER)
+					if ( (flags&flg_Base64_MIME_DASH_UNDER)  == flg_Base64_MIME_DASH_UNDER)
 						mime_dash_under((char*)to);
 					return len;
 				}
 				case e_b64_crypt:	/* crypt encoding */
 				{
-					int len = hex_to_crypt((const char *)from, (char *)to, flags);
+					int len = hex_to_crypt((const char *)from, (char *)to, to_len, flags);
 					return len;
 				}
 				case e_b64_cryptBS:	/* crypt encoding, network order (used by WPA, cisco9, etc) */
 				{
-					int len = hex_to_cryptBS((const char *)from, (char *)to, flags);
+					int len = hex_to_cryptBS((const char *)from, (char *)to, to_len, flags);
 					return len;
 				}
 				default:
@@ -607,13 +855,14 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			/* autohandle the reverse of mime deplus code on input, i.e. auto convert . into + */
 			if (strchr(fromWrk, '.')) {
 				char *cp;
-				if (from_len<sizeof(fromTmp))
+				if (from_len<sizeof(fromTmp)-3)
 					fromWrk=fromTmp;
 				else {
 					alloced = 1;
-					fromWrk = (char*)mem_alloc(from_len+1);
+					fromWrk = (char*)mem_calloc(from_len+3);
 				}
 				strnzcpy(fromWrk, (const char*)from, from_len+1);
+				fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
 				cp = strchr(fromWrk, '.');
 				while (cp) {
 					*cp = '+';
@@ -623,13 +872,14 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			if (strchr(fromWrk, '-')) {
 				char *cp;
 				if (fromWrk == from) {
-					if (from_len<sizeof(fromTmp))
+					if (from_len<sizeof(fromTmp)-3)
 						fromWrk=fromTmp;
 					else {
 						alloced = 1;
-						fromWrk = (char*)mem_alloc(from_len+1);
+						fromWrk = (char*)mem_calloc(from_len+3);
 					}
 					strnzcpy(fromWrk, (const char*)from, from_len+1);
+					fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
 				}
 				cp = strchr(fromWrk, '-');
 				while (cp) {
@@ -640,13 +890,14 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			if (strchr(fromWrk, '_')) {
 				char *cp;
 				if (fromWrk == from) {
-					if (from_len<sizeof(fromTmp))
+					if (from_len<sizeof(fromTmp)-3)
 						fromWrk=fromTmp;
 					else {
 						alloced = 1;
-						fromWrk = (char*)mem_alloc(from_len+1);
+						fromWrk = (char*)mem_calloc(from_len+3);
 					}
 					strnzcpy(fromWrk, (const char*)from, from_len+1);
+					fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
 				}
 				cp = strchr(fromWrk, '_');
 				while (cp) {
@@ -658,16 +909,14 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			switch(to_t) {
 				case e_b64_raw:		/* raw memory */
 				{
-					// TODO, validate to_len
-					base64_decode(fromWrk, from_len, (char*)to);
+					int len = mime_to_raw((const char *)fromWrk, from_len, (char *)to, to_len, flags);
 					if (alloced) MEM_FREE(fromWrk);
-					return B64_TO_RAW_LEN(from_len);
+					return len;
 				}
 				case e_b64_hex:		/* hex */
 				{
-					// TODO, validate to_len
-					int len = mime_to_hex((const char *)fromWrk, from_len, (char *)to, flags);
-					if (flags&flg_Base64_HEX_UPCASE)
+					int len = mime_to_hex((const char *)fromWrk, from_len, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE)
 						strupr((char*)to);
 					if (alloced) MEM_FREE(fromWrk);
 					return len;
@@ -678,22 +927,22 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 						return ERR_base64_to_buffer_sz;
 					memcpy(to, fromWrk, from_len);
 					((char*)to)[from_len] = 0;
-					if (flags & flg_Base64_MIME_PLUS_TO_DOT)
+					if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT)
 						mime_deplus((char*)to);
-					if (flags & flg_Base64_MIME_DASH_UNDER)
+					if ( (flags&flg_Base64_MIME_DASH_UNDER) == flg_Base64_MIME_DASH_UNDER)
 						mime_dash_under((char*)to);
 					if (alloced) MEM_FREE(fromWrk);
 					return from_len;
 				}
 				case e_b64_crypt:	/* crypt encoding */
 				{
-					int len = mime_to_crypt((const char *)fromWrk, (char *)to, flags);
+					int len = mime_to_crypt((const char *)fromWrk, (char *)to, to_len, flags);
 					if (alloced) MEM_FREE(fromWrk);
 					return len;
 				}
 				case e_b64_cryptBS:	/* crypt encoding, network order (used by WPA, cisco9, etc) */
 				{
-					int len = mime_to_cryptBS((const char *)fromWrk, (char *)to, flags);
+					int len = mime_to_cryptBS((const char *)fromWrk, (char *)to, to_len, flags);
 					if (alloced) MEM_FREE(fromWrk);
 					return len;
 				}
@@ -712,24 +961,23 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			switch(to_t) {
 				case e_b64_raw:		/* raw memory */
 				{
-					// TODO, validate to_len
-					base64_decode_i((char*)from, from_len, (unsigned char*)to);
-					return B64_TO_RAW_LEN(from_len);
+
+					int len = crypt_to_raw((const char *)from, from_len, (char *)to, to_len, flags);
+					return len;
 				}
 				case e_b64_hex:		/* hex */
 				{
-					// TODO, validate to_len
-					int len = crypt_to_hex((const char *)from, from_len, (char *)to, flags);
-					if (flags&flg_Base64_HEX_UPCASE)
+					int len = crypt_to_hex((const char *)from, from_len, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE)
 						strupr((char*)to);
 					return len;
 				}
 				case e_b64_mime:	/* mime */
 				{
-					int len = crypt_to_mime((const char *)from, (char *)to, flags);
-					if (flags & flg_Base64_MIME_PLUS_TO_DOT)
+					int len = crypt_to_mime((const char *)from, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT)
 						mime_deplus((char*)to);
-					if (flags & flg_Base64_MIME_DASH_UNDER)
+					if ( (flags&flg_Base64_MIME_DASH_UNDER) == flg_Base64_MIME_DASH_UNDER)
 						mime_dash_under((char*)to);
 					return len;
 				}
@@ -743,7 +991,7 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 				}
 				case e_b64_cryptBS:	/* crypt encoding, network order (used by WPA, cisco9, etc) */
 				{
-					int len = crypt_to_cryptBS((const char *)from, (char *)to, flags);
+					int len = crypt_to_cryptBS((const char *)from, (char *)to, to_len, flags);
 					return len;
 				}
 				default:
@@ -760,34 +1008,34 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 			switch(to_t) {
 				case e_b64_raw:		/* raw memory */
 				{
-					 // TODO, validate to_len
-					base64_decode_iBS((char*)from, from_len, (unsigned char*)to);
-					return B64_TO_RAW_LEN(from_len);
+					int len = cryptBS_to_raw((const char *)from, from_len, (char *)to, to_len, flags);
+					return len;
 				}
 				case e_b64_hex:		/* hex */
 				{
-					// TODO, validate to_len
-					int len = cryptBS_to_hex((const char *)from, from_len, (char *)to, flags);
-					if (flags&flg_Base64_HEX_UPCASE)
+					int len = cryptBS_to_hex((const char *)from, from_len, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE)
 						strupr((char*)to);
 					return len;
 				}
 				case e_b64_mime:	/* mime */
 				{
-					int len = cryptBS_to_mime((const char *)from, (char *)to, flags);
-					if (flags & flg_Base64_MIME_PLUS_TO_DOT)
+					int len = cryptBS_to_mime((const char *)from, (char *)to, to_len, flags);
+					if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT)
 						mime_deplus((char*)to);
-					if (flags & flg_Base64_MIME_DASH_UNDER)
+					if ( (flags&flg_Base64_MIME_DASH_UNDER) == flg_Base64_MIME_DASH_UNDER)
 						mime_dash_under((char*)to);
 					return len;
 				}
 				case e_b64_crypt:	/* crypt encoding */
 				{
-					int len = cryptBS_to_crypt((const char *)from, (char *)to, flags);
+					int len = cryptBS_to_crypt((const char *)from, (char *)to, to_len, flags);
 					return len;
 				}
 				case e_b64_cryptBS:	/* crypt encoding, network order (used by WPA, cisco9, etc) */
 				{
+					if (to_len < from_len+1)
+						return ERR_base64_to_buffer_sz;
 					memcpy(to, from, from_len);
 					((char*)to)[from_len] = 0;
 					return from_len;
@@ -802,23 +1050,22 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 	return 0;
 }
 void base64_convert_error_exit(int err) {
-	// TODO: add error codes when created.
 	switch (err) {
-		case ERR_base64_unk_from_type:	fprintf (stderr, "base64_convert error, Unknown From Type\n", err); break;
-		case ERR_base64_unk_to_type:	fprintf (stderr, "base64_convert error, Unknown To Type\n", err); break;
-		case ERR_base64_to_buffer_sz:	fprintf (stderr, "base64_convert error, *to buffer too small\n", err); break;
-		case ERR_base64_unhandled:		fprintf (stderr, "base64_convert error, currently unhandled conversion\n", err); break;
+		case ERR_base64_unk_from_type:	fprintf (stderr, "base64_convert error-%d, Unknown From Type\n", err); break;
+		case ERR_base64_unk_to_type:	fprintf (stderr, "base64_convert error-%d, Unknown To Type\n", err); break;
+		case ERR_base64_to_buffer_sz:	fprintf (stderr, "base64_convert error-%d, *to buffer too small\n", err); break;
+		case ERR_base64_unhandled:		fprintf (stderr, "base64_convert error-%d, currently unhandled conversion\n", err); break;
 		default:						fprintf (stderr, "base64_convert_error_exit(%d)\n", err);
 	}
 	exit(1);
 }
 char *base64_convert_error(int err) {
-	char *p = (char*)mem_alloc(256);
+	char *p = (char*)mem_calloc(256);
 	switch (err) {
-		case ERR_base64_unk_from_type:	sprintf(p, "base64_convert error, Unknown From Type\n", err); break;
-		case ERR_base64_unk_to_type:	sprintf(p, "base64_convert error, Unknown To Type\n", err); break;
-		case ERR_base64_to_buffer_sz:	sprintf(p, "base64_convert error, *to buffer too small\n", err); break;
-		case ERR_base64_unhandled:		sprintf(p, "base64_convert error, currently unhandled conversion\n", err); break;
+		case ERR_base64_unk_from_type:	sprintf(p, "base64_convert error-%d, Unknown From Type\n", err); break;
+		case ERR_base64_unk_to_type:	sprintf(p, "base64_convert error-%d, Unknown To Type\n", err); break;
+		case ERR_base64_to_buffer_sz:	sprintf(p, "base64_convert error-%d, *to buffer too small\n", err); break;
+		case ERR_base64_unhandled:		sprintf(p, "base64_convert error-%d, currently unhandled conversion\n", err); break;
 		default:						sprintf(p, "base64_convert_error_exit(%d)\n", err);
 	}
 	return p;
@@ -831,18 +1078,39 @@ int base64_valid_length(const char *from, b64_convert_type from_t, unsigned flag
 
 	switch (from_t) {
 		case e_b64_hex:		/* hex */
-			while (atoi16[ARCH_INDEX(*from++)] != 0x7f)
-				++len;
+			if ( (flags & flg_Base64_HEX_UPCASE) == flg_Base64_HEX_UPCASE) {
+				while (atoi16[ARCH_INDEX(*from)] != 0x7f) {
+					if (*from >= 'a' && *from <= 'f')
+						break;
+					++len;
+					++from;
+				}
+			} if ( (flags & flg_Base64_HEX_LOCASE) == flg_Base64_HEX_LOCASE) {
+				while (atoi16[ARCH_INDEX(*from)] != 0x7f) {
+					if (*from >= 'A' && *from <= 'F')
+						break;
+					++len;
+					++from;
+				}
+			} else {
+				while (atoi16[ARCH_INDEX(*from++)] != 0x7f)
+					++len;
+			}
 			break;
 		case e_b64_mime:	/* mime */
-			if (flg_Base64_MIME_PLUS_TO_DOT) {
+			if ( (flags&flg_Base64_MIME_PLUS_TO_DOT) == flg_Base64_MIME_PLUS_TO_DOT) {
 				while (atoi64md[ARCH_INDEX(*from++)] != 0x7f)
 					++len;
-			} else if (flg_Base64_MIME_DASH_UNDER) {
+			} else if ( (flags&flg_Base64_MIME_DASH_UNDER) == flg_Base64_MIME_DASH_UNDER) {
 				while (atoi64mdu[ARCH_INDEX(*from++)] != 0x7f)
 					++len;
 			} else {
 				while (atoi64m[ARCH_INDEX(*from++)] != 0x7f)
+					++len;
+			}
+			--from;
+			if ( (flags&flg_Base64_MIME_TRAIL_EQ_CNT) == flg_Base64_MIME_TRAIL_EQ_CNT) {
+				while (*from++ == '=')
 					++len;
 			}
 			break;
@@ -866,26 +1134,29 @@ int base64_valid_length(const char *from, b64_convert_type from_t, unsigned flag
 /* used by base64conv 'main()' function */
 static int usage(char *name)
 {
-	fprintf(stderr, "Usage: %s [-i intype] [-o outtype] [-q] [-e] [-f flag] data [data ...]\n"
-	        "  (data must match input_type i.e. if hex, then data should be in hex)\n"
-			"\n"
-			"  -q will only output resultant string. No extra junk text\n"
-			"  -e turns on buffer overwrite error checking logic\n"
-			"\n"
-			"Input/Output types:\n"
-			"  raw      raw data byte\n"
-			"  hex      hexidecimal string (for input, case does not matter)\n"
-			"  mime     base64 mime encoding\n"
-			"  crypt    base64 crypt character set encoding\n"
-			"  cryptBS  base64 crypt encoding, byte swapped\n"
-			"\n"
-			"Flags (note more than 1 -f command switch can be given at one time):\n"
-			"  HEX_UPCASE         output hex upcased (input case auto handled)\n"
-			"  MIME_TRAIL_EQ      output mime adds = chars (input = auto handled)\n"
-			"  CRYPT_TRAIL_DOTS   output crypt adds . chars (input . auto handled)\n"
-			"  MIME_PLUS_TO_DOT   mime converts + to . (passlib encoding)\n"
-			"  MIME_DASH_UNDER    mime convert +/ into -_ (passlib encoding)\n"
-			"",
+	fprintf(stderr, "Usage: %s [-i intype] [-o outtype] [-q] [-e] [-f flag] [data[data ...] | < stdin]\n"
+	        " - data must match input_type i.e. if hex, then data should be in hex\n"
+	        " - if data is not present, then base64conv will read data from std input)\n"
+	        " - if data read from stdin, max size of any line is 256k\n"
+	        "\n"
+	        "  -q will only output resultant string. No extra junk text\n"
+	        "  -e turns on buffer overwrite error checking logic\n"
+	        "\n"
+	        "Input/Output types:\n"
+	        "  raw      raw data byte\n"
+	        "  hex      hexidecimal string (for input, case does not matter)\n"
+	        "  mime     base64 mime encoding\n"
+	        "  crypt    base64 crypt character set encoding\n"
+	        "  cryptBS  base64 crypt encoding, byte swapped\n"
+	        "\n"
+	        "Flags (note more than 1 -f command switch can be given at one time):\n"
+	        "  HEX_UPCASE         output or length UPCASED (input case auto handled)\n"
+	        "  HEX_LOCASE         output or length locased (input case auto handled)\n"
+	        "  MIME_TRAIL_EQ      output mime adds = chars (input = auto handled)\n"
+	        "  CRYPT_TRAIL_DOTS   output crypt adds . chars (input . auto handled)\n"
+	        "  MIME_PLUS_TO_DOT   mime converts + to . (passlib encoding)\n"
+	        "  MIME_DASH_UNDER    mime convert +/ into -_ (passlib encoding)\n"
+	        "",
 	        name);
 	return EXIT_FAILURE;
 }
@@ -901,6 +1172,7 @@ static b64_convert_type str2convtype(const char *in) {
 }
 static int handle_flag_type(const char *pflag) {
 	if (!strcasecmp(pflag, "HEX_UPCASE"))       return flg_Base64_HEX_UPCASE;
+	if (!strcasecmp(pflag, "HEX_LOCASE"))       return flg_Base64_HEX_LOCASE;
 	if (!strcasecmp(pflag, "MIME_TRAIL_EQ"))    return flg_Base64_MIME_TRAIL_EQ;
 	if (!strcasecmp(pflag, "CRYPT_TRAIL_DOTS")) return flg_Base64_CRYPT_TRAIL_DOTS;
 	if (!strcasecmp(pflag, "MIME_PLUS_TO_DOT")) return flg_Base64_MIME_PLUS_TO_DOT;
@@ -908,6 +1180,48 @@ static int handle_flag_type(const char *pflag) {
 
 	return 0;
 }
+
+static void do_convert(char *in_str, b64_convert_type in_t,
+                       b64_convert_type out_t, int quiet,
+                       int err_chk, int flags)
+{
+	char *po;
+	int i, len, in_len = strlen(in_str);
+
+	if (!quiet)
+		printf("%s  -->  %s", in_str, in_len ? "" : "\n");
+
+	if (in_len == 0)
+		return;
+
+	po = (char*)mem_calloc(in_len*3);
+	if (err_chk)
+		memset(po, 2, in_len*3);
+	len=base64_convert(in_str, in_t, in_len, po, out_t, in_len*3, flags);
+	po[len] = 0;
+	printf("%s\n", po);
+	fflush(stdout);
+	/* check for overwrite problems */
+	if (err_chk) {
+		int tot = in_len*3;
+		i=len;
+		if (po[i]) {
+			fprintf(stderr, "OverwriteLogic: Null byte missing\n");
+		}
+		for (++i; i < tot; ++i)
+		{
+			if (((unsigned char)po[i]) != 2) {
+				/* we ignore overwrites that are 1 or 2 bytes over.  The way the */
+				/* functions are written, we expect some 1 and 2 byte overflows, */
+				/* and the caller MUST be aware of that fact                     */
+				if (i-len > 2)
+					fprintf(stderr, "OverwriteLogic: byte %c (%02X) located at offset %d (%+d)\n", (unsigned char)po[i], (unsigned char)po[i], i, i-len);
+			}
+		}
+	}
+	MEM_FREE(po);
+}
+
 /* simple conerter of strings or raw memory     */
 /* this is a main() function for john, and      */
 /* the program created is ../run/base64_convert */
@@ -918,6 +1232,8 @@ int base64conv(int argc, char **argv) {
 	int flags=flg_Base64_NO_FLAGS;
 
 	/* Parse command line */
+	if (argc == 1)
+		return usage(argv[0]);
 	while ((c = getopt(argc, argv, "i:o:q!e!f:")) != -1) {
 		switch (c) {
 		case 'i':
@@ -948,43 +1264,27 @@ int base64conv(int argc, char **argv) {
 			return usage(argv[0]);
 		}
 	}
-	argc -= optind;
-	if(argc == 0)
+	if (in_t == e_b64_unk || out_t == e_b64_unk)
 		return usage(argv[0]);
+	argc -= optind;
 	argv += optind;
-
-	while(argc--) {
-		char *po = (char*)mem_calloc(strlen(*argv)*3);
-		int i, len;
-		if (err_chk)
-			memset(po, 2, strlen(*argv)*3);
-		if (!quiet)
-			printf("%s  -->  ", *argv);
-		len=base64_convert(*argv, in_t, strlen(*argv), po, out_t, strlen(*argv)*3, flags);
-		po[len] = 0;
-		printf("%s\n", po);
-		fflush(stdout);
-		/* check for overwrite problems */
-		if (err_chk) {
-			int tot = strlen(*argv)*3;
-			i=len;
-			if (po[i]) {
-				fprintf(stderr, "OverwriteLogic: Null byte missing\n");
-			}
-			for (++i; i < tot; ++i)
-			{
-				if (((unsigned char)po[i]) != 2) {
-					/* we ignore overwrites that are 1 or 2 bytes over.  The way the */
-					/* functions are written, we expect some 1 and 2 byte overflows, */
-					/* and the caller MUST be aware of that fact                     */
-					if (i-len > 2)
-						fprintf(stderr, "OverwriteLogic: byte %c (%02X) located at offset %d (%+d)\n", (unsigned char)po[i], (unsigned char)po[i], i, i-len);
-				}
-			}
+	if (!argc) {
+		// if we are out of params, then read from stdin
+		char *buf;
+		if (isatty(fileno(stdin))) {
+			fprintf (stderr, "Enter lines of data to be converted\n");
 		}
-		MEM_FREE(po);
-		++argv;
-	}
+		buf = (char*)mem_alloc(256*1024);
+		fgetl(buf, 256*1024-1, stdin);
+		while (!feof(stdin)) {
+			buf[256*1024-1] = 0;
+			do_convert(buf, in_t, out_t, quiet, err_chk, flags);
+			fgetl(buf, 256*1024-1, stdin);
+		}
+		MEM_FREE(buf);
+	} else
+	while(argc--)
+		do_convert(*argv++, in_t, out_t, quiet, err_chk, flags);
 	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 	return 0;
 }

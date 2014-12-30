@@ -17,7 +17,7 @@ john_register_one(&fmt_tcpmd5);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE 2048 // XXX
+#define OMP_SCALE 32768  // scaled K8-dual HT
 #endif
 
 #include "arch.h"
@@ -47,6 +47,7 @@ john_register_one(&fmt_tcpmd5);
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #define HEXCHARS                "0123456789abcdef"
+#define MAX_SALT                1024
 
 static struct fmt_tests tests[] = {
 	/* BGP TCP_MD5SIG hashes */
@@ -61,7 +62,7 @@ static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
 
 static struct custom_salt {
 	int length;
-	unsigned char salt[1024]; // XXX but should be OK
+	unsigned char salt[MAX_SALT]; // fixed length, but should be OK
 } *cur_salt;
 
 static void init(struct fmt_main *self)
@@ -95,7 +96,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!q)
 		return 0;
 	q = q + 1;
-	if ((q - p - 1) > SALT_SIZE * 2)
+	if ((q - p - 1) > MAX_SALT * 2)
 		return 0;
 
 	len = strspn(q, HEXCHARS);

@@ -12,6 +12,7 @@
 #include "dyna_salt.h"
 #include "misc.h"
 #include "unicode.h"
+#include "config.h"
 #ifndef BENCH_BUILD
 #include "options.h"
 #else
@@ -57,9 +58,26 @@ void fmt_register(struct fmt_main *format)
 
 void fmt_init(struct fmt_main *format)
 {
+	char *opt;
 	if (!format->private.initialized) {
+		double d = 0;
+
+		if (!(opt = getenv("OMP_SCALE")))
+			opt = cfg_get_param(SECTION_OPTIONS, NULL,
+			                    "FormatBlockScaleTuneMultiplier");
+		if (opt)
+			d = atof(opt);
+		if ((int)d > 1)
+			format->params.max_keys_per_crypt *= (int)d;
 		format->methods.init(format);
 		format->private.initialized = 1;
+		if (d > 0 && d < 1.0) {
+			double tmpd = format->params.max_keys_per_crypt;
+			tmpd *= d;
+			tmpd += .01;
+			if (tmpd < 1) tmpd = 1.01;
+			format->params.max_keys_per_crypt = tmpd;
+		}
 	}
 #ifndef BENCH_BUILD
 	if (options.flags & FLG_KEEP_GUESSING)
@@ -145,6 +163,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	void *binary, *salt;
 	int binary_align_warned = 0, salt_align_warned = 0;
 	int salt_cleaned_warned = 0, binary_cleaned_warned = 0;
+	int salt_dupe_warned = 0;
 #ifndef BENCH_BUILD
 	int dhirutest = 0;
 	int maxlength = 0;
@@ -340,7 +359,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		}
 
 		/* validate that binary() returns cleaned buffer */
-		if (extra_tests && !binary_cleaned_warned) {
+		if (extra_tests && !binary_cleaned_warned && format->params.binary_size) {
 			memset(binary, 0xAF, format->params.binary_size);
 			binary = format->methods.binary(ciphertext);
 			if (((unsigned char*)binary)[format->params.binary_size-1] == 0xAF)
@@ -358,7 +377,9 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			memset(binary, 0, format->params.binary_size);
 			binary = format->methods.binary(ciphertext);
 		}
-		memcpy(binary_copy, binary, format->params.binary_size);
+		*((char*)binary_copy) = 0;
+		if (format->params.binary_size)
+			memcpy(binary_copy, binary, format->params.binary_size);
 		binary = binary_copy;
 
 		dyna_salt_create();
@@ -374,8 +395,27 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			salt_align_warned = 1;
 		}
 
+		/* validate that salt dupe checks will work */
+		if (!salt_dupe_warned) {
+			char *copy = malloc(format->params.salt_size);
+
+			memcpy(copy, salt, format->params.salt_size);
+			salt = format->methods.salt(ciphertext);
+			if (dyna_salt_cmp(copy, salt, format->params.salt_size))
+			{
+				puts("Warning: No dupe-salt detection");
+				salt_dupe_warned = 1;
+				// These can be useful in tracking down salt
+				// dupe problems.
+				//fprintf(stderr, "%s\n", ciphertext);
+				//dump_stuff(copy, format->params.salt_size);
+				//dump_stuff(salt, format->params.salt_size);
+			}
+			MEM_FREE(copy);
+		}
+
 		/* validate that salt() returns cleaned buffer */
-		if (extra_tests && !salt_cleaned_warned) {
+		if (extra_tests && !salt_cleaned_warned && format->params.salt_size) {
 			if ((format->params.flags & FMT_DYNA_SALT) == FMT_DYNA_SALT) {
 				dyna_salt *p1, *p2=0, *p3=0;
 				p1 = *((dyna_salt**)salt);
@@ -419,7 +459,9 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			salt = format->methods.salt(ciphertext);
 		}
 
-		memcpy(salt_copy, salt, format->params.salt_size);
+		*((char*)salt_copy) = 0;
+		if (format->params.salt_size)
+			memcpy(salt_copy, salt, format->params.salt_size);
 		salt = salt_copy;
 
 		if (strcmp(ciphertext,
@@ -600,9 +642,9 @@ char *fmt_self_test(struct fmt_main *format)
 	void *binary_copy, *salt_copy;
 
 	binary_copy = alloc_binary(&binary_alloc,
-	    format->params.binary_size, format->params.binary_align);
+	    format->params.binary_size?format->params.binary_size:1, format->params.binary_align);
 	salt_copy = alloc_binary(&salt_alloc,
-	    format->params.salt_size, format->params.salt_align);
+	    format->params.salt_size?format->params.salt_size:1, format->params.salt_align);
 
 	/* We use this to keep opencl_process_event() from doing stuff
 	 * while self-test is running. */

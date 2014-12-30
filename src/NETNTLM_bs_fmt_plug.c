@@ -187,7 +187,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	static char out[TOTAL_LENGTH + 1];
 
 	memset(out, 0, TOTAL_LENGTH + 1);
-	memcpy(&out, ciphertext, TOTAL_LENGTH);
+	strcpy(out, ciphertext);
 	strlwr(&out[8]); /* Exclude: $NETNTLM$ */
 
 	return out;
@@ -398,7 +398,7 @@ static void set_salt(void *salt)
 static void netntlm_set_key(char *key, int index)
 {
 	saved_len[index] = strlen(key);
-	memcpy(saved_plain[index], key, saved_len[index] + 1);
+	memcpy(saved_plain[index], key, saved_len[index]+1);
 	keys_prepared = 0;
 }
 

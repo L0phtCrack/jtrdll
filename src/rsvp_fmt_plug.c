@@ -17,11 +17,12 @@ john_register_one(&fmt_rsvp);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
-#define OMP_SCALE 2048 // XXX
+#define OMP_SCALE 8192
 #endif
 
 #include "arch.h"
 #include "md5.h"
+#include "sha.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -29,8 +30,6 @@ john_register_one(&fmt_rsvp);
 #include "params.h"
 #include "options.h"
 #include "memdbg.h"
-#include "hmacmd5.h"
-#include "gladman_hmac.h"
 
 #define FORMAT_LABEL            "rsvp"
 #define FORMAT_NAME             "HMAC-MD5 / HMAC-SHA1, RSVP, IS-IS"
@@ -47,6 +46,11 @@ john_register_one(&fmt_rsvp);
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #define HEXCHARS                "0123456789abcdef"
+#define MAX_SALT_SIZE           8192
+// currently only 2 types, 1 for md5 and 2 for SHA1. Bump this
+// number each type a type is added, and make sure the types
+// are sequential.
+#define MAX_TYPES               2
 
 static struct fmt_tests tests[] = {
 	{"$rsvp$1$10010000ff0000ac002404010100000000000001d7e95bfa0000003a00000000000000000000000000000000000c0101c0a8011406000017000c0301c0a8010a020004020008050100007530000c0b01c0a8010a0000000000240c0200000007010000067f00000545fa000046fa000045fa0000000000007fffffff00300d020000000a010000080400000100000001060000014998968008000001000000000a000001000005dc05000000$636d8e6db5351fbc9dad620c5ec16c0b", "password12345"},
@@ -56,12 +60,25 @@ static struct fmt_tests tests[] = {
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static int *saved_len;
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+
+// when we add more types, they need to be sequential (next will be 3),
+// AND we need to bump this to the count. Each type will use one of these
+// to track whether it has build the first half of the hmac.  The size
+// of this array should be 1 more than the max number of types.
+static int new_keys[MAX_TYPES+1];
+
+// we make our crypt_out large enough for an SHA1 output now.  Even though
+// we only compare first BINARY_SIZE data.
+static ARCH_WORD_32 (*crypt_out)[ (BINARY_SIZE+4) / sizeof(ARCH_WORD_32)];
+static SHA_CTX *ipad_ctx;
+static SHA_CTX *opad_ctx;
+static MD5_CTX *ipad_mctx;
+static MD5_CTX *opad_mctx;
 
 static  struct custom_salt {
 	int type;
 	int salt_length;
-	unsigned char salt[8192];
+	unsigned char salt[MAX_SALT_SIZE];
 } *cur_salt;
 
 static void init(struct fmt_main *self)
@@ -79,30 +96,48 @@ static void init(struct fmt_main *self)
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	ipad_ctx = mem_calloc_tiny(sizeof(*opad_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	opad_ctx = mem_calloc_tiny(sizeof(*opad_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	ipad_mctx = mem_calloc_tiny(sizeof(*opad_mctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	opad_mctx = mem_calloc_tiny(sizeof(*opad_mctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-
-// XXX improve me
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	char *p, *q = NULL;
+	char *p, *strkeep;
 	int version;
 
-	p = ciphertext;
-	if (strncmp(p, FORMAT_TAG, TAG_LENGTH))
+	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		return 0;
-	p += TAG_LENGTH;
-	if (!p)
-		return 0;
+	strkeep = strdup(ciphertext);
+	p = &strkeep[TAG_LENGTH];
+
+	if ((p = strtok(p, "$")) == NULL) /* version */
+		goto err;
 	version = atoi(p);
 	if (version != 1  && version != 2)
-		return 0;
+		goto err;
 
-	q = strrchr(ciphertext, '$') + 1;
-	if (!q)
-		return 0;
+	if ((p = strtok(NULL, "$")) == NULL) /* salt */
+		goto err;
+	if (strlen(p) >= MAX_SALT_SIZE*2)
+		goto err;
+	if (!ishex(p))
+		goto err;
 
+	if ((p = strtok(NULL, "$")) == NULL) /* hash */
+		goto err;
+	/* there is code that trim longer binary values, so we do not need to check for extra long */
+	if (strlen(p) < BINARY_SIZE*2)
+		goto err;
+	if (!ishex(p))
+		goto err;
+
+	MEM_FREE(strkeep);
 	return 1;
+err:;
+	MEM_FREE(strkeep);
+	return 0;
 }
 
 static void *get_salt(char *ciphertext)
@@ -170,19 +205,83 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index++)
 #endif
 	{
+		unsigned char buf[20];
 		if (cur_salt->type == 1) {
-			HMACMD5Context ctx;
+			MD5_CTX ctx;
+			if (new_keys[cur_salt->type]) {
+				int i, len = strlen(saved_key[index]);
+				unsigned char *p = (unsigned char*)saved_key[index];
+				unsigned char pad[64];
 
-			hmac_md5_init_rfc2104((unsigned char*)saved_key[index], saved_len[index], &ctx);
-			hmac_md5_update(cur_salt->salt, cur_salt->salt_length, &ctx);
-			hmac_md5_final((unsigned char*)crypt_out[index], &ctx);
+				if (len > 64) {
+					MD5_Init(&ctx);
+					MD5_Update(&ctx, p, len);
+					MD5_Final(buf, &ctx);
+					len = 16;
+					p = buf;
+				}
+				for (i = 0; i < len; ++i) {
+					pad[i] = p[i] ^ 0x36;
+				}
+				MD5_Init(&ipad_mctx[index]);
+				MD5_Update(&ipad_mctx[index], pad, len);
+				if (len < 64)
+					MD5_Update(&ipad_mctx[index], "\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36", 64-len);
+				for (i = 0; i < len; ++i) {
+					pad[i] = p[i] ^ 0x5C;
+				}
+				MD5_Init(&opad_mctx[index]);
+				MD5_Update(&opad_mctx[index], pad, len);
+				if (len < 64)
+					MD5_Update(&opad_mctx[index], "\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C", 64-len);
+			}
+			memcpy(&ctx, &ipad_mctx[index], sizeof(ctx));
+			MD5_Update(&ctx, cur_salt->salt, cur_salt->salt_length);
+			MD5_Final(buf, &ctx);
+			memcpy(&ctx, &opad_mctx[index], sizeof(ctx));
+			MD5_Update(&ctx, buf, 16);
+			MD5_Final((unsigned char*)(crypt_out[index]), &ctx);
 		} else if (cur_salt->type == 2) {
-			hmac_sha1((unsigned char*)saved_key[index],
-					saved_len[index], cur_salt->salt,
-					cur_salt->salt_length, (unsigned
-						char*)crypt_out[index], 16); }
+			SHA_CTX ctx;
+			if (new_keys[cur_salt->type]) {
+				int i, len = strlen(saved_key[index]);
+				unsigned char *p = (unsigned char*)saved_key[index];
+				unsigned char pad[64];
+
+				if (len > 64) {
+					SHA1_Init(&ctx);
+					SHA1_Update(&ctx, p, len);
+					SHA1_Final(buf, &ctx);
+					len = 20;
+					p = buf;
+				}
+				for (i = 0; i < len; ++i) {
+					pad[i] = p[i] ^ 0x36;
+				}
+				SHA1_Init(&ipad_ctx[index]);
+				SHA1_Update(&ipad_ctx[index], pad, len);
+				if (len < 64)
+					SHA1_Update(&ipad_ctx[index], "\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36\x36", 64-len);
+				for (i = 0; i < len; ++i) {
+					pad[i] = p[i] ^ 0x5C;
+				}
+				SHA1_Init(&opad_ctx[index]);
+				SHA1_Update(&opad_ctx[index], pad, len);
+				if (len < 64)
+					SHA1_Update(&opad_ctx[index], "\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C\x5C", 64-len);
+			}
+			memcpy(&ctx, &ipad_ctx[index], sizeof(ctx));
+			SHA1_Update(&ctx, cur_salt->salt, cur_salt->salt_length);
+			SHA1_Final(buf, &ctx);
+			memcpy(&ctx, &opad_ctx[index], sizeof(ctx));
+			SHA1_Update(&ctx, buf, 20);
+			// NOTE, this writes 20 bytes. That is why we had to bump up the size of each crypt_out[] value,
+			// even though we only look at the first 16 bytes when comparing the saved binary.
+			SHA1_Final((unsigned char*)(crypt_out[index]), &ctx);
+		}
 
 	}
+	new_keys[cur_salt->type] = 0;
 
 	return count;
 }
@@ -212,6 +311,15 @@ static void rsvp_set_key(char *key, int index)
 {
 	saved_len[index] = strlen(key);
 	strncpy(saved_key[index], key, sizeof(saved_key[0]));
+
+	// Workaround for self-test code not working as IRL
+	new_keys[1] = new_keys[2] = 2;
+}
+
+static void clear_keys(void) {
+	int i;
+	for (i = 0; i <= MAX_TYPES; ++i)
+		new_keys[i] = 1;
 }
 
 static char *get_key(int index)
@@ -248,7 +356,7 @@ struct fmt_main fmt_rsvp = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{
-			"hash algorithm used for hmac [1:MD5/2:SHA1]"
+			"hash algorithm used for hmac [1:MD5 2:SHA1]"
 		},
 #endif
 		tests
@@ -280,7 +388,7 @@ struct fmt_main fmt_rsvp = {
 		set_salt,
 		rsvp_set_key,
 		get_key,
-		fmt_default_clear_keys,
+		clear_keys,
 		crypt_all,
 		{
 			get_hash_0,
