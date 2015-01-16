@@ -115,6 +115,7 @@ void opencl_read_source(char *kernel_filename);
 
 /* Passive init: enumerate platforms and devices and parse options */
 void opencl_preinit(void);
+void opencl_preinit_no_devices(void); 
 
 /* Tear-down. Safe to call even if no device was used */
 void opencl_done(void);

@@ -131,7 +131,7 @@ static void autotune_run(struct fmt_main * self, unsigned int rounds,
 
 	if (options.verbosity > 2)
 		fprintf(stderr,
-		        "Local worksize (LWS) %zd, global worksize (GWS) %zd\n",
+		        "Local worksize (LWS) "FMT_SIZE_T", global worksize (GWS) "FMT_SIZE_T"n",
 		        local_work_size, global_work_size);
 
 	self->params.min_keys_per_crypt = local_work_size * opencl_v_width;

@@ -533,10 +533,14 @@ unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi)
 	return to_ulonglong(cps);
 }
 
+extern int jtrdll_stage;
 
 JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 {
 	int64 guess_count;
+
+	/* stage */
+	jtrdllstatus->stage=jtrdll_stage;
 	
 	/* percent */
 	if (status_get_progress)
@@ -577,7 +581,7 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	/* start and end word of current work */
 	jtrdllstatus->word1[0]=0;
 	jtrdllstatus->word2[0]=0;
-	if (status.crypts.lo | status.crypts.hi) 
+	if (status.crypts.lo | status.crypts.hi && jtrdll_stage==2)
 	{
 		char *key;
 		key = crk_get_key1();

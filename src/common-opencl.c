@@ -520,6 +520,28 @@ static void build_device_list(char *device_list[MAX_GPU_DEVICES])
 	}
 }
 
+void opencl_preinit_no_devices(void)
+{
+	if (!opencl_initialized) 
+	{
+		int i;
+
+		nvidia_probe();
+		amd_probe();
+		
+		gpu_device_list[0] = -1;
+		gpu_device_list[1] = -1;
+
+		for (i = 0; i < MAX_GPU_DEVICES; i++) {
+			context[i] = NULL;
+			queue[i] = NULL;
+		}
+		start_opencl_environment();
+
+		opencl_initialized = 1;
+	}
+}
+
 void opencl_preinit(void)
 {
 	char *device_list[MAX_GPU_DEVICES], string[10];
@@ -1588,21 +1610,6 @@ void opencl_find_best_lws(
 	HANDLE_CLERROR(ret_code, "Error creating command queue");
 	local_work_size = optimal_work_group;
 
-<<<<<<< HEAD
-	config_string[0] = '\0';
-	strcat(config_string, config_name);
-	strcat(config_string, LWS_CONFIG_NAME);
-
-	if (options.verbosity > 3) {
-		fprintf(stderr, "Optimal local worksize "FMT_SIZE_T"\n",
-			local_work_size);
-		fprintf(stderr, "(to avoid this test on next run, put \""
-			"%s = "FMT_SIZE_T"\" in john.local.conf, section [Local:" SECTION_OPTIONS
-			SUBSECTION_OPENCL "])\n", config_string,
-			local_work_size);
-	}
-=======
->>>>>>> e2780ff24f529b0f13268ecbd5119b78b7bdc23f
 	dyna_salt_remove(salt);
 	bench_running = 0;
 }
@@ -1714,22 +1721,6 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 				     &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating command queue");
 	global_work_size = optimal_gws;
-<<<<<<< HEAD
-
-	config_string[0] = '\0';
-	strcat(config_string, config_name);
-	strcat(config_string, GWS_CONFIG_NAME);
-
-	if (options.verbosity > 3) {
-		fprintf(stderr, "Optimal global worksize "FMT_SIZE_T"\n",
-			global_work_size);
-		fprintf(stderr, "(to avoid this test on next run, put \""
-			"%s = "FMT_SIZE_T"\" in john.local.conf, section [Local:" SECTION_OPTIONS
-			SUBSECTION_OPENCL "])\n", config_string,
-			global_work_size);
-	}
-=======
->>>>>>> e2780ff24f529b0f13268ecbd5119b78b7bdc23f
 }
 
 static void opencl_get_dev_info(int sequential_id)
@@ -2367,11 +2358,12 @@ void opencl_list_devices(void)
 			int ret;
 			int fan, temp, util;
 
+			/*
 			if (!default_gpu_selected &&
 			    !get_if_device_is_in_use(sequence_nr))
-				/* Nothing to do, skipping */
 				continue;
-
+			*/
+			
 			if (platform_in_use != i) {
 				/* Now, dealing with different platform. */
 				/* Obtain information about platform */
@@ -2407,6 +2399,7 @@ void opencl_list_devices(void)
 			       j, sequence_nr, p);
 
 			// Check if device seems to be working.
+/*
 			if (!start_opencl_device(sequence_nr, &err_type)) {
 
 				if (err_type == 1)
@@ -2418,6 +2411,7 @@ void opencl_list_devices(void)
 					       "Queue creation error",
 					       get_error_name(ret_code));
 			}
+			*/
 #ifdef CL_DEVICE_BOARD_NAME_AMD
 			ret = clGetDeviceInfo(devices[sequence_nr],
 					      CL_DEVICE_BOARD_NAME_AMD,

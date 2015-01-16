@@ -1274,9 +1274,13 @@ static void john_init(char *name, int argc, char **argv)
 		          cp_id2name(pers_opts.input_enc));
 }
 
+int jtrdll_stage = 0;
+
 static void john_run(void)
 {
 	struct stat trigger_stat;
+
+	jtrdll_stage=1;
 
 	if (options.flags & FLG_TEST_CHK)
 		exit_status = benchmark_all() ? 1 : 0;
@@ -1348,6 +1352,8 @@ static void john_run(void)
 			}
 		}
 
+		jtrdll_stage=2;
+
 		if (options.flags & FLG_MASK_CHK)
 			mask_init(&database, options.mask);
 
@@ -1418,8 +1424,11 @@ static void john_run(void)
 	}
 }
 
+
 static void john_done(void)
 {
+	jtrdll_stage=3;
+
 	if ((options.flags & (FLG_CRACKING_CHK | FLG_STDOUT)) ==
 	    FLG_CRACKING_CHK) {
 		if (event_abort) {

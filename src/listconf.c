@@ -290,8 +290,10 @@ void listconf_parse_early(void)
 #if HAVE_OPENCL
 	if (!strcasecmp(options.listconf, "opencl-devices"))
 	{
-		opencl_preinit();
+		//opencl_preinit();
+		opencl_preinit_no_devices();
 		opencl_list_devices();
+		opencl_done();
 		exit(EXIT_SUCCESS);
 	}
 #endif

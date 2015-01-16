@@ -417,9 +417,6 @@ static char *get_key(int index)
 {
 	int length = -1;
 	
-	if (!saved_plain)
-		return "";
-	
 	do
 	{
 		length++;

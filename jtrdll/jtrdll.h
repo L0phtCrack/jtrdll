@@ -17,6 +17,7 @@
 
 struct JTRDLL_STATUS
 {
+	int stage;
 	double percent;
 	unsigned int time;
 	unsigned int eta;
