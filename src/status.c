@@ -163,6 +163,11 @@ static char *status_get_c(char *buffer, int64 *c, unsigned int c_ehi)
 
 unsigned int status_get_time(void)
 {
+	if(clk_tck==0)
+	{
+		return status_restored_time;
+	}
+
 	return status_restored_time +
 		(get_time() - status.start_time) / clk_tck;
 }
