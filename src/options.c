@@ -62,6 +62,9 @@
 #ifdef HAVE_OPENCL
 #include "common-opencl.h"
 #endif
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+#include "prince.h"
+#endif
 #include "memdbg.h"
 
 struct options_main options;
@@ -80,7 +83,21 @@ static struct opt_entry opt_list[] = {
 		0, 0, OPT_FMT_STR_ALLOC, &options.wordlist},
 	{"loopback", FLG_LOOPBACK_SET, FLG_CRACKING_CHK,
 		0, 0, OPT_FMT_STR_ALLOC, &options.wordlist},
-	/* -enc is an alias for -input-enc */
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+	{"prince", FLG_PRINCE_SET, FLG_CRACKING_CHK,
+		0, 0, OPT_FMT_STR_ALLOC, &options.wordlist},
+	{"prince-elem-cnt-min", FLG_ZERO, 0, FLG_PRINCE_CHK,
+		OPT_REQ_PARAM, "%d", &prince_elem_cnt_min},
+	{"prince-elem-cnt-max", FLG_ZERO, 0, FLG_PRINCE_CHK,
+		OPT_REQ_PARAM, "%d", &prince_elem_cnt_max},
+	{"prince-skip", FLG_ZERO, 0, FLG_PRINCE_CHK,
+		0, OPT_FMT_STR_ALLOC, &prince_skip_str},
+	{"prince-limit", FLG_ZERO, 0, FLG_PRINCE_CHK,
+		0, OPT_FMT_STR_ALLOC, &prince_limit_str},
+	{"prince-wl-dist-len", FLG_PRINCE_DIST, 0, FLG_PRINCE_CHK, 0},
+	{"prince-keyspace", FLG_PRINCE_KEYSPACE, 0, FLG_PRINCE_CHK, 0},
+#endif
+	/* -enc is an alias for -input-enc for legacy reasons */
 	{"encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
 		0, 0, OPT_FMT_STR_ALLOC, &encoding_str},
 	{"input-encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
@@ -229,7 +246,7 @@ static struct opt_entry opt_list[] = {
 #endif
 	{"skip-self-tests", FLG_NOTESTS, FLG_NOTESTS},
 #if FMT_MAIN_VERSION > 11
-	{"costs", FLG_ZERO, 0, FLG_PASSWD, OPT_REQ_PARAM,
+	{"costs", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
                 OPT_FMT_STR_ALLOC, &costs_str},
 
 #endif
@@ -265,7 +282,14 @@ static struct opt_entry opt_list[] = {
 #define JOHN_USAGE_REGEX ""
 #endif
 
-#define JOHN_USAGE \
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+#define PRINCE_USAGE \
+	"--prince[=FILE]           PRINCE mode, read words from FILE\n"
+#else
+#define PRINCE_USAGE ""
+#endif
+
+#define JOHN_USAGE	  \
 "John the Ripper password cracker, version " JOHN_VERSION _MP_VERSION DEBUG_STRING " [" JOHN_BLD "]\n" \
 "Copyright (c) 1996-2014 by " JOHN_COPYRIGHT "\n" \
 "Homepage: http://www.openwall.com/john/\n" \
@@ -276,6 +300,7 @@ static struct opt_entry opt_list[] = {
 "                  --pipe  like --stdin, but bulk reads, and allows rules\n" \
 "--loopback[=FILE]         like --wordlist, but fetch words from a .pot file\n" \
 "--dupe-suppression        suppress all dupes in wordlist (and force preload)\n" \
+PRINCE_USAGE \
 "--encoding=NAME           input encoding (eg. UTF-8, ISO-8859-1). See also\n" \
 "                          doc/ENCODING and --list=hidden-options.\n" \
 "--rules[=SECTION]         enable word mangling rules for wordlist modes\n" \
@@ -436,6 +461,16 @@ void opt_print_hidden_usage(void)
 	puts("--force-scalar            (OpenCL) force scalar mode");
 	puts("--force-vector-width=N    (OpenCL) force vector width N");
 	puts("--platform=N              set OpenCL platform (deprecated)");
+#endif
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+	puts("--prince-elem-cnt-min=N   PRINCE, minimum number of elements per chain (1)");
+	puts("--prince-elem-cnt-max=N   PRINCE, maximum number of elements per chain (8)");
+	puts("--prince-skip=N           PRINCE, initial skip");
+	puts("--prince-limit=N          PRINCE, limit number of candidates generated");
+	puts("--prince-keyspace         PRINCE, show total keyspace that would be produced");
+	puts("                          (disregarding skip and limit)");
+	puts("--prince-wl-dist-len      PRINCE, calculate length distribution from wordlist");
+	puts("                          instead of using built-in table");
 #endif
 	puts("");
 }

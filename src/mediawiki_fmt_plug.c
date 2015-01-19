@@ -115,14 +115,19 @@ static char *Convert(char *Buf, char *ciphertext)
 
 static char *our_split(char *ciphertext, int index, struct fmt_main *self)
 {
-	get_ptr();
-	return pDynamic_9->methods.split(Convert(Conv_Buf, ciphertext), index, self);
-}
-
-static char *our_prepare(char *split_fields[10], struct fmt_main *self)
-{
-	get_ptr();
-	return pDynamic_9->methods.prepare(split_fields, self);
+	// Convert from dyna_9 back into $B$ (only if last byte of salt is '-'
+	if (!strncmp(ciphertext, "$dynamic_9$", 11) && ciphertext[strlen(ciphertext)-1] == '-') {
+		static char Buf[128], *cp;
+		strcpy(Buf, "$B$");
+		cp = strrchr(ciphertext, '$');
+		if (cp && strlen(cp) < 65 && strlen(cp) > 2) {
+			strcat(Buf, &cp[1]);
+			Buf[strlen(Buf)-1] = '$';  // remove the '-' char, simply replace it with the '$'
+			sprintf(&Buf[strlen(Buf)], "%32.32s", &ciphertext[11]);
+			return Buf;
+		}
+	}
+	return ciphertext;
 }
 
 static int mediawiki_valid(char *ciphertext, struct fmt_main *self)
@@ -171,7 +176,7 @@ struct fmt_main fmt_mediawiki =
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, SALT_SIZE+1, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, SALT_SIZE+1, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -183,7 +188,7 @@ struct fmt_main fmt_mediawiki =
 		mediawiki_init,
 		fmt_default_done,
 		fmt_default_reset,
-		our_prepare,
+		fmt_default_prepare,
 		mediawiki_valid,
 		our_split
 	}
@@ -193,7 +198,7 @@ static void link_funcs() {
 	fmt_mediawiki.methods.salt   = our_salt;
 	fmt_mediawiki.methods.binary = our_binary;
 	fmt_mediawiki.methods.split = our_split;
-	fmt_mediawiki.methods.prepare = our_prepare;
+	fmt_mediawiki.methods.prepare = fmt_default_prepare;
 }
 
 static void mediawiki_init(struct fmt_main *self)
@@ -214,7 +219,7 @@ static void get_ptr() {
 		fmt_mediawiki.methods.salt   = our_salt;
 		fmt_mediawiki.methods.binary = our_binary;
 		fmt_mediawiki.methods.split = our_split;
-		fmt_mediawiki.methods.prepare = our_prepare;
+		fmt_mediawiki.methods.prepare = fmt_default_prepare;
 	}
 }
 

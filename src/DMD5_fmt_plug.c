@@ -114,9 +114,10 @@ static struct fmt_tests tests[] = {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int n = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= n;
-	self->params.max_keys_per_crypt *= (n * OMP_SCALE);
+	int omp_t = omp_get_max_threads();
+	self->params.min_keys_per_crypt *= omp_t;
+	omp_t *= OMP_SCALE;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_SIMD);
 	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -392,6 +393,7 @@ struct fmt_main fmt_DMD5 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -428,6 +430,7 @@ struct fmt_main fmt_DMD5 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,

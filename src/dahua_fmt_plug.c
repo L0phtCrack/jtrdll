@@ -40,7 +40,7 @@ john_register_one(&fmt_dahua);
 #define TAG_LENGTH              (sizeof(FORMAT_TAG) - 1)
 #define ALGORITHM_NAME          "MD5 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        -1
 #define PLAINTEXT_LENGTH        125
 #define BINARY_SIZE             8
 #define BINARY_ALIGN            sizeof(ARCH_WORD_32)
@@ -203,6 +203,7 @@ struct fmt_main fmt_dahua = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -238,6 +239,7 @@ struct fmt_main fmt_dahua = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		dahua_set_key,
 		get_key,

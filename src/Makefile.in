@@ -116,7 +116,7 @@ JOHN_OBJS = \
 	unshadow.o \
 	unafs.o \
 	undrop.o \
-	regex.o \
+	regex.o pp.o \
 	c3_fmt.o \
 	unique.o putty2john.o gpg2john.o memdbg.o
 
@@ -426,7 +426,7 @@ nonstd.o:	nonstd.c
 
 opencl_autotune.o:	opencl_autotune.c common-opencl.h memdbg.h
 
-options.o:	options.c os.h arch.h misc.h params.h memory.h list.h loader.h logger.h status.h recovery.h options.h bench.h external.h john.h dynamic.h unicode.h fake_salts.h regex.h john-mpi.h common-opencl.h memdbg.h john_build_rule.h
+options.o:	options.c os.h arch.h misc.h params.h memory.h list.h loader.h logger.h status.h recovery.h options.h bench.h external.h john.h dynamic.h unicode.h fake_salts.h regex.h john-mpi.h common-opencl.h prince.h memdbg.h john_build_rule.h
 
 para-best.o:	para-best.c math.h params.h common.h formats.h bench.h memdbg.h
 
@@ -517,6 +517,9 @@ vncpcap2john.o:	vncpcap2john.c autoconfig.h cygwin/ethernet.h tcphdr.h memdbg.h
 win32_memmap.o:	win32_memmap.c os.h win32_memmap.h memdbg.h
 
 wordlist.o:	wordlist.c autoconfig.h os.h win32_memmap.h mmap-windows.c arch.h jumbo.h misc.h math.h params.h common.h path.h signals.h loader.h logger.h status.h recovery.h options.h rpp.h rules.h external.h cracker.h john.h memory.h unicode.h regex.h mask.h memdbg.h
+
+pp.o:	pp.c prince.h mpz_int128.h autoconfig.h os.h arch.h jumbo.h misc.h math.h params.h common.h path.h signals.h loader.h logger.h status.h recovery.h options.h external.h cracker.h john.h memory.h unicode.h memdbg.h
+	$(CC) $(CFLAGS) $(OPT_NORMAL) -DJTR_MODE -Wno-declaration-after-statement -std=c99 -c pp.c
 
 wpapcap2john.o:	wpapcap2john.c wpapcap2john.h memdbg.h
 
@@ -778,7 +781,7 @@ john.o: john.c autoconfig.h os.h params.h arch.h openssl_local_overrides.h \
 	formats.h dyna_salt.h loader.h logger.h status.h recovery.h options.h \
 	config.h bench.h charset.h single.h wordlist.h inc.h mask.h mkv.h \
 	external.h batch.h dynamic.h fake_salts.h listconf.h john-mpi.h \
-	regex.h unicode.h plugin.h common-opencl.h cuda_common.h \
+	regex.h unicode.h plugin.h common-opencl.h cuda_common.h prince.h \
 	john_build_rule.h memdbg.h fmt_externs.h fmt_registers.h
 	$(CC) $(CFLAGS_MAIN) $(OPT_NORMAL) -O0 $*.c
 
@@ -975,7 +978,7 @@ distclean: clean
 	  || case "$(MFLAGS)" in *k*) fail=yes;; *) exit 1;; esac; \
 	done && test -z "$$fail"
 	$(RM) -f Makefile autoconfig.h config.status config.cache \
-			config.log autoconfig-stamp-h autoconfig-stamp-h-in stamp-h1
+		config.log autoconfig-stamp-h autoconfig-stamp-h-in stamp-h1
 	$(LN) Makefile.stub Makefile
 	$(RM) arch.h
 	$(RM) fmt_registers.h fmt_externs.h john_build_rule.h

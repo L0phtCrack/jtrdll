@@ -82,6 +82,8 @@ static struct fmt_tests tests[] = {
 	{"849ee1b88b5d887bdb058180a666b450", "test3"},
 	{"8c4cb7e8b33b56a833cdaa8673f3b425", "test4"},
 	{"537e738b1ac5551f65106368dc301ece", "thatsworking"},
+	// repeat first hash in exactly the same form that is used in john.pot
+	{"$dynamic_29$16c47151c18ac087cd12b3a70746c790", "test1"},
 	{NULL}
 };
 
@@ -435,7 +437,7 @@ static char *get_key(int index)
 #ifdef MMX_COEF
 	// Get the key back from the key buffer, from UCS-2
 	unsigned int *keybuffer = (unsigned int*)&saved_key[GETPOS(0, index)];
-	static UTF16 key[PLAINTEXT_LENGTH + 1];
+	static UTF16 key[PLAINTEXT_LENGTH + 1 + 1]; // if only +1 we 'can' overflow.  Not sure why, but ASan found it.
 	unsigned int md5_size=0;
 	unsigned int i=0;
 
@@ -592,6 +594,7 @@ struct fmt_main fmt_rawmd5uthick = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -630,6 +633,7 @@ struct fmt_main fmt_rawmd5uthick = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		set_key,
 		get_key,

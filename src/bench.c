@@ -71,6 +71,10 @@
 #endif /* _OPENMP */
 #include "memdbg.h"
 
+#if FMT_MAIN_VERSION > 11
+static char cost_msg[128 * FMT_TUNABLE_COSTS];
+#endif
+
 long clk_tck = 0;
 
 void clk_tck_init(void)
@@ -112,7 +116,7 @@ static void bench_install_handler(void)
 #endif
 }
 
-/* Mutes ASAN problems. We pass a buffer long enough for any use */
+/* Mutes ASan problems. We pass a buffer long enough for any use */
 #define fmt_set_key(key, index)	  \
 	{ \
 		static char buf_key[PLAINTEXT_BUFFER_SIZE]; \
@@ -148,6 +152,26 @@ static void bench_set_keys(struct fmt_main *format,
 	}
 }
 
+#if FMT_MAIN_VERSION > 11
+static unsigned int get_cost(struct fmt_main *format, int index, int cost_idx)
+{
+	void *salt;
+	int value;
+	char *ciphertext = format->params.tests[index].ciphertext;
+	char **fields = format->params.tests[index].fields;
+
+	if (!fields[1])
+		fields[1] = ciphertext;
+	ciphertext = format->methods.split(
+		format->methods.prepare(fields, format), 0, format);
+	salt = format->methods.salt(ciphertext);
+	dyna_salt_create(salt);
+	value = format->methods.tunable_cost_value[cost_idx](salt);
+	dyna_salt_remove(salt);
+	return value;
+}
+#endif
+
 char *benchmark_format(struct fmt_main *format, int salts,
 	struct bench_results *results)
 {
@@ -171,15 +195,63 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	char *ciphertext;
 	void *salt, *two_salts[2];
 	int index, max;
-
+#if FMT_MAIN_VERSION > 11
+	unsigned int i, t_cost[2][FMT_TUNABLE_COSTS];
+	int ntests, pruned;
+#endif
 	clk_tck_init();
 
+	if (!(current = format->params.tests)) return "FAILED (no data)";
+
+#if FMT_MAIN_VERSION > 11
+	dyna_salt_init(format);
+
+	pruned = 0;
+	for (i = 0; i < FMT_TUNABLE_COSTS; i++)
+	if (options.loader.min_cost[i] > 0 ||
+	    options.loader.max_cost[i] < UINT_MAX) {
+		unsigned int cost;
+
+		if (format->methods.tunable_cost_value[i] == NULL) {
+			sprintf(s_error,
+			        "FAILED (cost %d not defined for format)\n", i);
+			return s_error;
+		}
+
+		ntests = 0;
+		current = format->params.tests;
+		while ((current++)->ciphertext)
+			ntests++;
+
+		current = format->params.tests;
+		for (index = 0; index < ntests; index++) {
+			cost = get_cost(format, index, i);
+			if (cost >= options.loader.min_cost[i] &&
+			    cost <= options.loader.max_cost[i])
+				memcpy(current++,
+				       &format->params.tests[index],
+				       sizeof(struct fmt_tests));
+			else
+				pruned++;
+		}
+		memset(current, 0, sizeof(struct fmt_tests));
+	}
+
+	if (pruned && !format->params.tests->ciphertext) {
+		sprintf(s_error, "FAILED (--cost pruned all %d test vectors)\n",
+		        pruned);
+		return s_error;
+	}
+#endif
 	if (!(current = format->params.tests)) return "FAILED (no data)";
 	if ((where = fmt_self_test(format))) {
 		sprintf(s_error, "FAILED (%s)\n", where);
 		return s_error;
 	}
-	if (!current->ciphertext && !current->plaintext)  return "FAILED (no data)";
+	if (!current->ciphertext)
+		return "FAILED (no ciphertext in test vector)";
+	if (!current->plaintext)
+		return "FAILED (no plaintext in test vector)";
 
 	if (format->params.binary_size > binary_size) {
 		binary_size = format->params.binary_size;
@@ -196,15 +268,43 @@ char *benchmark_format(struct fmt_main *format, int salts,
 				fields[1] = ciphertext;
 			ciphertext = format->methods.split(
 			    format->methods.prepare(fields, format), 0, format);
-			dyna_salt_create();
 			salt = format->methods.salt(ciphertext);
+			dyna_salt_create(salt);
 		} else
 			salt = two_salts[0];
 
 		memcpy(two_salts[index], salt, format->params.salt_size);
+#if FMT_MAIN_VERSION > 11
+		for (i = 0; i < FMT_TUNABLE_COSTS &&
+		     format->methods.tunable_cost_value[i] != NULL; i++)
+			t_cost[index][i] =
+				format->methods.tunable_cost_value[i](salt);
+#endif
 	}
 	format->methods.set_salt(two_salts[0]);
 
+#if FMT_MAIN_VERSION > 11
+	*cost_msg = 0;
+	for (i = 0; i < FMT_TUNABLE_COSTS &&
+		     format->methods.tunable_cost_value[i] != NULL; i++) {
+		char msg[128];
+
+		if (t_cost[0][i] == t_cost[1][i])
+			sprintf(msg, "cost %d (%s) of %u", i + 1,
+			        format->params.tunable_cost_name[i],
+			        t_cost[0][i]);
+		else
+			sprintf(msg, "cost %d (%s) of %u and %u",
+			        i + 1, format->params.tunable_cost_name[i],
+			        t_cost[0][i], t_cost[1][i]);
+
+		if (i == 0)
+			sprintf(cost_msg, "Speed for ");
+		else
+			strcat(cost_msg, ", ");
+		strcat(cost_msg, msg);
+	}
+#endif
 	if (format->params.benchmark_length > 0) {
 		cond = (salts == 1) ? 1 : -1;
 		salts = 1;
@@ -592,6 +692,11 @@ AGAIN:
 		omp_set_num_threads(ompt_start);
 #endif
 
+#if FMT_MAIN_VERSION > 11
+		if (john_main_process && benchmark_time &&
+		    *cost_msg && options.verbosity >= 3)
+			puts(cost_msg);
+#endif
 #ifdef HAVE_MPI
 		if (mpi_p > 1) {
 			gather_results(&results_m);

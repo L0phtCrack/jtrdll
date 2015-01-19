@@ -100,7 +100,7 @@ static const unsigned char odd_parity[256]={
 
 static struct salt_st {
 	unsigned char		tgt[TGT_LENGTH];
-	char			realm[REALM_SZ];
+	char			realm[REALM_SZ+1];
 } *saved_salt;
 
 static struct key_st {
@@ -112,21 +112,21 @@ static struct key_st {
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	char *p, *tgt;
+	char *tgt;
 
 	if (strncmp(ciphertext, "$k4$", 4) != 0 &&
 	    strncmp(ciphertext, "$af$", 4) != 0)
 		return 0;
-
-	tgt = strchr(ciphertext + 4, '$');
+	ciphertext += 4;
+	tgt = strchr(ciphertext, '$');
 
 	if (!tgt)
 		return 0;
-
-	for (p = ++tgt; *p != '\0'; p++)
-		if (!isxdigit((int)*p)) return 0;
-
-	if (p - tgt != TGT_LENGTH * 2)
+	if (tgt-ciphertext > REALM_SZ)
+		return 0;
+	++tgt;
+	if (!ishex(tgt)) return 0;
+	if (strlen(tgt) != TGT_LENGTH * 2)
 		return 0;
 
 	return 1;
@@ -255,6 +255,7 @@ struct fmt_main fmt_KRB4 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -288,6 +289,7 @@ struct fmt_main fmt_KRB4 = {
 			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		krb4_set_key,
 		get_key,

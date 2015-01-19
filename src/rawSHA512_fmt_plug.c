@@ -118,9 +118,9 @@ static void init(struct fmt_main *self)
 	int omp_t;
 
 	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt = omp_t * MIN_KEYS_PER_CRYPT;
+	self->params.min_keys_per_crypt *= omp_t;
 	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt = omp_t * MAX_KEYS_PER_CRYPT;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 #ifndef MMX_COEF_SHA512
 	saved_key_length = mem_calloc_tiny(sizeof(*saved_key_length) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -364,6 +364,7 @@ struct fmt_main fmt_raw0_SHA512 = {
 		"SHA512 " ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -399,6 +400,7 @@ struct fmt_main fmt_raw0_SHA512 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		set_key,
 		get_key,

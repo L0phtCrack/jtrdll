@@ -199,6 +199,8 @@ static struct fmt_tests sha1_fmt_tests[] = {
     { "b47f363e2b430c0647f14deea3eced9b0ef300ce", "is"              },
     { "03d67c263c27a453ef65b29e30334727333ccbcd", "awesome"         },
     { "7a73673e78669ea238ca550814dca7000d7026cc", "!!!!1111eleven"  },
+    // repeat last hash in exactly the same format that is used for john.pot
+    {"$dynamic_26$7a73673e78669ea238ca550814dca7000d7026cc", "!!!!1111eleven"},
     { NULL, NULL }
 };
 
@@ -251,8 +253,11 @@ static inline uint32_t __attribute__((const)) bswap32(uint32_t value)
 static void sha1_fmt_init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-    self->params.min_keys_per_crypt *= omp_get_max_threads();
-    self->params.max_keys_per_crypt *= omp_get_max_threads() * OMP_SCALE;
+	int omp_t = omp_get_max_threads();
+
+	self->params.min_keys_per_crypt *= omp_t;
+	omp_t *= OMP_SCALE;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 
     M   = mem_calloc_tiny(sizeof(*M)  * self->params.max_keys_per_crypt, MEM_ALIGN_SIMD);

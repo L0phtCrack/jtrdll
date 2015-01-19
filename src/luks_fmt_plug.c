@@ -53,9 +53,9 @@ john_register_one(&fmt_luks);
 #include "options.h"
 #include "memory.h"
 #include "base64.h"
-#include "gladman_pwd2key.h"
+#include "pbkdf2_hmac_sha1.h"
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #define OMP_SCALE               1
 #endif
@@ -72,16 +72,25 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"LUKS"
 #define FORMAT_NAME		""
+#ifdef MMX_COEF
+#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 32/" ARCH_BITS_STR
+#endif
 #define BENCHMARK_COMMENT	""
 #define PLAINTEXT_LENGTH  	125
 #define BENCHMARK_LENGTH	-1
 #define BINARY_SIZE		LUKS_DIGESTSIZE
 #define BINARY_ALIGN		4
-#define SALT_SIZE		sizeof(struct custom_salt)
+#define SALT_SIZE		sizeof(struct custom_salt_LUKS)
 #define SALT_ALIGN			4
+#if MMX_COEF
+#define MIN_KEYS_PER_CRYPT	1
+#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
+#else
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
+#endif
 
 #if ARCH_LITTLE_ENDIAN
 #define john_htonl(x) ((((x)>>24) & 0xffL) | (((x)>>8) & 0xff00L) | \
@@ -123,7 +132,7 @@ struct luks_phdr {
 	} keyblock[LUKS_NUMKEYS];
 };
 
-static struct custom_salt {
+static struct custom_salt_LUKS {
 	struct luks_phdr myphdr;
 	int loaded;
 	unsigned char *cipherbuf;
@@ -201,7 +210,7 @@ static int af_sectors(int blocksize, int blocknumbers)
 
 
 static void decrypt_aes_cbc_essiv(unsigned char *src, unsigned char *dst,
-    unsigned char *key, int size, struct custom_salt *cs)
+    unsigned char *key, int size, struct custom_salt_LUKS *cs)
 {
 	AES_KEY aeskey;
 	unsigned char essiv[16];
@@ -230,7 +239,7 @@ static void decrypt_aes_cbc_essiv(unsigned char *src, unsigned char *dst,
 	}
 }
 
-static int hash_plugin_parse_hash(char *filename, struct custom_salt *cs, int is_critical)
+static int hash_plugin_parse_hash(char *filename, struct custom_salt_LUKS *cs, int is_critical)
 {
 	FILE *myfile;
 	int readbytes;
@@ -275,7 +284,7 @@ static void init(struct fmt_main *self)
 	static int warned = 0;
 //	extern struct fmt_main fmt_luks;
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
+	int omp_t = omp_get_max_threads();
 	self->params.min_keys_per_crypt *= omp_t;
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
@@ -315,7 +324,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *p, *q;
 	int is_inlined;
 	int res;
-	static struct custom_salt cs;
+	static struct custom_salt_LUKS cs;
 
 	if (strncmp(ciphertext, "$luks$", 6) != 0)
 		return 0;
@@ -387,7 +396,7 @@ static void *get_salt(char *ciphertext)
 	int i;
 	int cnt;
 	unsigned char *out;
-	static struct custom_salt cs;
+	static struct custom_salt_LUKS cs;
 	unsigned int bestiter = 0xFFFFFFFF;
 	size_t size;
 	ctcopy += 6;
@@ -470,7 +479,7 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 
 static void set_salt(void *salt)
 {
-	cur_salt = (struct custom_salt *)salt;
+	cur_salt = (struct custom_salt_LUKS *)salt;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
@@ -480,39 +489,61 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 	{
-		unsigned char keycandidate[255];
-		unsigned char masterkeycandidate[255];
-		unsigned char *af_decrypted = mem_alloc(cur_salt->afsize + 20);
-		char *password = saved_key[index];
-		int iterations = cur_salt->bestiter;
+		unsigned char *af_decrypted = (unsigned char *)mem_alloc(cur_salt->afsize + 20);
+		int i, iterations = cur_salt->bestiter;
 		int dklen = john_ntohl(cur_salt->myphdr.keyBytes);
+		ARCH_WORD_32 keycandidate[MAX_KEYS_PER_CRYPT][256/4];
+		ARCH_WORD_32 masterkeycandidate[MAX_KEYS_PER_CRYPT][256/4];
+#ifdef MMX_COEF
+		int lens[MAX_KEYS_PER_CRYPT];
+		unsigned char *pin[MAX_KEYS_PER_CRYPT];
+		union {
+			ARCH_WORD_32 *pout[MAX_KEYS_PER_CRYPT];
+			unsigned char *poutc;
+		} x;
 
-		// printf("itertations %d %d %d\n", iterations, dklen, cur_salt->bestslot);
-
-		// Get pbkdf2 of the password to obtain decryption key
-		derive_key((const uint8_t*)password, strlen(password),
-			(const uint8_t*)(cur_salt->myphdr.keyblock[cur_salt->bestslot].passwordSalt),
-			LUKS_SALTSIZE,
-			iterations,
-			keycandidate,
-			dklen);
-
-		// Decrypt the blocksi
-		decrypt_aes_cbc_essiv(cur_salt->cipherbuf, af_decrypted, keycandidate, cur_salt->afsize, cur_salt);
-		// AFMerge the blocks
-		AF_merge(af_decrypted, masterkeycandidate, cur_salt->afsize,
-		john_ntohl(cur_salt->myphdr.keyblock[cur_salt->bestslot].stripes));
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			lens[i] = strlen(saved_key[index+i]);
+			pin[i] = (unsigned char*)saved_key[index+i];
+			x.pout[i] = keycandidate[i];
+		}
+		pbkdf2_sha1_sse((const unsigned char **)pin, lens,
+		                (const unsigned char*)(cur_salt->myphdr.keyblock[cur_salt->bestslot].passwordSalt), LUKS_SALTSIZE,
+		                iterations, &(x.poutc),
+		                dklen, 0);
+#else
+		pbkdf2_sha1((const unsigned char *)saved_key[index], strlen(saved_key[index]),
+		            (const unsigned char*)(cur_salt->myphdr.keyblock[cur_salt->bestslot].passwordSalt), LUKS_SALTSIZE,
+		            iterations, (unsigned char*)keycandidate[0], dklen, 0);
+#endif
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			// Decrypt the blocksi
+			decrypt_aes_cbc_essiv(cur_salt->cipherbuf, af_decrypted, (unsigned char*)keycandidate[i], cur_salt->afsize, cur_salt);
+			// AFMerge the blocks
+			AF_merge(af_decrypted, (unsigned char*)masterkeycandidate[i], cur_salt->afsize,
+			john_ntohl(cur_salt->myphdr.keyblock[cur_salt->bestslot].stripes));
+		}
 		// pbkdf2 again
-		derive_key(masterkeycandidate,
-			john_ntohl(cur_salt->myphdr.keyBytes),
-			(const uint8_t*)cur_salt->myphdr.mkDigestSalt,
-			LUKS_SALTSIZE,
-			john_ntohl(cur_salt->myphdr.mkDigestIterations),
-			(unsigned char*)crypt_out[index],
-			LUKS_DIGESTSIZE);
+#ifdef MMX_COEF
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			lens[i] = john_ntohl(cur_salt->myphdr.keyBytes);
+			pin[i] = (unsigned char*)masterkeycandidate[i];
+			x.pout[i] = crypt_out[index+i];
+		}
+		pbkdf2_sha1_sse((const unsigned char **)pin, lens,
+		                (const unsigned char*)cur_salt->myphdr.mkDigestSalt, LUKS_SALTSIZE,
+		                john_ntohl(cur_salt->myphdr.mkDigestIterations), &(x.poutc),
+		                LUKS_DIGESTSIZE, 0);
+#else
+		pbkdf2_sha1((unsigned char*)masterkeycandidate[0], john_ntohl(cur_salt->myphdr.keyBytes),
+		            (const unsigned char*)cur_salt->myphdr.mkDigestSalt, LUKS_SALTSIZE,
+		            john_ntohl(cur_salt->myphdr.mkDigestIterations),
+		            (unsigned char*)crypt_out[index], LUKS_DIGESTSIZE, 0);
+
+#endif
 		MEM_FREE(af_decrypted);
 	}
 	return count;
@@ -521,9 +552,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 static int cmp_all(void *binary, int count)
 {
 	int index = 0;
-#ifdef _OPENMP
 	for (; index < count; index++)
-#endif
 		if (!memcmp(binary, crypt_out[index], LUKS_DIGESTSIZE))
 			return 1;
 	return 0;
@@ -560,6 +589,7 @@ struct fmt_main fmt_luks = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -595,6 +625,7 @@ struct fmt_main fmt_luks = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		luks_set_key,
 		get_key,

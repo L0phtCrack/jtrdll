@@ -77,6 +77,7 @@ AC_ARG_ENABLE([native-macro], [AC_HELP_STRING([--disable-native-macro], [Do not 
 AC_ARG_ENABLE([ln-s], [AS_HELP_STRING([--enable-ln-s],[Use ln -s vs symlink.c wrappers (Cygwin only)])], [enable_ln_s=$enableval], [enable_ln_s=no])
 AC_ARG_ENABLE([pkg-config], [AS_HELP_STRING([--disable-pkg-config],[do not use pkg-config for any probing tests])], [enable_pkg_config=$enableval], [enable_pkg_config=auto])
 AC_ARG_ENABLE([nt-full-unicode], [AS_HELP_STRING([--enable-nt-full-unicode],[support 4-byte UTF-8 for MS formats])], [enable_nt_unicode=$enableval], [enable_nt_unicode=no])
+AC_ARG_ENABLE([int128], [AC_HELP_STRING([--disable-int128], [Do not use int128])], [enable_int128=$enableval], [enable_int128=auto])
 
 ####### Actual tests start here #######
 
@@ -162,6 +163,18 @@ AS_IF([test "x$JTR_FLAG_CHECK_WORKS" = xyes],
    JTR_FLAG_CHECK([-funroll-loops], 0)
    JTR_FLAG_CHECK([-finline-functions], 1)
    AC_SUBST([OPT_INLINE_FLAGS],["${CFLAGS_EX}"])
+
+   # if user requested  ASan, make sure we can properly build/link with it.
+if test "x$asan" = xyes ; then
+   CFLAGS_EX=""
+   LDFLAGS_BAK=${LDFLAGS}
+   LDFLAGS="-fsanitize=address $LDFLAGS"
+   JTR_FLAG_CHECK_LINK([-fsanitize=address], 1)
+   LDFLAGS=${LDFLAGS_BAK}
+   if test "x${CFLAGS_EX}" = x ; then
+      asan=no
+   fi
+fi
 
    # now fill out CFLAGS
    CFLAGS_EX=""
@@ -574,6 +587,7 @@ AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
 AC_CHECK_TYPES([ptrdiff_t])
+AS_IF([test "x$enable_int128" != xno], [AC_CHECK_TYPES([int128, __int128, __int128_t])])
 
 # Checks for library functions.
 AC_FUNC_ERROR_AT_LINE
@@ -862,13 +876,15 @@ else
    asan="disabled"
 fi
 
-AS_IF([test "x$osx_assembler_warn" = xyes],
-  [AC_MSG_WARN([**************************************************])]
-  [AC_MSG_WARN([* System's 'as' can't assemble AVX instructions. *])]
-  [AC_MSG_WARN([* Fixing this may yield better performance.      *])]
-  [AC_MSG_WARN([* See last section of doc/INSTALL                *])]
-  [AC_MSG_WARN([**************************************************])]
-)
+if test "x$enable_int128" = xno; then
+   have_int128=disabled
+elif test "x$ac_cv_type_int128" = xyes ||
+   test "x$ac_cv_type___int128" = xyes ||
+   test "x$ac_cv_type___int128_t" = xyes; then
+   have_int128=yes
+else
+   have_int128=no
+fi
 
 cat <<EOF
 dnl =======================================================================
@@ -887,15 +903,16 @@ OpenCL support .............................. ${using_cl}
 CUDA support ................................ ${using_cuda}
 Generic crypt(3) format ..................... ${using_crypt}
 
-Optional libraries found:
+Optional libraries/features found:
 Rexgen (extra cracking mode) ................ ${using_rexgen}
-GMP (performance for SRP formats) ........... ${ac_cv_lib_gmp___gmpz_init}
+GMP (PRINCE mode and faster SRP formats) .... ${ac_cv_lib_gmp___gmpz_init}
+128-bit integer (faster PRINCE mode) ........ ${have_int128}
 PCAP (vncpcap2john and SIPdump) ............. ${using_pcap}
 BZ2 (gpg2john extra decompression logic) .... ${using_bz2}
 
 Development options (these may hurt performance when enabled):
 Memdbg memory debugging settings ............ ${memdbg_settings}
-AddressSanitizer ("ASAN") ................... ${asan}
+AddressSanitizer ("ASan") ................... ${asan}
 
 Install missing libraries to get any needed features that were omitted.
 

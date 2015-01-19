@@ -161,13 +161,8 @@ john_register_one(&fmt_cryptsha256);
 // 35 character input creates a 118 byte buffer, plus 1 for 0x80 and
 // 1 unused byte and 8 byte bit length.  That is max for a 2 block crypt
 #define PLAINTEXT_LENGTH		35
-#define CIPHERTEXT_LENGTH		43
 
-#define BINARY_SIZE				32
-#define BINARY_ALIGN			4
-#define SALT_LENGTH				16
 #define SALT_SIZE				sizeof(struct saltstruct)
-#define SALT_ALIGN				4
 
 #define MIN_KEYS_PER_CRYPT		1
 #ifdef MMX_COEF_SHA256
@@ -176,26 +171,8 @@ john_register_one(&fmt_cryptsha256);
 #define MAX_KEYS_PER_CRYPT		1
 #endif
 
+#define __CRYPTSHA256_CREATE_PROPER_TESTS_ARRAY__
 #include "cryptsha256_common.h"
-
-static struct fmt_tests tests[] = {
-	{"$5$LKO/Ute40T3FNF95$U0prpBQd4PloSGU0pnpM4z9wKn4vZ1.jsrzQfPqxph9", "U*U*U*U*"},
-	{"$5$LKO/Ute40T3FNF95$fdgfoJEBoMajNxCv3Ru9LyQ0xZgv0OBMQoq80LQ/Qd.", "U*U***U"},
-	{"$5$LKO/Ute40T3FNF95$8Ry82xGnnPI/6HtFYnvPBTYgOL23sdMXn8C29aO.x/A", "U*U***U*"},
-	// this 35 char PW 'should' work, in 1 & 2 buffer code, but it changes the
-	// benchmark timings, so has been removed.  Uncomment, test your build, then re-comment it.
-//	{"$5$mTfUlwguIR0Gp2ed$nX5lzmEGAZQ.1.CcncGnSq/lxSF7t1P.YkVlljQfOC2", "01234567890123456789012345678901234"},
-	{"$5$9mx1HkCz7G1xho50$O7V7YgleJKLUhcfk9pgzdh3RapEaWqMtEp9UUBAKIPA", "*U*U*U*U"},
-	{"$5$kc7lRD1fpYg0g.IP$d7CMTcEqJyTXyeq8hTdu/jB/I6DGkoo62NXbHIR7S43", ""},
-	// A 36 byte PW fails with newest code.  It would require 3 block SHA buffering.
-	// We only handle 1 and 2, at the current time.
-	//{"$5$aewWTiO8RzEz5FBF$CZ3I.vdWF4omQXMQOv1g3XarjhH0wwR29Jwzt6/gvV/", "012345678901234567890123456789012345"},
-
-	// here is a test case for rounds=50000. Works, but slows down self test a lot (but not benchmarks)
-	// so, it is best to uncomment after changes, test that this still works, then comment out before release.
-	//{"$5$rounds=50000$LKO/Ute40T3FNF95$S51z7fjx29wblQAQbkqY7G8ExS18kQva39ur8FG5VS0", "U*U*U*U*"},
-	{NULL}
-};
 
 /* This structure is 'pre-loaded' with the keyspace of all possible crypts which  */
 /* will be performed WITHIN the inner loop.  There are 8 possible buffers that    */
@@ -876,6 +853,7 @@ static void *get_salt(char *ciphertext)
 	static struct saltstruct out;
 	int len;
 
+	memset(&out, 0, sizeof(out));
 	out.rounds = ROUNDS_DEFAULT;
 	ciphertext += 3;
 	if (!strncmp(ciphertext, ROUNDS_PREFIX,
@@ -950,6 +928,7 @@ struct fmt_main fmt_cryptsha256 = {
 		"SHA256 " ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -989,6 +968,7 @@ struct fmt_main fmt_cryptsha256 = {
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,

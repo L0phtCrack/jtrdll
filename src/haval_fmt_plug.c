@@ -58,6 +58,8 @@ static int omp_t = 1;
 static struct fmt_tests haval_256_3_tests[] = {
 	{"91850C6487C9829E791FC5B58E98E372F3063256BB7D313A93F1F83B426AEDCC", "HAVAL"},
 	{"$haval$91850C6487C9829E791FC5B58E98E372F3063256BB7D313A93F1F83B426AEDCC", "HAVAL"},
+	// john.pot uses lower case hex, so repeat that hash with lower case hex
+	{"$haval$91850c6487c9829e791fc5b58e98e372f3063256bb7d313a93f1f83b426aedcc", "HAVAL"},
 	{NULL}
 };
 
@@ -270,6 +272,7 @@ struct fmt_main fmt_haval_256_3 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE256,
 		BINARY_ALIGN,
@@ -305,6 +308,7 @@ struct fmt_main fmt_haval_256_3 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		haval_set_key,
 		get_key,
@@ -333,6 +337,7 @@ struct fmt_main fmt_haval_128_4 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE128,
 		BINARY_ALIGN,
@@ -368,6 +373,7 @@ struct fmt_main fmt_haval_128_4 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		haval_set_key,
 		get_key,

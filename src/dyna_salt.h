@@ -26,6 +26,9 @@
  * zip format for an example of how to properly use dyna_salt's.
  */
 
+#if !defined (_DYNA_SALT_H__)
+#define _DYNA_SALT_H__
+
 #include <stddef.h>
 #include "stdint.h"
 
@@ -57,6 +60,7 @@ typedef struct dyna_salt_john_core_t {
  * and loading. There are times where other functions
  * are called, where we do not have a format structure.
  */
+struct fmt_main;
 void dyna_salt_init(struct fmt_main *format);
 
 /*
@@ -67,12 +71,12 @@ int dyna_salt_cmp(void *p1, void *p2, int comp_size);
 //#define DYNA_SALT_DEBUG
 
 #ifdef DYNA_SALT_DEBUG
-void dyna_salt_created_fp(char *fname, int line);
-#define dyna_salt_create() dyna_salt_created_fp(__FILE__,__LINE__)
+void dyna_salt_created_fp(void *a, char *fname, int line);
+#define dyna_salt_create(a) dyna_salt_created_fp(a,__FILE__,__LINE__)
 void dyna_salt_remove_fp(void *a, char *fname, int line);
 #define dyna_salt_remove(a) dyna_salt_remove_fp(a,__FILE__,__LINE__)
 #else
-#define dyna_salt_create()
+#define dyna_salt_create(a)
 void dyna_salt_remove_fp(void *a);
 #define dyna_salt_remove(a) dyna_salt_remove_fp(a)
 #endif
@@ -82,3 +86,5 @@ void dyna_salt_remove_fp(void *a);
 /* These 2 used in self test code. Put here to hide the ugly details */
 void dyna_salt_smash(void *p, char c);
 int dyna_salt_smash_check(void *p, unsigned char c);
+
+#endif // _DYNA_SALT_H__

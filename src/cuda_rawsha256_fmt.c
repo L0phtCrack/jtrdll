@@ -5,6 +5,7 @@
 * This file is shared by raw-sha224-cuda and raw-sha256-cuda formats,
 * SHA256 definition is used to distinguish between them.
 */
+#ifdef HAVE_CUDA
 #include <string.h>
 
 #include "arch.h"
@@ -296,6 +297,7 @@ struct fmt_main FMT_MAIN = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -331,6 +333,7 @@ struct fmt_main FMT_MAIN = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		set_key,
 		get_key,
@@ -350,3 +353,4 @@ struct fmt_main FMT_MAIN = {
 		cmp_exact
 	}
 };
+#endif

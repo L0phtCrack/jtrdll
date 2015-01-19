@@ -19,6 +19,10 @@
 #if AC_BUILT
 /* need to know if HAVE_LIBDL is set, for autoconfig build */
 #include "autoconfig.h"
+#else
+#ifdef __SIZEOF_INT128__
+#define HAVE___INT128 1
+#endif
 #endif
 
 #define NEED_OS_FORK
@@ -82,6 +86,7 @@ static int john_omp_threads_new;
 #include "charset.h"
 #include "single.h"
 #include "wordlist.h"
+#include "prince.h"
 #include "inc.h"
 #include "mask.h"
 #include "mkv.h"
@@ -377,6 +382,7 @@ static void john_omp_maybe_adjust_or_fallback(char **argv)
 
 static void john_omp_show_info(void)
 {
+	if (options.verbosity > 2)
 #if HAVE_MPI
 	if (mpi_p == 1)
 #endif
@@ -468,7 +474,8 @@ static void john_omp_show_info(void)
 	}
 
 	if (john_omp_threads_orig == 1)
-		if (john_main_process)
+	if (options.verbosity > 2)
+	if (john_main_process)
 		fputs("Warning: OpenMP is disabled; "
 		    "a non-OpenMP build may be faster\n", stderr);
 }
@@ -1025,7 +1032,8 @@ static void john_load(void)
 		}
 
 #if FMT_MAIN_VERSION > 11
-		for ( ; i < FMT_TUNABLE_COSTS && database.format->methods.tunable_cost_value[i] != NULL; i++) {
+		for ( ; i < FMT_TUNABLE_COSTS &&
+			      database.format->methods.tunable_cost_value[i] != NULL; i++) {
 			if (database.min_cost[i] < database.max_cost[i]) {
 				log_event("Loaded hashes with cost %d (%s)"
 				          " varying from %u to %u",
@@ -1041,6 +1049,11 @@ static void john_load(void)
 				log_event("Cost %d (%s) is %u for all loaded hashes",
 				          i+1, database.format->params.tunable_cost_name[i],
 				          database.min_cost[i]);
+				if (options.verbosity > 3 && john_main_process)
+				printf("Cost %d (%s) is %u for all loaded "
+				       "hashes\n", i+1,
+				       database.format->params.tunable_cost_name[i],
+				       database.min_cost[i]);
 			}
 		}
 #endif
@@ -1279,6 +1292,7 @@ int jtrdll_stage = 0;
 static void john_run(void)
 {
 	struct stat trigger_stat;
+	int trigger_reset = 0;
 
 	jtrdll_stage=1;
 
@@ -1306,7 +1320,7 @@ static void john_run(void)
 				    where);
 				error();
 			}
-			database.format->methods.reset(&database);
+			trigger_reset = 1;
 			log_init(LOG_NAME, pers_opts.activepot,
 			         options.session);
 			status_init(NULL, 1);
@@ -1330,16 +1344,16 @@ static void john_run(void)
 			        "positives, so it will keep trying even "
 			        "after\nfinding a possible candidate.\n");
 
-		/* WPA-PSK and WoW both have min-length 8. Until the format
-		   struct can hold this information, we need this hack here. */
-		if (database.format->params.label &&
-		    (!strncasecmp(database.format->params.label, "wpapsk", 6) ||
-		    !strncasecmp(database.format->params.label, "wowsrp", 6)) &&
-		    options.force_minlength < 8) {
-			options.force_minlength = 8;
+		/* Some formats have a minimum plaintext length */
+		if (database.format->params.plaintext_min_length &&
+		    options.force_minlength <
+		    database.format->params.plaintext_min_length) {
+			options.force_minlength =
+				database.format->params.plaintext_min_length;
 			if (john_main_process)
 				fprintf(stderr,
-				        "Note: minimum length forced to 8\n");
+				        "Note: minimum length forced to %d\n",
+				        options.force_minlength);
 
 			/* Now we need to re-check this */
 			if (options.force_maxlength &&
@@ -1357,12 +1371,20 @@ static void john_run(void)
 		if (options.flags & FLG_MASK_CHK)
 			mask_init(&database, options.mask);
 
+		if (trigger_reset)
+			database.format->methods.reset(&database);
+
 		if (options.flags & FLG_SINGLE_CHK)
 			do_single_crack(&database);
 		else
 		if (options.flags & FLG_WORDLIST_CHK)
 			do_wordlist_crack(&database, options.wordlist,
 				(options.flags & FLG_RULES) != 0);
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+		else
+		if (options.flags & FLG_PRINCE_CHK)
+			do_prince_crack(&database, options.wordlist);
+#endif
 #if HAVE_REXGEN
 		else
 		if (options.flags & FLG_REGEX_CHK)

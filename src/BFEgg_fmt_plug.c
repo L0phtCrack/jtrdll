@@ -42,6 +42,7 @@ static int omp_t = 1;
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		-1
 
+#define PLAINTEXT_MIN_LENGTH		1
 #define PLAINTEXT_LENGTH		31
 #define CIPHERTEXT_LENGTH		13
 
@@ -199,6 +200,7 @@ struct fmt_main fmt_BFEgg = {
     ALGORITHM_NAME,
     BENCHMARK_COMMENT,
     BENCHMARK_LENGTH,
+    PLAINTEXT_MIN_LENGTH,
     PLAINTEXT_LENGTH,
     BINARY_SIZE,
     BINARY_ALIGN,
@@ -234,6 +236,7 @@ struct fmt_main fmt_BFEgg = {
 			fmt_default_binary_hash_6
     },
 	fmt_default_salt_hash,
+	NULL,
 	fmt_default_set_salt,
 	set_key,
 	get_key,

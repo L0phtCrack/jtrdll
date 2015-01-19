@@ -110,6 +110,8 @@ static struct fmt_tests tests[] = {
 	{"$mskrb5$$$881c257ce5df7b11715a6a60436e075a$c80f4a5ec18e7c5f765fb9f00eda744a57483db500271369cf4752a67ca0e67f37c68402", "the"},
 	{"$mskrb5$$$ef012e13c8b32448241091f4e1fdc805$354931c919580d4939421075bcd50f2527d092d2abdbc0e739ea72929be087de644cef8a", "Ripper"},
 	{"$mskrb5$$$334ef74dad191b71c43efaa16aa79d88$34ebbad639b2b5a230b7ec1d821594ed6739303ae6798994e72bd13d5e0e32fdafb65413", "VeryveryveryloooooooongPassword"},
+	// repeat first hash in exactly the same form that is used in john.pot
+	{"$krb5pa$23$$$$afcbe07c32c3450b37d0f2516354570fe7d3e78f829e77cdc1718adf612156507181f7daeb03b6fbcfe91f8346f3c0ae7e8abfe5", "John"},
 	{NULL}
 };
 
@@ -128,12 +130,11 @@ static int keys_prepared;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int n = MIN_KEYS_PER_CRYPT * omp_get_max_threads();
-	if (n < MIN_KEYS_PER_CRYPT)
-		n = MIN_KEYS_PER_CRYPT;
-	self->params.min_keys_per_crypt = n;
-	n *= OMP_SCALE;
-	self->params.max_keys_per_crypt = n;
+	int omp_t = omp_get_max_threads();
+
+	self->params.min_keys_per_crypt *= omp_t;
+	omp_t *= OMP_SCALE;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 	saved_plain = mem_calloc_tiny(sizeof(*saved_plain) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	saved_len = mem_calloc_tiny(sizeof(*saved_len) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -418,6 +419,7 @@ struct fmt_main fmt_mskrb5 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -453,6 +455,7 @@ struct fmt_main fmt_mskrb5 = {
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,

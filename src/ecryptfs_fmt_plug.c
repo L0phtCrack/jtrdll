@@ -119,7 +119,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 0;
 
 	p += 2;
-	if (*p == '1' || *(p + 1) == '$') {
+	if (*p == '1' && *(p + 1) == '$') {
 		// handle salted variety
 		p += 2;
 		if (base64_valid_length(p, e_b64_hex, flg_Base64_NO_FLAGS) != HEX_BINARY_SIZE || p[HEX_BINARY_SIZE] != '$')
@@ -256,6 +256,7 @@ struct fmt_main fmt_ecryptfs1 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		REAL_BINARY_SIZE,
 		BINARY_ALIGN,
@@ -291,6 +292,7 @@ struct fmt_main fmt_ecryptfs1 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		ecryptfs_set_key,
 		get_key,

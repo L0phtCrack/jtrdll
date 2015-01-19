@@ -25,12 +25,15 @@ john_register_one(&fmt_opencl_cryptsha256);
 #include "common-opencl.h"
 #include "config.h"
 #include "options.h"
-#include "opencl_cryptsha256.h"
-#include "cryptsha256_common.h"
 
 #define FORMAT_LABEL			"sha256crypt-opencl"
 #define ALGORITHM_NAME			"SHA256 OpenCL"
 #define OCL_CONFIG			"sha256crypt"
+
+#define __CRYPTSHA256_CREATE_PROPER_TESTS_ARRAY__
+#include "cryptsha256_common.h"
+#include "opencl_cryptsha256.h"
+
 
 //Checks for source code to pick (parameters, sizes, kernels to execute, etc.)
 #define _USE_CPU_SOURCE			(cpu(source_in_use))
@@ -58,29 +61,6 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl-autotune.h"
 #include "memdbg.h"
-
-static struct fmt_tests tests[] = {
-	{"$5$LKO/Ute40T3FNF95$U0prpBQd4PloSGU0pnpM4z9wKn4vZ1.jsrzQfPqxph9", "U*U*U*U*"},
-	{"$5$LKO/Ute40T3FNF95$8Ry82xGnnPI/6HtFYnvPBTYgOL23sdMXn8C29aO.x/A", "U*U***U*"},
-	{"$5$9mx1HkCz7G1xho50$O7V7YgleJKLUhcfk9pgzdh3RapEaWqMtEp9UUBAKIPA", "*U*U*U*U"},
-	{"$5$V8UMZ8/8.j$GGzeGHZy60318qdLiocMj7DddCnfr7jIcLMDIRy9Tr0", "password"},
-	{NULL}
-};
-
-/*********
-static struct fmt_tests tests[] = {
-	{"$5$LKO/Ute40T3FNF95$U0prpBQd4PloSGU0pnpM4z9wKn4vZ1.jsrzQfPqxph9", "U*U*U*U*"},
-	{"$5$LKO/Ute40T3FNF95$fdgfoJEBoMajNxCv3Ru9LyQ0xZgv0OBMQoq80LQ/Qd.", "U*U***U"},
-	{"$5$LKO/Ute40T3FNF95$8Ry82xGnnPI/6HtFYnvPBTYgOL23sdMXn8C29aO.x/A", "U*U***U*"},
-	{"$5$9mx1HkCz7G1xho50$O7V7YgleJKLUhcfk9pgzdh3RapEaWqMtEp9UUBAKIPA", "*U*U*U*U"},
-	{"$5$kc7lRD1fpYg0g.IP$d7CMTcEqJyTXyeq8hTdu/jB/I6DGkoo62NXbHIR7S43", ""},
-#ifdef DEBUG //Special test cases.
-	{"$5$EKt.VLXiPjwyv.xe$52wdOp9ixFXMsHDI1JcCw8KJ83IakDP6J7MIEV2OUk0", "1234567"},
-	{"$5$V8UMZ8/8.j$GGzeGHZy60318qdLiocMj7DddCnfr7jIcLMDIRy9Tr0", "password"},
-#endif
-	{NULL}
-};
-****/
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size(){
@@ -217,6 +197,7 @@ static void * get_salt(char *ciphertext) {
 	static sha256_salt out;
 	int len;
 
+	memset(&out, 0, sizeof(out));
 	out.rounds = ROUNDS_DEFAULT;
 	ciphertext += 3;
 	if (!strncmp(ciphertext, ROUNDS_PREFIX,
@@ -491,6 +472,7 @@ struct fmt_main fmt_opencl_cryptsha256 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -530,6 +512,7 @@ struct fmt_main fmt_opencl_cryptsha256 = {
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,

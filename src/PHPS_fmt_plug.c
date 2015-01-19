@@ -107,14 +107,27 @@ static char *Convert(char *Buf, char *ciphertext)
 
 static char *our_split(char *ciphertext, int index, struct fmt_main *self)
 {
-	get_ptr();
-	return pDynamic_6->methods.split(Convert(Conv_Buf, ciphertext), index, self);
-}
-
-static char *our_prepare(char *split_fields[10], struct fmt_main *self)
-{
-	get_ptr();
-	return pDynamic_6->methods.prepare(split_fields, self);
+	if (!strncmp(ciphertext, "$dynamic_6$", 11)) {
+		// convert back into $PHPS$ format
+		static char Buf[128];
+		char *cp;
+		strcpy(Buf, "$PHPS$");
+		cp = strchr(&ciphertext[11], '$');
+		++cp;
+		if (!strncmp(cp, "HEX$", 4)) {
+			cp += 4;
+			strcat(Buf, cp);
+		} else {
+			int i, len = strlen(cp);
+			char *cp2 = &Buf[strlen(Buf)];
+			for (i = 0; i < len; ++i)
+				cp2 += sprintf(cp2, "%02x", *cp++);
+		}
+		strcat(Buf, "$");
+		sprintf(&Buf[strlen(Buf)], "%32.32s", &ciphertext[11]);
+		return Buf;
+	}
+	return ciphertext;
 }
 
 static int phps_valid(char *ciphertext, struct fmt_main *self)
@@ -165,7 +178,7 @@ struct fmt_main fmt_PHPS =
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -187,7 +200,7 @@ static void link_funcs() {
 	fmt_PHPS.methods.salt   = our_salt;
 	fmt_PHPS.methods.binary = our_binary;
 	fmt_PHPS.methods.split = our_split;
-	fmt_PHPS.methods.prepare = our_prepare;
+	fmt_PHPS.methods.prepare = fmt_default_prepare;
 }
 
 static void phps_init(struct fmt_main *self)

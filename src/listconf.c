@@ -134,12 +134,13 @@ static void listconf_list_method_names()
 #else
 	puts("init, done, reset, prepare, valid, split, binary, salt,");
 #endif
-	puts("source, binary_hash, salt_hash, set_salt, set_key, get_key, clear_keys,");
-	puts("crypt_all, get_hash, cmp_all, cmp_one, cmp_exact");
+	puts("source, binary_hash, salt_hash, salt_compare, set_salt, set_key, get_key,");
+	puts("clear_keys, crypt_all, get_hash, cmp_all, cmp_one, cmp_exact");
 }
 
 static void listconf_list_build_info(void)
 {
+	char DebuggingOptions[512], *cpdbg=DebuggingOptions;
 #ifdef __GNU_MP_VERSION
 	int gmp_major, gmp_minor, gmp_patchlevel;
 #endif
@@ -231,6 +232,26 @@ static void listconf_list_build_info(void)
 #elif HAVE_COMMONCRYPTO
 	printf("Crypto library: CommonCrypto\n");
 #endif
+
+// OK, now append debugging options, BUT only output  something if
+// one or more of them is set. IF none set, be silent.
+#if defined (MEMDBG_ON)
+	cpdbg += sprintf(cpdbg, "\tmemdbg=");
+	#ifdef MEMDBG_EXTRA_CHECKS
+		cpdbg += sprintf(cpdbg, "extra_memory_checks\n");
+	#else
+		cpdbg += sprintf(cpdbg, "on\n");
+	#endif
+#endif
+#if defined (DEBUG)
+	cpdbg += sprintf(cpdbg, "\t'#define DEBUG' set\n");
+#endif
+#ifdef WITH_ASAN
+	cpdbg += sprintf(cpdbg, "\tASan (Address Sanitizer debugging)\n");
+#endif
+	if (DebuggingOptions != cpdbg) {
+		printf("Built with these debugging options\n%s\n", DebuggingOptions);
+	}
 }
 
 void listconf_parse_early(void)
@@ -373,9 +394,8 @@ void listconf_parse_late(void)
 	    (options.listconf && !strcasecmp(options.listconf, "subformats")))
 	{
 		dynamic_DISPLAY_ALL_FORMATS();
-		/* NOTE if we have other 'generics', like sha1, sha2, rc4, ...
-		 * then EACH of them should have a DISPLAY_ALL_FORMATS()
-		 * function and we can call them here. */
+/* NOTE if we have other 'generics', like sha1, sha2, rc4... then EACH of them
+   should have a DISPLAY_ALL_FORMATS() function and we can call them here. */
 		exit(EXIT_SUCCESS);
 	}
 
@@ -462,9 +482,8 @@ void listconf_parse_late(void)
 		struct fmt_main *format;
 
 #if HAVE_OPENCL
-		/* This will make the majority of OpenCL formats
-		   also do "quick" run. But if LWS or
-		   GWS was already set, we do not overwrite. */
+/* This will make the majority of OpenCL formats also do "quick" run.
+   But if LWS or GWS was already set, we do not overwrite. */
 		setenv("LWS", "1", 0);
 		setenv("GWS", "1", 0);
 		setenv("BLOCKS", "1", 0);
@@ -474,8 +493,8 @@ void listconf_parse_late(void)
 		do {
 			int ntests = 0;
 
-			/* Some encodings change max plaintext length when
-			   encoding is used, or KPC when under OMP */
+/* Some encodings change max plaintext length when
+   encoding is used, or KPC when under OMP */
 			if ((!strstr(format->params.label, "-opencl") &&
 			     !strstr(format->params.label, "-cuda")) ||
 			    (format->params.flags & FMT_UTF8 &&
@@ -501,28 +520,29 @@ void listconf_parse_late(void)
 			       format->params.benchmark_length,
 			       format->params.binary_size,
 			       ((format->params.flags & FMT_DYNAMIC) && format->params.salt_size) ?
-			       // salts are handled internally within the format. We want to know the 'real' salt size
-			       // dynamic will alway set params.salt_size to 0 or sizeof a pointer.
-			       dynamic_real_salt_length(format) : format->params.salt_size);
+/* salts are handled internally within the format. We want to know the
+   'real' salt size. Dynamic will always set params.salt_size to 0 or sizeof
+   a pointer. */
+   dynamic_real_salt_length(format) : format->params.salt_size);
 #if FMT_MAIN_VERSION > 11
 			printf("\t");
 			list_tunable_cost_names(format, ",");
 #endif
-			/*
-			 * Since the example ciphertext should be the last line in the
-			 * --list=format-all-details output, it should also be the last column
-			 * here.
-			 * Even if this means tools processing --list=format-details output
-			 * have to check the number of columns if they want to use the example
-			 * ciphertext.
-			 */
-			printf("\t%.256s\n",
-			       /*
-			        * ciphertext example will be silently truncated
-			        * to 256 characters here
-			        */
+			printf("\t%d\t%.256s\n",
+			       format->params.plaintext_min_length,
+/*
+ * Since the example ciphertext should be the last line in the
+ * --list=format-all-details output, it should also be the last column
+ * here.
+ * Even if this means tools processing --list=format-details output
+ * have to check the number of columns if they want to use the example
+ * ciphertext.
+ *
+ * ciphertext example will be silently truncated
+ * to 256 characters here
+ */
 			       ntests ?
-			       format->params.tests[0].ciphertext : "");
+			       get_test(format, 0) : "");
 
 			fmt_done(format);
 
@@ -533,9 +553,8 @@ void listconf_parse_late(void)
 		struct fmt_main *format;
 
 #if HAVE_OPENCL
-		/* This will make the majority of OpenCL formats
-		   also do "quick" run. But if LWS or
-		   GWS was already set, we do not overwrite. */
+/* This will make the majority of OpenCL formats also do "quick" run.
+   But if LWS or GWS was already set, we do not overwrite. */
 		setenv("LWS", "1", 0);
 		setenv("GWS", "1", 0);
 		setenv("BLOCKS", "1", 0);
@@ -545,8 +564,8 @@ void listconf_parse_late(void)
 		do {
 			int ntests = 0;
 
-			/* Some encodings change max plaintext length when
-			   encoding is used, or KPC when under OMP */
+/* Some encodings change max plaintext length when encoding is used,
+   or KPC when under OMP */
 			if ((!strstr(format->params.label, "-opencl") &&
 			     !strstr(format->params.label, "-cuda")) ||
 			    (format->params.flags & FMT_UTF8 &&
@@ -557,20 +576,21 @@ void listconf_parse_late(void)
 				while (format->params.tests[ntests++].ciphertext);
 				ntests--;
 			}
-			/*
-			 * According to doc/OPTIONS, attributes should be printed in
-			 * the same sequence as with format-details, but human-readable.
-			 */
+/*
+ * According to doc/OPTIONS, attributes should be printed in
+ * the same sequence as with format-details, but human-readable.
+ */
 			printf("Format label                         %s\n", format->params.label);
-			/*
-			 * Indented (similar to the flags), because this information is not printed
-			 * for --list=format-details
-			 */
+/*
+ * Indented (similar to the flags), because this information is not printed
+ * for --list=format-details
+ */
 			printf(" Disabled in configuration file      %s\n",
 			       cfg_get_bool(SECTION_DISABLED,
 			                    SUBSECTION_FORMATS,
 			                    format->params.label, 0)
 			       ? "yes" : "no");
+			printf("Min. password length in bytes        %d\n", format->params.plaintext_min_length);
 			printf("Max. password length in bytes        %d\n", format->params.plaintext_length);
 			printf("Min. keys per crypt                  %d\n", format->params.min_keys_per_crypt);
 			printf("Max. keys per crypt                  %d\n", format->params.max_keys_per_crypt);
@@ -597,8 +617,9 @@ void listconf_parse_late(void)
 			printf("Binary size                          %d\n", format->params.binary_size);
 			printf("Salt size                            %d\n",
 			       ((format->params.flags & FMT_DYNAMIC) && format->params.salt_size) ?
-			       // salts are handled internally within the format. We want to know the 'real' salt size/
-			       // dynamic will alway set params.salt_size to 0 or sizeof a pointer.
+/* salts are handled internally within the format. We want to know the
+   'real' salt size dynamic will alway set params.salt_size to 0 or
+   sizeof a pointer. */
 			       dynamic_real_salt_length(format) : format->params.salt_size);
 #if FMT_MAIN_VERSION > 11
 			printf("Tunable cost parameters              ");
@@ -606,13 +627,12 @@ void listconf_parse_late(void)
 			printf("\n");
 #endif
 
-			/*
-			 * The below should probably stay as last line of
-			 * output if adding more information.
-			 *
-			 * ciphertext example will be truncated to 512
-			 * characters here, with a notice.
-			 */
+/*
+ * The below should probably stay as last line of output if adding more
+ * information.
+ *
+ * ciphertext example will be truncated to 512 characters here, with a notice.
+ */
 			if (ntests) {
 				char *ciphertext = get_test(format, 0);
 
@@ -635,7 +655,8 @@ void listconf_parse_late(void)
 			int ShowIt = 1, i;
 
 			if (format->params.flags & FMT_DYNAMIC)
-				fmt_init(format); // required for thin formats, these adjust their methods here
+/* required for thin formats, these adjust their methods here */
+				fmt_init(format);
 
 			if (options.listconf[14] == '=' || options.listconf[14] == ':') {
 				ShowIt = 0;
@@ -683,7 +704,8 @@ void listconf_parse_late(void)
 				         strcasecmp(&options.listconf[15], "binary_hash[4]") &&
 				         strcasecmp(&options.listconf[15], "binary_hash[5]") &&
 					 strcasecmp(&options.listconf[15], "binary_hash[6]") &&
-				         strcasecmp(&options.listconf[15], "salt_hash"))
+				         strcasecmp(&options.listconf[15], "salt_hash") &&
+				         strcasecmp(&options.listconf[15], "salt_compare"))
 				{
 					fprintf(stderr, "Error, invalid option (invalid method name) %s\n", options.listconf);
 					fprintf(stderr, "Valid method names are:\n");
@@ -741,6 +763,8 @@ void listconf_parse_late(void)
 					ShowIt = 1;
 				if (format->methods.salt_hash != fmt_default_salt_hash && !strcasecmp(&options.listconf[15], "salt_hash"))
 					ShowIt = 1;
+				if (format->methods.salt_compare != NULL && !strcasecmp(&options.listconf[15], "salt_compare"))
+					ShowIt = 1;
 				if (format->methods.set_salt != fmt_default_set_salt && !strcasecmp(&options.listconf[15], "set_salt"))
 					ShowIt = 1;
 			}
@@ -760,10 +784,10 @@ void listconf_parse_late(void)
 					printf("\tsalt()\n");
 #if FMT_MAIN_VERSION > 11
 				for (i = 0; i < FMT_TUNABLE_COSTS; ++i)
-					/*
-					 * Here, a NULL value serves as default,
-					 * so any existing function should be printed
-					 */
+/*
+ * Here, a NULL value serves as default,
+ * so any existing function should be printed
+ */
 					if (format->methods.tunable_cost_value[i])
 						printf("\t\ttunable_cost_value[%d]()\n", i);
 #endif
@@ -778,11 +802,14 @@ void listconf_parse_late(void)
 					}
 				if (format->methods.salt_hash != fmt_default_salt_hash)
 					printf("\tsalt_hash()\n");
+/* salt_compare is always NULL for default */
+				if (format->methods.salt_compare != NULL)
+					printf("\tsalt_compare()\n");
 				if (format->methods.set_salt != fmt_default_set_salt)
 					printf("\tset_salt()\n");
-				// there is no default for set_key() it must be defined.
+// there is no default for set_key() it must be defined.
 				printf("\tset_key()\n");
-				// there is no default for get_key() it must be defined.
+// there is no default for get_key() it must be defined.
 				printf("\tget_key()\n");
 				if (format->methods.clear_keys != fmt_default_clear_keys)
 					printf("\tclear_keys()\n");
@@ -793,13 +820,13 @@ void listconf_parse_late(void)
 						else
 							printf("\t\tget_hash[%d]()  (NULL pointer)\n", i);
 					}
-				// there is no default for crypt_all() it must be defined.
+// there is no default for crypt_all() it must be defined.
 				printf("\tcrypt_all()\n");
-				// there is no default for cmp_all() it must be defined.
+// there is no default for cmp_all() it must be defined.
 				printf("\tcmp_all()\n");
-				// there is no default for cmp_one() it must be defined.
+// there is no default for cmp_one() it must be defined.
 				printf("\tcmp_one()\n");
-				// there is no default for cmp_exact() it must be defined.
+// there is no default for cmp_exact() it must be defined.
 				printf("\tcmp_exact()\n");
 				printf("\n\n");
 			}
@@ -837,37 +864,32 @@ void listconf_parse_late(void)
 
 			if (format->params.tests) {
 				while (format->params.tests[ntests].ciphertext) {
-					int i;
 					int skip = 0;
-					/*
-					 * defining a config variable to allowing --field-separator-char=
-					 * with a fallback to either ':' or '\t' is probably overkill
-					 */
+/*
+ * defining a config variable to allowing --field-separator-char=
+ * with a fallback to either ':' or '\t' is probably overkill
+ */
 					const char separator = '\t';
 					char *ciphertext = get_test(format, ntests);
-					/*
-					 * one of the scrypt tests has tabs and new lines in ciphertext
-					 * and password.
-					 */
-					for (i = 0; format->params.tests[ntests].plaintext[i]; i++)
-						if (format->params.tests[ntests].plaintext[i] == '\x0a') {
-							skip = 1;
-							fprintf(stderr,
-							        "Test %s %d: plaintext contains line feed\n",
-							        format->params.label, ntests);
-							break;
-						}
-					for (i = 0; ciphertext[i]; i++) {
-						if (ciphertext[i] == '\x0a' ||
-						    ciphertext[i] == separator) {
-							skip |= 2;
-							fprintf(stderr,
-							        "Test %s %d: ciphertext contains line feed or separator character '%c'\n",
-							        format->params.label, ntests, separator);
-							break;
-						}
+/*
+ * one of the scrypt tests has tabs and new lines in ciphertext
+ * and password.
+ */
+					if (strchr(format->params.tests[ntests].plaintext, '\x0a')) {
+						skip = 1;
+						fprintf(stderr,
+						        "Test %s %d: plaintext contains line feed\n",
+						        format->params.label, ntests);
 					}
-					if (skip != 3) { // if they are both missing, simply do not output a line at all
+					if (strchr(ciphertext, '\x0a') ||
+					    strchr(ciphertext, separator)) {
+						skip |= 2;
+						fprintf(stderr,
+						        "Test %s %d: ciphertext contains line feed or separator character '%c'\n",
+						        format->params.label, ntests, separator);
+					}
+/* if they are both missing, simply do not output a line at all */
+					if (skip != 3) {
 						printf("%s%c%d",
 							   format->params.label, separator, ntests);
 						if (skip < 2) {

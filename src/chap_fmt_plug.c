@@ -93,6 +93,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (strlen(p) > 64)
 		goto err;
+	if (!ishex(p))
+		goto err;
+	if ((p = strtok(NULL, "*")) == NULL)	/* binary */
+		goto err;
+	if (strlen(p) != BINARY_SIZE*2)
+		goto err;
+	if (!ishex(p))
+		goto err;
 
 	MEM_FREE(keeptr);
 	return 1;
@@ -215,6 +223,7 @@ struct fmt_main fmt_chap = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -250,6 +259,7 @@ struct fmt_main fmt_chap = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		chap_set_key,
 		get_key,

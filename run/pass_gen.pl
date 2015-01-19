@@ -63,16 +63,19 @@ my @funcs = (qw(DESCrypt BigCrypt BSDIcrypt md5crypt md5crypt_a BCRYPT BCRYPTx
 		crc_32 Dynamic dummy raw-sha224 raw-sha256 raw-sha384 raw-sha512
 		dragonfly3-32 dragonfly4-32 dragonfly3-64 dragonfly4-64 ssh
 		salted-sha1 raw_gost raw_gost_cp hmac-sha1 hmac-sha224 mozilla
-		hmac-sha256 hmac-sha384 hmac-sha512 sha256crypt sha512crypt
+		hmac-sha256 hmac-sha384 hmac-sha512 sha1crypt sha256crypt sha512crypt
 		XSHA512 dynamic_27 dynamic_28 pwsafe django drupal7 epi zip
 		episerver_sha1 episerver_sha256 hmailserver ike keepass pkzip
 		keychain nukedclan pfx racf radmin raw-SHA sip SybaseASE vnc
 		wbb3 wpapsk sunmd5 wowsrp django-scrypt aix-ssha1 aix-ssha256
 		aix-ssha512 pbkdf2-hmac-sha512 pbkdf2-hmac-sha256 scrypt pdf
-		rakp osc formspring skey_md5 pbkdf2-hmac-sha1 odf odf-1 office_2007
-		skey_md4 skey_sha1 skey_rmd160 cloudkeychain agilekeychain
+		rakp osc formspring skey-md5 pbkdf2-hmac-sha1 odf odf-1 office_2007
+		skey-md4 skey-sha1 skey-rmd160 cloudkeychain agilekeychain
 		rar rar5 ecryptfs office_2010 office_2013 tc_ripemd160 tc_sha512
-		tc_whirlpool Haval-256 SAP-H rsvp));
+		tc_whirlpool Haval-256 SAP-H rsvp pbkdf2-hmac-sha1-p5k2
+		pbkdf2-hmac-sha1-pkcs5s2 md5crypt-smd5 ripemd-128 ripemd-160
+		raw-tiger raw-whirlpool hsrp known-hosts chap bb-es10 citrix-ns10
+		clipperz-srp dahua fortigate lp lastpass));
 
 # todo: sapb sapfg ike keepass cloudkeychain agilekeychain pfx racf vnc pdf pkzip rar5 ssh raw_gost_cp
 my $i; my $h; my $u; my $salt;
@@ -330,22 +333,24 @@ sub hmac_pad {
 	return $pad;
 }
 sub pp_pbkdf2 {
-	my ($pass, $orig_salt, $iter, $algo, $bytes, $pad_len) = @_;
+	my ($pass, $orig_salt, $iter, $algo, $bytes, $pad_len, $pbkdf1) = @_;
 	my $ipad = hmac_pad($pass, '6', $algo, $pad_len);  # 6 is \x36 for an ipad
 	my $opad = hmac_pad($pass, '\\', $algo, $pad_len); # \ is \x5c for an opad
 	my $final_out=""; my $i=1;
 	my $slt;
 	while (length($final_out) < $bytes) {
-		$slt = $orig_salt . Uint32BERaw($i);
-		$i += 1;
+		$slt = $orig_salt;
+		if (!defined($pbkdf1) || !$pbkdf1) { $slt .= Uint32BERaw($i); $i += 1; }
 		no strict 'refs';
 		$slt = &$algo($opad.&$algo($ipad.$slt));
-		my $out = $slt;
-		for (my $i = 1; $i < $iter; $i += 1) {
+		my $out;
+		if (!defined($pbkdf1) || !$pbkdf1) { $out = $slt; }
+		for (my $x = 1; $x < $iter; $x += 1) {
 			$slt = &$algo($opad.&$algo($ipad.$slt));
-			$out ^= $slt;
+			if (!defined($pbkdf1) || !$pbkdf1) {  $out ^= $slt; }
 		}
 		use strict;
+		if (defined($pbkdf1) && $pbkdf1) {  $out = $slt; }
 		if (length($final_out)+length($out) > $bytes) {
 			$out = substr($out, 0, $bytes-length($final_out));
 		}
@@ -354,8 +359,8 @@ sub pp_pbkdf2 {
 	return $final_out;
 }
 sub pp_pbkdf2_hex {
-	my ($pass, $slt, $iter, $algo, $bytes, $pad_len) = @_;
-	return unpack("H*",pp_pbkdf2($pass,$slt,$iter,$algo,$bytes,$pad_len));
+	my ($pass, $slt, $iter, $algo, $bytes, $pad_len, $pbkdf1) = @_;
+	return unpack("H*",pp_pbkdf2($pass,$slt,$iter,$algo,$bytes,$pad_len,$pbkdf1));
 }
 
 #############################################################################
@@ -638,14 +643,14 @@ sub to64 #unsigned long v, int n)
 # uses encode_64, but replaces all + with .  NOT sure why, but that is what it does.
 # used in at least pbkdf2-hmac-sha256. Probably others.
 sub base64pl {
-	my $ret = encode_base64($_[0]);
+	my $ret = encode_base64($_[0], "");
 	$ret =~ s/\+/./g;
 	chomp $ret;
 	return $ret;
 }
 # helper function for nsldap and nsldaps
 sub base64 {
-	my $ret = encode_base64($_[0]);
+	my $ret = encode_base64($_[0], "");
 	chomp $ret;
 	return $ret;
 }
@@ -785,7 +790,7 @@ sub tiger {
 sub tiger_base64 {
 	require Digest::Tiger;
 	my $bin = pack "H*", lc Digest::Tiger::hexhash($_[0]);
-	return encode_base64($bin);
+	return base64($bin);
 }
 # these all come from CryptX usage.
 sub ripemd128_hex {
@@ -984,7 +989,7 @@ sub cisco8 {
 	$salt = get_salt(14,14,\@i64);
 	my $h = pp_pbkdf2($_[1],$salt,20000,"sha256",32,64);
 	my $s = base64_wpa($h);
-	print "u-cisco8:\$8\$$salt\$$s:$u:0:$_[0]::\n";
+	print "u$u-cisco8:\$8\$$salt\$$s:$u:0:$_[0]::\n";
 }
 sub cisco9 {
 	require Crypt::ScryptKDF;
@@ -992,7 +997,14 @@ sub cisco9 {
 	$salt = get_salt(14,14,\@i64);
 	my $h = scrypt_raw($_[1],$salt,16384,1,1,32);
 	my $s = base64_wpa($h);
-	print "u-cisco9:\$9\$$salt\$$s:$u:0:$_[0]::\n";
+	print "u$u-cisco9:\$9\$$salt\$$s:$u:0:$_[0]::\n";
+}
+sub raw_tiger {
+	print "u$u-tiger:\$tiger\$".tiger_hex($_[1]).":$u:0:$_[0]::\n";
+}
+sub raw_whirlpool {
+	# note we only handle whirlpool, not whirlpool0 or whirlpool1
+	print "u$u-whirlpool:\$whirlpool\$".whirlpool_hex($_[1]).":$u:0:$_[0]::\n";
 }
 sub dragonfly3_32 {
 	$salt = get_salt(-8, -8);
@@ -1066,6 +1078,27 @@ sub krb5_18 {
 	my $output1 = $crypt->encrypt(pack("H*","6b65726265726f737b9b5b2b93132b93"));
 	my $output2 = $crypt->encrypt($output1);
 	print "u$u-krb5-18:\$krb18\$$salt\$".unpack("H*",$output1).unpack("H*",$output2).":$u:0:$_[0]::\n";
+}
+sub lp {
+	$salt = get_salt(32, -32, \@userNames);
+	my $pbk = pp_pbkdf2($_[0], $salt, 500, "sha256", 32, 64);
+	require Crypt::OpenSSL::AES;
+	my $crypt = Crypt::OpenSSL::AES->new($pbk);
+	$h = unpack("H*", $crypt->encrypt("lastpass rocks\x02\x02"));
+	print "u$u-lastpass:\$lp\$$salt\$$h:$u:0:$_[0]::\n";
+}
+sub lastpass {
+#"$lastpass$hackme@mailinator.com$500$i+hJCwPOj5eQN4tvHcMguoejx4VEmiqzOXOdWIsZKlk="
+	my $iter = 500;
+	$salt = get_salt(32, -32, \@userNames);
+	my $pbk = pp_pbkdf2($_[0], $salt, 500, "sha256", 32, 64);
+	require Crypt::OpenSSL::AES;
+	require Crypt::CBC;
+	my $dat = $salt;
+	my $iv = "\0"x16;
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $pbk, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'null');
+	$h = base64($crypt->encrypt($dat));
+	print "u$u-lp_sniffed:\$lastpass\$$salt\$$iter\$$h:$u:0:$_[0]::\n";
 }
 
 sub odf {
@@ -1160,6 +1193,16 @@ sub office_2007 {
 	my $hash = $crypt->encrypt(substr(sha1(substr($crypt->decrypt($randdata),0,16)),0,16));
 	print "u$u-office07:\$office\$*2007*20*128*16*".unpack("H*",$salt)."*".unpack("H*",$randdata)."*".unpack("H*",$hash)."00000000:$u:0:$_[0]::\n";
 }
+sub known_hosts {
+	# simple hmac-sha1, BUT salt and pw are used in wrong order, and password is usually some host or IP, BUT
+	# it does not matter if it is an IP or not. Still works fine regardless.
+	$salt = get_salt(20);
+	$h = Digest::SHA::hmac_sha1($_[1], $salt);
+	$salt = base64($salt);
+	$h = base64($h);
+	print "u$u:\$known_hosts\$|1|$salt|$h:$u:0:$_[0]::\n";
+	
+}
 sub _tc_build_buffer {
 	# build a special TC buffer.  448 bytes, 2 spots have CRC32.  Lots of null, etc.
 	my $buf = 'TRUE'."\x00\x05\x07\x00". "\x00"x184 . randstr(64) . "\x00"x192;
@@ -1228,13 +1271,34 @@ sub tc_whirlpool {
 	$h = _tc_aes_256_xts($h,$d,$tweak);
 	print "u$u-tc_whirlpool:truecrypt_WHIRLPOOL\$".unpack("H*",$salt).unpack("H*",$h).":$u:0:$_[0]::\n";
 }
+sub dahua {
+	my $h = md5($_[1]);
+	# compressor
+	my @a = split(//, $h);
+	$h = "";
+	for (my $i = 0; $i < 16; $i += 2) {
+		my $x = (ord($a[$i])+ord($a[$i+1])) % 62;
+		if ($x < 10) { $x += 48; }
+		elsif ($x < 36) { $x += 55; }
+		else { $x += 61; }
+		$h .= chr($x);
+	}
+	print "u$u:\$dahua\$$h:$u:0:$_[0]::\n";
+}
+sub ripemd_128 {
+	print "u$u-ripemd128:\$ripemd\$".ripemd128_hex($_[0]).":$u:0:$_[0]::\n";
+}
+sub ripemd_160 {
+	print "u$u-ripemd160:\$ripemd\$".ripemd160_hex($_[0]).":$u:0:$_[0]::\n";
+}
+
 sub pdf {
 }
 sub pkzip {
 }
 sub rsvp {
 	require Digest::HMAC_MD5;
-	$salt = get_salt(172);
+	$salt = get_salt(16, -8192);
 	my $mode = 1;
 	my $h;
 	if (defined $argmode) {$mode=$argmode;} # 1 or 2
@@ -1266,7 +1330,33 @@ sub sap_h {
 	use strict;
 	print "u$u-sapH:{x-is$modestr, $iter}".base64($h.$salt).":$u:0:$_[0]::\n";
 }
-
+sub bb_es10 {
+	# 101x sha512, Blackberry, es10 server.
+	$salt = get_salt(8);
+	$h = sha512($_[1].$salt);
+	for (my $i = 0; $i < 99; $i++) {
+		$h = sha512($h);
+	}
+	$h = uc unpack("H*",$h);
+	print "u$u:\$bbes10\$$h\$$salt:$u:0:$_[0]::\n";
+}
+sub citrix_ns10 {
+	$salt = get_salt(8, 8, \@chrHexLo);
+	$h = sha1($salt.$_[0]."\0");
+	print "u$u:1$salt".unpack("H*",$h).":$u:0:$_[0]::\n";
+}
+sub chap {
+	$salt = get_salt(16);
+	my $h = md5("\0" . $_[1] . $salt);
+	$salt = unpack("H*",$salt);
+	$h = unpack("H*",$h); 
+	print "u$u:\$chap\$0*$salt*$h:$u:0:$_[0]::\n";
+}
+sub fortigate {
+	$salt = get_salt(12);
+	$h = sha1($salt.$_[1]."\xa3\x88\xba\x2e\x42\x4c\xb0\x4a\x53\x79\x30\xc1\x31\x07\xcc\x3f\xa1\x32\x90\x29\xa9\x81\x5b\x70");
+	print "u$u-fortigate:AK1".base64($salt.$h).":$u:0:$_[0]::\n";
+}
 sub zip {
 	# NOTE ,the zip contents are garbage, but we do not care.  We simply
 	# run the hmac-sha1 over it and compare to the validator (in JtR), so
@@ -1646,6 +1736,12 @@ sub md5crypt_a {
 	$h = md5crypt_hash($_[1], $salt, "\$apr1\$");
 	print "u$u-md5crypt_a:$h:$u:0:$_[0]::\n";
 }
+sub md5crypt_smd5 {
+	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
+	$salt = get_salt(8);
+	$h = md5crypt_hash($_[1], $salt, "");
+	print "u$u-md5crypt_a:{smd5}$h:$u:0:$_[0]::\n";
+}
 sub md5bit {
 	my $digest = $_[0]; my $bit_num=$_[1];
 	my $byte_off;
@@ -1768,9 +1864,8 @@ sub wowsrp {
 	require Math::BigInt;
 	$salt = get_salt(16);
 	my $usr = uc randusername();
-
+	if (defined $argmode) {$usr = uc $argmode; }
 	my $h = sha1($salt, sha1($usr,":",uc $_[1]));
-
 	# turn $h into a hex, so we can load it into a BigInt
 	$h = "0x" . unpack("H*", $h);
 
@@ -1784,6 +1879,28 @@ sub wowsrp {
 	$h = uc substr($h->as_hex(), 2);
 
 	print "u$u-wow_srp:\$WoWSRP\$$h\$", uc unpack("H*", $salt), "*$usr:$u:0:", uc $_[0], "::\n";
+#	while (length($h) < 64) { $h = "0".$h; }
+#	print "u$u-wow_srp:\$WoWSRP\$$h\$", uc unpack("H*", $salt), "*$usr:$u:0:", uc $_[0], "::\n";
+}
+sub clipperz_srp {
+	require Math::BigInt;
+	$salt = get_salt(64);
+	my $usr = randusername();
+	if (defined $argmode) {$usr = $argmode; }
+	my $h = "0x" . unpack("H*", sha256(sha256($salt.unpack("H*",sha256(sha256($_[1].$usr))))));
+
+	# perform exponentation.
+	my $base = Math::BigInt->new(2);
+	my $exp = Math::BigInt->new($h);
+	my $mod = Math::BigInt->new("125617018995153554710546479714086468244499594888726646874671447258204721048803");
+	$h = $base->bmodpow($exp, $mod);
+
+	# convert h into hex
+	$h = substr($h->as_hex(), 2);
+
+	print "u$u:\$clipperz\$$h\$$salt*$usr:$u:0:", $_[0], "::\n";
+#	while (length($h) < 65) { $h = "0".$h; }
+#	print "u$u:\$clipperz\$$h\$$salt*$usr:$u:0:", $_[0], "::\n"
 }
 sub _hmacmd5 {
 	my ($key, $data) = @_;
@@ -1953,6 +2070,14 @@ sub sha512crypt {
 	} else {
 	print "u$u-sha512crypt:\$6\$$salt\$$bin:$u:0:$_[0]::\n";
 	}
+}
+sub sha1crypt {
+	$salt = get_salt(8);
+	my $loops = $arg_loops != -1 ? $arg_loops : 5000;
+	# actual call to pbkdf1 (that is the last 1 param, it says to use pbkdf1 logic)
+	$h = pp_pbkdf2($_[1], $salt.'$sha1$'.$loops, $loops, "sha1", 20, 64, 1);
+	$h = base64_aix($h.substr($h,0,1)); # the hash is padded to 21 bytes, by appending first byte.  That is how it is done, dont ask why.
+	print "u$u-sha1crypt:\$sha1\$$loops\$$salt\$$h:$u:0:$_[0]::\n";
 }
 sub xsha512 {
 # simple 4 byte salted crypt.  No separator char, just raw hash. Also 'may' have $LION$.  We alternate, and every other
@@ -2221,6 +2346,13 @@ sub l0phtcrack {
 	}
 	printf("%s\\%s:::%s:%s:%s::%s:%s\n", $domain, "u$u-netntlm", unpack("H*",$lmresp), unpack("H*",$ntresp), unpack("H*",$challenge), $_[0], $type);
 }
+sub hsrp {
+	if (length($_[1]) > 55) { return; }
+	$h = pad_md64($_[1]);
+	$salt = get_salt(16,-64);
+	$h = md5($h.$salt.$_[1]);
+	print "$u-hsrp:", '$hsrp$', unpack("H*",$salt).'$'.unpack('H*', $h), ":$u:0:", $_[0], "::\n";
+}
 sub netlmv2 {
 	my $pwd = $_[1];
 	my $nthash = md4(encode("UTF-16LE", $pwd));
@@ -2282,7 +2414,7 @@ sub crc_32 {
 	}
 }
 sub dummy {
-    print "$u-dummy:", '$dummy$', unpack('H*', $_[1]), "\n";
+    print "$u-dummy:", '$dummy$', unpack('H*', $_[1]),":$u:0:", $_[0], "::\n";
 }
 sub raw_gost {
 	require Digest::GOST;
@@ -2347,17 +2479,32 @@ sub pbkdf2_hmac_sha512 {
 }
 sub pbkdf2_hmac_sha256 {
 	$salt=get_salt(16);
-	my $itr = 1000;
+	my $itr = 12000;
 	if ($arg_loops > 0) { $itr = $arg_loops; }
 	my $s64 = base64pl($salt);
 	my $h64 = substr(base64pl(pack("H*",pp_pbkdf2_hex($_[1],$salt,$itr,"sha256",32, 64))),0,43);
+	$s64 = substr($s64, 0, 22);
 	print "u$u-pbkdf2-hmac-sha256:\$pbkdf2-sha256\$${itr}\$${s64}\$${h64}:$u:0:", $_[0], "::\n";
 }
 sub pbkdf2_hmac_sha1 {
 	$salt=get_salt(16);
 	my $itr = 1000;
 	if ($arg_loops > 0) { $itr = $arg_loops; }
-	print "u$u-pbkdf2-hmac-sha1:\$pbkdf2-hmac-sha1\$${itr}.".unpack("H*", $salt).".", pp_pbkdf2_hex($_[1],$salt,$itr,"sha1",20, 64) ,":$u:0:", $_[0], "::\n";
+	print "u$u-pbkdf2-hmac-sha1:\$pbkdf2-hmac-sha1\$${itr}.".unpack("H*", $salt).".", pp_pbkdf2_hex($_[1],$salt,$itr,"sha1",20, 64).":$u:0:.$_[0].::\n";
+}
+sub pbkdf2_hmac_sha1_pkcs5s2 {
+	$salt=get_salt(16);
+	my $itr = 10000;
+	if ($arg_loops > 0) { $itr = $arg_loops; }
+	my $h = base64pl($salt.pp_pbkdf2($_[1],$salt,$itr,"sha1",20, 64));
+	print "u$u-pbkdf2-hmac-sha1_pkcs5s2:{PKCS5S2}$h:$u:0:$_[0]::\n";
+}
+sub pbkdf2_hmac_sha1_p5k2 {
+	$salt=get_salt(16);
+	my $itr = 1000;
+	if ($arg_loops > 0) { $itr = $arg_loops; }
+	my $itrs = sprintf("%x", $itr);
+	print "u$u-pbkdf2-hmac-sha1_p5k2:\$p5k2\$$itrs\$".base64($salt).'$'.base64(pack("H*",pp_pbkdf2_hex($_[1],$salt,$itr,"sha1",20, 64))).":$u:0:$_[0]::\n";
 }
 sub drupal7 {
 	$salt=get_salt(8,-8);
@@ -2415,6 +2562,7 @@ sub skey_md5 {
 	$salt=get_salt(8, 8, \@chrAsciiTextNumLo);
 	$salt = lc $salt;
 	my $cnt=randstr(3, \@chrAsciiNum);
+	if (defined $argmode) {$cnt=$argmode;}
 	my $h = md5($salt.$_[1]);
 	$h = skey_fold($h, 4);
 	my $i = $cnt;
@@ -2428,6 +2576,7 @@ sub skey_md4 {
 	$salt=get_salt(8, 8, \@chrAsciiTextNumLo);
 	$salt = lc $salt;
 	my $cnt=randstr(3, \@chrAsciiNum);
+	if (defined $argmode) {$cnt=$argmode;}
 	my $h = md4($salt.$_[1]);
 	$h = skey_fold($h, 4);
 	my $i = $cnt;
@@ -2441,6 +2590,7 @@ sub skey_sha1 {
 	$salt=get_salt(8, 8, \@chrAsciiTextNumLo);
 	$salt = lc $salt;
 	my $cnt=randstr(3, \@chrAsciiNum);
+	if (defined $argmode) {$cnt=$argmode;}
 	my $h = sha1($salt.$_[1]);
 	$h = skey_fold($h, 5);
 	my $i = $cnt;
@@ -2454,6 +2604,7 @@ sub skey_rmd160 {
 	$salt=get_salt(8, 8, \@chrAsciiTextNumLo);
 	$salt = lc $salt;
 	my $cnt=randstr(3, \@chrAsciiNum);
+	if (defined $argmode) {$cnt=$argmode;}
 	my $h = ripemd160($salt.$_[1]);
 	$h = skey_fold($h, 5);
 	my $i = $cnt;
@@ -2507,6 +2658,13 @@ sub pad16 { # used by pad16($p)  This will null pad a string to 16 bytes long
 sub pad20 { # used by pad20($p)  This will null pad a string to 20 bytes long
 	my $p = $_[0];
 	while (length($p) < 20) {
+		$p .= "\0";
+	}
+	return $p;
+}
+sub pad100 { # used by pad100($p)  This will null pad a string to 100 bytes long for dyna1010
+	my $p = $_[0];
+	while (length($p) < 100) {
 		$p .= "\0";
 	}
 	return $p;
@@ -2604,6 +2762,7 @@ sub dynamic_compile {
 		print STDERR "        Added \$s2 (if 2nd salt is defined),\n";
 		print STDERR "        Added \$c1 to \$c9 for constants (must be defined in const#= values)\n";
 		print STDERR "        Added \$u if user name (normal, upper/lower case or unicode convert)\n";
+		print STDERR "        Handle utf16 and utf16-be for items. So md5(utf16(\$p)) and md5u(\$p) are same\n";
 		print STDERR "        Handle md5, sha1, md4 sha2 (sha224,sha256,sha384,sha512) gost whirlpool tiger and haval crypts.\n";
 		print STDERR "        Handle MD5, SHA1, MD4 SHA2 (all uc(sha2) types) GOST WHILRPOOL TIGER HAVAL which output hex in uppercase.\n";
 		print STDERR "        Handle md5u, sha1u md4u, sha2*u gostu whirlpoolu tigeru havalu which encode to UTF16LE.\n";
@@ -2786,13 +2945,13 @@ sub dynamic_compile {
 			$dynamic_args==1007 && do {$fmt='md5(md5($p).$s),saltlen=3';	last SWITCH; };
 			$dynamic_args==1008 && do {$fmt='md5($p.$s),saltlen=16';	last SWITCH; };
 			$dynamic_args==1009 && do {$fmt='md5($s.$p),saltlen=16';	last SWITCH; };
-			# dyna-1010 not handled yet (the pad null to 100 bytes)
+			$dynamic_args==1010 && do {$fmt='md5(pad100($p))';	last SWITCH; };
 			$dynamic_args==1011 && do {$fmt='md5($p.md5($s)),saltlen=6';	last SWITCH; };
 			$dynamic_args==1012 && do {$fmt='md5($p.md5($s)),saltlen=6';	last SWITCH; };
-			# dyna_1013 not handled, since we have no way to precompute md5(u) and add that as a 32 byte salt.
-			# $dynamic_args==1013 && do {$fmt='md5($p.md5($u)),username';	last SWITCH; };
+			$dynamic_args==1013 && do {$fmt='md5($p.$s),usrname=md5_hex_salt';	last SWITCH; };
 			$dynamic_args==1014 && do {$fmt='md5($p.$s),saltlen=56';	last SWITCH; };
 			$dynamic_args==1015 && do {$fmt='md5(md5($p.$u).$s),saltlen=6,username';	last SWITCH; };
+			$dynamic_args==1016 && do {$fmt='md5($s.$p),saltlen=-64';	last SWITCH; };
 			$dynamic_args==1018 && do {$fmt='md5(sha1(sha1($p)))';	last SWITCH; };
 			$dynamic_args==1019 && do {$fmt='md5(sha1(sha1(md5($p))))';	last SWITCH; };
 			$dynamic_args==1020 && do {$fmt='md5(sha1(md5($p)))';	last SWITCH; };
@@ -2807,9 +2966,15 @@ sub dynamic_compile {
 			$dynamic_args==1029 && do {$fmt='trunc32(sha256($p))';	last SWITCH; };
 			$dynamic_args==1030 && do {$fmt='trunc32(whirlpool($p))';	last SWITCH; };
 			$dynamic_args==1031 && do {$fmt='trunc32(gost($p))';	last SWITCH; };
+			$dynamic_args==1032 && do {$fmt='sha1_64(utf16($p))';	last SWITCH; };
 			$dynamic_args==1300 && do {$fmt='md5(md5_raw($p))';	last SWITCH; };
 			$dynamic_args==1350 && do {$fmt='md5(md5($s.$p).$c1.$s),saltlen=2,const1=:';	last SWITCH; };
-
+			$dynamic_args==1400 && do {$fmt='sha1u($p)';	last SWITCH; };
+			$dynamic_args==1401 && do {$fmt='md5_40($u.$c1.$p),const1='."\n".'skyper'."\n,usrname=true";	last SWITCH; };
+			$dynamic_args==1501 && do {$fmt='sha1($s.sha1($p)),saltlen=32';	last SWITCH; };
+			$dynamic_args==1502 && do {$fmt='sha1(sha1($p).$s),saltlen=-32';	last SWITCH; };
+			$dynamic_args==1503 && do {$fmt='sha256(sha256($p).$s),saltlen=64';	last SWITCH; };
+			$dynamic_args==1504 && do {$fmt='sha1($s.$p.$s)';	last SWITCH; };
 			$dynamic_args==2000 && do {$fmt='md5($p)';					last SWITCH; };
 			$dynamic_args==2001 && do {$fmt='md5($p.$s),saltlen=32';	last SWITCH; };
 			$dynamic_args==2002 && do {$fmt='md5(md5($p))';				last SWITCH; };
@@ -2895,13 +3060,18 @@ sub do_dynamic_GetToken {
 	if (substr($exprStr, 0,12) eq "haval256_raw")  { push(@gen_toks, "fhavr"); return substr($exprStr,12); }
 	if (substr($exprStr, 0,5)  eq "pad16")         { push(@gen_toks, "fpad16"); return substr($exprStr,5); }
 	if (substr($exprStr, 0,5)  eq "pad20")         { push(@gen_toks, "fpad20"); return substr($exprStr,5); }
+	if (substr($exprStr, 0,6)  eq "pad100")        { push(@gen_toks, "fpad100"); return substr($exprStr,6); }
 	if (substr($exprStr, 0,7)  eq "padmd64")       { push(@gen_toks, "fpadmd64"); return substr($exprStr,7); }
+	if (substr($exprStr, 0,5)  eq "utf16")         { push(@gen_toks, "futf16"); return substr($exprStr,5); }
+	if (substr($exprStr, 0,7)  eq "utf16be")       { push(@gen_toks, "futf16be"); return substr($exprStr,7); }
 
 	$gen_lastTokIsFunc=1;
 	$stmp = uc substr($exprStr, 0, 3);
 	if ($stmp eq "MD5") {
 		if (substr($exprStr, 0, 7) eq "md5_64e") { push(@gen_toks, "f5e"); return substr($exprStr, 7); }
 		if (substr($exprStr, 0, 6) eq "md5_64")  { push(@gen_toks, "f56"); return substr($exprStr, 6); }
+		#md5_40 is used by dyna_1401, which is md5, but pads (with 0's) to 20 bytes, not 16
+		if (substr($exprStr, 0, 6) eq "md5_40")  { push(@gen_toks, "f54"); return substr($exprStr, 6); }
 		if (substr($exprStr, 0, 4) eq "md5u")    { push(@gen_toks, "f5u"); return substr($exprStr, 4); }
 		if (substr($exprStr, 0, 3) eq "md5")     { push(@gen_toks, "f5h"); return substr($exprStr, 3); }
 		if (substr($exprStr, 0, 3) eq "MD5")     { push(@gen_toks, "f5H"); return substr($exprStr, 3); }
@@ -3063,6 +3233,7 @@ sub do_dynamic_Lexi {
 }
 sub dynamic_compile_to_pcode {
 	$gen_s = ""; $gen_u = ""; $gen_s2 = "";
+	$gen_needs = 0; $gen_needs2 = 0; $gen_needu = 0;
 
 	my $dynamic_args = $_[0];
 	# ok, not a specific version, so we use 'this' format:
@@ -3109,7 +3280,7 @@ sub dynamic_compile_to_pcode {
 
 	# load user name
 	$dynamic_usernameType = $hash{"usrname"};
-	if (!$dynamic_usernameType) { $dynamic_usernameType=0; }
+	if (!$dynamic_usernameType) { $dynamic_usernameType=0; } else {$gen_needu=1; }
 	$dynamic_passType = $hash{"pass"};
 	if (!defined ($dynamic_passType) || $dynamic_passType ne "uni") {$dynamic_passType="";}
 	my $pass_case = $hash{"passcase"};
@@ -3149,7 +3320,6 @@ sub dynamic_compile_to_pcode {
 	foreach(@gen_toks) { if ($_ eq "S") {$salt2len=$v;last;} }
 
 	# this function actually BUILDS the pcode.
-	$gen_needs = 0; $gen_needs2 = 0; $gen_needu = 0;
 	dynamic_compile_expression_to_pcode(0, @gen_toks-1);
 
 	if (defined($optimize) && $optimize > 1) {dynamic_compile_Optimize2();}
@@ -3320,14 +3490,16 @@ sub dynamic_load_username {
 		if ($dynamic_usernameType eq "lc") { $gen_u = lc $gen_u; }
 		elsif ($dynamic_usernameType eq "uc") { $gen_u = uc $gen_u; }
 		elsif ($dynamic_usernameType eq "uni") { $gen_u = encode("UTF-16LE",$gen_u); }
+		elsif ($dynamic_usernameType eq "md5_hex_salt") { $argsalt = md5_hex($gen_u); }
 	}
 }
 sub dynamic_load_salt {
 	if (defined $argsalt) {
 		if ($gen_stype eq "ashex") { $gen_s=md5_hex($argsalt); }
 		else { $gen_s=$argsalt; }
+		if (!defined $gen_s) {$gen_s = get_salt(4);}
 		$gen_soutput = $gen_s;
-		$saltlen = $gen_s.length();
+		$saltlen = length($gen_s);
 		if ($gen_stype eq "tohex") { $gen_s=md5_hex($gen_s); }
 	} else {
 		if ($gen_stype eq "ashex") { $gen_s=randstr(32, \@chrHexLo); }
@@ -3385,6 +3557,7 @@ sub dynamic_f5H    { $h = pop @gen_Stack; $h = uc md5_hex($h);	 $gen_Stack[@gen_
 sub dynamic_f1H    { $h = pop @gen_Stack; $h = uc sha1_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_f4H    { $h = pop @gen_Stack; $h = uc md4_hex($h);  $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_f56    { $h = pop @gen_Stack; $h = md5_base64($h);	 $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_f54    { $h = pop @gen_Stack; $h = md5_hex($h)."00000000";	 $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_f16    { $h = pop @gen_Stack; $h = sha1_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_f46    { $h = pop @gen_Stack; $h = md4_base64($h);  $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_f5e    { $h = pop @gen_Stack; $h = md5_base64($h);  while (length($h)%4) { $h .= "="; } $gen_Stack[@gen_Stack-1] .= $h; return $h; }
@@ -3470,4 +3643,7 @@ sub dynamic_fhavu  { require Digest::Haval256; $h = pop @gen_Stack; $h = haval25
 sub dynamic_fhavr  { require Digest::Haval256; $h = pop @gen_Stack; $h = haval256($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_fpad16 { $h = pop @gen_Stack; $h = pad16($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_fpad20 { $h = pop @gen_Stack; $h = pad20($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fpad100{ $h = pop @gen_Stack; $h = pad100($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_fpadmd64 { $h = pop @gen_Stack; $h = pad_md64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_futf16  { $h = pop @gen_Stack; $h = encode("UTF-16LE",$h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_futf16be{ $h = pop @gen_Stack; $h = encode("UTF-16BE",$h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }

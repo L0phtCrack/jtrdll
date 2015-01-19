@@ -100,8 +100,24 @@ static char *Convert(char *Buf, char *ciphertext)
 
 static char *our_split(char *ciphertext, int index, struct fmt_main *self)
 {
-	get_ptr();
-	return  pDynamic_17->methods.split(Convert(Conv_Buf, ciphertext), index, self);
+	if (!strncmp(ciphertext, "$dynamic_17$", 12)) {
+		static char Buf[128], *cp;
+		strcpy(Buf, "$P$");
+		cp = strrchr(ciphertext, '$');
+		if (cp && strlen(cp) < 65 && strlen(cp) > 2) {
+			strcat(Buf, &cp[1]);
+			sprintf(&Buf[strlen(Buf)], "%22.22s", &ciphertext[12]);
+			return Buf;
+		}
+	}
+	// also, if '$H$', then convert that to '$P$' to normalize canonical.
+	if (!strncmp(ciphertext, "$H$", 3)) {
+		static char Buf[128];
+		strnzcpy(Buf, ciphertext, sizeof(Buf));
+		Buf[1] = 'P';
+		return Buf;
+	}
+	return ciphertext;
 }
 
 static int phpassmd5_valid(char *ciphertext, struct fmt_main *self)
@@ -147,7 +163,7 @@ struct fmt_main fmt_phpassmd5 =
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

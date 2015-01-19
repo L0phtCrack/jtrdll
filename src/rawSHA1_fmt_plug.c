@@ -66,6 +66,8 @@ static struct fmt_tests tests[] = {
 	{"2fbf0eba37de1d1d633bc1ed943b907f9b360d4c", "azertyuiop1"},
 	{"A9993E364706816ABA3E25717850C26C9CD0D89D", "abc"},
 	{FORMAT_TAG "A9993E364706816ABA3E25717850C26C9CD0D89D", "abc"},
+	// repeat hash in exactly the same form that is used in john.pot (lower case)
+	{FORMAT_TAG "a9993e364706816aba3e25717850c26c9cd0d89d", "abc"},
 	{"f879f8090e92232ed07092ebed6dc6170457a21d", "azertyuiop2"},
 	{"1813c12f25e64931f3833b26e999e26e81f9ad24", "azertyuiop3"},
 	{"095bec1163897ac86e393fa16d6ae2c2fce21602", "7850"},
@@ -98,9 +100,9 @@ static void init(struct fmt_main *self)
 	int omp_t;
 
 	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt = omp_t * MIN_KEYS_PER_CRYPT;
+	self->params.min_keys_per_crypt *= omp_t;
 	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt = omp_t * MAX_KEYS_PER_CRYPT;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 #ifndef MMX_COEF
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -341,6 +343,7 @@ struct fmt_main fmt_rawSHA1 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -379,6 +382,7 @@ struct fmt_main fmt_rawSHA1 = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		fmt_default_set_salt,
 		set_key,
 		get_key,

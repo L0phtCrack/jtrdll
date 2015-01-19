@@ -240,8 +240,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		if ((p = strtok(NULL, "*")) == NULL)	/* inline flag */
 			goto err;
 		res = atoi(p);
-		if (res != 1 && res != 2)
+		if (res != 1 && res != 2) {
+			fprintf(stderr, "[!] Support for non-inlined data is missing from the " \
+					FORMAT_LABEL " format. File a bug report!\n");
+			exit(-1);  // do something noticeable
 			goto err;
+		}
 		if ((p = strtok(NULL, "*")) == NULL)	/* content size */
 			goto err;
 		contentsize = atoi(p);
@@ -524,6 +528,7 @@ struct fmt_main fmt_KeePass = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -559,6 +564,7 @@ struct fmt_main fmt_KeePass = {
 			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		KeePass_set_key,
 		get_key,

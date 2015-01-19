@@ -173,7 +173,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto error;
 	if (!(ptr = strtok(NULL, "*")))
 		goto error;
-	if (strlen(ptr) > MAXLEN)
+	if (strlen(ptr) != 32 && strlen(ptr) != 40) // md5 or sha1 length.
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
@@ -300,6 +300,7 @@ struct fmt_main fmt_ike = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE_SMALLER,
 		BINARY_ALIGN,
@@ -347,6 +348,7 @@ struct fmt_main fmt_ike = {
 			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
+		NULL,
 		set_salt,
 		ike_set_key,
 		get_key,

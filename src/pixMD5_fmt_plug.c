@@ -24,7 +24,7 @@ john_register_one(&fmt_pixMD5);
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH		0
 
-#define PLAINTEXT_LENGTH		32
+#define PLAINTEXT_LENGTH		16
 #define CIPHERTEXT_LENGTH		16
 #define BINARY_SIZE				16
 #define BINARY_ALIGN			MEM_ALIGN_WORD
@@ -41,6 +41,8 @@ static struct fmt_tests pixmd5_tests[] = {
 	{"NuLKvvWGg.x9HEKO", "password"},
 	{"8Ry2YjIyt7RRXU24", ""},
 	{".7nfVBEIEu4KbF/1","0123456789abcdef"},        // added a exact 16 byte password, to make sure it works properly
+	// repeat first hash in exactly the same format that is used in john.pot
+	{"$dynamic_19$2KFQnbNIdI.2KYOU", "cisco"},
 	{NULL}
 };
 
@@ -96,7 +98,7 @@ struct fmt_main fmt_pixMD5 = {
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		16, BINARY_SIZE, BINARY_ALIGN, SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, BINARY_SIZE, BINARY_ALIGN, SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

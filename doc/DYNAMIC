@@ -487,23 +487,37 @@ examples (this whole list is also found in dynamic.conf).
 #     and placing the # of bits into the right locations, and the 0x80
 #     trailing byte also).  So this tells dyna to store the data and
 #     intermediate flat, but use the special SSE2 code for this format
-#     that loads from flat.  At the current time, only SHA2 formats
-#     behave like this.  But SHA1 'may' also in the near future. One
-#     REALLY nice thing about doing SSE2 this way, is we are not limited
-#     to a single limb.  All of the sha256 can be done in SSE now. All
-#     of the SHA512 also, with the exception of the final crypt of the
-#     type 87 (sha512(sha512(x).sha512(x))  The final crypt is of 256
-#     bytes. Our internal buffers are ONLY 256 bytes long. Thus, we
-#     can not properly expand them to do the SSE2 (we would need to have
-#     384 byte buffers to do so). So that last step is done using oSSL,
-#     on the 256 byte strings stored (which we CAN work with).
+#     that loads from flat.  Currently, all formats which has SIMD code
+#     have flat buffer behavior.  NOTE most (all except md5/md4 and some
+#     for sha1), ONLY have the flat buffer code.  These other 3 formats
+#     do have custom 'mixed' coding.
+#     One really nice thing about doing SIMD this way is the single limb
+#     limit has been removed.  The SIMD code is currently in MD4/5, SHA1,
+#     and 32 bit SHA2 (SHA224/SHA256). The SIMD code has not been done
+#     for the flat SHA384/SHA512 code yet.
 #
 #  Flag=MGF_INPBASE64
 #     If the hashes are in base-64 (such as phpass), then use this
 #     flag.  Note, the base 64 'format' used is that of phpass.  If there
 #     are other orderings, then this will not work.  I know of no formats
 #     in use, other than phpass (phpbb, wordpress, etc) which use base-64
-#     for md5.
+#     for md5.  This is actually the same format as CryptBS in base64conv
+#     utility.  This has been improved now. It should work for any standard
+#     length hash (from 16 bytes up to 64 bytes).  The only part of the
+#     hash that is base-64 decoded is within the binary hash value itself.
+#     dynamic does not handle base-64 decoding within any part of the salt.
+#
+#  Flag=MGF_INPBASE64b
+#     This is like the MGF_INPBASE64 flag, BUT the encoding is in BE format
+#     crypt.  This is the same as Crypt encoding in base64conv utility
+#
+#  Flag=MGF_INPBASE64m
+#     This is like the MGF_INPBASE64 flag, BUT the encoding is in MIME.
+#     This is the same as MIME encoding in base64conv utility. NOTE, the
+#     hash can end with optional '=' place holding characters. These will
+#     be stripped off, in the prepare/split functions, to canonicalize the
+#     value of the hash to be NON-equal padded.  But an input file can have
+#     the '=' padding or not (or even mixed) and still process properly.
 #
 #  Flag=MGF_INPBASE64_4x6
 #     If this flag is set, then the input will be base-64, where 4 bytes are

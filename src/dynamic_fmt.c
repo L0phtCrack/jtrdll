@@ -119,6 +119,7 @@ static DYNAMIC_primitive_funcp _Funcs_1[] =
 #include "pkzip.h"
 #include "aligned.h"
 #include "fake_salts.h"
+#include "base64_convert.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -398,21 +399,19 @@ static int valid(char *ciphertext, struct fmt_main *pFmt)
 
 	cp = &ciphertext[strlen(pPriv->dynamic_WHICH_TYPE_SIG)];
 
-	if (pPriv->dynamic_base64_inout == 1)
+	if (pPriv->dynamic_base64_inout == 1 || pPriv->dynamic_base64_inout == 3 || pPriv->dynamic_base64_inout == 5)
 	{
 		// jgypwqm.JsMssPLiS8YQ00$BaaaaaSX
-		int i;
-		for (i = 0; i < 22; ++i) {
-			if (atoi64[ARCH_INDEX(cp[i])] == 0x7F)
-				return 0;
-		}
+		int len;
+		len = base64_valid_length(cp, pPriv->dynamic_base64_inout==3?e_b64_mime:e_b64_crypt, flg_Base64_MIME_TRAIL_EQ_CNT);
+		if (len < 20) return 0;
 		if (pPriv->dynamic_FIXED_SALT_SIZE == 0)
-			return !cp[i];
-		if (pPriv->dynamic_FIXED_SALT_SIZE && cp[22] != '$')
+			return !cp[len];
+		if (pPriv->dynamic_FIXED_SALT_SIZE && cp[len] != '$')
 			return 0;
-		if (pPriv->dynamic_FIXED_SALT_SIZE > 0 && strlen(&cp[23]) != pPriv->dynamic_FIXED_SALT_SIZE)
+		if (pPriv->dynamic_FIXED_SALT_SIZE > 0 && strlen(&cp[len+1]) != pPriv->dynamic_FIXED_SALT_SIZE)
 			return 0;
-		else if (pPriv->dynamic_FIXED_SALT_SIZE < -1 && strlen(&cp[23]) > -(pPriv->dynamic_FIXED_SALT_SIZE))
+		else if (pPriv->dynamic_FIXED_SALT_SIZE < -1 && strlen(&cp[len+1]) > -(pPriv->dynamic_FIXED_SALT_SIZE))
 			return  0;
 		if ((pPriv->pSetup->startFlags & MGF_PHPassSetup) == MGF_PHPassSetup) {
 			// we have to perform the salt 'length' check here, so we do not process invalid hashes later.
@@ -438,24 +437,13 @@ static int valid(char *ciphertext, struct fmt_main *pFmt)
 			return 0;
 		else if (pPriv->dynamic_FIXED_SALT_SIZE < -1 && strlen(&cp[17]) > -(pPriv->dynamic_FIXED_SALT_SIZE))
 			return  0;
+		if (strlen(cp) < 16)
+			return 0;
 		return 1;
 	}
 
-	if (pPriv->dynamic_base64_inout == 1)
-	{
-		if (strlen(cp) < 22)
-			return 0;
-	}
-	else if (pPriv->dynamic_base64_inout == 2)
-	{
-		if (strlen(cp) < 16)
-			return 0;
-	}
-	else
-	{
-		if (strlen(cp) < 32)
-			return 0;
-	}
+	if (strlen(cp) < 32)
+		return 0;
 	cipherTextLen = CIPHERTEXT_LENGTH;
 	if (pPriv->dynamic_40_byte_input) {
 		cipherTextLen = 40;
@@ -869,6 +857,27 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 	if (!cpBuilding || strlen(cpBuilding) > 490)
 		return cpBuilding;
 
+	// mime. We want to strip off ALL trailing '=' characters to 'normalize' them
+	if (pPriv->dynamic_base64_inout == 3 && !strncmp(cpBuilding, "$dynamic_", 9))
+	{
+		static char ct[496];
+		int len;
+		char *cp = strchr(&cpBuilding[9], '$'), *cp2;
+
+		if (!cp) return cpBuilding;
+		++cp;
+		len = base64_valid_length(cp, e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT);
+		if (len && cp[len-1] == '=') {
+			strnzcpy(ct, cpBuilding, cp-cpBuilding+len+1);
+			cp2 = &ct[strlen(ct)-1];
+			while (*cp2 == '=')
+				*cp2-- = 0;
+			if (cp[len])
+				strcat(cp2, &cp[len]);
+			cpBuilding = ct;
+		}
+	}
+
 	if (pFmt->params.salt_size && !strchr(split_fields[1], '$')) {
 		if (!pPriv->nUserName && !pPriv->FldMask && options.regen_lost_salts == 0)
 			return split_fields[1];
@@ -996,6 +1005,27 @@ static char *split(char *ciphertext, int index)
 
 	if (strlen(ciphertext) > 950)
 		return ciphertext;
+
+	// mime. We want to strip off ALL trailing '=' characters to 'normalize' them
+	if (pPriv->dynamic_base64_inout == 3 && !strncmp(ciphertext, "$dynamic_", 9))
+	{
+		static char ct[496];
+		int len;
+		char *cp = strchr(&ciphertext[9], '$'), *cp2;
+		if (cp) {
+			++cp;
+			len = base64_valid_length(cp, e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT);
+			if (len && cp[len-1] == '=') {
+				strnzcpy(ct, ciphertext, cp-ciphertext+len+1);
+				cp2 = &ct[strlen(ct)-1];
+				while (*cp2 == '=')
+					*cp2-- = 0;
+				if (cp[len])
+					strcat(cp2, &cp[len]);
+				ciphertext = ct;
+			}
+		}
+	}
 
 	if (!strncmp(ciphertext, "$dynamic", 8)) {
 		if (strstr(ciphertext, "$HEX$"))
@@ -2196,6 +2226,31 @@ static int salt_hash(void *salt)
 	return ( (H^(H>>9)) & (SALT_HASH_SIZE-1) );
 }
 
+/*
+ * dyna compare is required, to get all the shortest
+ * salt strings first, then the next longer, then the
+ * next, and finally the longest.  Without this change
+ * there are many dyna formats which will miss finding
+ * hashes, because old dirty salt information gets left
+ * over, blowing the next runs.  There are many formats
+ * which try to not clear buffers if they do not need
+ * to, BUT this only works if salts are taken shortest
+ * to longest.  This sort builds the list of salts that way
+ */
+static int salt_compare(const void *x, const void *y)
+{
+	/* this is all that is needed in dyna salt_compare().
+	   Dyna is a pointer to a string, NOT the actual string.
+	   The first 2 bytes of string are length (base 8 ascii) */
+	const char *X = *((const char**)x);
+	const char *Y = *((const char**)y);
+	if (*X<*Y) return -1;
+	if (*X>*Y) return 1;
+	if (X[1]<Y[1]) return -1;
+	if (X[1]>Y[1]) return 1;
+	return 0;
+}
+
 /*********************************************************************************
  * Gets the binary value from a base-16 hash.
  *********************************************************************************/
@@ -2342,16 +2397,12 @@ static char *source_64_hex(char *source, void *binary)
 /*********************************************************************************
  * Gets the binary value from a base-64 hash (such as phpass)
  *********************************************************************************/
-static void * binary_b64(char *ciphertext)
+
+static void * binary_b64m(char *ciphertext)
 {
 	int i;
-	unsigned sixbits;
-	static unsigned char b[16];
-	int bidx=0;
+	static unsigned char b[64+3];
 	char *pos;
-
-	// ugly code, but only called one time (at program load,
-	// once for each candidate pass hash).
 
 	pos = ciphertext;
 	if (!strncmp(pos, "$dynamic_", 9)) {
@@ -2359,26 +2410,46 @@ static void * binary_b64(char *ciphertext)
 		while (*pos++ != '$')
 			;
 	}
-	for (i = 0; i < 5; ++i)
-	{
- 		sixbits = atoi64[ARCH_INDEX(*pos++)];
-		b[bidx] = sixbits;
-		sixbits = atoi64[ARCH_INDEX(*pos++)];
-		b[bidx++] |= (sixbits<<6);
-		sixbits >>= 2;
-		b[bidx] = sixbits;
-		sixbits = atoi64[ARCH_INDEX(*pos++)];
-		b[bidx++] |= (sixbits<<4);
-		sixbits >>= 4;
-		b[bidx] = sixbits;
-		sixbits = atoi64[ARCH_INDEX(*pos++)];
-		b[bidx++] |= (sixbits<<2);
-	}
-	sixbits = atoi64[ARCH_INDEX(*pos++)];
-	b[bidx] = sixbits;
-	sixbits = atoi64[ARCH_INDEX(*pos++)];
-	b[bidx] |= (sixbits<<6);
+	i = base64_valid_length(pos, e_b64_mime, 0);
+	base64_convert(pos, e_b64_mime, i, b, e_b64_raw, sizeof(b), 0);
+	//printf("\nciphertext=%s\n", ciphertext);
+	//dump_stuff_msg("binary", b, 16);
+	return b;
+}
 
+static void * binary_b64(char *ciphertext)
+{
+	int i;
+	static unsigned char b[64+3];
+	char *pos;
+
+	pos = ciphertext;
+	if (!strncmp(pos, "$dynamic_", 9)) {
+		pos += 9;
+		while (*pos++ != '$')
+			;
+	}
+	i = base64_valid_length(pos, e_b64_crypt, 0);
+	base64_convert(pos, e_b64_cryptBS, i, b, e_b64_raw, sizeof(b), 0);
+	//printf("\nciphertext=%s\n", ciphertext);
+	//dump_stuff_msg("binary", b, 16);
+	return b;
+}
+
+static void * binary_b64b(char *ciphertext)
+{
+	int i;
+	static unsigned char b[64+3];
+	char *pos;
+
+	pos = ciphertext;
+	if (!strncmp(pos, "$dynamic_", 9)) {
+		pos += 9;
+		while (*pos++ != '$')
+			;
+	}
+	i = base64_valid_length(pos, e_b64_crypt, 0);
+	base64_convert(pos, e_b64_crypt, i, b, e_b64_raw, sizeof(b), 0);
 	//printf("\nciphertext=%s\n", ciphertext);
 	//dump_stuff_msg("binary", b, 16);
 	return b;
@@ -2463,6 +2534,7 @@ static struct fmt_main fmt_Dynamic =
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
 #ifdef MMX_COEF
+		0,
 		PLAINTEXT_LENGTH,
 #else
 		PLAINTEXT_LENGTH_X86,
@@ -2517,6 +2589,7 @@ static struct fmt_main fmt_Dynamic =
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		salt_compare,
 		set_salt,
 		set_key,
 		get_key,
@@ -6850,12 +6923,22 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 		curdat.ConstsLen[curdat.nConsts] = Setup->pConstants[curdat.nConsts].len;
 	}
 
-	if (Setup->flags & MGF_INPBASE64)
+	if ( (Setup->flags & MGF_INPBASE64) == MGF_INPBASE64)
 	{
 		curdat.dynamic_base64_inout = 1;
 		pFmt->methods.binary = binary_b64;
 	}
-	if (Setup->flags & MGF_INPBASE64_4x6)
+	if ( (Setup->flags & MGF_INPBASE64m) == MGF_INPBASE64m)
+	{
+		curdat.dynamic_base64_inout = 3;
+		pFmt->methods.binary = binary_b64m;
+	}
+	if ( (Setup->flags & MGF_INPBASE64b) == MGF_INPBASE64b)
+	{
+		curdat.dynamic_base64_inout = 5;
+		pFmt->methods.binary = binary_b64b;
+	}
+	if ( (Setup->flags & MGF_INPBASE64_4x6) == MGF_INPBASE64_4x6)
 	{
 		curdat.dynamic_base64_inout = 2;
 		pFmt->methods.binary = binary_b64_4x6;
@@ -6882,7 +6965,7 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 
 	}
 //	printf ("%.13s",Setup->szFORMAT_NAME);
-	if ( (Setup->flags & (MGF_INPBASE64|MGF_INPBASE64_4x6|MGF_INPBASE64a)) == 0)  {
+	if ( (Setup->flags & (MGF_INPBASE64|MGF_INPBASE64_4x6|MGF_INPBASE64a|MGF_INPBASE64m|MGF_INPBASE64b)) == 0)  {
 		pFmt->params.flags |= FMT_SPLIT_UNIFIES_CASE;
 //		printf ("  Setting FMT_SPLIT_UNIFIES_CASE");
 		if (pFmt->methods.split == split) {
@@ -7360,8 +7443,12 @@ static int LoadOneFormat(int idx, struct fmt_main *pFmt)
 
 	curdat.dynamic_HASH_OFFSET = strlen(label);
 
-	if (curdat.dynamic_base64_inout == 1)
-		curdat.dynamic_SALT_OFFSET = curdat.dynamic_HASH_OFFSET + 22 + 1;
+	if (curdat.dynamic_base64_inout == 1 || curdat.dynamic_base64_inout == 3) {
+		// we have to compute 'proper' offset
+		const char *cp = pFmt->params.tests[0].ciphertext;
+		int len = base64_valid_length(&cp[curdat.dynamic_HASH_OFFSET], curdat.dynamic_base64_inout == 1 ? e_b64_crypt : e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT);
+		curdat.dynamic_SALT_OFFSET = curdat.dynamic_HASH_OFFSET + len + 1;
+	}
 	else if (curdat.dynamic_base64_inout == 2)
 		curdat.dynamic_SALT_OFFSET = curdat.dynamic_HASH_OFFSET + 16 + 1;
 	else if (curdat.dynamic_40_byte_input)

@@ -27,7 +27,7 @@ john_register_one(&fmt_dragonfly4_64);
 #include "formats.h"
 
 #ifdef _OPENMP
-#define OMP_SCALE			256
+#define OMP_SCALE			2048  // tuned on K8-dual HT
 #include <omp.h>
 #endif
 #include "memdbg.h"
@@ -89,9 +89,9 @@ static void init(struct fmt_main *self)
 	int omp_t;
 
 	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt = omp_t * MIN_KEYS_PER_CRYPT;
+	self->params.min_keys_per_crypt *= omp_t;
 	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt = omp_t * MAX_KEYS_PER_CRYPT;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif
 	saved_key_length = mem_calloc_tiny(sizeof(*saved_key_length) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -285,6 +285,7 @@ struct fmt_main fmt_dragonfly4_32 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		USED_BINARY_SIZE,
 		BINARY_ALIGN,
@@ -320,6 +321,7 @@ struct fmt_main fmt_dragonfly4_32 = {
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,
@@ -347,6 +349,7 @@ struct fmt_main fmt_dragonfly4_64 = {
 		ALGORITHM_NAME,
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
+		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
 		BINARY_ALIGN,
@@ -382,6 +385,7 @@ struct fmt_main fmt_dragonfly4_64 = {
 			fmt_default_binary_hash_6
 		},
 		salt_hash,
+		NULL,
 		set_salt,
 		set_key,
 		get_key,

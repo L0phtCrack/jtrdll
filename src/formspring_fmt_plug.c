@@ -52,6 +52,8 @@ john_register_one(&fmt_FORMSPRING);
 
 static struct fmt_tests formspring_tests[] = {
 	{"2a4fa0bf8c6a01dd625d3141746451ba51e07f99dc9143f1e25a37f65cb02eb4$RA", "test1"},
+	// repeat in the same format that is used in john.pot
+	{"$dynamic_61$2a4fa0bf8c6a01dd625d3141746451ba51e07f99dc9143f1e25a37f65cb02eb4$RA", "test1"},
 	//{"b06b5c132bb1adf421ce6ac406bfabba380546deaab92bd20c3d56baaa70b6cf$  ", "test1"},
 	//{"cdefb423bad94e3abfe5fc4044bb315a2b875220eb8c8b840849df7ef45bdcef$  ", "test3"},
 	{NULL}
@@ -118,7 +120,7 @@ struct fmt_main fmt_FORMSPRING =
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		PLAINTEXT_LENGTH, DYNA_BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, DYNA_BINARY_SIZE, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
