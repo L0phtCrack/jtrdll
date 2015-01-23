@@ -23,7 +23,7 @@
 
 #include "list.h"
 #include "loader.h"
-#include "getopt.h"
+#include "john_getopt.h"
 
 /*
  * Core Option flags bitmasks (low 32 bits):

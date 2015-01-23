@@ -14,7 +14,7 @@
 #include "misc.h"
 #include "memory.h"
 #include "list.h"
-#include "getopt.h"
+#include "john_getopt.h"
 #include "john.h"
 #include "memdbg.h"
 

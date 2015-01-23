@@ -1,6 +1,10 @@
 #ifndef __INC_DLLIO_H
 #define __INC_DLLIO_H
 
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wformat"
+#endif
+
 #include<stdio.h>
 
 int dllprintf(const char * _Format, ...);
