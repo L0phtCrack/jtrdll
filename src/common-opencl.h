@@ -30,7 +30,7 @@
 #include "common.h"
 #include "formats.h"
 #include "path.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "opencl_device_info.h"
 
 #define MAX_PLATFORMS	8

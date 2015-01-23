@@ -23,7 +23,7 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 #include "formats.h"
 #include "johnswap.h"
 #include "base64_convert.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "options.h"
 #define OUTLEN 20
 #include "opencl_pbkdf2_hmac_sha1.h"

@@ -42,7 +42,7 @@
 
 #else
 
-#include "stdint.h"
+#include "john_stdint.h"
 
 static inline uint32_t
 be32dec(const void *pp)

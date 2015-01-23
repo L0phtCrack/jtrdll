@@ -46,7 +46,7 @@
 
 
 #include <errno.h>
-#include "../stdint.h"
+#include "../john_stdint.h"
 #include <stdlib.h>
 #include <string.h>
 

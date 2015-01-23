@@ -15,8 +15,15 @@ int dllfputc(int c, FILE *f);
 #endif
 
 #define _CRT_TERMINATE_DEFINED 1
+
+#ifdef _MSC_VER
 __declspec(noreturn) void dllexit(int exitcode);
 __declspec(noreturn) void dll_exit(int exitcode);
+#else
+void dllexit(int exitcode) __attribute__ ((noreturn));
+void dll_exit(int exitcode) __attribute__ ((noreturn));
+#endif
+
 int dllsetexithook(void);
 
 #define printf dllprintf

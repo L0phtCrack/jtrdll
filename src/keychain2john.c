@@ -44,7 +44,7 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include "jumbo.h"
 #include "memdbg.h"
 

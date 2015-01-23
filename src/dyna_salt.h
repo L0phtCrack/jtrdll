@@ -27,7 +27,7 @@
  */
 
 #include <stddef.h>
-#include "stdint.h"
+#include "john_stdint.h"
 
 //#define DYNA_SALT_DEBUG
 

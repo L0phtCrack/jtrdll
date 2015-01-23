@@ -38,7 +38,7 @@ static int omp_t = 1;
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "md5.h"
 #include "memdbg.h"
 

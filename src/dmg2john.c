@@ -41,7 +41,7 @@
 #include <openssl/aes.h>
 #include <openssl/hmac.h>
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "gladman_fileenc.h"
 #include "filevault.h"
 #include "misc.h"

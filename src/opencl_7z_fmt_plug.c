@@ -28,7 +28,7 @@ john_register_one(&fmt_opencl_sevenzip);
 #include "common-opencl.h"
 #include "options.h"
 #include "crc32.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "unicode.h"
 #include "memdbg.h"
 

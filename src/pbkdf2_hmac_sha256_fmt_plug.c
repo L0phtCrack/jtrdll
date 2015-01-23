@@ -34,7 +34,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha256);
 #include "base64_convert.h"
 #include "sha2.h"
 #include "johnswap.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "pbkdf2_hmac_sha256.h"
 
 #define FORMAT_LABEL            "PBKDF2-HMAC-SHA256"

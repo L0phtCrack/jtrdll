@@ -14,7 +14,7 @@
 #ifndef __BLAKE2_IMPL_H__
 #define __BLAKE2_IMPL_H__
 
-#include "stdint.h"
+#include "john_stdint.h"
 
 #if _MSC_VER
 #define inline

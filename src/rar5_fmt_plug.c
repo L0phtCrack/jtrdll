@@ -30,7 +30,7 @@ static int omp_t = 1;
 
 #include "arch.h"
 #include "johnswap.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "sha2.h"
 #include "misc.h"
 #include "common.h"

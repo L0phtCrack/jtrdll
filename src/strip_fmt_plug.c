@@ -14,7 +14,7 @@ john_register_one(&fmt_strip);
 
 #include <openssl/aes.h>
 #include <string.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <assert.h>
 #include <errno.h>
 #include "arch.h"

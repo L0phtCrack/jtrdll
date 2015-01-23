@@ -32,7 +32,7 @@
 #include "pdfparser.h"
 #include "memory.h"
 #include "pdfcrack.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 11

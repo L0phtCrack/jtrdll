@@ -32,7 +32,7 @@
 #include <unistd.h>
 #endif
 #include <string.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <stdlib.h>
 #include <sys/types.h>
 #if !AC_BUILT || HAVE_FCNTL_H

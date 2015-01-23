@@ -24,7 +24,7 @@ john_register_one(&fmt_cuda_xsha512);
 #include <string.h>
 #include <assert.h>
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "arch.h"
 #include "sha2.h"
 #include "cuda_xsha512.h"

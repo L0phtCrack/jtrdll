@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include "arch.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 struct tcp_hdr {
 	uint16_t th_sport;

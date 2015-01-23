@@ -22,7 +22,7 @@ john_register_one(&fmt_encfs);
 #include <string.h>
 
 #include "arch.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "options.h"
 #ifdef _OPENMP

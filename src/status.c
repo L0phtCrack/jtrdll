@@ -108,7 +108,7 @@ void status_ticks_overflow_safety(void)
 	}
 }
 
-void status_update_crypts(int64 *combs, unsigned int crypts)
+void status_update_crypts(int64_t *combs, unsigned int crypts)
 {
 	{
 		unsigned int saved_hi = status.combs.hi;
