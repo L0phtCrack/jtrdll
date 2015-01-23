@@ -15,6 +15,11 @@ int dllfputc(int c, FILE *f);
 #endif
 
 #define _CRT_TERMINATE_DEFINED 1
+
+#ifdef __GNUC__
+#define __declspec(x) __attribute__((x))
+#endif
+
 __declspec(noreturn) void dllexit(int exitcode);
 __declspec(noreturn) void dll_exit(int exitcode);
 int dllsetexithook(void);
