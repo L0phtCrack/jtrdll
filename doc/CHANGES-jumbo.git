@@ -258,7 +258,7 @@ magnum (1889):
 	Move WPAPSK test vectors to wpapsk.h and add a length 63 test.
 	wpapsk-cuda: Some compilers did not like having the test vectors in
 	  wpapsk.h so we define it out when building kernel.
-	git grep -l '<stdint.h>' | xargs sed -ri 's/<stdint.h>/"stdint.h"/'
+	git grep -l '<stdint.h>' | xargs sed -ri 's/<stdint.h>/"john_stdint.h"/'
 	Fix a bug in dmg formats, and add debug output.
 	WPAPSK (CPU and GPU): Exploit same-essid weakness. Huge speedup when
 	  applicable. See
@@ -460,7 +460,7 @@ magnum (1889):
 	ODF formats: Make valid() a little more picky about hex length.
 	Add macosx-x86-sse2-opencl (ie. 32-bit) build target.
 	More uint64_t fixes.
-	Use "stdint.h" in pbkdf2-hmac-sha512 format.
+	Use "john_stdint.h" in pbkdf2-hmac-sha512 format.
 	DMG formats bugfix for "0 iterations" (assume 1000).
 	Truecrypt: Simplify cmp_all(), unfortunately for no performance gain.
 	dmg2john: bugfix.
@@ -604,7 +604,7 @@ magnum (1889):
 	Macros for prefixing MD[45]_(Init|Update|Final) with "john_" for
 	  avoiding clashes with OpenSSL library.
 	Endian stuff.
-	Change all uses of <stdint.h> to our local "stdint.h".
+	Change all uses of <stdint.h> to our local "john_stdint.h".
 	Drop un-needed header in ssha-opencl.
 	OMP support for raw-sha512-ng.
 	Tweak OMP_SCALE for AMD.
@@ -6106,7 +6106,7 @@ magnum (731):
 	Move WPAPSK test vectors to wpapsk.h and add a length 63 test.
 	wpapsk-cuda: Some compilers did not like having the test vectors in
 	  wpapsk.h so we define it out when building kernel.
-	git grep -l '<stdint.h>' | xargs sed -ri 's/<stdint.h>/"stdint.h"/'
+	git grep -l '<stdint.h>' | xargs sed -ri 's/<stdint.h>/"john_stdint.h"/'
 	Fix a bug in dmg formats, and add debug output.
 	WPAPSK (CPU and GPU): Exploit same-essid weakness. Huge speedup when
 	  applicable. See
@@ -6267,8 +6267,8 @@ magnum (731):
 	Add macosx-x86-sse2-opencl (ie. 32-bit) build target.
 	uint64_t vs OpenCL fixes. In OpenCL, long is always 64-bit while long
 	  long (if supported at all) is 128-bit. On host side, we use
-	  "stdint.h" (not <stdint.h>).
-	Use "stdint.h" in pbkdf2-hmac-sha512 format.
+	  "john_stdint.h" (not <stdint.h>).
+	Use "john_stdint.h" in pbkdf2-hmac-sha512 format.
 	DMG formats bugfix for "0 iterations" (assume 1000).
 	Truecrypt: Simplify cmp_all(), unfortunately for no performance gain.
 	dmg2john: bugfix.

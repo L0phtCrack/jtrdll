@@ -6,7 +6,7 @@
 #ifndef _CUDA_CRYPTMD5_H
 #define _CUDA_CRYPTMD5_H
 #include <assert.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <stdbool.h>
 #include "common.h"
 

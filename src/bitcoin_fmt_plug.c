@@ -34,7 +34,7 @@ john_register_one(&fmt_bitcoin);
 #include "params.h"
 #include "options.h"
 #include "sha2.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "johnswap.h"
 #include "sse-intrinsics.h"
 #ifdef _OPENMP

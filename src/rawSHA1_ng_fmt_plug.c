@@ -13,7 +13,7 @@ john_register_one(&fmt_sha1_ng);
 
 #include <string.h>
 #include "stdbool.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include <emmintrin.h>
 
 #ifdef __SSE4_1__
@@ -32,7 +32,7 @@ john_register_one(&fmt_sha1_ng);
 # include <omp.h>
 #endif
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "params.h"
 #include "formats.h"
 #include "memory.h"

@@ -41,7 +41,7 @@ john_register_one(&fmt_openssl);
 #include <fcntl.h>
 #endif
 #include <stdlib.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <sys/types.h>
 #include <openssl/evp.h>
 #include <openssl/aes.h>

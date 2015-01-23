@@ -28,7 +28,7 @@ john_register_one(&fmt_HDAA);
 #include "formats.h"
 #include "md5.h"
 
-#include "stdint.h"
+#include "john_stdint.h"
 
 #include "sse-intrinsics.h"
 #define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME

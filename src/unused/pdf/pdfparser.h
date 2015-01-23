@@ -24,7 +24,7 @@
 
 #include "pdfcrack_common.h"
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "stdbool.h"
 
 #define EENCNF -1 /* Encryption Object Not Found */

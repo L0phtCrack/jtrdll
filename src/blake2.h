@@ -15,7 +15,7 @@
 #define __BLAKE2_H__
 
 #include <stddef.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include "aligned.h"
 
 #if _MSC_VER

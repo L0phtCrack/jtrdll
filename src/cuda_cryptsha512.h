@@ -7,12 +7,12 @@
 #define _CRYPTSHA512_H
 #include <assert.h>
 #include "common.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include <stdbool.h>
 
 /*
 #ifdef __APPLE__
-#include "stdint.h"
+#include "john_stdint.h"
 #else
 #define uint8_t  unsigned char
 #define uint32_t unsigned int

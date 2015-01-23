@@ -21,7 +21,7 @@ john_register_one(&FORMAT_STRUCT);
 #include <errno.h>
 
 #include "common-opencl.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "arch.h"
 #include "misc.h"
 #include "common.h"

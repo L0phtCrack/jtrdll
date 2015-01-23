@@ -21,7 +21,7 @@
 #include <string.h>
 #include "arch.h"
 #include "sha2.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "sse-intrinsics.h"
 
 #ifndef SHA256_CBLOCK

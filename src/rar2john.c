@@ -63,7 +63,7 @@
 #include "params.h"
 #include "crc32.h"
 #include "unicode.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "jumbo.h"
 #include "base64_convert.h"
 #include "sha2.h"

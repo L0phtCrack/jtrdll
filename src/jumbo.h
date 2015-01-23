@@ -29,7 +29,7 @@
 #include <string.h>
 #endif
 
-#include "stdint.h"
+#include "john_stdint.h"
 
 /******************************************/
 /* here we try to 'find' a usable fseek64 */

@@ -8,7 +8,7 @@
 
 #include <assert.h>
 #include "common.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include <stdbool.h>
 
 #define BLOCKS 14

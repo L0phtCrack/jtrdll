@@ -18,7 +18,7 @@ john_register_one(&fmt_oldoffice);
 #include "md5.h"
 #include "rc4.h"
 #include <string.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <assert.h>
 #include "sha.h"
 #include <errno.h>

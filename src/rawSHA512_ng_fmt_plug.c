@@ -29,7 +29,7 @@ john_register_one(&fmt_rawSHA512_ng);
 #pragma GCC optimize 3
 #endif
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include <string.h>
 
 #include <emmintrin.h>

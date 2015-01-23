@@ -49,7 +49,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdarg.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include "md5.h"
 #include <openssl/sha.h>
 #include "memory.h"
