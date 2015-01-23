@@ -22,7 +22,7 @@ john_register_one(&fmt_rawSHA224);
 
 #include "arch.h"
 #include "sha2.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "params.h"
 #include "common.h"
 #include "johnswap.h"

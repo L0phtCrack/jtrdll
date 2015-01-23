@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #if !AC_BUILT || HAVE_LIMITS_H
 #include <limits.h>
 #endif

@@ -32,7 +32,7 @@ john_register_one(&fmt_opencl_zip);
 #include "dyna_salt.h"
 #include "gladman_fileenc.h"
 #include "options.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 #define FORMAT_LABEL		"zip-opencl"
 #define FORMAT_NAME		"ZIP"

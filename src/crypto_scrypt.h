@@ -30,7 +30,7 @@
 #define _CRYPTO_SCRYPT_H_
 
 #include <stddef.h>
-#include "stdint.h"
+#include "john_stdint.h"
 
 /**
  * crypto_scrypt(passwd, passwdlen, salt, saltlen, N, r, p, buf, buflen):

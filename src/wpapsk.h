@@ -13,7 +13,7 @@
 #include "arch.h"
 #include "common.h"
 #include "johnswap.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 #include <assert.h>
 #include <openssl/hmac.h>

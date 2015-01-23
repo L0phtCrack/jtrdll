@@ -51,7 +51,7 @@ john_register_one(&fmt_gpg);
 #include "pdfcrack_md5.h"
 #include "sha.h"
 #include "sha2.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "gpg"

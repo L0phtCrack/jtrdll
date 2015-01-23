@@ -37,7 +37,7 @@ john_register_one(&fmt_luks);
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <stdlib.h>
 #include <sys/types.h>
 #include <openssl/aes.h>

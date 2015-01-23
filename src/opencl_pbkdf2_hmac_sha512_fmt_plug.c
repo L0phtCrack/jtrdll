@@ -24,7 +24,7 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha512);
 #include "formats.h"
 #include "options.h"
 #include "common-opencl.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "johnswap.h"
 
 #define NUUL NULL

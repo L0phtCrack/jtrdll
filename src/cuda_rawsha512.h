@@ -8,7 +8,7 @@
 #define _CUDA_SHA512_H
 
 #ifdef __APPLE__
-#include "stdint.h"
+#include "john_stdint.h"
 #else
 #define uint8_t  unsigned char
 #define uint32_t unsigned int

@@ -30,7 +30,7 @@ john_register_one(&fmt_cloud_keychain);
 #include "params.h"
 #include "options.h"
 #include "johnswap.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "sha2.h"
 #include "pbkdf2_hmac_sha512.h"
 #ifdef _OPENMP

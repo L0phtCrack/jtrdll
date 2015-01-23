@@ -53,12 +53,14 @@
 #if defined __SSSE3__
 #include <tmmintrin.h>
 #endif
+#if defined(_MSC_VER)
 #include <intrin.h>
+#endif
 
 #include "memory.h"
 #include "md5.h"
 #include "MD5_std.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "johnswap.h"
 #include "sse-intrinsics-load-flags.h"
 #include "aligned.h"

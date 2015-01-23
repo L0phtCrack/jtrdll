@@ -42,7 +42,7 @@
 
 #else
 
-#include "../stdint.h"
+#include "../john_stdint.h"
 #include "../misc.h"
 
 #if _MSC_VER

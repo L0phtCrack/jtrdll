@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #include "arch.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 #ifdef __cplusplus
 extern "C" {

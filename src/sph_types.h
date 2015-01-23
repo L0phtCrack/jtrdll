@@ -829,7 +829,7 @@ static inline void sph_enc64be_aligned(void *dst, sph_u64 val);
  * C99 conformance).
  */
 
-#include "stdint.h"
+#include "john_stdint.h"
 
 #ifdef UINT32_MAX
 typedef uint32_t sph_u32;

@@ -30,7 +30,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #include "formats.h"
 #include "sha2.h"
 #include "johnswap.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #define PBKDF2_HMAC_SHA512_ALSO_INCLUDE_CTX
 #include "pbkdf2_hmac_sha512.h"
 

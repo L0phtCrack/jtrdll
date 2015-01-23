@@ -28,7 +28,7 @@ john_register_one(&fmt_opencl_keyring);
 #include "options.h"
 #include "sha2.h"
 #include "md5.h"
-#include "stdint.h"
+#include "john_stdint.h"
 
 #define FORMAT_LABEL		"keyring-opencl"
 #define FORMAT_NAME		"GNOME Keyring"

@@ -27,7 +27,7 @@
 
 #include <sys/types.h>
 
-#include "../stdint.h"
+#include "../john_stdint.h"
 #include <string.h>
 
 #include "sysendian.h"

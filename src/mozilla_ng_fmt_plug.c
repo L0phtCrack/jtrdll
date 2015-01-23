@@ -35,7 +35,7 @@ john_register_one(&fmt_mozilla);
 #include "params.h"
 #include "options.h"
 #include "memdbg.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include <openssl/des.h>
 #include "sha.h"
 

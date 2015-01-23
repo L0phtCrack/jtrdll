@@ -32,7 +32,7 @@ john_register_one(&fmt_rawSHA256_ng);
 //#define DEBUG
 
 #include <string.h>
-#include "stdint.h"
+#include "john_stdint.h"
 
 #include <emmintrin.h>
 #if defined(__XOP__) && !defined(_MSC_VER)

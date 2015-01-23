@@ -104,7 +104,7 @@
 #include "common.h"
 #include "jumbo.h"
 #include "formats.h"
-#include "stdint.h"
+#include "john_stdint.h"
 #include "pkzip.h"
 #ifdef _MSC_VER
 #include "missing_getopt.h"

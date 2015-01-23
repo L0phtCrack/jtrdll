@@ -28,7 +28,7 @@
 #include "pdfcrack_md5.h"
 #include "pdfcrack_rc4.h"
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "stdbool.h"
 
 #ifndef __GNUC__

@@ -22,7 +22,7 @@ john_register_one(&fmt_KeePass);
 #include "sha2.h"
 
 #include <string.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include <assert.h>
 #include <errno.h>
 #include "arch.h"

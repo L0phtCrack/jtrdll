@@ -20,7 +20,7 @@
 #ifndef _PDFCOMMON_H_
 #define _PDFCOMMON_H_
 
-#include "stdint.h"
+#include "john_stdint.h"
 #include "stdbool.h"
 
 /**
