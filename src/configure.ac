@@ -279,8 +279,12 @@ case "$host_cpu" in
   ia64) ARCH_LINK=ia64.h endian=little cpu_family=intel ;;
   i?86) ARCH_LINK=x86-any.h endian=little cpu_family=intel ;;
   m68k*) ARCH_LINK=autoconf_arch.h endian=big ;;
-  mipseb) ARCH_LINK=mips32.h endian=big ;;
-  mips*) ARCH_LINK=mips32.h endian=little ;;
+  mips|mipseb) ARCH_LINK=mips32.h endian=big ;;
+  mipsel) ARCH_LINK=mips32.h endian=little ;;
+  mips64|mips64eb|mipseb64) ARCH_LINK=mips64.h endian=big ;;
+  mips64el|mipsel64) ARCH_LINK=mips64.h endian=little ;;
+  mips64*) ARCH_LINK=mips64.h endian=big ;;
+  mips*) ARCH_LINK=mips32.h endian=big ;;
   pdp*) ARCH_LINK=autoconf_arch.h endian=little ;;
   powerpcle) ARCH_LINK=ppc32.h endian=little ;;
   powerpc*) ARCH_LINK=ppc32.h endian=big ;;
@@ -310,32 +314,6 @@ if test "x$ax_intel_x32" = xyes; then
    using_x32=", X32 ABI"
 else
    using_x32=""
-fi
-
-#############################################################################
-# Check for unaligned memory access being allowed
-# TODO: Needs fix for cross compile (we can infer it from $host_cpu)
-#############################################################################
-AC_MSG_CHECKING([for unaligned memory access allowed])
-if test "x$enable_native_tests" = xyes; then
-   AC_RUN_IFELSE(dnl
-     [dnl
-     AC_LANG_SOURCE(dnl
-           [[#include <stdio.h>
-           extern void exit(int);
-           int main(){char c[20];*((int*)(&c[1]))=1;*((int*)(&c[2]))=1;*((int*)(&c[3]))=1;if(c[2]==88)printf("foobar");exit(0);}]]
-     )]
-     ,[ALLOWS_UNALIGNED="1"]
-      [AC_MSG_RESULT([yes])]
-     ,[ALLOWS_UNALIGNED="0"]
-      [AC_MSG_RESULT([no])]
-   )
-elif test "x$cpu_family" = xintel; then
-   ALLOWS_UNALIGNED="1"
-   AC_MSG_RESULT([yes])
-else
-   ALLOWS_UNALIGNED="0"
-   AC_MSG_RESULT([unknown, assuming no])
 fi
 
 #############################################################################
@@ -587,7 +565,7 @@ AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
 AC_CHECK_TYPES([ptrdiff_t])
-AS_IF([test "x$enable_int128" != xno], [AC_CHECK_TYPES([int128, __int128, __int128_t])])
+AS_IF([test $CPU_BIT_STR -ge 64], [AS_IF([test "x$enable_int128" != xno], [AC_CHECK_TYPES([int128, __int128, __int128_t])])])
 
 # Checks for library functions.
 AC_FUNC_ERROR_AT_LINE
@@ -618,13 +596,13 @@ esac
 dnl --------------------------------------------------------------------
 dnl these checks HAVE to be there (we have code using them)
 dnl   setenv/putenv  fseek/ftell set,   memmem  sleep
-dnl   stri*cmp/strcasecmp strlwr/strupr
+dnl   stri*cmp/strcasecmp strlwr/strupr/strrev
 dnl --------------------------------------------------------------------
 AC_CHECK_FUNCS([fseek64 fseeko fseeko64 _fseeki64 lseek64 lseek ftell64 ftello \
                ftello64 _ftelli64 fopen64 _fopen64 memmem sleep \
                setenv putenv strcasecmp strncasecmp \
                stricmp strcmpi _stricmp _strcmpi strnicmp strncmpi _strnicmp \
-               _strncmpi strlwr strupr \
+               _strncmpi strlwr strupr strrev \
                bzero atoll _atoi64 snprintf sprintf_s])
 dnl AC_CHECK_FUNCS([memchr memmove memset munmap pow \
 dnl                 select setlocale socket strchr \
@@ -643,10 +621,6 @@ AC_SUBST([CPU_BITS],["${CPU_BITS}"])
 AC_SUBST([CPU_BIT_STR],["${CPU_BIT_STR}"])
 AC_SUBST([ASFLAGS],["${ASFLAGS}"])
 AC_SUBST([EXTRA_AS_FLAGS],["${EXTRA_AS_FLAGS}"])
-
-AS_IF([test "x$ALLOWS_UNALIGNED" = x1],
-   [AC_DEFINE([ARCH_ALLOWS_UNALIGNED], 1, ["Enable if CPU allows unaligned memory access"])],
-   [AC_DEFINE([ARCH_ALLOWS_UNALIGNED], 0, ["Enable if CPU allows unaligned memory access"])])
 
 AS_IF([test $ac_cv_sizeof_int -gt 4],
    [AC_DEFINE([ARCH_INT_GT_32], 1, ["Enable if sizeof(int) > 4"])],

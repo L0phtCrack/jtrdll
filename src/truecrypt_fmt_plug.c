@@ -49,6 +49,7 @@ john_register_one(&fmt_truecrypt_whirlpool);
 #include "common.h"
 #include "formats.h"
 #include "crc32.h"
+#include "johnswap.h"
 #define PBKDF2_HMAC_SHA512_ALSO_INCLUDE_CTX
 #include "pbkdf2_hmac_sha512.h"
 #include "pbkdf2_hmac_ripemd160.h"
@@ -85,6 +86,18 @@ static unsigned char (*first_block_dec)[16];
 
 struct cust_salt {
 	unsigned char salt[64];
+	// I 'thought' that bin[] could be removed, so that only salt[] was used
+	// for salt dupe-removal. That was wrong, bin[] must also be part of the
+	// salt dupe logic, or we will get wrong passwords found, if there is
+	// hashes with the same salts.  bin[] array really is part of the salt
+	// since we decrypt it, to do the final check. So there is no real way
+	// to have any duplicate salts. in essense, we have a 'fixed' binary
+	// and the salt is the entire input hash. The fixed binary can be
+	// thought of as 'TRUE' (but it is more than this).  It is simply we
+	// do not know the real binary until after we correctly decrypt.
+	// Initially I moved bin[] and ported to dyna_salt. All hashes in a
+	// test suite cracked, BUT the same password was used for all of them,
+	// the first password in the file.  Not what we wanted.
 	unsigned char bin[512-64];
 	int loop_inc;
 	int num_iterations;
@@ -305,6 +318,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			pbkdf2_ripemd160(key_buffer[i], strlen((char*)(key_buffer[i])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 		else
 			pbkdf2_whirlpool(key_buffer[i], strlen((char*)(key_buffer[i])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+#if ARCH_LITTLE_ENDIAN==0
+		if (psalt->hash_type == IS_SHA512) {
+			uint64_t *p64 = (uint64_t *)key;
+			for (j = 0; j < 8; ++j) {
+				*p64 = JOHNSWAP64(*p64);
+				++p64;
+			}
+		} else {
+			uint32_t *p32 = (uint32_t *)key;
+			for (j = 0; j < 16; ++j) {
+				*p32 = JOHNSWAP(*p32);
+				++p32;
+			}
+		}
+#endif
 		for (j = 0; j < psalt->loop_inc; ++j) {
 #if SSE_GROUP_SZ_SHA512
 			if (psalt->hash_type == IS_SHA512)
@@ -364,6 +392,23 @@ static int cmp_exact(char *source, int idx)
 		pbkdf2_ripemd160((const unsigned char*)key_buffer[idx], strlen((char*)(key_buffer[idx])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 	else
 		pbkdf2_whirlpool((const unsigned char*)key_buffer[idx], strlen((char*)(key_buffer[idx])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+#if ARCH_LITTLE_ENDIAN==0
+	if (psalt->hash_type == IS_SHA512) {
+		int j;
+		uint64_t *p64 = (uint64_t *)key;
+		for (j = 0; j < 8; ++j) {
+			*p64 = JOHNSWAP64(*p64);
+			++p64;
+		}
+	} else {
+		int j;
+		uint32_t *p32 = (uint32_t *)key;
+		for (j = 0; j < 16; ++j) {
+			*p32 = JOHNSWAP(*p32);
+			++p32;
+		}
+	}
+#endif
 
 	// we have 448 bytes of header (64 bytes unencrypted salt were the first 64 bytes).
 	// decrypt it and look for 3 items.

@@ -14,8 +14,8 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -38,7 +38,11 @@
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 
 #include <stdio.h>
+#ifndef JTR_MODE
+#include <stdint.h>
+#else
 #include "stdint.h"
+#endif
 #include <stdlib.h>
 #if !AC_BUILT
 #include <string.h>
@@ -58,7 +62,10 @@
 #include <fcntl.h>
 #include <time.h>
 #include <errno.h>
+#ifndef JTR_MODE
 #include <getopt.h>
+#endif
+#include <ctype.h>
 
 #if HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 #include "mpz_int128.h"
@@ -121,16 +128,22 @@ char *prince_limit_str;
 
 #define IN_LEN_MIN    1
 #define IN_LEN_MAX    32
+#define OUT_LEN_MAX   32 /* Limited by (u32)(1 << pw_len - 1) */
 #define PW_MIN        1
 #define PW_MAX        16
 #define ELEM_CNT_MIN  1
 #define ELEM_CNT_MAX  8
 #define WL_DIST_LEN   0
+#define CASE_PERMUTE  0
+#define DUPE_CHECK    1
 
 #define VERSION_BIN   20
 
 #define ALLOC_NEW_ELEMS  0x40000
 #define ALLOC_NEW_CHAINS 0x10
+#define ALLOC_NEW_DUPES  0x100000
+
+#define ENTRY_END_HASH   0xFFFFFFFF
 
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #define MAX(a,b) (((a) > (b)) ? (a) : (b))
@@ -149,19 +162,39 @@ typedef struct
 
 typedef struct
 {
-  u8    buf[IN_LEN_MAX];
+  u8   *buf;
 
 } elem_t;
 
 typedef struct
 {
-  u8    buf[IN_LEN_MAX];
+  u8   *buf;
   int   cnt;
 
   mpz_t ks_cnt;
   mpz_t ks_pos;
 
 } chain_t;
+
+typedef struct
+{
+  u32 next;
+
+  char *element;
+
+} uniq_data_t;
+
+typedef struct
+{
+  u32 index;
+  u32 alloc;
+
+  u32 *hash;
+  u32 hash_mask;
+
+  uniq_data_t *data;
+
+} uniq_t;
 
 typedef struct
 {
@@ -174,7 +207,9 @@ typedef struct
   int      chains_pos;
   int      chains_alloc;
 
-  u64      cur_chain_ks_poses[IN_LEN_MAX];
+  u64      cur_chain_ks_poses[OUT_LEN_MAX];
+
+  uniq_t  *uniq;
 
 } db_entry_t;
 
@@ -224,6 +259,15 @@ static u64 DEF_WORDLEN_DIST[DEF_WORDLEN_DIST_CNT] =
   13
 };
 
+/* Losely based on rockyou-with-dupes */
+static const u32 DEF_HASH_LOG_SIZE[33] =
+{  0,
+   8, 12, 16, 20, 24, 24, 24, 24,
+  24, 24, 23, 22, 21, 20, 19, 18,
+  17, 16, 16, 16, 16, 16, 16, 16,
+  16, 16, 16, 16, 16, 16, 16, 16
+};
+
 #ifndef JTR_MODE
 static const char *USAGE_MINI[] =
 {
@@ -235,8 +279,6 @@ static const char *USAGE_MINI[] =
 
 static const char *USAGE_BIG[] =
 {
-  "pp by atom, High-Performance word-generator (" REALGMP " build)",
-  "",
   "Usage: %s [options] < wordlist",
   "",
   "* Startup:",
@@ -255,6 +297,7 @@ static const char *USAGE_BIG[] =
   "       --elem-cnt-min=NUM    Minimum number of elements per chain",
   "       --elem-cnt-max=NUM    Maximum number of elements per chain",
   "       --wl-dist-len         Calculate output length distribution from wordlist",
+  "  -c,  --dupe-check-disable  Disable dupes check for faster inital load",
   "",
   "* Resources:",
   "",
@@ -265,8 +308,59 @@ static const char *USAGE_BIG[] =
   "",
   "  -o,  --output-file=FILE    Output-file",
   "",
+  "* Amplifier:",
+  "",
+  "       --case-permute        For each word in the wordlist that begins with a letter",
+  "                             generate a word with the opposite case of the first letter",
+  "",
   NULL
 };
+
+static void *mem_alloc (const size_t size)
+{
+  void *res = malloc (size);
+
+  if (res == NULL)
+  {
+    fprintf (stderr, "malloc: %s\n", strerror (ENOMEM));
+
+    exit (-1);
+  }
+
+  return res;
+}
+
+static void *malloc_tiny (const size_t size)
+{
+  #ifdef DEBUG
+  #define MEM_ALLOC_SIZE 0 /* It's hard to debug BOF with tiny alloc */
+  #else
+  #define MEM_ALLOC_SIZE 0x10000
+  #endif
+
+  if (size > MEM_ALLOC_SIZE)
+  {
+    // we can't handle it here
+
+    return mem_alloc (size);
+  }
+
+  static char *buffer  = NULL;
+  static size_t bufree = 0;
+
+  if (size > bufree)
+  {
+    buffer = mem_alloc (MEM_ALLOC_SIZE);
+    bufree = MEM_ALLOC_SIZE;
+  }
+
+  char *p = buffer;
+
+  buffer += size;
+  bufree -= size;
+
+  return p;
+}
 
 static void usage_mini_print (const char *progname)
 {
@@ -313,6 +407,8 @@ static void usage_big_print (const char *progname)
     #endif
   }
 }
+#else
+#define malloc_tiny(size)	mem_alloc_tiny(size, MEM_ALIGN_NONE)
 #endif
 
 static void check_realloc_elems (db_entry_t *db_entry)
@@ -327,7 +423,7 @@ static void check_realloc_elems (db_entry_t *db_entry)
 
     if (db_entry->elems_buf == NULL)
     {
-      fprintf (stderr, "Out of memory trying to allocate %zu bytes!\n", (size_t) elems_alloc_new * sizeof (elem_t));
+      fprintf (stderr, "Out of memory trying to allocate %zu bytes\n", (size_t) elems_alloc_new * sizeof (elem_t));
 
 #ifndef JTR_MODE
       exit (-1);
@@ -354,7 +450,7 @@ static void check_realloc_chains (db_entry_t *db_entry)
 
     if (db_entry->chains_buf == NULL)
     {
-      fprintf (stderr, "Out of memory trying to allocate %zu bytes!\n", (size_t) chains_alloc_new * sizeof (chain_t));
+      fprintf (stderr, "Out of memory trying to allocate %zu bytes\n", (size_t) chains_alloc_new * sizeof (chain_t));
 
 #ifndef JTR_MODE
       exit (-1);
@@ -395,26 +491,6 @@ static int in_superchop (char *buf)
   buf[len] = 0;
 
   return len;
-}
-
-static inline int get_bits(mpz_t *op)
-{
-    mpz_t half; mpz_init(half);
-    u64 h;
-    int b;
-
-    mpz_fdiv_q_2exp(half, *op, 64);
-    h = mpz_get_ui(half);
-    if (h) b = 64;
-    else
-    {
-      mpz_fdiv_r_2exp(half, *op, 64);
-      h = mpz_get_ui(half);
-      b = 0;
-    }
-    while (h >>= 1) b++;
-
-    return b;
 }
 
 #ifndef JTR_MODE
@@ -512,7 +588,7 @@ static void chain_ks (const chain_t *chain_buf, const db_entry_t *db_entries, mp
   }
 }
 
-static void set_chain_ks_poses (const chain_t *chain_buf, const db_entry_t *db_entries, mpz_t *tmp, u64 cur_chain_ks_poses[IN_LEN_MAX])
+static void set_chain_ks_poses (const chain_t *chain_buf, const db_entry_t *db_entries, mpz_t *tmp, u64 cur_chain_ks_poses[OUT_LEN_MAX])
 {
   const u8 *buf = chain_buf->buf;
 
@@ -532,7 +608,7 @@ static void set_chain_ks_poses (const chain_t *chain_buf, const db_entry_t *db_e
   }
 }
 
-static void chain_set_pwbuf_init (const chain_t *chain_buf, const db_entry_t *db_entries, const u64 cur_chain_ks_poses[IN_LEN_MAX], char *pw_buf)
+static void chain_set_pwbuf_init (const chain_t *chain_buf, const db_entry_t *db_entries, const u64 cur_chain_ks_poses[OUT_LEN_MAX], char *pw_buf)
 {
   const u8 *buf = chain_buf->buf;
 
@@ -546,13 +622,13 @@ static void chain_set_pwbuf_init (const chain_t *chain_buf, const db_entry_t *db
 
     const u64 elems_idx = cur_chain_ks_poses[idx];
 
-    memcpy (pw_buf, &db_entry->elems_buf[elems_idx], db_key);
+    memcpy (pw_buf, db_entry->elems_buf[elems_idx].buf, db_key);
 
     pw_buf += db_key;
   }
 }
 
-static void chain_set_pwbuf_increment (const chain_t *chain_buf, const db_entry_t *db_entries, u64 cur_chain_ks_poses[IN_LEN_MAX], char *pw_buf)
+static void chain_set_pwbuf_increment (const chain_t *chain_buf, const db_entry_t *db_entries, u64 cur_chain_ks_poses[OUT_LEN_MAX], char *pw_buf)
 {
   const u8 *buf = chain_buf->buf;
 
@@ -572,14 +648,14 @@ static void chain_set_pwbuf_increment (const chain_t *chain_buf, const db_entry_
 
     if (elems_idx < elems_cnt)
     {
-      memcpy (pw_buf, &db_entry->elems_buf[elems_idx], db_key);
+      memcpy (pw_buf, db_entry->elems_buf[elems_idx].buf, db_key);
 
       break;
     }
 
     cur_chain_ks_poses[idx] = 0;
 
-    memcpy (pw_buf, &db_entry->elems_buf[0], db_key);
+    memcpy (pw_buf, db_entry->elems_buf[0].buf, db_key);
 
     pw_buf += db_key;
   }
@@ -612,13 +688,83 @@ static void chain_gen_with_idx (chain_t *chain_buf, const int len1, const int ch
   chain_buf->cnt++;
 }
 
+static char *add_elem (db_entry_t *db_entry, char *input_buf, int input_len)
+{
+  check_realloc_elems (db_entry);
+
+  elem_t *elem_buf = &db_entry->elems_buf[db_entry->elems_cnt];
+
+  elem_buf->buf = malloc_tiny (input_len);
+
+  memcpy (elem_buf->buf, input_buf, input_len);
+
+  db_entry->elems_cnt++;
+
+  return (char *) elem_buf->buf;
+}
+
+static u32 input_hash (char *input_buf, int input_len, const int hash_mask)
+{
+  u32 h = 0;
+
+  for (int i = 0; i < input_len; i++)
+  {
+    h = (h * 33) + input_buf[i];
+  }
+
+  return h & hash_mask;
+}
+
+static void add_uniq (db_entry_t *db_entry, char *input_buf, int input_len)
+{
+  uniq_t *uniq = db_entry->uniq;
+
+  const u32 h = input_hash (input_buf, input_len, uniq->hash_mask);
+
+  u32 cur = uniq->hash[h];
+
+  u32 prev = cur;
+
+  while (cur != ENTRY_END_HASH)
+  {
+    if (memcmp (input_buf, uniq->data[cur].element, input_len) == 0) return;
+
+    prev = cur;
+
+    cur = uniq->data[cur].next;
+  }
+
+  const u32 index = uniq->index;
+
+  if (prev == ENTRY_END_HASH)
+  {
+    uniq->hash[h] = index;
+  }
+  else
+  {
+    uniq->data[prev].next = index;
+  }
+
+  if (index == uniq->alloc)
+  {
+    uniq->alloc += ALLOC_NEW_DUPES;
+
+    uniq->data = realloc (uniq->data, uniq->alloc * sizeof (uniq_data_t));
+  }
+
+  uniq->data[index].element = add_elem (db_entry, input_buf, input_len);
+  uniq->data[index].next    = ENTRY_END_HASH;
+
+  uniq->index++;
+}
+
 #ifndef JTR_MODE
 int main (int argc, char *argv[])
 #else
 static FILE *word_file;
 static mpf_t count;
-static mpz_t pos;
-static mpz_t rec_pos;
+static mpz_t pos, rec_pos;
+static uint64_t node_dist, rec_dist;
 static int rec_pos_destroyed;
 
 static void save_state(FILE *file)
@@ -630,26 +776,37 @@ static void save_state(FILE *file)
 
   mpz_fdiv_q_2exp(half, rec_pos, 64); // upper 64 bits
   fprintf(file, "%llu\n", (unsigned long long)mpz_get_ui(half));
+
+  fprintf(file, "%llu\n", (unsigned long long)rec_dist);
 }
 
 static int restore_state(FILE *file)
 {
   unsigned long long temp;
-  int ret = fscanf(file, "%llu\n", &temp);
+  mpz_t hi;
+
+  if (fscanf(file, "%llu\n", &temp) != 1)
+    return 1;
   mpz_set_ui(rec_pos, temp);
-  if (ret && fscanf(file, "%llu\n", &temp))
-  {
-    mpz_t hi; mpz_init_set_ui(hi, temp);
-    mpz_mul_2exp(hi, hi, 64); // hi = temp << 64
-    mpz_add(rec_pos, rec_pos, hi);
-    mpz_clear(hi);
-  }
-  return !ret;
+
+  if (fscanf(file, "%llu\n", &temp) != 1)
+    return 1;
+  mpz_init_set_ui(hi, temp);
+  mpz_mul_2exp(hi, hi, 64); // hi = temp << 64
+  mpz_add(rec_pos, rec_pos, hi);
+  mpz_clear(hi);
+
+  if (fscanf(file, "%llu\n", &temp) != 1)
+    return 1;
+  rec_dist = temp;
+
+  return 0;
 }
 
 static void fix_state(void)
 {
   mpz_set(rec_pos, pos);
+  rec_dist = node_dist;
 }
 
 static double get_progress(void)
@@ -671,11 +828,39 @@ static double get_progress(void)
   return progress;
 }
 
+static inline int get_bits(mpz_t *op)
+{
+    mpz_t half; mpz_init(half);
+    u64 h;
+    int b;
+
+    mpz_fdiv_q_2exp(half, *op, 64);
+    h = mpz_get_ui(half);
+    if (h) b = 64;
+    else
+    {
+      mpz_fdiv_r_2exp(half, *op, 64);
+      h = mpz_get_ui(half);
+      b = 0;
+    }
+    while (h >>= 1) b++;
+
+    return b;
+}
+
+/* There should be legislation against adding a BOM to UTF-8 */
+static char *skip_bom(char *string)
+{
+	if (!memcmp(string, "\xEF\xBB\xBF", 3))
+		string += 3;
+	return string;
+}
+
 void do_prince_crack(struct db_main *db, char *filename)
 #endif
 {
-  mpz_t pw_ks_pos[IN_LEN_MAX + 1];
-  mpz_t pw_ks_cnt[IN_LEN_MAX + 1];
+  mpz_t pw_ks_pos[OUT_LEN_MAX + 1];
+  mpz_t pw_ks_cnt[OUT_LEN_MAX + 1];
 
   mpz_t iter_max;         mpz_init_set_si (iter_max,        0);
   mpz_t total_ks_cnt;     mpz_init_set_si (total_ks_cnt,    0);
@@ -699,61 +884,77 @@ void do_prince_crack(struct db_main *db, char *filename)
   int     elem_cnt_min  = ELEM_CNT_MIN;
   int     elem_cnt_max  = ELEM_CNT_MAX;
   int     wl_dist_len   = WL_DIST_LEN;
+  int     case_permute  = CASE_PERMUTE;
+  int     dupe_check    = DUPE_CHECK;
 #ifndef JTR_MODE
   char   *output_file   = NULL;
 #endif
 
-  #define IDX_VERSION       'V'
-  #define IDX_USAGE         'h'
-  #define IDX_PW_MIN        0x1000
-  #define IDX_PW_MAX        0x2000
-  #define IDX_ELEM_CNT_MIN  0x3000
-  #define IDX_ELEM_CNT_MAX  0x4000
-  #define IDX_KEYSPACE      0x5000
-  #define IDX_WL_DIST_LEN   0x6000
-  #define IDX_SKIP          's'
-  #define IDX_LIMIT         'l'
-  #define IDX_OUTPUT_FILE   'o'
+  #define IDX_VERSION             'V'
+  #define IDX_USAGE               'h'
+  #define IDX_PW_MIN              0x1000
+  #define IDX_PW_MAX              0x2000
+  #define IDX_ELEM_CNT_MIN        0x3000
+  #define IDX_ELEM_CNT_MAX        0x4000
+  #define IDX_KEYSPACE            0x5000
+  #define IDX_WL_DIST_LEN         0x6000
+  #define IDX_CASE_PERMUTE        0x7000
+  #define IDX_DUPE_CHECK_DISABLE  'c'
+  #define IDX_SKIP                's'
+  #define IDX_LIMIT               'l'
+  #define IDX_OUTPUT_FILE         'o'
 
 #ifndef JTR_MODE
   struct option long_options[] =
   {
-    {"version",       no_argument,       0, IDX_VERSION},
-    {"help",          no_argument,       0, IDX_USAGE},
-    {"keyspace",      no_argument,       0, IDX_KEYSPACE},
-    {"pw-min",        required_argument, 0, IDX_PW_MIN},
-    {"pw-max",        required_argument, 0, IDX_PW_MAX},
-    {"elem-cnt-min",  required_argument, 0, IDX_ELEM_CNT_MIN},
-    {"elem-cnt-max",  required_argument, 0, IDX_ELEM_CNT_MAX},
-    {"wl-dist-len",   no_argument,       0, IDX_WL_DIST_LEN},
-    {"skip",          required_argument, 0, IDX_SKIP},
-    {"limit",         required_argument, 0, IDX_LIMIT},
-    {"output-file",   required_argument, 0, IDX_OUTPUT_FILE},
+    {"version",            no_argument,       0, IDX_VERSION},
+    {"help",               no_argument,       0, IDX_USAGE},
+    {"keyspace",           no_argument,       0, IDX_KEYSPACE},
+    {"pw-min",             required_argument, 0, IDX_PW_MIN},
+    {"pw-max",             required_argument, 0, IDX_PW_MAX},
+    {"elem-cnt-min",       required_argument, 0, IDX_ELEM_CNT_MIN},
+    {"elem-cnt-max",       required_argument, 0, IDX_ELEM_CNT_MAX},
+    {"wl-dist-len",        no_argument,       0, IDX_WL_DIST_LEN},
+    {"case-permute",       no_argument,       0, IDX_CASE_PERMUTE},
+    {"dupe-check-disable", no_argument,       0, IDX_DUPE_CHECK_DISABLE},
+    {"skip",               required_argument, 0, IDX_SKIP},
+    {"limit",              required_argument, 0, IDX_LIMIT},
+    {"output-file",        required_argument, 0, IDX_OUTPUT_FILE},
     {0, 0, 0, 0}
   };
+
+  int elem_cnt_max_chgd = 0;
 
   int option_index = 0;
 
   int c;
 
-  while ((c = getopt_long (argc, argv, "Vhs:l:o:", long_options, &option_index)) != -1)
+  while ((c = getopt_long (argc, argv, "Vhs:l:o:c", long_options, &option_index)) != -1)
   {
     switch (c)
     {
-      case IDX_VERSION:       version         = 1;              break;
-      case IDX_USAGE:         usage           = 1;              break;
-      case IDX_KEYSPACE:      keyspace        = 1;              break;
-      case IDX_PW_MIN:        pw_min          = atoi (optarg);  break;
-      case IDX_PW_MAX:        pw_max          = atoi (optarg);  break;
-      case IDX_ELEM_CNT_MIN:  elem_cnt_min    = atoi (optarg);  break;
-      case IDX_ELEM_CNT_MAX:  elem_cnt_max    = atoi (optarg);  break;
-      case IDX_WL_DIST_LEN:   wl_dist_len     = 1;              break;
-      case IDX_SKIP:          mpz_set_str (skip,  optarg, 0);   break;
-      case IDX_LIMIT:         mpz_set_str (limit, optarg, 0);   break;
-      case IDX_OUTPUT_FILE:   output_file     = optarg;         break;
+      case IDX_VERSION:             version           = 1;              break;
+      case IDX_USAGE:               usage             = 1;              break;
+      case IDX_KEYSPACE:            keyspace          = 1;              break;
+      case IDX_PW_MIN:              pw_min            = atoi (optarg);  break;
+      case IDX_PW_MAX:              pw_max            = atoi (optarg);  break;
+      case IDX_ELEM_CNT_MIN:        elem_cnt_min      = atoi (optarg);  break;
+      case IDX_ELEM_CNT_MAX:        elem_cnt_max      = atoi (optarg);
+                                    elem_cnt_max_chgd = 1;              break;
+      case IDX_WL_DIST_LEN:         wl_dist_len       = 1;              break;
+      case IDX_CASE_PERMUTE:        case_permute      = 1;              break;
+      case IDX_DUPE_CHECK_DISABLE:  dupe_check        = 0;              break;
+      case IDX_SKIP:                mpz_set_str (skip,  optarg, 0);     break;
+      case IDX_LIMIT:               mpz_set_str (limit, optarg, 0);     break;
+      case IDX_OUTPUT_FILE:         output_file       = optarg;         break;
 
       default: return (-1);
     }
+  }
+
+  if (elem_cnt_max_chgd == 0)
+  {
+    elem_cnt_max = MIN (pw_max, ELEM_CNT_MAX);
   }
 
   if (usage)
@@ -826,9 +1027,9 @@ void do_prince_crack(struct db_main *db, char *filename)
     return (-1);
   }
 
-  if (pw_max > IN_LEN_MAX)
+  if (pw_max > OUT_LEN_MAX)
   {
-    fprintf (stderr, "Value of --pw-max (%d) must be smaller or equal than %d\n", pw_max, IN_LEN_MAX);
+    fprintf (stderr, "Value of --pw-max (%d) must be smaller or equal than %d\n", pw_max, OUT_LEN_MAX);
 
     return (-1);
   }
@@ -848,17 +1049,28 @@ void do_prince_crack(struct db_main *db, char *filename)
   setmode (fileno (stdout), O_BINARY);
   #endif
 #else
-  log_event("Proceeding with PRINCE mode (" REALGMP " version)");
+  int loopback = (options.flags & FLG_PRINCE_LOOPBACK) ? 1 : 0;
+
+  dupe_check = (options.flags & FLG_PRINCE_NO_DUPE_SUP) ? 0 : 1;
+
+  if (options.force_maxlength > OUT_LEN_MAX)
+  {
+    if (john_main_process)
+    fprintf (stderr, "Error: --max-len for PRINCE can't be greater than %d\n",
+             OUT_LEN_MAX);
+
+    error();
+  }
+
+  log_event("Proceeding with PRINCE (" REALGMP " version)%s",
+            loopback ? " in loopback mode" : "");
 
   /* This mode defaults to length 16 (unless lowered by format) */
   pw_min = MAX(PW_MIN, options.force_minlength);
   pw_max = MIN(PW_MAX, db->format->params.plaintext_length);
 
   /* ...but can be bumped using -max-len */
-  if (options.force_maxlength && options.force_maxlength > pw_max)
-    pw_max = MIN(IN_LEN_MAX, options.force_maxlength);
-  else
-  if (options.force_maxlength && options.force_maxlength < pw_max)
+  if (options.force_maxlength)
     pw_max = options.force_maxlength;
 
   if (prince_elem_cnt_min)
@@ -867,6 +1079,8 @@ void do_prince_crack(struct db_main *db, char *filename)
     elem_cnt_max = MIN(prince_elem_cnt_max, pw_max);
   if (options.flags & FLG_PRINCE_DIST)
     wl_dist_len = 1;
+  if (options.flags & FLG_PRINCE_CASE_PERMUTE)
+    case_permute = 1;
   if (options.flags & FLG_PRINCE_KEYSPACE)
     keyspace = 1;
 
@@ -884,6 +1098,10 @@ void do_prince_crack(struct db_main *db, char *filename)
   if (prince_limit_str)
     mpz_set_str(limit, prince_limit_str, 0);
 
+  /* If we did not give a name for loopback mode, we use the active pot file */
+  if (loopback && !filename)
+    filename = pers_opts.activepot;
+
   /* If we did not give a name for wordlist mode, we use one from john.conf */
   if (!filename)
   if (!(filename = cfg_get_param(SECTION_PRINCE, NULL, "Wordlist")))
@@ -893,10 +1111,6 @@ void do_prince_crack(struct db_main *db, char *filename)
   log_event("- Wordlist file: %.100s", path_expand(filename));
   log_event("- Will generate candidates of length %d - %d", pw_min, pw_max);
   log_event("- using chains with %d - %d elements.", elem_cnt_min, elem_cnt_max);
-  if (wl_dist_len)
-    log_event("- Calculating length distribution from wordlist");
-  else
-    log_event("- Using default length distribution");
 #endif
 
   /**
@@ -904,18 +1118,41 @@ void do_prince_crack(struct db_main *db, char *filename)
    */
 
 #ifndef JTR_MODE
-  db_entry_t *db_entries   = (db_entry_t *) calloc (IN_LEN_MAX + 1, sizeof (db_entry_t));
-  pw_order_t *pw_orders    = (pw_order_t *) calloc (IN_LEN_MAX + 1, sizeof (pw_order_t));
-  u64        *wordlen_dist = (u64 *)        calloc (IN_LEN_MAX + 1, sizeof (u64));
+  db_entry_t *db_entries   = (db_entry_t *) calloc (pw_max + 1, sizeof (db_entry_t));
+  pw_order_t *pw_orders    = (pw_order_t *) calloc (pw_max + 1, sizeof (pw_order_t));
+  u64        *wordlen_dist = (u64 *)        calloc (pw_max + 1, sizeof (u64));
 
-  out_t *out = (out_t *) malloc (sizeof (out_t));
+  out_t *out = (out_t *) mem_alloc (sizeof (out_t));
 
   out->fp  = stdout;
   out->len = 0;
+
+  if (dupe_check)
+  {
+    for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
+    {
+      db_entry_t *db_entry = &db_entries[pw_len];
+
+      const u32 hash_size = 1 << DEF_HASH_LOG_SIZE[pw_len];
+      const u32 hash_alloc = ALLOC_NEW_DUPES;
+
+      uniq_t *uniq = mem_alloc (sizeof (uniq_t));
+
+      uniq->hash_mask = hash_size - 1;
+      uniq->data  = mem_alloc (hash_alloc * sizeof (uniq_data_t));
+      uniq->hash  = mem_alloc (hash_size  * sizeof (u32));
+      uniq->index = 0;
+      uniq->alloc = hash_alloc;
+
+      memset (uniq->hash, 0xff, hash_size * sizeof (u32));
+
+      db_entry->uniq = uniq;
+    }
+  }
 #else
-  db_entry_t *db_entries   = (db_entry_t *) mem_calloc ((IN_LEN_MAX + 1) * sizeof (db_entry_t));
-  pw_order_t *pw_orders    = (pw_order_t *) mem_calloc ((IN_LEN_MAX + 1) * sizeof (pw_order_t));
-  u64        *wordlen_dist = (u64 *)        mem_calloc ((IN_LEN_MAX + 1) * sizeof (u64));
+  db_entry_t *db_entries   = (db_entry_t *) mem_calloc ((pw_max + 1) * sizeof (db_entry_t));
+  pw_order_t *pw_orders    = (pw_order_t *) mem_calloc ((pw_max + 1) * sizeof (pw_order_t));
+  u64        *wordlen_dist = (u64 *)        mem_calloc ((pw_max + 1) * sizeof (u64));
 #endif
 
   /**
@@ -945,11 +1182,56 @@ void do_prince_crack(struct db_main *db, char *filename)
 
     char *input_buf = fgets (buf, sizeof (buf), stdin);
 #else
-    if (!(word_file = jtr_fopen(path_expand(filename), "rb")))
-      pexit(STR_MACRO(jtr_fopen)": %s", path_expand(filename));
-    log_event("- Input file: %.100s", path_expand(filename));
+    int warn = cfg_get_bool(SECTION_OPTIONS, NULL, "WarnEncoding", 0);
+
+    if (!john_main_process)
+      warn = 0;
+
+    filename = path_expand(filename);
+
+    if (!(word_file = jtr_fopen(filename, "rb")))
+      pexit(STR_MACRO(jtr_fopen)": %s", filename);
+    log_event("- Input file: %.100s", filename);
 
   log_event("Loading elements from wordlist");
+
+  if (dupe_check) {
+    fseek(word_file, 0, SEEK_END);
+    long size = ftell(word_file) >> 3;
+    fseek(word_file, 0, SEEK_SET);
+
+    size /= pw_max;
+
+    u32 hash_log = 8;
+    while (((1 << hash_log) < size) && hash_log < 27)
+      hash_log++;
+
+    for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
+    {
+      db_entry_t *db_entry = &db_entries[pw_len];
+
+      const u32 hash_size = 1 << MIN(hash_log, pw_len * 8);
+      const u32 hash_alloc = MIN(ALLOC_NEW_DUPES, hash_size);
+
+      uniq_t *uniq = mem_alloc (sizeof (uniq_t));
+
+      uniq->hash_mask = hash_size - 1;
+      uniq->data  = mem_alloc (hash_alloc * sizeof (uniq_data_t));
+      uniq->hash  = mem_alloc (hash_size  * sizeof (u32));
+      uniq->index = 0;
+      uniq->alloc = hash_alloc;
+
+      memset (uniq->hash, 0xff, hash_size * sizeof (u32));
+
+      db_entry->uniq = uniq;
+
+      if (john_main_process && options.verbosity > 4)
+      log_event("- dupe suppression len %d: hash size %u, "
+                "temporarily allocating %zu bytes", pw_len,
+                hash_size, sizeof(uniq_t) + hash_alloc * sizeof(uniq_data_t) +
+                hash_size * sizeof(u32));
+    }
+  }
 
   while (!feof (word_file))
   {
@@ -960,23 +1242,105 @@ void do_prince_crack(struct db_main *db, char *filename)
     if (input_buf == NULL) continue;
 
 #ifdef JTR_MODE
+    char *p;
+
+    if (loopback && (p = strchr(input_buf, options.loader.field_sep_char)))
+    {
+      input_buf = p + 1;
+    } else
     if (!strncmp(input_buf, "#!comment", 9))
       continue;
+
+    char *line = skip_bom(input_buf);
+
+    if (warn) {
+      if (pers_opts.input_enc == UTF_8) {
+        if (!valid_utf8((UTF8*)line)) {
+          warn = 0;
+          fprintf(stderr, "Warning: invalid UTF-8 seen reading %s\n", filename);
+        }
+      } else if (line != input_buf || valid_utf8((UTF8*)line) > 1) {
+        warn = 0;
+        fprintf(stderr, "Warning: UTF-8 seen reading %s\n", filename);
+      }
+    }
+
+    input_buf = line;
+
+    if (pers_opts.input_enc != pers_opts.target_enc) {
+      UTF16 u16[BUFSIZ];
+
+      utf8_to_utf16(u16, OUT_LEN_MAX, (UTF8*)input_buf, 4 * OUT_LEN_MAX);
+      input_buf = utf16_to_cp(u16);
+    }
 #endif
     const int input_len = in_superchop (input_buf);
 
     if (input_len < IN_LEN_MIN) continue;
     if (input_len > IN_LEN_MAX) continue;
 
+    if (input_len > pw_max) continue;
+
     db_entry_t *db_entry = &db_entries[input_len];
 
-    check_realloc_elems (db_entry);
+    if (!dupe_check)
+    {
+      add_elem (db_entry, input_buf, input_len);
+    }
+    else
+    {
+      add_uniq (db_entry, input_buf, input_len);
+    }
 
-    elem_t *elem_buf = &db_entry->elems_buf[db_entry->elems_cnt];
+    if (case_permute)
+    {
+      const char old_c = input_buf[0];
 
-    memcpy (elem_buf->buf, input_buf, input_len);
+      const char new_cu = toupper (old_c);
+      const char new_cl = tolower (old_c);
 
-    db_entry->elems_cnt++;
+      if (old_c != new_cu)
+      {
+        input_buf[0] = new_cu;
+
+        if (!dupe_check)
+        {
+          add_elem (db_entry, input_buf, input_len);
+        }
+        else
+        {
+          add_uniq (db_entry, input_buf, input_len);
+        }
+      }
+
+      if (old_c != new_cl)
+      {
+        input_buf[0] = new_cl;
+
+        if (!dupe_check)
+        {
+          add_elem (db_entry, input_buf, input_len);
+        }
+        else
+        {
+          add_uniq (db_entry, input_buf, input_len);
+        }
+      }
+    }
+  }
+
+  if (dupe_check)
+  {
+    for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
+    {
+      db_entry_t *db_entry = &db_entries[pw_len];
+
+      uniq_t *uniq = db_entry->uniq;
+
+      free (uniq->hash);
+      free (uniq->data);
+      free (uniq);
+    }
   }
 
   /**
@@ -992,11 +1356,15 @@ void do_prince_crack(struct db_main *db, char *filename)
 
     const int pw_len1 = pw_len - 1;
 
-    const int chains_cnt = 1 << pw_len1;
+    const u32 chains_cnt = 1 << pw_len1;
+
+    u8 buf[OUT_LEN_MAX];
 
     chain_t chain_buf_new;
 
-    for (int chains_idx = 0; chains_idx < chains_cnt; chains_idx++)
+    chain_buf_new.buf = buf;
+
+    for (u32 chains_idx = 0; chains_idx < chains_cnt; chains_idx++)
     {
       chain_gen_with_idx (&chain_buf_new, pw_len1, chains_idx);
 
@@ -1024,13 +1392,17 @@ void do_prince_crack(struct db_main *db, char *filename)
 
       memcpy (chain_buf, &chain_buf_new, sizeof (chain_t));
 
+      chain_buf->buf = malloc_tiny (pw_len);
+
+      memcpy (chain_buf->buf, chain_buf_new.buf, pw_len);
+
       mpz_init_set_si (chain_buf->ks_cnt, 0);
       mpz_init_set_si (chain_buf->ks_pos, 0);
 
       db_entry->chains_cnt++;
     }
 
-    memset (db_entry->cur_chain_ks_poses, 0, IN_LEN_MAX * sizeof (u64));
+    memset (db_entry->cur_chain_ks_poses, 0, OUT_LEN_MAX * sizeof (u64));
   }
 
   /**
@@ -1042,19 +1414,26 @@ void do_prince_crack(struct db_main *db, char *filename)
 #ifdef JTR_MODE
   log_event("Calculating output length distribution from wordlist file");
 #endif
-    for (int pw_len = IN_LEN_MIN; pw_len <= IN_LEN_MAX; pw_len++)
+    for (int pw_len = IN_LEN_MIN; pw_len <= pw_max; pw_len++)
     {
-      db_entry_t *db_entry = &db_entries[pw_len];
+      if (pw_len <= IN_LEN_MAX)
+      {
+        db_entry_t *db_entry = &db_entries[pw_len];
 
-      wordlen_dist[pw_len] = db_entry->elems_cnt;
+        wordlen_dist[pw_len] = db_entry->elems_cnt;
+      }
+      else
+      {
+        wordlen_dist[pw_len] = 1;
+      }
     }
   }
   else
   {
 #ifdef JTR_MODE
-  log_event("Using default output length distribution");
+  log_event("- Using default output length distribution");
 #endif
-    for (int pw_len = IN_LEN_MIN; pw_len <= IN_LEN_MAX; pw_len++)
+    for (int pw_len = IN_LEN_MIN; pw_len <= pw_max; pw_len++)
     {
       if (pw_len < DEF_WORDLEN_DIST_CNT)
       {
@@ -1072,6 +1451,33 @@ void do_prince_crack(struct db_main *db, char *filename)
    */
 
 #ifdef JTR_MODE
+  status_init(get_progress, 0);
+
+  rec_restore_mode(restore_state);
+  rec_init(db, save_state);
+
+  if (mpz_cmp_ui(rec_pos, 0))
+  {
+    mpz_set(skip, rec_pos);
+  }
+
+  if (mpz_cmp_ui(skip, 0))
+  {
+    char l_msg[64];
+    mpz_get_str(l_msg, 10, skip);
+    log_event("- Skip %s", l_msg);
+  }
+
+  if (mpz_cmp_ui(limit, 0))
+  {
+    char l_msg[64];
+    mpz_get_str(l_msg, 10, limit);
+    log_event("- Limit %s", l_msg);
+  }
+
+  mpz_set(pos, rec_pos);
+  node_dist = rec_dist;
+
   log_event("Calculating keyspace");
 #endif
   for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
@@ -1109,13 +1515,18 @@ void do_prince_crack(struct db_main *db, char *filename)
 
   if (keyspace)
   {
+#ifndef JTR_MODE
     mpz_out_str (stdout, 10, total_ks_cnt);
 
-    printf (" (%d bits used)\n", get_bits(&total_ks_cnt));
+    printf ("\n");
 
-#ifndef JTR_MODE
     return 0;
 #else
+    char l_msg[64];
+
+    mpz_get_str(l_msg, 10, total_ks_cnt);
+    fprintf(stderr, "Keyspace size %s (%d bits used)\n", l_msg,
+            get_bits(&total_ks_cnt));
     exit(0);
 #endif
   }
@@ -1128,6 +1539,10 @@ void do_prince_crack(struct db_main *db, char *filename)
     log_event("- Keyspace size %s (%d bits used)", l_msg,
               get_bits(&total_ks_cnt));
   }
+
+  mpf_set_z(count, total_ks_cnt);
+
+  crk_init(db, fix_state, NULL);
 #endif
 
   /**
@@ -1148,34 +1563,7 @@ void do_prince_crack(struct db_main *db, char *filename)
     qsort (chains_buf, chains_cnt, sizeof (chain_t), sort_by_ks);
   }
 #ifdef JTR_MODE
-  mpf_set_z(count, total_ks_cnt);
-
-  status_init(get_progress, 0);
-
-  rec_restore_mode(restore_state);
-  rec_init(db, save_state);
-
-  if (mpz_cmp_ui(rec_pos, 0))
-    mpz_set(skip, rec_pos);
-
-  if (mpz_cmp_ui(skip, 0))
-  {
-    char l_msg[64];
-    mpz_get_str(l_msg, 10, skip);
-    log_event("- Skip %s", l_msg);
-  }
-  if (mpz_cmp_ui(limit, 0))
-  {
-    char l_msg[64];
-    mpz_get_str(l_msg, 10, limit);
-    log_event("- Limit %s", l_msg);
-  }
-  mpz_set(pos, rec_pos);
-
-  crk_init(db, fix_state, NULL);
-
   log_event("Sorting global order by password length counts");
-
 #endif
 
   /**
@@ -1358,7 +1746,6 @@ void do_prince_crack(struct db_main *db, char *filename)
   log_event("Starting candidate generation");
 
   int jtr_done = 0;
-  int node_dist = 0;
 #endif
   while (mpz_cmp (total_ks_pos, total_ks_cnt) < 0)
   {
@@ -1419,7 +1806,7 @@ void do_prince_crack(struct db_main *db, char *filename)
         u32 for_node, node_skip = 0;
         if (options.node_count)
         {
-          for_node = node_dist++ % options.node_count + 1;
+          for_node = ++node_dist % options.node_count + 1;
           node_skip = for_node < options.node_min ||
                       for_node > options.node_max;
         }
@@ -1481,7 +1868,7 @@ void do_prince_crack(struct db_main *db, char *filename)
         {
           db_entry->chains_pos++;
 
-          memset (db_entry->cur_chain_ks_poses, 0, IN_LEN_MAX * sizeof (u64));
+          memset (db_entry->cur_chain_ks_poses, 0, OUT_LEN_MAX * sizeof (u64));
         }
 
         if (mpz_cmp (total_ks_pos, total_ks_cnt) == 0) break;

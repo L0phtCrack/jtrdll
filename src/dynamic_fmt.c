@@ -2533,8 +2533,8 @@ static struct fmt_main fmt_Dynamic =
 #endif
 		BENCHMARK_COMMENT,
 		BENCHMARK_LENGTH,
-#ifdef MMX_COEF
 		0,
+#ifdef MMX_COEF
 		PLAINTEXT_LENGTH,
 #else
 		PLAINTEXT_LENGTH_X86,
