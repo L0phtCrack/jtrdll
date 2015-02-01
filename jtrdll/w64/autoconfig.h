@@ -322,6 +322,9 @@
 /* Define to 1 if you have the `strrchr' function. */
 #define HAVE_STRRCHR 1
 
+/* Define to 1 if you have the `strrev' function. */
+#define HAVE_STRREV 1
+
 /* Define to 1 if you have the `strspn' function. */
 #define HAVE_STRSPN 1
 

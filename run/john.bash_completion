@@ -241,7 +241,10 @@ _john()
 	# slower than the current approach
 
 	# Check if completion is requested for a valid option
-	if [[ "${cur}" == --* ]] ; then
+	# --prince= is a hack for now, should be made generic:
+	if [[ "${cur}" == --prince[=:]* || "${cur}" == -prince[=:]* ]]; then
+		COMPREPLY=("--prince")
+	elif [[ "${cur}" == --* ]] ; then
 		COMPREPLY=( $(compgen -W "${options}" -- "${cur%%[=:]*}") )
 	else
 		COMPREPLY=( $(compgen -W "${options}" -- "-${cur%%[=:]*}") )
@@ -381,7 +384,6 @@ _john()
 			return 0
 			;;
 		--wordlist=*|--mkv-stats=*|--prince=*)
-echo TEST
 			# as long as Markov stats files can have any name,
 			# I can just reuse the --wordlist= logic for --mkv-stats=*
 			cur=${cur#*[=:]}

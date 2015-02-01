@@ -108,7 +108,7 @@ void status_ticks_overflow_safety(void)
 	}
 }
 
-void status_update_crypts(int64_t *combs, unsigned int crypts)
+void status_update_crypts(int64 *combs, unsigned int crypts)
 {
 	{
 		unsigned int saved_hi = status.combs.hi;
@@ -499,10 +499,27 @@ unsigned long long to_ulonglong(int64 val)
 	return (((unsigned long long)val.hi) << 32) | ((unsigned long long)val.lo);
 }
 
-unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi)
+
+int have_last_status = 0;
+struct status_main last_status;	
+clock_t last_status_clock=0;
+
+
+int64 sub64(int64 a, int64 b)
+{
+	int64 c;
+	c.hi=a.hi-b.hi;
+	c.lo=a.lo-b.lo;
+	if(c.lo>a.lo)
+	{
+		c.hi--;
+	}
+	return c;
+}
+
+unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi, clock_t ticks)
 {
 	int use_ticks;
-	clock_t ticks;
 	unsigned long time;
 	int64 cps;
 
@@ -511,7 +528,6 @@ unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi)
 
 	use_ticks = !(val.hi | c_ehi | status_restored_time);
 
-	ticks = get_time() - status.start_time;
 	if (use_ticks)
 		time = ticks;
 	else
@@ -543,6 +559,10 @@ extern int jtrdll_stage;
 JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 {
 	int64 guess_count;
+	int64 int64zero={0,0};
+	clock_t ticks, the_time;
+	int64 combs;
+	unsigned int combs_ehi;
 
 	/* stage */
 	jtrdllstatus->stage=jtrdll_stage;
@@ -557,6 +577,11 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 		jtrdllstatus->percent=0.0f;
 	}
 	
+	/* elapsed ticks */
+	the_time = get_time();
+
+	ticks = the_time - (have_last_status?last_status_clock:status.start_time);
+
 	/* elapsed time */
 	jtrdllstatus->time=status_get_time();
 
@@ -570,18 +595,37 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	jtrdllstatus->candidates = to_ulonglong(status.cands);
 
 	/* successful guesses per second */
-	guess_count.lo=status.guess_count;
+	guess_count.lo=status.guess_count-(have_last_status?last_status.guess_count:0);
 	guess_count.hi=0;
-	jtrdllstatus->guesses_per_second = jtrdll_get_per_second(guess_count,0);
+	jtrdllstatus->guesses_per_second = jtrdll_get_per_second(guess_count,0, ticks);
 
 	/* candidate passwords tried per second */
-	jtrdllstatus->candidates_per_second = jtrdll_get_per_second(status.cands,0);
+	jtrdllstatus->candidates_per_second = jtrdll_get_per_second(sub64(status.cands,(have_last_status?last_status.cands:int64zero)), 0, ticks);
 
 	/* crypts per second */
-	jtrdllstatus->crypts_per_second = jtrdll_get_per_second(status.crypts,0);
+	jtrdllstatus->crypts_per_second = jtrdll_get_per_second(sub64(status.crypts,(have_last_status?last_status.crypts:int64zero)), 0, ticks);
 
 	/* combinations per second */
-	jtrdllstatus->combinations_per_second = jtrdll_get_per_second(status.combs, status.combs_ehi);
+	if(have_last_status)
+	{
+		combs.lo = status.combs.lo - last_status.combs.lo;
+		combs.hi = status.combs.hi - last_status.combs.hi;
+		combs_ehi = status.combs_ehi - last_status.combs_ehi;
+		if(combs.lo>status.combs.lo)
+		{
+			combs.hi--;
+		}
+		if(combs.hi>status.combs.hi)
+		{
+			combs_ehi--;
+		}
+	}
+	else
+	{
+		combs=status.combs;
+		combs_ehi=status.combs_ehi;
+	}
+	jtrdllstatus->combinations_per_second = jtrdll_get_per_second(combs, combs_ehi, ticks);
 
 	/* start and end word of current work */
 	jtrdllstatus->word1[0]=0;
@@ -606,6 +650,14 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 			strnzcpy(jtrdllstatus->word2, buf, sizeof(jtrdllstatus->word2));
 		}
 	}
+
+	/* record last status : This will recalculte stats only from the last time this was called */
+/* 
+	have_last_status = 1;
+	memcpy(&last_status, &status, sizeof(last_status));
+	last_status_clock = the_time;
+*/
+
 }
 
 

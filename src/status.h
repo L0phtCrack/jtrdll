@@ -73,7 +73,7 @@ extern void status_ticks_overflow_safety(void);
  * to them.
  * Calls status_ticks_overflow_safety() once in a while.
  */
-extern void status_update_crypts(int64_t *combs, unsigned int crypts);
+extern void status_update_crypts(int64 *combs, unsigned int crypts);
 
 /*
  * Updates the candidates counter by adding the supplied number to it.

@@ -377,7 +377,7 @@ extern int setenv(const char *name, const char *val, int overwrite);
 #define Zu  "%zu"
 #endif
 
-#if (AC_BUILT && !HAVE_STRREV) ||(!AC_BUILT && !_MSC_VER)
+#if (AC_BUILT && !HAVE_STRREV) || (!AC_BUILT && !_MSC_VER)
 char *strrev(char *str);
 #endif
 
