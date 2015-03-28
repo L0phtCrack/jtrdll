@@ -50,7 +50,7 @@ static double get_progress(void)
 	if (!cand)
 		return -1;
 
-	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
+	try = (double)((unsigned long long)status.cands.hi << 32) + status.cands.lo;
 
 	return 100.0 * try / (cand * mask_mult);
 }
@@ -447,36 +447,79 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 
 	log_event("Proceeding with \"incremental\" mode: %.100s", mode);
+	
+	/* Colons in the mode specify a file:min:max:count incremental mode, not a config file mode */
+	if (strchr(mode, ':') != NULL)
+	{
+		char *tok, *toks;
+		int toknum = 0;
+		toks = mem_alloc_tiny(strlen(mode), MEM_ALIGN_NONE);
+		strcpy(toks, mode);
 
-	xxx add mode directly specifying file, minlen, maxlen, count
-	xxx switch to customizable crack types, as well as customizable charsets with sensible defaults
-	xxx and always use this 'mode' option rather than john.conf options.
-	xxx investigate this for dictionary too
+		charset = NULL;
+		max_count = 0;
+		min_length = 0;
+		max_length = CHARSET_LENGTH;
+		extra = NULL;
 
-	if (!(charset = cfg_get_param(SECTION_INC, mode, "File"))) {
-		if(cfg_get_section(SECTION_INC, mode) == NULL) {
+		for (tok = strtok(toks, ":"); tok; tok = strtok(NULL, ":"))
+		{
+			if (toknum == 0)
+			{
+				charset = tok;
+			}
+			else if (toknum == 1)
+			{
+				max_count = atoi(tok);
+			}
+			else if (toknum == 2)
+			{
+				min_length = atoi(tok);
+			}
+			else if (toknum == 3)
+			{
+				max_length = atoi(tok);
+			}
+
+			toknum++;
+		}
+
+		if (max_count == 0 || charset == NULL)
+		{
 			log_event("! Unknown incremental mode: %s", mode);
 			if (john_main_process)
 				fprintf(stderr, "Unknown incremental mode: %s\n",
-				    mode);
-			error();
-		}
-		else {
-			log_event("! No charset defined");
-			if (john_main_process)
-				fprintf(stderr, "No charset defined for mode: %s\n",
-				    mode);
+				mode);
 			error();
 		}
 	}
+	else
+	{
+		if (!(charset = cfg_get_param(SECTION_INC, mode, "File"))) {
+			if (cfg_get_section(SECTION_INC, mode) == NULL) {
+				log_event("! Unknown incremental mode: %s", mode);
+				if (john_main_process)
+					fprintf(stderr, "Unknown incremental mode: %s\n",
+					mode);
+				error();
+			}
+			else {
+				log_event("! No charset defined");
+				if (john_main_process)
+					fprintf(stderr, "No charset defined for mode: %s\n",
+					mode);
+				error();
+			}
+		}
 
-	extra = cfg_get_param(SECTION_INC, mode, "Extra");
+		extra = cfg_get_param(SECTION_INC, mode, "Extra");
 
-	if ((min_length = cfg_get_int(SECTION_INC, mode, "MinLen")) < 0)
-		min_length = 0;
-	if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
-		max_length = CHARSET_LENGTH;
-	max_count = cfg_get_int(SECTION_INC, mode, "CharCount");
+		if ((min_length = cfg_get_int(SECTION_INC, mode, "MinLen")) < 0)
+			min_length = 0;
+		if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
+			max_length = CHARSET_LENGTH;
+		max_count = cfg_get_int(SECTION_INC, mode, "CharCount");
+	}
 
 	/* Hybrid mask */
 	min_length -= mask_add_len;
@@ -792,8 +835,8 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		unsigned long long mask_mult =
 			mask_tot_cand ? mask_tot_cand : 1;
 
-		cand = (((unsigned long long)status.cands.hi << 32) +
-		        status.cands.lo) / mask_mult;
+		cand = (double)((((unsigned long long)status.cands.hi << 32) +
+		        status.cands.lo) / mask_mult);
 	}
 
 	crk_done();

@@ -52,9 +52,6 @@ john_register_one(&fmt_opencl_blockchain);
 // increase me (in multiples of 16) to increase the decrypted and search area
 #define SAFETY_FACTOR 		160
 
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		ARCH_WORD_32
 
 typedef struct {
 	uint32_t length;

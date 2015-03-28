@@ -297,7 +297,7 @@ static char *status_get_ETA(double percent, unsigned int secs_done)
 				    sizeof(s_ETA) - 1);
 		return s_ETA;
 	}
-	t_ETA += sec_left;
+	t_ETA += (time_t) sec_left;
 	pTm = localtime(&t_ETA);
 	strncat(s_ETA, " (ETA: ", sizeof(s_ETA) - 1);
 	if (sec_left < 24 * 3600)

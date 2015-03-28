@@ -9,7 +9,12 @@
 
 #include <assert.h>
 #include <string.h>
+#ifdef _WIN32
+#include "gettimeofday.h"
+#include <time.h>
+#else
 #include <sys/time.h>
+#endif
 
 #include "options.h"
 #include "opencl_DES_bs.h"
@@ -29,7 +34,7 @@ static unsigned int save_binary = 1;
 
 static int des_crypt_25(int *pcount, struct db_salt *salt);
 
-static void clean_all_buffers()
+static void clean_all_buffers(void)
 {
 	int i;
 	const char* errMsg = "Release Memory Object :Failed";
@@ -163,7 +168,7 @@ static void reset(struct db_main *db)
 	}
 }
 
-static void init_global_variables()
+static void init_global_variables(void)
 {
 	int i;
 

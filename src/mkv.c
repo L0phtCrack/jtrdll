@@ -242,7 +242,7 @@ static double get_progress(void)
 	if(gend == 0)
 		return 0;
 
-	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
+	try = (double)((unsigned long long)status.cands.hi << 32) + status.cands.lo;
 
 	return 100.0 * try / ((gend - gstart) * mask_mult);
 }

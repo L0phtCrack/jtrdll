@@ -36,7 +36,7 @@ static unsigned int *index96 = NULL;
 
 static int des_crypt_25(int *pcount, struct db_salt *salt);
 
-static void clean_all_buffers()
+static void clean_all_buffers(void)
 {
 	int i;
 	const char* errMsg = "Release Memory Object :Failed";
@@ -168,7 +168,7 @@ static void reset(struct db_main *db)
 	HANDLE_CLERROR(clSetKernelArg(krnl[gpu_id][0], 7, sizeof(cl_mem), &bitmap), "Set Kernel Arg krnl FAILED arg8\n");
 }
 
-static void init_global_variables()
+static void init_global_variables(void)
 {
 	int i;
 

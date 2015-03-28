@@ -8,7 +8,6 @@
 #define __AVX__ 1
 #define DES_BS_ASM 1
 
-#define int64_t __int64
 #define uint unsigned __int32
 #define ushort unsigned __int16
 

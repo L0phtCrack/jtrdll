@@ -59,10 +59,6 @@ john_register_one(&fmt_opencl_dmg);
 		((((unsigned long)(n) & 0xFF0000)) >> 8) | \
 		((((unsigned long)(n) & 0xFF000000)) >> 24))
 
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		unsigned int
-
 #ifdef DMG_DEBUG
 	extern volatile int bench_running;
 #endif

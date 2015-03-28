@@ -2,7 +2,7 @@
 #define _SCRYPT_PLATFORM_H_
 
 #if AC_BUILT
-#include "../autoconfig.h"
+#include "autoconfig.h"
 #else
 #ifndef _MSC_VER
 #ifndef __MINGW32__
