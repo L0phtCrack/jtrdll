@@ -43,15 +43,15 @@ john_register_one(&fmt_efs);
 #endif
 #include "memdbg.h"
 
-#ifdef MMX_COEF
-#define SHA1_BLK                (SHA1_SSE_PARA * MMX_COEF)
+#ifdef SIMD_COEF_32
+#define SHA1_BLK                (SHA1_SSE_PARA * SIMD_COEF_32)
 #endif
 
 #define FORMAT_LABEL            "EFS"
 #define FORMAT_TAG              "$efs$"
 #define TAG_LENGTH              (sizeof(FORMAT_TAG) - 1)
 #define FORMAT_NAME             ""
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define ALGORITHM_NAME          "PBKDF2-SHA1-efs-variant 3DES  " SHA512_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "PBKDF2-SHA1-efs-variant 3DES 32/" ARCH_BITS_STR
@@ -66,7 +66,7 @@ john_register_one(&fmt_efs);
 #define SALT_SIZE               sizeof(*cur_salt)
 #define BINARY_ALIGN            1
 #define SALT_ALIGN              sizeof(int)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      SHA1_BLK
 #define MAX_KEYS_PER_CRYPT      SHA1_BLK
 #else
@@ -112,10 +112,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked   = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -128,25 +134,25 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
-	if ((p = strtok(ctcopy, "$")) == NULL)  /* version number */
+	if ((p = strtokm(ctcopy, "$")) == NULL)  /* version number */
 		goto err;
 	if(!isdec(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* SID */
+	if ((p = strtokm(NULL, "$")) == NULL) /* SID */
 		goto err;
 	if (strlen(p) > MAX_SID_LEN)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* iv */
+	if ((p = strtokm(NULL, "$")) == NULL) /* iv */
 		goto err;
 	if (strlen(p) > MAX_IV_LEN * 2 || (strlen(p)&1)) /* iv length */
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* iterations */
+	if ((p = strtokm(NULL, "$")) == NULL) /* iterations */
 		goto err;
 	if(!isdec(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* data */
+	if ((p = strtokm(NULL, "$")) == NULL) /* data */
 		goto err;
 	if (strlen(p) > MAX_CT_LEN * 2 || (strlen(p)&1))
 		goto err;
@@ -171,24 +177,24 @@ static void *get_salt(char *ciphertext)
 
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += TAG_LENGTH;  // skip over "$efs$"
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.version = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 
 	// Convert SID to Unicode
 	enc_to_utf16(cs.SID, MAX_SID_LEN, (UTF8*)p, strlen(p));
 
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	length = strlen(p) / 2;
 	cs.ivlen = length;
 
 	for (i = 0; i < cs.ivlen; i++)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.iterations = atoi(p);
 
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	length = strlen(p) / 2;
 	cs.ctlen = length;
 
@@ -221,9 +227,9 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *pwdha
 	memcpy(key1, key, 8);
 	memcpy(key2, key + 8, 8);
 	memcpy(key3, key + 16, 8);
-	DES_set_key((C_Block *) key1, &ks1);
-	DES_set_key((C_Block *) key2, &ks2);
-	DES_set_key((C_Block *) key3, &ks3);
+	DES_set_key((DES_cblock *) key1, &ks1);
+	DES_set_key((DES_cblock *) key2, &ks2);
+	DES_set_key((DES_cblock *) key3, &ks3);
 	memcpy(ivec, iv, 8);
 	DES_ede3_cbc_encrypt(data, out, cur_salt->ctlen, &ks1, &ks2, &ks3, &ivec,  DES_DECRYPT);
 
@@ -251,14 +257,14 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *pwdha
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
 	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 	{
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		union {
@@ -288,13 +294,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			passwordBuf = (unsigned char*)cur_salt->SID;
 			passwordBufSize = (strlen16(cur_salt->SID) + 1) * 2;
 			hmac_sha1(out[i], 20, passwordBuf, passwordBufSize, out2[i], 20);
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 			lens[i] = 20;
 			pin[i] = (unsigned char*)out2[i];
 			x.pout[i] = (ARCH_WORD_32*)(out[i]);
 #endif
 		}
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		pbkdf2_sha1_sse((const unsigned char **)pin, lens, cur_salt->iv, 16, cur_salt->iterations, &(x.poutc), 32, 0);
 #else
 		pbkdf2_sha1(out2[0], 20, cur_salt->iv, 16, cur_salt->iterations, out[0], 32, 0);
@@ -391,7 +397,7 @@ struct fmt_main fmt_efs = {
 		efs_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

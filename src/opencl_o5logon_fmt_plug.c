@@ -99,16 +99,14 @@ static const char * warn[] = {
 // Maximum UINT32s used by plaintext being SHA1'd
 #define BUFSIZE                         ((PLAINTEXT_LENGTH+3)/4*4)
 
-cl_command_queue queue_prof;
-cl_int ret_code;
-cl_kernel crypt_kernel;
-cl_mem pinned_saved_keys, pinned_saved_idx, pinned_sha1_hashes, buffer_out;
-cl_mem buffer_keys, buffer_idx;
-cl_mem salt_buffer;
+static cl_mem pinned_saved_keys, pinned_saved_idx, pinned_sha1_hashes, buffer_out;
+static cl_mem buffer_keys, buffer_idx;
+static cl_mem salt_buffer;
 static cl_uint *sha1_hashes;
 static cl_uint *res_hashes;
 static unsigned int *saved_plain, *saved_idx;
 static unsigned int key_idx = 0;
+static struct fmt_main *self;
 
 #include "opencl-autotune.h" // Must come after auto-tune definitions
 #include "memdbg.h"
@@ -196,11 +194,11 @@ static void done(void)
 
 /* ---- End OpenCL Modifications ---- */
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 /* ---- Start OpenCL Modifications ---- */
 
-        size_t gws_limit;
+        self = _self;
 
 	aesFunc = get_AES_dec192_CBC();
 
@@ -208,25 +206,33 @@ static void init(struct fmt_main *self)
 
         opencl_init("$JOHN/kernels/o5logon_kernel.cl", gpu_id, NULL);
 
-        // Current key_idx can only hold 26 bits of offset so
-        // we can't reliably use a GWS higher than 4M or so.
-        gws_limit = MIN((1 << 26) * 4 / BUFSIZE,
-                        get_max_mem_alloc_size(gpu_id) / BUFSIZE);
-
         // create kernel to execute
         crypt_kernel = clCreateKernel(program[gpu_id], "o5logon_kernel", &ret_code);
         HANDLE_CLERROR(ret_code, "Error creating kernel. Double-check kernel name?");
 
-        //Initialize openCL tuning (library) for this format.
-        opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
-                               self, create_clobj, release_clobj,
-                               2 * BUFSIZE, gws_limit);
-
-        //Auto tune execution from shared/included code.
-        autotune_run(self, ROUNDS, gws_limit,
-                (cpu(device_info[gpu_id]) ? 500000000ULL : 1000000000ULL));
-
 /* ---- End OpenCL Modifications ---- */
+}
+
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		size_t gws_limit;
+
+		// Current key_idx can only hold 26 bits of offset so
+		// we can't reliably use a GWS higher than 4M or so.
+		gws_limit = MIN((1 << 26) * 4 / BUFSIZE,
+		                get_max_mem_alloc_size(gpu_id) / BUFSIZE);
+
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
+		                       self, create_clobj, release_clobj,
+		                       2 * BUFSIZE, gws_limit);
+
+		//Auto tune execution from shared/included code.
+		autotune_run(self, ROUNDS, gws_limit,
+		             (cpu(device_info[gpu_id]) ?
+		              500000000ULL : 1000000000ULL));
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -239,14 +245,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 9;
-	p = strtok(ctcopy, "*"); /* ciphertext */
+	p = strtokm(ctcopy, "*"); /* ciphertext */
 	if(!p)
 		goto err;
 	if(strlen(p) != CIPHERTEXT_LENGTH * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if(strlen(p) != SALT_LENGTH * 2)
 		goto err;
@@ -268,11 +274,11 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 	ctcopy += 9;	/* skip over "$o5logon$" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	for (i = 0; i < CIPHERTEXT_LENGTH; i++)
 		cs.ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < SALT_LENGTH; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -305,7 +311,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 	size_t gws;
         size_t *lws = local_work_size ? &local_work_size : NULL;
@@ -320,7 +326,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
                 "failed in clEnqueueWriteBuffer buffer_keys");
 
         HANDLE_CLERROR(
-                clEnqueueWriteBuffer(queue[gpu_id], buffer_idx, CL_TRUE, 0, 4 * count, saved_idx, 0, NULL, multi_profilingEvent[1]),
+                clEnqueueWriteBuffer(queue[gpu_id], buffer_idx, CL_TRUE, 0, 4 * gws, saved_idx, 0, NULL, multi_profilingEvent[1]),
                 "failed in clEnqueueWriteBuffer buffer_idx");
 
         HANDLE_CLERROR(
@@ -439,7 +445,7 @@ struct fmt_main fmt_opencl_o5logon = {
 	}, {
 		init,
 		done, // Changed for OpenCL
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

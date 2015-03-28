@@ -142,8 +142,8 @@ static void init(struct fmt_main *self)
 		overlap = 0;
 		//device does not support overlaping memcpy and kernel execution
 		inbuffer =
-		    (sha256_password *) mem_calloc(MAX_KEYS_PER_CRYPT *
-		    sizeof(sha256_password));
+			(sha256_password *) mem_calloc(MAX_KEYS_PER_CRYPT,
+			                               sizeof(sha256_password));
 		outbuffer =
 		    (SHA_HASH *) mem_alloc(MAX_KEYS_PER_CRYPT * sizeof(SHA_HASH));
 	}
@@ -179,7 +179,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return out;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static char realcipher[BINARY_SIZE];
 	int i;
@@ -221,7 +221,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 #ifdef SHA256
 	gpu_rawsha256(inbuffer, outbuffer, overlap);
 #else
@@ -317,7 +317,7 @@ struct fmt_main FMT_MAIN = {
 		fmt_default_prepare,
 		valid,
 		split,
-		binary,
+		get_binary,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

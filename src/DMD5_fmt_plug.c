@@ -119,8 +119,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_SIMD);
-	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       PLAINTEXT_LENGTH + 1);
+	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       BINARY_SIZE);
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_key);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -166,7 +174,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return 1;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static ARCH_WORD_32 out[BINARY_SIZE/4];
 	char response[MD5_HEX_SIZE + 1];
@@ -195,7 +203,7 @@ static void *binary(char *ciphertext)
 	return (void*)out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	char username[64];
 	char realm[64];
@@ -305,7 +313,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -409,13 +417,13 @@ struct fmt_main fmt_DMD5 = {
 	},
 	{
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

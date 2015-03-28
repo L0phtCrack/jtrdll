@@ -43,7 +43,7 @@ static struct fmt_tests tests[] = {
 };
 
 static char saved_salt[SALT_SIZE];
-static int saved_key_length;
+static int saved_len;
 static char saved_key[PLAINTEXT_LENGTH + 1];
 static MD4_CTX ctx;
 static ARCH_WORD_32 crypt_out[4];
@@ -89,7 +89,7 @@ static void *get_binary(char *ciphertext)
 	return out.u32;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static unsigned char out[SALT_SIZE];
 	char *p;
@@ -167,27 +167,27 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key, key, saved_key_length);
+	saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key, key, saved_len);
 }
 
 static char *get_key(int index)
 {
-	saved_key[saved_key_length] = 0;
+	saved_key[saved_len] = 0;
 	return saved_key;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	MD4_Init(&ctx);
 	if (saved_salt[1] == 'p') {
 		MD4_Update(&ctx, &saved_salt[2], (unsigned char)saved_salt[0]);
-		MD4_Update(&ctx, saved_key, saved_key_length);
+		MD4_Update(&ctx, saved_key, saved_len);
 	} else {
-		MD4_Update(&ctx, saved_key, saved_key_length);
+		MD4_Update(&ctx, saved_key, saved_len);
 		MD4_Update(&ctx, &saved_salt[2], (unsigned char)saved_salt[0]);
 	}
 	MD4_Final((unsigned char *)crypt_out, &ctx);
@@ -233,7 +233,7 @@ struct fmt_main fmt_md4_gen = {
 		valid,
 		fmt_default_split,
 		get_binary,
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

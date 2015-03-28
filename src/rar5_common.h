@@ -15,6 +15,7 @@
 #define MaxSalt			64
 
 #include "formats.h"
+#include "memdbg.h"
 
 #define  Min(x,y) (((x)<(y)) ? (x):(y))
 
@@ -52,29 +53,29 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
-	if ((p = strtok(ctcopy, "$")) == NULL) // salt length
+	if ((p = strtokm(ctcopy, "$")) == NULL) // salt length
 		goto err;
 	len = atoi(p);
 	if(len > 32)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) // salt
+	if ((p = strtokm(NULL, "$")) == NULL) // salt
 		goto err;
 	if (strlen(p) != len * 2)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) // iterations (in log2)
+	if ((p = strtokm(NULL, "$")) == NULL) // iterations (in log2)
 		goto err;
 	if(atoi(p) > 24) // CRYPT5_KDF_LG2_COUNT_MAX
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) // AES IV
+	if ((p = strtokm(NULL, "$")) == NULL) // AES IV
 		goto err;
 	if (strlen(p) != SIZE_INITV * 2)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) // pswcheck len (redundant)
+	if ((p = strtokm(NULL, "$")) == NULL) // pswcheck len (redundant)
 		goto err;
 	len = atoi(p);
 	if(len != BINARY_SIZE)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) // pswcheck
+	if ((p = strtokm(NULL, "$")) == NULL) // pswcheck
 		goto err;
 	if(strlen(p) != BINARY_SIZE * 2)
 		goto err;
@@ -97,15 +98,15 @@ static void *get_salt(char *ciphertext)
 
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += TAG_LENGTH;
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.saltlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.saltlen; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.iterations = 1 << atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 /* We currently do not use the IV */
 #if 0
 	for (i = 0; i < SIZE_INITV; i++)
@@ -179,5 +180,15 @@ static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
 static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
 static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
 static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+
+#if FMT_MAIN_VERSION > 11
+static unsigned int iteration_count(void *salt)
+{
+	struct custom_salt *my_salt;
+
+	my_salt = salt;
+	return (unsigned int)my_salt->iterations;
+}
+#endif
 
 #endif /* JOHN_RAR5_COMMON_H */

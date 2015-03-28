@@ -90,11 +90,18 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
-	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
+	cracked = mem_calloc(self->params.max_keys_per_crypt,
+	                     sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -110,58 +117,58 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 7;
-	if ((p = strtok(ctcopy, "*")) == NULL) /* cipher */
+	if ((p = strtokm(ctcopy, "*")) == NULL) /* cipher */
 		goto err;
 	res = atoi(p);
 	if(res != 1) /* check cipher type */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* cipher block length*/
+	if ((p = strtokm(NULL, "*")) == NULL)	/* cipher block length*/
 		goto err;
 	res = atoi(p);
 	if(res != 16) /* check cipher block length */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* is_mac */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* is_mac */
 		goto err;
 	res = atoi(p);
 	if(res != 0 && res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* old_fmt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* old_fmt */
 		goto err;
 	is_old_fmt = atoi(p);
 	if(is_old_fmt != 0 && is_old_fmt!= 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* mac */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* mac */
 		goto err;
 	if (strlen(p) > 128)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* public_blob_len */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* public_blob_len */
 		goto err;
 	res = atoi(p);
 	if (res > 4096)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* public_blob */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* public_blob */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* private_blob_len */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* private_blob_len */
 		goto err;
 	res = atoi(p);
 	if (res > 4096)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* private_blob */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* private_blob */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!is_old_fmt) {
-		if ((p = strtok(NULL, "*")) == NULL)	/* alg */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* alg */
 			goto err;
 		if (strlen(p) > 8)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* encryption */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* encryption */
 			goto err;
 		if (strlen(p) > 32)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* comment */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* comment */
 			goto err;
 		if (strlen(p) > 512)
 			goto err;
@@ -188,39 +195,39 @@ static void *get_salt(char *ciphertext)
 	struct custom_salt *cs = &(un._cs);
 	memset(cs, 0, sizeof(un));
 	ctcopy += 7;	/* skip over "$putty$" marker */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs->cipher = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs->cipherblk = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs->is_mac = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs->old_fmt = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 20; i++)
 		cs->mac[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs->public_blob_len = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs->public_blob_len; i++)
 		cs->public_blob[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs->private_blob_len = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs->private_blob_len; i++)
 		cs->private_blob[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	if(!cs->old_fmt) {
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		strcpy(cs->alg, p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		strcpy(cs->encryption, p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		strcpy(cs->comment, p);
 	}
 	MEM_FREE(keeptr);
@@ -234,11 +241,11 @@ static void set_salt(void *salt)
 
 static void putty_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -341,7 +348,7 @@ error:
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 	if (any_cracked) {
@@ -402,7 +409,7 @@ struct fmt_main fmt_putty = {
 	},
 	{
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

@@ -126,7 +126,8 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define GETCHAR_MC(buf, index) (((MAYBE_CONSTANT uchar*)(buf))[(index)])
 #define LASTCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & (0xffffff00U << ((((index) & 3) ^ 3) << 3))) + ((val) << ((((index) & 3) ^ 3) << 3))
 
-#if no_byte_addressable(DEVICE_INFO) || !defined(SCALAR) /* 32-bit stores */
+#if no_byte_addressable(DEVICE_INFO) || !defined(SCALAR) || (gpu_amd(DEVICE_INFO) && defined(AMD_PUTCHAR_NOCAST))
+/* 32-bit stores */
 #define PUTCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << (((index) & 3) << 3))) + ((val) << (((index) & 3) << 3))
 #define PUTCHAR_G	PUTCHAR
 #define PUTCHAR_L	PUTCHAR
@@ -137,7 +138,8 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define XORCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2]) ^ ((val) << (((index) & 3) << 3))
 #define XORCHAR_BE(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2]) ^ ((val) << ((((index) & 3) ^ 3) << 3))
 
-#else /* 8-bit stores */
+#else
+/* 8-bit stores */
 #define PUTCHAR(buf, index, val) ((uchar*)(buf))[index] = (val)
 #define PUTCHAR_G(buf, index, val) ((__global uchar*)(buf))[(index)] = (val)
 #define PUTCHAR_L(buf, index, val) ((__local uchar*)(buf))[(index)] = (val)
@@ -149,6 +151,11 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define XORCHAR_BE(buf, index, val) ((uchar*)(buf))[(index) ^ 3] ^= (val)
 #endif
 
+/* Use with some caution... */
+#define memcpy_macro(dst, src, count) do {	  \
+		for (uint _i = 0; _i < count; _i++) \
+			(dst)[_i] = (src)[_i]; \
+	} while (0)
 
 /* requires int/uint */
 #define dump_stuff_msg(msg, x, size) do {	  \

@@ -167,12 +167,20 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	digest34 = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+	digest34  = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*digest34));
 	keys_changed = salt_changed = 0;
+}
+
+static void done(void)
+{
+	MEM_FREE(digest34);
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static struct {
@@ -583,7 +591,7 @@ static void decode(unsigned char *ascii_cipher, unsigned char *binary)
 	binary[3] += -4;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static ARCH_WORD_32 out[BINARY_SIZE / sizeof(ARCH_WORD_32) + 1];
 
@@ -592,7 +600,7 @@ static void *binary(char *ciphertext)
 	return (void*)out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static ARCH_WORD_32 out[SALT_SIZE / sizeof(ARCH_WORD_32) + 1];
 
@@ -620,7 +628,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 
 #ifdef _OPENMP
@@ -746,13 +754,13 @@ struct fmt_main fmt_DOMINOSEC = {
 	},
 	{
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

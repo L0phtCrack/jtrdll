@@ -96,8 +96,9 @@ static sxc_password *inbuffer;
 static sxc_hash *outbuffer;
 static sxc_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
+static struct fmt_main *self;
 
-size_t insize, outsize, settingsize;
+static size_t insize, outsize, settingsize;
 
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
@@ -139,10 +140,10 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	outsize = sizeof(sxc_hash) * gws;
 	settingsize = sizeof(sxc_salt);
 
-	inbuffer = mem_calloc(insize);
+	inbuffer = mem_calloc(1, insize);
 	outbuffer = mem_alloc(outsize);
-	saved_key = mem_calloc(sizeof(*saved_key) * gws);
-	crypt_out = mem_calloc(sizeof(*crypt_out) * gws);
+	saved_key = mem_calloc(gws, sizeof(*saved_key));
+	crypt_out = mem_calloc(gws, sizeof(*crypt_out));
 
 	/// Allocate memory
 	mem_in =
@@ -186,9 +187,11 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DKEYLEN=%d -DSALTLEN=%d -DOUTLEN=%d",
@@ -200,14 +203,19 @@ static void init(struct fmt_main *self)
 
 	crypt_kernel = clCreateKernel(program[gpu_id], "derive_key", &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
+}
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 1, self, create_clobj, release_clobj,
-	                       sizeof(sxc_password), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1,
+		                       self, create_clobj, release_clobj,
+		                       sizeof(sxc_password), 0);
 
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000);
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, 0, 1000);
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -221,71 +229,71 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 6;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* cipher type */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* cipher type */
 		goto err;
 	res = atoi(p);
 	if (res != 0 && res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* checksum type */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum type */
 		goto err;
 	res = atoi(p);
 	if (res != 0 && res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	res = atoi(p);
 	if (res <= 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* key size */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* key size */
 		goto err;
 	res = atoi(p);
 	if (res != 16 && res != 32)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* checksum field (skipped) */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum field (skipped) */
 		goto err;
 	if (strlen(p) != BINARY_SIZE * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 16)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 32)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* original length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* original length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 1024)             /* 1024 because of "unsigned char output[1024];" in crypt_all */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 1024)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* content */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if (strtok(NULL, "*") != NULL)          /* the end */
+	if (strtokm(NULL, "*") != NULL)          /* the end */
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -307,33 +315,33 @@ static void *get_salt(char *ciphertext)
 	memset(&cs, 0, sizeof(cs));
 
 	ctcopy += 6;	/* skip over "$sxc$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.cipher_type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.checksum_type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iterations = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.key_size = atoi(p);
-	strtok(NULL, "*");
+	strtokm(NULL, "*");
 	/* skip checksum field */
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iv_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.iv_length; i++)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.salt_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.salt_length; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.original_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.length; i++)
 		cs.content[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -353,11 +361,11 @@ static void *get_binary(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 	ctcopy += 6;	/* skip over "$sxc$*" */
-	strtok(ctcopy, "*");
-	strtok(NULL, "*");
-	strtok(NULL, "*");
-	strtok(NULL, "*");
-	p = strtok(NULL, "*");
+	strtokm(ctcopy, "*");
+	strtokm(NULL, "*");
+	strtokm(NULL, "*");
+	strtokm(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
 			(atoi16[ARCH_INDEX(*p)] << 4) |
@@ -392,11 +400,11 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 #undef set_key
 static void set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -406,7 +414,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -516,7 +524,7 @@ struct fmt_main fmt_opencl_sxc = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

@@ -73,9 +73,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -98,10 +105,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	static char out[TAG_LENGTH + BINARY_SIZE*2 + 1];
-	
+
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
-	
+
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
 	strnzcpy(out + TAG_LENGTH, ciphertext, BINARY_SIZE*2 + 1);
 	strupr(out + TAG_LENGTH);
@@ -142,7 +149,7 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -182,11 +189,11 @@ static int cmp_exact(char *source, int index)
 
 static void tiger_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -226,7 +233,7 @@ struct fmt_main fmt_tiger = {
 		tiger_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid,

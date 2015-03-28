@@ -46,17 +46,17 @@ static int omp_t = 1;
 #define FORMAT_NAME_SHA1	"AIX LPA {ssha1}"
 #define FORMAT_NAME_SHA256	"AIX LPA {ssha256}"
 #define FORMAT_NAME_SHA512	"AIX LPA {ssha512}"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME_SHA256	"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME_SHA256	"PBKDF2-SHA256 32/" ARCH_BITS_STR
 #endif
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define ALGORITHM_NAME_SHA512	"PBKDF2-SHA512 " SHA512_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME_SHA512	"PBKDF2-SHA512 32/" ARCH_BITS_STR
@@ -71,7 +71,7 @@ static int omp_t = 1;
 #define MAX_SALT_SIZE		24
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 // since we have a 'common' crypt_all() function, find 'max' of sha1/sha256/sha512, and that is the block size
 // crypt_all handles looping 'within' each OMP thread (or within the single thread if non OMP).
 #if SSE_GROUP_SZ_SHA1 > SSE_GROUP_SZ_SHA256 && SSE_GROUP_SZ_SHA1 > SSE_GROUP_SZ_SHA512
@@ -215,9 +215,9 @@ static void *get_salt(char *ciphertext)
 	else
 		ctcopy += 9;
 
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.iterations = 1 << atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	strncpy((char*)cs.salt, p, 17);
 
 	MEM_FREE(keeptr);
@@ -295,7 +295,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -400,11 +400,11 @@ static int cmp_exact(char *source, int index)
 
 static void aixssha_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

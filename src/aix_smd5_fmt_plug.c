@@ -73,9 +73,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -95,11 +102,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	else
 		ctcopy += 3;
 
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* salt */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) != 8)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* hash */
 		goto err;
 	MEM_FREE(keeptr);
 	return 1;
@@ -125,9 +132,9 @@ static void *get_salt(char *ciphertext)
 		cs.is_standard = 1;
 	}
 
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	strncpy((char*)cs.salt, p, 9);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 
 	MEM_FREE(keeptr);
 	return (void *)&cs;
@@ -300,7 +307,7 @@ static void crypt_md5(char *pw, char *salt, int is_standard, char *passwd)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -336,16 +343,21 @@ static int cmp_exact(char *source, int index)
 
 static void smd5_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
 {
 	return saved_key[index];
+}
+
+static int salt_hash(void *salt)
+{
+	return *(unsigned int*)salt & (SALT_HASH_SIZE - 1);
 }
 
 struct fmt_main fmt_smd5 = {
@@ -370,7 +382,7 @@ struct fmt_main fmt_smd5 = {
 		smd5_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
@@ -390,7 +402,7 @@ struct fmt_main fmt_smd5 = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		NULL,
 		set_salt,
 		smd5_set_key,

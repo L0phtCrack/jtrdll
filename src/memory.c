@@ -13,6 +13,9 @@
 #include <string.h>
 #include <errno.h>
 #include <ctype.h> /* for isprint() */
+#if HAVE_MEMALIGN && HAVE_MALLOC_H
+#include <malloc.h>
+#endif
 
 #include "arch.h"
 #include "misc.h"
@@ -20,6 +23,20 @@
 #include "common.h"
 #include "johnswap.h"
 #include "memdbg.h"
+
+#if defined (_MSC_VER) && !defined (MEMDBG_ON)
+#define malloc(a) _aligned_malloc(a,16)
+#define realloc(a,b) _aligned_realloc(a,b,16)
+#define free(a) _aligned_free(a)
+char *strdup_MSVC(const char *str)
+{
+	char * s;
+	s = (char*)mem_alloc_func(strlen(str)+1);
+	if (s != NULL)
+		strcpy(s, str);
+	return s;
+}
+#endif
 
 unsigned int mem_saving_level = 0;
 
@@ -79,16 +96,18 @@ void *mem_alloc_func(size_t size
 	return res;
 }
 
-void *mem_calloc_func(size_t size
+void *mem_calloc_func(size_t count, size_t size
 #if defined (MEMDBG_ON)
 	, char *file, int line
 #endif
 	)
 {
+	char *res;
+	size *= count;
 #if defined (MEMDBG_ON)
-	char *res = (char*) MEMDBG_alloc(size, file, line);
+	res = (char*) MEMDBG_alloc(size, file, line);
 #else
-	char *res = (char*) mem_alloc(size);
+	res = (char*) mem_alloc(size);
 #endif
 	memset(res, 0, size);
 	return res;
@@ -196,6 +215,53 @@ void *mem_alloc_copy_func(void *src, size_t size, size_t align
 #else
 	return memcpy(mem_alloc_tiny(size, align), src, size);
 #endif
+}
+
+void *mem_alloc_align_func(size_t size, size_t align
+#if defined (MEMDBG_ON)
+	, char *file, int line
+#endif
+	)
+{
+	void *ptr = NULL;
+#if defined (MEMDBG_ON)
+	ptr = (char*) MEMDBG_alloc_align(size, align, file, line);
+#elif HAVE_ALIGNED_ALLOC
+	if (!(ptr = aligned_alloc(align, size)))
+		pexit("aligned_alloc (%zu bytes)", size);
+#elif HAVE_POSIX_MEMALIGN
+	if (posix_memalign(&ptr, align, size))
+		pexit("posix_memalign (%zu bytes)", size);
+#elif HAVE_MEMALIGN
+	/* Let's just pray this implementation can actually free it */
+	if (!(ptr = memalign(&ptr, align, size)))
+		pexit("memalign (%zu bytes)", size);
+#elif HAVE___MINGW_ALIGNED_MALLOC
+	if (!(ptr = __mingw_aligned_malloc(size, align)))
+		pexit("__mingw_aligned_malloc (%zu bytes)", size);
+#elif HAVE__ALIGNED_MALLOC
+	if (!(ptr = _aligned_malloc(size, align)))
+		pexit("_aligned_malloc (%zu bytes)", size);
+#else
+#error No suitable alligned alloc found, please report to john-dev mailing list (state your OS details).
+#endif
+	return ptr;
+}
+
+void *mem_calloc_align_func(size_t count, size_t size, size_t align
+#if defined (MEMDBG_ON)
+	, char *file, int line
+#endif
+	)
+{
+#if defined (MEMDBG_ON)
+	void *ptr = mem_alloc_align_func(size * count, align, file, line);
+#else
+	void *ptr = mem_alloc_align_func(size * count, align);
+#endif
+
+	memset(ptr, 0, size * count);
+	return ptr;
 }
 
 char *str_alloc_copy_func(char *src
@@ -315,26 +381,29 @@ void alter_endianity(void *_x, unsigned int size) {
 #endif
 }
 
-#if defined(MMX_COEF) || defined(NT_X86_64) || defined (MD5_SSE_PARA) || defined (MD4_SSE_PARA) || defined (SHA1_SSE_PARA)
-#ifndef MMX_COEF
-#define MMX_COEF	4
+#if defined(SIMD_COEF_32) || defined(NT_X86_64) || defined (MD5_SSE_PARA) || defined (MD4_SSE_PARA) || defined (SHA1_SSE_PARA)
+#ifndef SIMD_COEF_32
+#define SIMD_COEF_32	4
 #endif
-#ifndef MMX_COEF_SHA512
-#define MMX_COEF_SHA512 2
+#ifndef SIMD_COEF_64
+#define SIMD_COEF_64 2
 #endif
-#ifndef MMX_COEF_SHA256
-#define MMX_COEF_SHA256 4
+#ifndef SIMD_COEF_32
+#define SIMD_COEF_32 4
 #endif
 
-// These work for standard MMX_COEF buffers, AND for SSEi MMX_PARA multiple MMX_COEF blocks, where index will be mod(X * MMX_COEF) and not simply mod(MMX_COEF)
-#define SHAGETPOS(i, index)		( (index&(MMX_COEF-1))*4 + ((i)&(0xffffffff-3) )*MMX_COEF + (3-((i)&3)) + (index>>(MMX_COEF>>1))*SHA_BUF_SIZ*4*MMX_COEF ) //for endianity conversion
-#define SHAGETOUTPOS(i, index)	( (index&(MMX_COEF-1))*4 + ((i)&(0xffffffff-3) )*MMX_COEF + (3-((i)&3)) + (index>>(MMX_COEF>>1))*20*MMX_COEF ) //for endianity conversion
+// These work for standard SIMD_COEF_32 buffers, AND for SSEi MMX_PARA multiple SIMD_COEF_32 blocks, where index will be mod(X * SIMD_COEF_32) and not simply mod(SIMD_COEF_32)
+#define SHAGETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianity conversion
+#define SHAGETOUTPOS(i, index)	( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*20*SIMD_COEF_32 ) //for endianity conversion
 // for MD4/MD5 or any 64 byte LE SSE interleaved hash
-#define GETPOS(i, index)		( (index&(MMX_COEF-1))*4 + ((i)&(0xffffffff-3) )*MMX_COEF +    ((i)&3)  + (index>>(MMX_COEF>>1))*64*MMX_COEF  )
-#define GETOUTPOS(i, index)		( (index&(MMX_COEF-1))*4 + ((i)&(0xffffffff-3) )*MMX_COEF +    ((i)&3)  + (index>>(MMX_COEF>>1))*16*MMX_COEF  )
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 +    ((i)&3)  + (index>>SIMD_COEF32_BITS)*64*SIMD_COEF_32  )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 +    ((i)&3)  + (index>>SIMD_COEF32_BITS)*16*SIMD_COEF_32  )
 // for SHA384/SHA512 128 byte BE interleaved hash (arrays of 16 8 byte ints)
-#define SHA64GETPOS(i,index)	( (index&(MMX_COEF_SHA512-1))*8 + ((i)&(0xffffffff-7) )*MMX_COEF_SHA512 + (7-((i)&7)) + (index>>(MMX_COEF_SHA512>>1))*SHA_BUF_SIZ*8*MMX_COEF_SHA512 )
-#define SHA64GETOUTPOS(i,index)	( (index&(MMX_COEF_SHA512-1))*8 + ((i)&(0xffffffff-7) )*MMX_COEF_SHA512 + (7-((i)&7)) + (index>>(MMX_COEF_SHA512>>1))*64*MMX_COEF_SHA512 )
+#define SHA64GETPOS(i,index)	( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7) )*SIMD_COEF_64 + (7-((i)&7)) + (index>>(SIMD_COEF_64>>1))*SHA_BUF_SIZ*8*SIMD_COEF_64 )
+#define SHA64GETOUTPOS(i,index)	( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7) )*SIMD_COEF_64 + (7-((i)&7)) + (index>>(SIMD_COEF_64>>1))*64*SIMD_COEF_64 )
+
+// for SHA384/SHA512 128 byte FLAT interleaved hash (arrays of 16 8 byte ints), but we do not BE interleave.
+#define SHA64GETPOSne(i,index)      ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7) )*SIMD_COEF_64 + ((i)&7) + (index>>(SIMD_COEF_64>>1))*SHA_BUF_SIZ*8*SIMD_COEF_64 )
 
 void dump_stuff_mmx_noeol(void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
@@ -380,7 +449,7 @@ void dump_out_mmx_msg_sepline(void *msg, void *buf, unsigned int size, unsigned 
 }
 
 #if defined (MD5_SSE_PARA)
-#define GETPOSMPARA(i, index)	( (index&(MMX_COEF-1))*4 + (((i)&(0xffffffff-3))%64)*MMX_COEF + (i/64)*MMX_COEF*MD5_SSE_PARA*64 +    ((i)&3)  + (index>>(MMX_COEF>>1))*64*MMX_COEF  )
+#define GETPOSMPARA(i, index)	( (index&(SIMD_COEF_32-1))*4 + (((i)&(0xffffffff-3))%64)*SIMD_COEF_32 + (i/64)*SIMD_COEF_32*MD5_SSE_PARA*64 +    ((i)&3)  + (index>>SIMD_COEF32_BITS)*64*SIMD_COEF_32  )
 // multiple para blocks
 void dump_stuff_mpara_mmx_noeol(void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
@@ -454,6 +523,21 @@ void dump_stuff_shammx64_msg(void *msg, void *buf, unsigned int size, unsigned i
 	printf("%s : ", (char*)msg);
 	dump_stuff_shammx64(buf, size, index);
 }
+void dump_stuff_mmx64(void *buf, unsigned int size, unsigned int index) {
+	unsigned int i;
+	for(i=0;i<size;i++)
+	{
+		printf("%.2x", ((unsigned char*)buf)[SHA64GETPOSne(i, index)]);
+		if( (i%4)==3 )
+			printf(" ");
+	}
+	printf("\n");
+}
+void dump_stuff_mmx64_msg(void *msg, void *buf, unsigned int size, unsigned int index) {
+	printf("%s : ", (char*)msg);
+	dump_stuff_mmx64(buf, size, index);
+}
+
 void dump_out_shammx64(void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
 	for(i=0;i<size;i++)
@@ -531,7 +615,7 @@ void alter_endianity_w64(void *_x, unsigned int count) {
 		c = cpX[3];
 		cpX[3] = cpX[4];
 		cpX[4] = c;
-		cpX += 4;
+		cpX += 8;
 	}
 #endif
 }

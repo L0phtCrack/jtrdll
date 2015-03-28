@@ -22,12 +22,19 @@ john_register_one(&fmt_pwsafe);
 #include <errno.h>
 
 #include "arch.h"
+
+//#undef SIMD_COEF_32
+//#undef SIMD_COEF_32
+
 #include "sha2.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "johnswap.h"
+#include "sse-intrinsics.h"
+
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
@@ -37,7 +44,7 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"pwsafe"
 #define FORMAT_NAME		"Password Safe"
-#define ALGORITHM_NAME		"SHA256 32/" ARCH_BITS_STR
+#define ALGORITHM_NAME		SHA256_ALGORITHM_NAME
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define PLAINTEXT_LENGTH	125
@@ -45,8 +52,15 @@ static int omp_t = 1;
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
 #define SALT_ALIGN		sizeof(int)
+
 #define MIN_KEYS_PER_CRYPT	1
+#ifdef SIMD_COEF_32
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA256_BUF_SIZ*SIMD_COEF_32*4 )
+#define MIN_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT	(SIMD_COEF_32*SIMD_PARA_SHA256)
+#else
 #define MAX_KEYS_PER_CRYPT	1
+#endif
 
 static struct fmt_tests pwsafe_tests[] = {
 	{"$pwsafe$*3*fefc1172093344c9d5577b25f5b4b6e5d2942c94f9fc24c21733e28ae6527521*2048*88cbaf7d8668c1a98263f5dce7cb39c3304c49a3e0d76a7ea475dc02ab2f97a7", "12345678"},
@@ -92,21 +106,21 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 9;		/* skip over "$pwsafe$*" */
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* version */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* version */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) < 64)
 		goto err;
 	if (strspn(p, "0123456789abcdef") != 64)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != 64)
 		goto err;
@@ -127,13 +141,13 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 	ctcopy += 9;	/* skip over "$pwsafe$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 32; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iterations = (unsigned int)atoi(p);
 	MEM_FREE(keeptr);
 	return (void *)&cs;
@@ -171,6 +185,8 @@ static void set_salt(void *salt)
 {
 	cur_salt = (struct custom_salt *)salt;
 }
+
+#ifndef SIMD_COEF_32
 
 #define rotl(x,y) ( x<<y | x>>(32-y) )
 #define rotr(x,y) ( x>>y | x<<(32-y) )
@@ -494,29 +510,76 @@ static void pwsafe_sha256_iterate(unsigned int * state, unsigned int iterations)
 	state[6] = bytereverse(word06);
 	state[7] = bytereverse(word07);
 }
+#endif
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
+	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT)
 	{
 		SHA256_CTX ctx;
+#ifdef SIMD_COEF_32
+		int i;
+		unsigned char _IBuf[64*MAX_KEYS_PER_CRYPT+16], *keys, tmpBuf[32];
+		uint32_t *keys32, j;
 
+		keys = (unsigned char*)mem_align(_IBuf, 16);
+		keys32 = (uint32_t*)keys;
+		memset(keys, 0, 64*MAX_KEYS_PER_CRYPT);
+
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			SHA256_Init(&ctx);
+			SHA256_Update(&ctx, saved_key[index+i], strlen(saved_key[index+i]));
+			SHA256_Update(&ctx, cur_salt->salt, 32);
+			SHA256_Final(tmpBuf, &ctx);
+			for (j = 0; j < 32; ++j)
+				keys[GETPOS(j, i)] = tmpBuf[j];
+			keys[GETPOS(j, i)] = 0x80;
+			// 32 bytes of crypt data (0x100 bits).
+			keys[GETPOS(62, i)] = 0x01;
+		}
+		for (i = 0; i <= cur_salt->iterations; i++) {
+			SSESHA256body(keys, keys32, NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT);
+		}
+		// now marshal into crypt_out;
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			uint32_t *Optr32 = (uint32_t*)(crypt_out[index+i]);
+			uint32_t *Iptr32 = &keys32[(i/SIMD_COEF_32)*SIMD_COEF_32*16 + (i%SIMD_COEF_32)];
+			for (j = 0; j < 8; ++j)
+				Optr32[j] = JOHNSWAP(Iptr32[j*SIMD_COEF_32]);
+		}
+#else
 		SHA256_Init(&ctx);
 		SHA256_Update(&ctx, saved_key[index], strlen(saved_key[index]));
 		SHA256_Update(&ctx, cur_salt->salt, 32);
 		SHA256_Final((unsigned char*)crypt_out[index], &ctx);
+#if 1
+		// This complex crap only boosted speed on my quad-HT from 5016 to 5285.
+		// A ton of complex code for VERY little gain. The SIMD change gave us
+		// a 4x improvement with very little change.  This pwsafe_sha256_iterate
+		// does get 5% gain, but 400% is so much better, lol.  I put the other
+		// code in to be able to dump data out easier, getting dump_stuff()
+		// data in flat, to be able to help get the SIMD code working.
 #ifdef COMMON_DIGEST_FOR_OPENSSL
 		pwsafe_sha256_iterate(ctx.hash, cur_salt->iterations);
 		memcpy(crypt_out[index], ctx.hash, 32);
 #else
 		pwsafe_sha256_iterate(ctx.h, cur_salt->iterations);
 		memcpy(crypt_out[index], ctx.h, 32);
+#endif
+#else
+		{ int i;
+		for (i = 0; i <= cur_salt->iterations; ++i) {
+			SHA256_Init(&ctx);
+			SHA256_Update(&ctx, (unsigned char*)crypt_out[index], 32);
+			SHA256_Final((unsigned char*)crypt_out[index], &ctx);
+		} }
+#endif
 #endif
 	}
 	return count;
@@ -525,9 +588,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 static int cmp_all(void *binary, int count)
 {
 	int index = 0;
-#ifdef _OPENMP
 	for (; index < count; index++)
-#endif
 		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
 			return 1;
 	return 0;
@@ -545,11 +606,11 @@ static int cmp_exact(char *source, int index)
 
 static void pwsafe_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

@@ -13,7 +13,10 @@
 #ifndef __FreeBSD__
 /* On FreeBSD, defining this precludes the declaration of u_int, which
  * FreeBSD's own <sys/file.h> needs. */
+#if _XOPEN_SOURCE < 500
+#undef _XOPEN_SOURCE
 #define _XOPEN_SOURCE 500 /* for fdopen(3), fileno(3), fsync(2), ftruncate(2) */
+#endif
 #endif
 
 #define NEED_OS_FLOCK
@@ -30,7 +33,9 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
+#if (!AC_BUILT || HAVE_FCNTL_H)
 #include <fcntl.h>
+#endif
 #if !AC_BUILT || HAVE_SYS_FILE_H
 #include <sys/file.h>
 #endif
@@ -95,10 +100,14 @@ static void rec_name_complete(void)
 	rec_name_completed = 1;
 }
 
-#if OS_FLOCK
-static void rec_lock(int lock)
+#if OS_FLOCK || FCNTL_LOCKS
+static void rec_lock(int shared)
 {
 	int lockmode;
+#if FCNTL_LOCKS
+	int blockmode;
+	struct flock lock;
+#endif
 
 	/*
 	 * In options.c, MPI code path call rec_restore_args(mpi_p)
@@ -106,17 +115,44 @@ static void rec_lock(int lock)
 	 * root node must block, in case some other node has not yet
 	 * closed the original file
 	 */
-	if (lock == 1) {
+	if (shared == 1) {
+#if FCNTL_LOCKS
+		lockmode = F_WRLCK;
+		blockmode = F_SETLKW;
+#else
 		lockmode = LOCK_EX;
+#endif
 #ifdef HAVE_MPI
 		if (!rec_restored || mpi_id || mpi_p == 1)
 #endif
+#if FCNTL_LOCKS
+			blockmode = F_SETLK;
+#else
 			lockmode |= LOCK_NB;
+#endif
 	} else
-		lockmode = LOCK_SH | LOCK_NB;
+#if FCNTL_LOCKS
+	{
+		lockmode = F_RDLCK;
+		blockmode = F_SETLK;
+	}
 
+#else
+		lockmode = LOCK_SH | LOCK_NB;
+#endif
+
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locking session file...\n", __FUNCTION__, options.node_min);
+#endif
+#if FCNTL_LOCKS
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = lockmode;
+	if (fcntl(rec_fd, blockmode, &lock)) {
+		if (errno == EAGAIN || errno == EACCES) {
+#else
 	if (flock(rec_fd, lockmode)) {
 		if (errno == EWOULDBLOCK) {
+#endif
 #ifdef HAVE_MPI
 			fprintf(stderr, "Node %d@%s: Crash recovery file is"
 			        " locked: %s\n", mpi_id + 1, mpi_name,
@@ -127,13 +163,33 @@ static void rec_lock(int lock)
 #endif
 			error();
 		} else
-			pexit("flock(%d)", lockmode);
+#if FCNTL_LOCKS
+			pexit("fcntl()");
+#else
+			pexit("flock()");
+#endif
 	}
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locked session file (%s)\n", __FUNCTION__, options.node_min, shared == 1 ? "exclusive" : "shared");
+#endif
 }
+
 static void rec_unlock(void)
 {
+#if FCNTL_LOCKS
+	struct flock lock = { 0 };
+	lock.l_type = F_UNLCK;
+#endif
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Unlocking session file\n", __FUNCTION__, options.node_min);
+#endif
+#if FCNTL_LOCKS
+	if (fcntl(rec_fd, F_SETLK, &lock))
+		pexit("fcntl(F_UNLCK)");
+#else
 	if (flock(rec_fd, LOCK_UN))
-		perror("flock(LOCK_UN)");
+		pexit("flock(LOCK_UN)");
+#endif
 }
 #else
 #define rec_lock(lock) \
@@ -350,7 +406,7 @@ void rec_restore_args(int lock)
 #ifndef HAVE_MPI
 		if (options.fork && !john_main_process && errno == ENOENT) {
 #else
-		if (!john_main_process && errno == ENOENT) {
+		if (options.node_min > 1 && errno == ENOENT) {
 #endif
 			fprintf(stderr, "%u Session completed\n",
 			    options.node_min);
@@ -363,6 +419,14 @@ void rec_restore_args(int lock)
 #endif
 			exit(0);
 		}
+#ifdef HAVE_MPI
+		if (mpi_p > 1) {
+			fprintf(stderr, "%u@%s: fopen: %s: %s\n",
+				mpi_id + 1, mpi_name,
+				path_expand(rec_name), strerror(errno));
+			error();
+		}
+#endif
 		pexit("fopen: %s", path_expand(rec_name));
 	}
 	rec_fd = fileno(rec_file);

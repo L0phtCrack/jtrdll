@@ -618,7 +618,8 @@ static void john_wait(void)
 	log_flush();
 
 	/* Tell our friends there is nothing more to crack! */
-	if (!database.password_count && !options.reload_at_crack)
+	if (!database.password_count && !options.reload_at_crack &&
+	    cfg_get_bool(SECTION_OPTIONS, NULL, "ReloadAtDone", 0))
 		raise(SIGUSR2);
 
 /*
@@ -755,6 +756,7 @@ static void john_load_conf(void)
 	}
 
 	options.secure = cfg_get_bool(SECTION_OPTIONS, NULL, "SecureMode", 0);
+	options.show_uid_on_crack = cfg_get_bool(SECTION_OPTIONS, NULL, "ShowUIDinCracks", 0);
 	options.reload_at_crack =
 		cfg_get_bool(SECTION_OPTIONS, NULL, "ReloadAtCrack", 1);
 	options.reload_at_save =
@@ -838,16 +840,6 @@ static void john_load_conf_db(void)
 		pers_opts.store_utf8 = cfg_get_bool(SECTION_OPTIONS,
 		                                  NULL, "CPstoreUTF8", 0);
 
-	if (!options.secure) {
-		if (pers_opts.report_utf8 && options.loader.log_passwords)
-			log_event("- Passwords in this logfile are "
-			          "UTF-8 encoded");
-
-		if (pers_opts.store_utf8)
-			log_event("- Passwords will be stored UTF-8 "
-			          "encoded in .pot file");
-	}
-
 	if (pers_opts.target_enc != pers_opts.input_enc &&
 	    pers_opts.input_enc != UTF_8) {
 		if (john_main_process)
@@ -856,20 +848,16 @@ static void john_load_conf_db(void)
 		exit(0);
 	}
 
-	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked)
-	if (options.flags & (FLG_PASSWD | FLG_STDIN_CHK))
-	if (pers_opts.default_enc && john_main_process &&
-	    pers_opts.input_enc != ASCII)
-		fprintf(stderr, "Using default input encoding: %s\n",
-		        cp_id2name(pers_opts.input_enc));
+	if (john_main_process)
+	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked) {
+		if (options.flags & (FLG_PASSWD | FLG_STDIN_CHK))
+		if (pers_opts.default_enc && pers_opts.input_enc != ASCII)
+			fprintf(stderr, "Using default input encoding: %s\n",
+			        cp_id2name(pers_opts.input_enc));
 
-	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked)
-	if (pers_opts.target_enc != pers_opts.input_enc &&
-	    (!database.format ||
-	     !(database.format->params.flags & FMT_UNICODE))) {
-		log_event("- Target encoding: %s",
-		          cp_id2name(pers_opts.target_enc));
-		if (john_main_process) {
+		if (pers_opts.target_enc != pers_opts.input_enc &&
+		    (!database.format ||
+		     !(database.format->params.flags & FMT_UNICODE))) {
 			if (pers_opts.default_target_enc)
 				fprintf(stderr, "Using default target "
 				        "encoding: %s\n",
@@ -878,13 +866,9 @@ static void john_load_conf_db(void)
 				fprintf(stderr, "Target encoding: %s\n",
 				        cp_id2name(pers_opts.target_enc));
 		}
-	}
 
-	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked)
-	if (pers_opts.input_enc != pers_opts.internal_enc) {
-		log_event("- Rules/masks using %s",
-		          cp_id2name(pers_opts.internal_enc));
-		if (john_main_process &&
+		if (pers_opts.input_enc != pers_opts.internal_enc)
+		if (database.format &&
 		    (database.format->params.flags & FMT_UNICODE))
 			fprintf(stderr, "Rules/masks using %s\n",
 			        cp_id2name(pers_opts.internal_enc));
@@ -1148,10 +1132,10 @@ static void john_load(void)
 			log_flush();
 			john_fork();
 		}
+#endif
 #if HAVE_MPI
 		if (mpi_p > 1)
 			john_set_mpi();
-#endif
 #endif
 	}
 }
@@ -1287,9 +1271,34 @@ static void john_init(char *name, int argc, char **argv)
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
 	gpu_log_temp();
 #endif
+
 	if (pers_opts.target_enc != ASCII)
 		log_event("- %s input encoding enabled",
 		          cp_id2name(pers_opts.input_enc));
+
+	if (!options.secure) {
+		if (pers_opts.report_utf8 && options.loader.log_passwords)
+			log_event("- Passwords in this logfile are "
+			          "UTF-8 encoded");
+
+		if (pers_opts.store_utf8)
+			log_event("- Passwords will be stored UTF-8 "
+			          "encoded in .pot file");
+	}
+
+	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked)
+	if (pers_opts.target_enc != pers_opts.input_enc &&
+	    (!database.format ||
+	     !(database.format->params.flags & FMT_UNICODE))) {
+		log_event("- Target encoding: %s",
+		          cp_id2name(pers_opts.target_enc));
+	}
+
+	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked)
+	if (pers_opts.input_enc != pers_opts.internal_enc) {
+		log_event("- Rules/masks using %s",
+		          cp_id2name(pers_opts.internal_enc));
+	}
 }
 
 int jtrdll_stage = 0;

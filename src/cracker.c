@@ -47,6 +47,7 @@
 #include "recovery.h"
 #include "external.h"
 #include "options.h"
+#include "mask_ext.h"
 #include "mask.h"
 #include "unicode.h"
 #include "john.h"
@@ -63,6 +64,10 @@
 
 #ifdef index
 #undef index
+#endif
+
+#if defined(LOCK_DEBUG) && !defined(POTSYNC_DEBUG)
+#define POTSYNC_DEBUG 1
 #endif
 
 #ifdef POTSYNC_DEBUG
@@ -290,7 +295,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 	char utf8login[PLAINTEXT_BUFFER_SIZE + 1];
 	char tmp8[PLAINTEXT_BUFFER_SIZE + 1];
 	int dupe;
-	char *key, *utf8key, *repkey, *replogin;
+	char *key, *utf8key, *repkey, *replogin, *repuid;
 
 	if (index >= 0 && index < crk_params.max_keys_per_crypt) {
 		dupe = !memcmp(&crk_timestamps[index],
@@ -301,6 +306,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 
 	repkey = key = index < 0 ? "" : crk_methods.get_key(index);
 	replogin = pw->login;
+	repuid = pw->uid;
 
 	if (index >= 0 && (pers_opts.store_utf8 || pers_opts.report_utf8)) {
 		if (pers_opts.target_enc == UTF_8)
@@ -340,6 +346,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 	/* If we got this crack from a pot sync, don't report or count */
 	if (index >= 0) {
 		log_guess(crk_db->options->flags & DB_LOGIN ? replogin : "?",
+		          crk_db->options->flags & DB_LOGIN ? repuid : "",
 		          dupe ?
 		          NULL : crk_methods.source(pw->source, pw->binary),
 		          repkey, key, crk_db->options->field_sep_char);
@@ -470,9 +477,11 @@ static int crk_remove_pot_entry(char *ciphertext)
 int crk_reload_pot(void)
 {
 	char line[LINE_BUFFER_SIZE], *fields[10];
-	int pot_fd;
 	FILE *pot_file;
 	int total = crk_db->password_count, others;
+#if FCNTL_LOCKS
+	struct flock lock;
+#endif
 #ifdef POTSYNC_DEBUG
 	struct tms buffer;
 	clock_t start = times(&buffer), end;
@@ -484,24 +493,30 @@ int crk_reload_pot(void)
 	if (crk_params.flags & FMT_NOT_EXACT)
 		return 0;
 
-	if ((pot_fd =
-	     open(path_expand(pers_opts.activepot), O_RDONLY
-#if ARCH_BITS == 32
-		 | O_LARGEFILE
+	if (!(pot_file = fopen(path_expand(pers_opts.activepot), "rb")))
+		pexit("fopen: %s", path_expand(pers_opts.activepot));
+
+#if OS_FLOCK || FCNTL_LOCKS
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locking potfile...\n", __FUNCTION__, options.node_min);
 #endif
-		 )) == -1) {
-		if (errno != ENOENT)
-			perror("open potfile");
-		return 0;
+#if FCNTL_LOCKS
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_RDLCK;
+	while (fcntl(fileno(pot_file), F_SETLKW, &lock)) {
+		if (errno != EINTR)
+			pexit("fcntl(F_RDLCK)");
 	}
-
-#if OS_FLOCK
-	if (flock(pot_fd, LOCK_SH) == -1)
-		pexit("flock: %s", pers_opts.activepot);
+#else
+	while (flock(fileno(pot_file), LOCK_SH)) {
+		if (errno != EINTR)
+			pexit("flock(LOCK_SH)");
+	}
 #endif
-	if (!(pot_file = fdopen(pot_fd, "rb")))
-		pexit("fdopen: %s", pers_opts.activepot);
-
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locked potfile (shared)\n", __FUNCTION__, options.node_min);
+#endif
+#endif
 	if (crk_pot_pos && (jtr_fseek64(pot_file, crk_pot_pos, SEEK_SET) == -1)) {
 		perror("fseek");
 		rewind(pot_file);
@@ -533,9 +548,18 @@ int crk_reload_pot(void)
 	ldr_in_pot = 0;
 
 	crk_pot_pos = jtr_ftell64(pot_file);
-#if OS_FLOCK
-	if (flock(pot_fd, LOCK_UN))
+#if OS_FLOCK || FCNTL_LOCKS
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Unlocking potfile\n", __FUNCTION__, options.node_min);
+#endif
+#if FCNTL_LOCKS
+	lock.l_type = F_UNLCK;
+	if (fcntl(fileno(pot_file), F_SETLK, &lock))
+		perror("fcntl(F_UNLCK)");
+#else
+	if (flock(fileno(pot_file), LOCK_UN))
 		perror("flock(LOCK_UN)");
+#endif
 #endif
 	if (fclose(pot_file))
 		pexit("fclose");
@@ -559,7 +583,7 @@ int crk_reload_pot(void)
 #if defined(_SC_CLK_TCK) && !defined(CLK_TCK)
 #define CLK_TCK	sysconf(_SC_CLK_TCK)
 #endif
-	fprintf(stderr, "%d: potsync removed %d hashes in %lu ms (%lu ms finding salts); %s\n", options.node_min, others, 1000UL*(end - start)/CLK_TCK, 1000UL * salt_time / CLK_TCK, crk_loaded_counts());
+	fprintf(stderr, "%s(%u): potsync removed %d hashes in %lu ms (%lu ms finding salts); %s\n", __FUNCTION__, options.node_min, others, 1000UL*(end - start)/CLK_TCK, 1000UL * salt_time / CLK_TCK, crk_loaded_counts());
 #endif
 
 	return (!crk_db->salts);
@@ -750,8 +774,16 @@ static int crk_salt_loop(void)
 			break;
 	} while ((salt = salt->next));
 
-	if (done >= 0)
-		add32to64(&status.cands, crk_key_index);
+	if (done >= 0) {
+#if 1 /* Assumes we'll never overrun 32-bit in one crypt */
+		add32to64(&status.cands, crk_key_index *
+		          mask_int_cand.num_int_cand);
+#else /* Safe for 64-bit */
+		int64 totcand;
+		mul32by32(&totcand, crk_key_index, mask_int_cand.num_int_cand);
+		add64to64(&status.cands, &totcand);
+#endif
+	}
 
 	if (salt)
 		return 1;
@@ -762,8 +794,6 @@ static int crk_salt_loop(void)
 		mask_fix_state();
 	else
 	crk_fix_state();
-
-	crk_methods.clear_keys();
 
 	if (ext_abort)
 		event_abort = 1;
@@ -780,6 +810,9 @@ static int crk_salt_loop(void)
 int crk_process_key(char *key)
 {
 	if (crk_db->loaded) {
+		if (crk_key_index == 0)
+			crk_methods.clear_keys();
+
 		crk_methods.set_key(key, crk_key_index++);
 
 		if (crk_key_index >= crk_params.max_keys_per_crypt)

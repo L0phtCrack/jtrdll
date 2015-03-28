@@ -123,55 +123,55 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (*ctcopy != '*')
 		goto error;
 	ctcopy += 1;
-	if (!(ptr = strtok(ctcopy, "*")))
+	if (!(ptr = strtokm(ctcopy, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) > MAXLEN)
 		goto error;
 	if (!ishexlc(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (strlen(ptr) != 32 && strlen(ptr) != 40) // md5 or sha1 length.
 		goto error;
@@ -227,7 +227,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -261,11 +261,11 @@ static int cmp_exact(char *source, int index)
 
 static void ike_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

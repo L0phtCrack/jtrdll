@@ -110,6 +110,7 @@ static crack_t *host_crack;			      /** cracked or no **/
 static cl_mem mem_in, mem_out, mem_salt, mem_state;
 static cl_kernel split_kernel;
 static cl_int cl_error;
+static struct fmt_main *self;
 
 #define STEP			0
 #define SEED			256
@@ -146,9 +147,9 @@ static size_t get_default_workgroup()
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
 {
-	host_pass = mem_calloc(kpc * sizeof(pass_t));
-	host_crack = mem_calloc(kpc * sizeof(crack_t));
-	host_salt = mem_calloc(sizeof(salt_t));
+	host_pass = mem_calloc(kpc, sizeof(pass_t));
+	host_crack = mem_calloc(kpc, sizeof(crack_t));
+	host_salt = mem_calloc(1, sizeof(salt_t));
 #define CL_RO CL_MEM_READ_ONLY
 #define CL_WO CL_MEM_WRITE_ONLY
 #define CL_RW CL_MEM_READ_WRITE
@@ -180,9 +181,11 @@ static void create_clobj(size_t kpc, struct fmt_main *self)
 static int crypt_all(int *pcount, struct db_salt *_salt);
 static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[128];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%d -DMAX_SALT_SIZE=%d",
@@ -197,17 +200,23 @@ static void init(struct fmt_main *self)
 	split_kernel =
 	    clCreateKernel(program[gpu_id], SPLIT_KERNEL_NAME, &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating split kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
-		warn, 2, self, create_clobj, release_clobj,
-		sizeof(state_t), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn,
+		                       2, self, create_clobj, release_clobj,
+		                       sizeof(state_t), 0);
 
-	//Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, ITERATIONS, 0,
-	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
-	self->methods.crypt_all = crypt_all;
+		//Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, ITERATIONS, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              1000000000 : 10000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static void release_clobj(void)
@@ -242,20 +251,20 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	if (!(ptr = strtok(ctcopy, ".")))
+	if (!(ptr = strtokm(ctcopy, ".")))
 		goto error;
 	if (strlen(ptr) >= 10)
 		goto error;
 	if (!isdecu(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, ".")))
+	if (!(ptr = strtokm(NULL, ".")))
 		goto error;
 	len = strlen(ptr); // salt length
 	if (len > 2 * MAX_SALT_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, ".")))
+	if (!(ptr = strtokm(NULL, ".")))
 		goto error;
 	len = strlen(ptr); // binary length
 	if (len < BINARY_SIZE || len > MAX_BINARY_SIZE || len & 1)
@@ -311,7 +320,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return out;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static union {
 		uint64_t swp[BINARY_SIZE/8];
@@ -391,7 +400,8 @@ static void opencl_limit_gws(int count)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int i, count = *pcount;
+	int i;
+	const int count = *pcount;
 	int loops = (host_salt->rounds + HASH_LOOPS - 1) / HASH_LOOPS;
 
 	opencl_limit_gws(count);
@@ -490,7 +500,7 @@ static int cmp_one(void *binary, int index)
 static int cmp_exact(char *source, int index)
 {
 	int i;
-	void *bin = binary(source);
+	void *bin = get_binary(source);
 	for (i = 0; i < 8; i++)
 		if (host_crack[index].hash[i] != ((uint64_t *) bin)[i])
 			return 0;
@@ -499,11 +509,11 @@ static int cmp_exact(char *source, int index)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = MIN(strlen(key), PLAINTEXT_LENGTH);
+	int saved_len = MIN(strlen(key), PLAINTEXT_LENGTH);
 	// make sure LAST uint64 that has any key in it gets null, since we simply
 	// ^= the whole uint64 with the ipad/opad mask
 	strncpy((char*)host_pass[index].v, key, PLAINTEXT_LENGTH);
-	host_pass[index].length = saved_key_length;
+	host_pass[index].length = saved_len;
 }
 
 static char *get_key(int index)
@@ -585,11 +595,11 @@ struct fmt_main fmt_opencl_pbkdf2_hmac_sha512 = {
 	            tests}, {
 		    init,
 		    done,
-		    fmt_default_reset,
+		    reset,
 		    prepare,
 		    valid,
 		    split,
-		    binary,
+		    get_binary,
 		    get_salt,
 #if FMT_MAIN_VERSION > 11
 		{

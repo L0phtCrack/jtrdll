@@ -70,9 +70,10 @@ void proc(int p) {
    printf("%-2d : %d    %d    %d    %d    %d    %d    %d    %d\n",
           p,S(cp),S(cp+s+p),S(cp+s+p),S(cp+p),S(cp+p),S(cp+s),S(cp+s),S(cp));
 }
-void main() {
+void main(int argc, char **argv) {
    int i;
-   printf ("Len: cp   pspc cspp ppc  cpp  psc  csp  pc\n");
+   if (argc==2) s=atoi(argv[1]);
+   printf ("Len: cp   pspc cspp ppc  cpp  psc  csp  pc   (saltlen=%d)\n",s);
    for (i = 0; i < 40; ++i)
      proc(i);
 }
@@ -86,10 +87,8 @@ john_register_one(&fmt_cryptsha256);
 
 #include "arch.h"
 
-// Helpful for debugging (at times).
-//#if ARCH_BITS==32 && ARCH_LITTLE_ENDIAN == 1
-//#define FORCE_GENERIC_SHA2
-//#endif
+//#undef SIMD_COEF_32
+//#undef SIMD_COEF_32
 
 #include "sha2.h"
 
@@ -101,16 +100,6 @@ john_register_one(&fmt_cryptsha256);
 #include "formats.h"
 #include "johnswap.h"
 #include "sse-intrinsics.h"
-
-#ifdef MMX_COEF_SHA256
-// there are problems with SSE OMP builds.  Until found, simply do not allow OMP.
-//#undef _OPENMP
-//#undef FMT_OMP
-//#define FMT_OMP 0
-// Well, I tried by turning of OMP, but the run still failed.  So, I will simply
-// leave OMP on, but turn off SSE in an OMP build, until I get this figured out.
-//#undef MMX_COEF_SHA256
-#endif
 
 #ifdef _OPENMP
 #define OMP_SCALE			8
@@ -124,7 +113,7 @@ john_register_one(&fmt_cryptsha256);
 // of crypt block counts for each 'type'.  We may want to scale as much as 128 or so, just
 // to try to have better saturation.  If we only had 8 passwords given to us, and they were
 // one each of these lengths:  3 7 8 12 13 14 15 21, in theory, we could do this
-// with only 2 SSE calls (MMX_COEF==4 for SHA256).  However, length 3 has to to run by itself,
+// with only 2 SSE calls (SIMD_COEF_32==4 for SHA256).  However, length 3 has to to run by itself,
 // length 7 by itself, 8 by itself, and the rest can run together, but there are 5 of them,
 // so it takes to runs. So, instead of 2 runs, we have to do 5 runs.  Not very efficient.
 // however, if we have a lot more passwords to work with, we can re-arrange them, to run
@@ -137,21 +126,19 @@ john_register_one(&fmt_cryptsha256);
 // of SSE data full, until the last in a range.  We probably can simply build all the rearrangments,
 // then let the threads go on ALL data, without caring about the length, since each thread will only
 // be working on passwords in a single MMX buffer that all match, at any given moment.
-//
-#undef MMX_COEF_SHA256
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #ifdef _OPENMP
-#define MMX_COEF_SCALE      (128/MMX_COEF_SHA256)
+#define SIMD_COEF_SCALE     (128/SIMD_COEF_32)
 #else
-#define MMX_COEF_SCALE      (256/MMX_COEF_SHA256)
+#define SIMD_COEF_SCALE     (256/SIMD_COEF_32)
 #endif
 #else
-#define MMX_COEF_SCALE      1
+#define SIMD_COEF_SCALE     1
 #endif
 
 #define FORMAT_LABEL			"sha256crypt"
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "32/" ARCH_BITS_STR " " SHA2_LIB
@@ -165,14 +152,20 @@ john_register_one(&fmt_cryptsha256);
 #define SALT_SIZE				sizeof(struct saltstruct)
 
 #define MIN_KEYS_PER_CRYPT		1
-#ifdef MMX_COEF_SHA256
-#define MAX_KEYS_PER_CRYPT		MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
+#define MAX_KEYS_PER_CRYPT		SIMD_COEF_32
 #else
 #define MAX_KEYS_PER_CRYPT		1
 #endif
 
 #define __CRYPTSHA256_CREATE_PROPER_TESTS_ARRAY__
 #include "cryptsha256_common.h"
+
+#ifndef SIMD_COEF_32
+#define BLKS 1
+#else
+#define BLKS SIMD_COEF_32
+#endif
 
 /* This structure is 'pre-loaded' with the keyspace of all possible crypts which  */
 /* will be performed WITHIN the inner loop.  There are 8 possible buffers that    */
@@ -197,18 +190,12 @@ john_register_one(&fmt_cryptsha256);
 /* To do this, we have to use the JtR sha2.c functions, since there is this func: */
 /* sha256_hash_block(&CTX, data, int perform_endian_swap).  So if we set the last */
 /* param to 0, we can call this function, and it will avoid the byte swapping     */
-#ifndef MMX_COEF_SHA256
-#define BLKS 1
-#else
-#define BLKS MMX_COEF_SHA256
-#endif
-
 typedef struct cryptloopstruct_t {
 	unsigned char buf[8*2*64*BLKS];	// will allocate to hold 42 2 block buffers (42 * 2 * 64)  Reduced to only requiring 8*2*64
 								// now, the cryptstructs are on the stack within the crypt for loop, so we avoid allocation.
 								// and to avoid the single static variable, or a static array.
 	unsigned char *bufs[BLKS][42];	// points to the start of each 2 block buffer.
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	int offs[BLKS][42];
 #endif
 	unsigned char *cptr[BLKS][42];	// points to where we copy the crypt pointer for next round.
@@ -220,14 +207,14 @@ typedef struct cryptloopstruct_t {
 								// things slow down. For now, we are limiting ourselves to 35 byte password, which fits into 2 SHA256 buffers
 } cryptloopstruct;
 
-static int (*saved_key_length);
+static int (*saved_len);
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
 static int max_crypts;
 
 /* these 2 values are used in setup of the cryptloopstruct, AND to do our SHA256_Init() calls, in the inner loop */
 static const unsigned char padding[128] = { 0x80, 0 /* 0,0,0,0.... */ };
-#ifndef JTR_INC_COMMON_CRYPTO_SHA2
+#if !defined(JTR_INC_COMMON_CRYPTO_SHA2) && !defined (SIMD_COEF_64)
 static const ARCH_WORD_32 ctx_init[8] =
 	{0x6A09E667,0xBB67AE85,0x3C6EF372,0xA54FF53A,0x510E527F,0x9B05688C,0x1F83D9AB,0x5BE0CD19};
 #endif
@@ -245,13 +232,20 @@ static void init(struct fmt_main *self)
 	omp_t = omp_get_max_threads();
 	omp_t *= OMP_SCALE;
 #endif
-	max_crypts = MMX_COEF_SCALE * omp_t * MAX_KEYS_PER_CRYPT;
+	max_crypts = SIMD_COEF_SCALE * omp_t * MAX_KEYS_PER_CRYPT;
 	self->params.max_keys_per_crypt = max_crypts;
-	// we allocate 1 more than needed, and use that 'extra' value as a zero length PW to fill in the
-	// tail groups in MMX mode.
-	saved_key_length = mem_calloc_tiny(sizeof(*saved_key_length) * (1+max_crypts), MEM_ALIGN_WORD);
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) * (1+max_crypts), MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * (1+max_crypts), MEM_ALIGN_WORD);
+	// we allocate 1 more than needed, and use that 'extra' value as a zero
+	// length PW to fill in the tail groups in MMX mode.
+	saved_len = mem_calloc(1 + max_crypts, sizeof(*saved_len));
+	saved_key = mem_calloc(1 + max_crypts, sizeof(*saved_key));
+	crypt_out = mem_calloc(1 + max_crypts, sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
+	MEM_FREE(saved_len);
 }
 
 static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
@@ -265,15 +259,16 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 static void set_key(char *key, int index)
 {
 	int len = strlen(key);
-	saved_key_length[index] = len;
+	saved_len[index] = len;
 	if (len > PLAINTEXT_LENGTH)
-		len = saved_key_length[index] = PLAINTEXT_LENGTH;
+		len = saved_len[index] = PLAINTEXT_LENGTH;
 	memcpy(saved_key[index], key, len);
+	saved_key[index][len] = 0;
 }
 
 static char *get_key(int index)
 {
-	saved_key[index][saved_key_length[index]] = 0;
+	saved_key[index][saved_len[index]] = 0;
 	return saved_key[index];
 }
 
@@ -293,13 +288,14 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	unsigned tot_pc, tot_ppsc, tot_ppc, tot_psc; // length of entire block to crypt (64 or 128)
 	unsigned off_pc, off_pspc, off_ppc, off_psc; // offset to the crypt ptr for these 4 'types'.
 	unsigned dlen_pc, dlen_ppsc, dlen_ppc, dlen_psc; // is this 1 or 2 block (or actual len for CommonCrypto, since it uses SHA256_Final()
-	unsigned plen=saved_key_length[index];
+	unsigned plen=saved_len[index];
 	unsigned char *cp = crypt_struct->buf;
 	cryptloopstruct *pstr = crypt_struct;
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	// in SSE mode, we FORCE every buffer to be 2 blocks, even if it COULD fit into 1.
 	// Then we simply use the 2 block SSE code.
 	unsigned char *next_cp;
+	cp += idx*2*64;
 #endif
 
 	len_pc   = plen + BINARY_SIZE;
@@ -328,7 +324,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	off_psc  = len_psc  - BINARY_SIZE;
 
 	// Adjust cp for idx;
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	next_cp = cp + (2*64*BLKS);
 #endif
 
@@ -342,7 +338,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][0][tot_pc-2] = (len_pc<<3)>>8;
 	pstr->bufs[idx][0][tot_pc-1] = (len_pc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -358,7 +354,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][1][tot_ppsc-2] = (len_ppsc<<3)>>8;
 	pstr->bufs[idx][1][tot_ppsc-1] = (len_ppsc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -374,7 +370,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][2][tot_ppsc-2] = (len_ppsc<<3)>>8;
 	pstr->bufs[idx][2][tot_ppsc-1] = (len_ppsc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -389,7 +385,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][3][tot_ppc-2] = (len_ppc<<3)>>8;
 	pstr->bufs[idx][3][tot_ppc-1] = (len_ppc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -412,7 +408,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][6][tot_ppc-2] = (len_ppc<<3)>>8;
 	pstr->bufs[idx][6][tot_ppc-1] = (len_ppc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -427,7 +423,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][7][tot_psc-2] = (len_psc<<3)>>8;
 	pstr->bufs[idx][7][tot_psc-1] = (len_psc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -466,7 +462,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][14][tot_psc-2] = (len_psc<<3)>>8;
 	pstr->bufs[idx][14][tot_psc-1] = (len_psc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -504,7 +500,7 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 	pstr->bufs[idx][21][tot_pc-2] = (len_pc<<3)>>8;
 	pstr->bufs[idx][21][tot_pc-1] = (len_pc<<3)&0xFF;
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	cp = next_cp;
 	next_cp = cp + (2*64*BLKS);
 #endif
@@ -592,38 +588,47 @@ static void LoadCryptStruct(cryptloopstruct *crypt_struct, int index, int idx, c
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 	int *MixOrder, tot_todo;
 
-//	static int times=-1;
-//	++times;
-
-//	if (times==1) {
-//		printf ("\nKey = %*.*s\n", saved_key_length[0], saved_key_length[0], saved_key[0]);
-//	}
-
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 	// group based upon size splits.
-	MixOrder = mem_alloc(sizeof(int)*(count+5*MMX_COEF_SHA256));
+	MixOrder = mem_calloc((count+6*SIMD_COEF_32), sizeof(int));
 	{
-		const int lens[6] = {0,4,8,12,24,36};
+		static const int lens[17][6] = {
+			{0,12,24,38,39,40},  //  0 byte salt (down to 2 slots now, but probably NOT valid.)
+			{0,12,23,24,39,40},  //  1 byte salt (down to 3 slots now)
+			{0,11,12,22,24,39},  //  2 byte salt
+			{0,11,12,21,24,39},  //  3 byte salt
+			{0,10,12,20,24,39},  //  4 byte salt
+			{0,10,12,19,24,39},  //  5 byte salt
+			{0, 9,12,18,24,39},  //  6 byte salt
+			{0, 9,12,17,24,39},  //  7 byte salt
+			{0, 8,12,16,24,39},  //  8 byte salt
+			{0, 8,12,15,24,39},  //  9 byte salt
+			{0, 7,12,14,24,39},  // 10 byte salt
+			{0, 7,12,13,24,39},  // 11 byte salt
+			{0, 6,12,24,38,39},  // 12 byte salt (down to 4 slots now)
+			{0, 6,11,12,24,38},  // 13 byte salt
+			{0, 5,10,12,24,37},  // 14 byte salt
+			{0, 5, 9,12,24,37},  // 15 byte salt
+			{0, 4, 8,12,24,36} };
 		int j;
 		tot_todo = 0;
-		saved_key_length[count] = 0; // point all 'tail' MMX buffer elements to this location.
+		saved_len[count] = 0; // point all 'tail' MMX buffer elements to this location.
 		for (j = 0; j < 5; ++j) {
 			for (index = 0; index < count; ++index) {
-				if (saved_key_length[index] >= lens[j] && saved_key_length[index] < lens[j+1])
+				if (saved_len[index] >= lens[cur_salt->len][j] && saved_len[index] < lens[cur_salt->len][j+1])
 					MixOrder[tot_todo++] = index;
 			}
-			while (tot_todo & (MMX_COEF_SHA256-1))
+			while (tot_todo & (SIMD_COEF_32-1))
 				MixOrder[tot_todo++] = count;
 		}
 	}
-	printf ("tot_todo=%d count+5*MMX_COEF_SHA256=%d\n", tot_todo, count+5*MMX_COEF_SHA256);
 #else
 	// no need to mix. just run them one after the next, in any order.
-	MixOrder = mem_alloc(sizeof(int)*count);
+	MixOrder = mem_calloc(count, sizeof(int));
 	for (index = 0; index < count; ++index)
 		MixOrder[index] = index;
 	tot_todo = count;
@@ -647,10 +652,18 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		char *cp;
 		char p_bytes[PLAINTEXT_LENGTH+1];
 		char s_bytes[PLAINTEXT_LENGTH+1];
-		JTR_ALIGN(16) cryptloopstruct crypt_struct;
-#ifdef MMX_COEF_SHA256
-		JTR_ALIGN(16) ARCH_WORD_32 sse_out[64];
+		//JTR_ALIGN(16) cryptloopstruct crypt_struct;
+		// alignment may 'fail' on cygwin32 for OMP builds :(
+		// so do the alignment by hand
+		char tmp_cls[sizeof(cryptloopstruct)+16];
+		cryptloopstruct *crypt_struct;
+#ifdef SIMD_COEF_32
+		//JTR_ALIGN(16) ARCH_WORD_32 sse_out[64];
+		char tmp_sse_out[64*4+16];
+		ARCH_WORD_32 *sse_out;
+		sse_out = (ARCH_WORD_32 *)mem_align(tmp_sse_out, 16);
 #endif
+		crypt_struct = (cryptloopstruct *)mem_align(tmp_cls,16);
 
 		for (idx = 0; idx < MAX_KEYS_PER_CRYPT; ++idx)
 		{
@@ -658,7 +671,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA256_Init(&ctx);
 
 			/* Add the key string.  */
-			SHA256_Update(&ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_key_length[MixOrder[index+idx]]);
+			SHA256_Update(&ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_len[MixOrder[index+idx]]);
 
 			/* The last part is the salt string.  This must be at most 16
 			   characters and it ends at the first `$' character (for
@@ -670,30 +683,30 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA256_Init(&alt_ctx);
 
 			/* Add key.  */
-			SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_key_length[MixOrder[index+idx]]);
+			SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_len[MixOrder[index+idx]]);
 
 			/* Add salt.  */
 			SHA256_Update(&alt_ctx, cur_salt->salt, cur_salt->len);
 
 			/* Add key again.  */
-			SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_key_length[MixOrder[index+idx]]);
+			SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_len[MixOrder[index+idx]]);
 
 			/* Now get result of this (32 bytes) and add it to the other
 			   context.  */
 			SHA256_Final((unsigned char*)crypt_out[MixOrder[index+idx]], &alt_ctx);
 
 			/* Add for any character in the key one byte of the alternate sum.  */
-			for (cnt = saved_key_length[MixOrder[index+idx]]; cnt > BINARY_SIZE; cnt -= BINARY_SIZE)
+			for (cnt = saved_len[MixOrder[index+idx]]; cnt > BINARY_SIZE; cnt -= BINARY_SIZE)
 				SHA256_Update(&ctx, (unsigned char*)crypt_out[MixOrder[index+idx]], BINARY_SIZE);
 			SHA256_Update(&ctx, (unsigned char*)crypt_out[MixOrder[index+idx]], cnt);
 
 			/* Take the binary representation of the length of the key and for every
 			   1 add the alternate sum, for every 0 the key.  */
-			for (cnt = saved_key_length[MixOrder[index+idx]]; cnt > 0; cnt >>= 1)
+			for (cnt = saved_len[MixOrder[index+idx]]; cnt > 0; cnt >>= 1)
 				if ((cnt & 1) != 0)
 					SHA256_Update(&ctx, (unsigned char*)crypt_out[MixOrder[index+idx]], BINARY_SIZE);
 				else
-					SHA256_Update(&ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_key_length[MixOrder[index+idx]]);
+					SHA256_Update(&ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_len[MixOrder[index+idx]]);
 
 			/* Create intermediate result.  */
 			SHA256_Final((unsigned char*)crypt_out[MixOrder[index+idx]], &ctx);
@@ -702,22 +715,23 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA256_Init(&alt_ctx);
 
 			/* For every character in the password add the entire password.  */
-			for (cnt = 0; cnt < saved_key_length[MixOrder[index+idx]]; ++cnt)
-				SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_key_length[MixOrder[index+idx]]);
+			for (cnt = 0; cnt < saved_len[MixOrder[index+idx]]; ++cnt)
+				SHA256_Update(&alt_ctx, (unsigned char*)saved_key[MixOrder[index+idx]], saved_len[MixOrder[index+idx]]);
 
 			/* Finish the digest.  */
 			SHA256_Final(temp_result, &alt_ctx);
 
 			/* Create byte sequence P.  */
 			cp = p_bytes;
-			for (cnt = saved_key_length[MixOrder[index+idx]]; cnt >= BINARY_SIZE; cnt -= BINARY_SIZE)
+			for (cnt = saved_len[MixOrder[index+idx]]; cnt >= BINARY_SIZE; cnt -= BINARY_SIZE)
 				cp = (char *) memcpy (cp, temp_result, BINARY_SIZE) + BINARY_SIZE;
 			memcpy (cp, temp_result, cnt);
 
 			/* Start computation of S byte sequence.  */
 			SHA256_Init(&alt_ctx);
 
-			/* For every character in the password add the entire password.  */
+			/* repeat the following 16+A[0] times, where A[0] represents the
+			   first byte in digest A interpreted as an 8-bit unsigned value */
 			for (cnt = 0; cnt < 16 + ((unsigned char*)crypt_out[MixOrder[index+idx]])[0]; ++cnt)
 				SHA256_Update(&alt_ctx, cur_salt->salt, cur_salt->len);
 
@@ -732,40 +746,29 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 			/* Repeatedly run the collected hash value through SHA256 to
 			   burn CPU cycles.  */
-			LoadCryptStruct(&crypt_struct, MixOrder[index+idx], idx, p_bytes, s_bytes);
+			LoadCryptStruct(crypt_struct, MixOrder[index+idx], idx, p_bytes, s_bytes);
 		}
 
-		//dump_stuff(&crypt_struct, 2*64*8*BLKS);
 		idx = 0;
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 		for (cnt = 1; ; ++cnt) {
-//			printf ("SHA #%d\n", cnt);
-			if (crypt_struct.datlen[idx]==128) {
-				unsigned char *cp = crypt_struct.bufs[0][idx];
+			if (crypt_struct->datlen[idx]==128) {
+				unsigned char *cp = crypt_struct->bufs[0][idx];
 				SSESHA256body((__m128i *)cp, sse_out, NULL, SSEi_FLAT_IN|SSEi_2BUF_INPUT_FIRST_BLK);
-//				dump_stuff_mmx(sse_out, 32, 0);
 				SSESHA256body((__m128i *)&cp[64], sse_out, sse_out, SSEi_FLAT_IN|SSEi_2BUF_INPUT_FIRST_BLK|SSEi_RELOAD);
-//				if (!index && times == 1) {
-//					printf("SHA1 : #%d\n", cnt);
-//					dump_stuff_mmx(sse_out, 32, 0);
-//				}
 			} else {
-				unsigned char *cp = crypt_struct.bufs[0][idx];
+				unsigned char *cp = crypt_struct->bufs[0][idx];
 				SSESHA256body((__m128i *)cp, sse_out, NULL, SSEi_FLAT_IN|SSEi_2BUF_INPUT_FIRST_BLK);
-//				if (!index && times == 1) {
-//					printf("SHA1 : #%d\n", cnt);
-//					dump_stuff_mmx(sse_out, 32, 0);
-//				}
 			}
 
 			if (cnt == cur_salt->rounds)
 				break;
 			{
 				int j, k;
-				for (k = 0; k < MMX_COEF_SHA256; ++k) {
-					ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_struct.cptr[k][idx];
+				for (k = 0; k < SIMD_COEF_32; ++k) {
+					ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_struct->cptr[k][idx];
 					for (j = 0; j < 8; ++j)
-						*o++ = JOHNSWAP(sse_out[(j<<(MMX_COEF_SHA256>>1))+k]);
+						*o++ = JOHNSWAP(sse_out[(j<<SIMD_COEF32_BITS)+k]);
 				}
 			}
 			if (++idx == 42)
@@ -773,10 +776,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		}
 		{
 			int j, k;
-			for (k = 0; k < MMX_COEF_SHA256; ++k) {
+			for (k = 0; k < SIMD_COEF_32; ++k) {
 				ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_out[MixOrder[index+k]];
 				for (j = 0; j < 8; ++j)
-					*o++ = JOHNSWAP(sse_out[(j<<(MMX_COEF_SHA256>>1))+k]);
+					*o++ = JOHNSWAP(sse_out[(j<<SIMD_COEF32_BITS)+k]);
 			}
 		}
 #else
@@ -784,26 +787,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		for (cnt = 1; ; ++cnt) {
 			// calling with 64 byte, or 128 byte always, will force the update to properly crypt the data.
 			// NOTE the data is fully formed. It ends in a 0x80, is padded with nulls, AND has bit appended.
-			SHA256_Update(&ctx, crypt_struct.bufs[0][idx], crypt_struct.datlen[idx]);
-//			if (times == 1) {
-//				printf("SHA1 : #%d\n", cnt);
-//				dump_stuff(ctx.h, 32);
-//			}
-
+			SHA256_Update(&ctx, crypt_struct->bufs[0][idx], crypt_struct->datlen[idx]);
 			if (cnt == cur_salt->rounds)
 				break;
 #ifdef JTR_INC_COMMON_CRYPTO_SHA2
-			SHA256_Final(crypt_struct.cptr[0][idx], &ctx);
+			SHA256_Final(crypt_struct->cptr[0][idx], &ctx);
 #else // !defined JTR_INC_COMMON_CRYPTO_SHA2, so it is oSSL, or generic
 #if ARCH_LITTLE_ENDIAN
 			{
 				int j;
-				ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_struct.cptr[0][idx];
+				ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_struct->cptr[0][idx];
 				for (j = 0; j < 8; ++j)
 					*o++ = JOHNSWAP(ctx.h[j]);
 			}
 #else
-			memcpy(crypt_struct.cptr[0][idx], ctx.h, BINARY_SIZE);
+			memcpy(crypt_struct->cptr[0][idx], ctx.h, BINARY_SIZE);
 #endif
 #endif
 			if (++idx == 42)
@@ -831,15 +829,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 #endif
 
-#endif // MMX_COEF_SHA256
-//		if (!index && times==1) {
-//			printf ("crypt_out[%d] MixOrder[%d]\n", MixOrder[index], index);
-//			dump_stuff(crypt_out[MixOrder[index]], 32);
-//		}
+#endif
 	}
 	MEM_FREE(MixOrder);
-//	if (!index && times==1)
-//	exit(0);
 	return count;
 }
 
@@ -872,6 +864,9 @@ static void *get_salt(char *ciphertext)
 	}
 
 	for (len = 0; ciphertext[len] != '$'; len++);
+
+	if (len > SALT_LENGTH)
+		len = SALT_LENGTH;
 
 	memcpy(out.salt, ciphertext, len);
 	out.len = len;
@@ -945,7 +940,7 @@ struct fmt_main fmt_cryptsha256 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

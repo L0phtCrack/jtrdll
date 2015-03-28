@@ -105,11 +105,18 @@ static void init(struct fmt_main *self)
 		self->params.max_keys_per_crypt *= omp_t;
 	}
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
-	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
+	cracked = mem_calloc(self->params.max_keys_per_crypt,
+	                     sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -118,17 +125,17 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	PKCS12 *p12 = NULL;
 	BIO *bp = NULL;
 	int len, i;
-	if (strncmp(ciphertext, "$pfx$", 5))
+	if (strncmp(ciphertext, "$pfx$*", 6))
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 6;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* length */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* length */
 		goto err;
 	len = atoi(p);
 	if (!isdec(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* data */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
 		goto err;
 	if (!ishex(p))
 		goto err;
@@ -171,14 +178,14 @@ static void *get_salt(char *ciphertext)
 	BIO *bp;
 
 	if (!ptr) ptr = mem_alloc_tiny(sizeof(struct custom_salt*),sizeof(struct custom_salt*));
-	psalt = (struct custom_salt*)mem_calloc(sizeof(struct custom_salt) + strlen(ciphertext) + 1);
+	psalt = (struct custom_salt*)mem_calloc(1, sizeof(struct custom_salt) + strlen(ciphertext) + 1);
 	strcpy(psalt->orig_hash, ciphertext);
 	psalt->hash_len = strlen(ciphertext);
 	ctcopy += 6;	/* skip over "$pfx$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	psalt->len = atoi(p);
 	decoded_data = (char *) mem_alloc(psalt->len + 1);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < psalt->len; i++)
 		decoded_data[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -230,7 +237,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 	if (any_cracked) {
@@ -294,7 +301,7 @@ struct fmt_main fmt_pfx = {
 		pfx_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

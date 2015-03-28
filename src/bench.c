@@ -116,14 +116,6 @@ static void bench_install_handler(void)
 #endif
 }
 
-/* Mutes ASan problems. We pass a buffer long enough for any use */
-#define fmt_set_key(key, index)	  \
-	{ \
-		static char buf_key[PLAINTEXT_BUFFER_SIZE]; \
-		strncpy(buf_key, key, sizeof(buf_key)); \
-		format->methods.set_key(buf_key, index); \
-	}
-
 static void bench_set_keys(struct fmt_main *format,
 	struct fmt_tests *current, int cond)
 {
@@ -148,7 +140,8 @@ static void bench_set_keys(struct fmt_main *format,
 			} else
 				break;
 		} while (1);
-		fmt_set_key(plaintext, index);
+
+		format->methods.set_key(plaintext, index);
 	}
 }
 
@@ -179,7 +172,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	static int binary_size = 0;
 	static char s_error[128];
 	char *TmpPW[1024];
-	int pw_mangled=0;
+	int pw_mangled = 0;
 	char *where;
 	struct fmt_tests *current;
 	int cond;
@@ -194,9 +187,9 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	int64 crypts;
 	char *ciphertext;
 	void *salt, *two_salts[2];
-	int index, max;
+	int index, max, i;
 #if FMT_MAIN_VERSION > 11
-	unsigned int i, t_cost[2][FMT_TUNABLE_COSTS];
+	unsigned int t_cost[2][FMT_TUNABLE_COSTS];
 	int ntests, pruned;
 #endif
 	clk_tck_init();
@@ -305,33 +298,38 @@ char *benchmark_format(struct fmt_main *format, int salts,
 		strcat(cost_msg, msg);
 	}
 #endif
+
+/* Smashed passwords: -1001 turns into -1 and -1000 turns into 0, and
+   -999 turns into 1 for benchmark length. */
+	if (format->params.benchmark_length < -950) {
+		pw_mangled = 1;
+		format->params.benchmark_length += 1000;
+	}
+
+/* Ensure we use a buffer that can be read past end of word
+   (eg. SIMD optimizations). */
+	i = 0;
+	current = format->params.tests;
+	while (current->ciphertext && i < 1024) {
+		TmpPW[i] = current->plaintext;
+		current->plaintext =
+			strnzcpy(mem_alloc(PLAINTEXT_BUFFER_SIZE),
+			         TmpPW[i++], PLAINTEXT_BUFFER_SIZE);
+
+		/* Smash passwords! */
+		if (current->plaintext[0] && pw_mangled == 1)
+			current->plaintext[0] ^= 5;
+
+		++current;
+	}
+
 	if (format->params.benchmark_length > 0) {
 		cond = (salts == 1) ? 1 : -1;
 		salts = 1;
-	} else {
+	} else
 		cond = 0;
-		if (format->params.benchmark_length < -950) {
-			/* smash the passwords */
-			struct fmt_tests *current = format->params.tests;
-			int i=0;
-			pw_mangled = 1;
-			while (current->ciphertext) {
-				if (current->plaintext[0]) {
-					TmpPW[i] = str_alloc_copy(current->plaintext);
-					TmpPW[i][0] ^= 5;
-					current->plaintext = TmpPW[i++];
-				}
-				++current;
-			}
-			/* -1001 turns into -1 and -1000 turns into 0 , and -999 turns into 1 for benchmark length */
-			format->params.benchmark_length += 1000;
-			if (format->params.benchmark_length > 0) {
-				cond = (salts == 1) ? 1 : -1;
-				salts = 1;
-			}
-		}
-	}
 
+	current = format->params.tests;
 	bench_set_keys(format, current, cond);
 
 #if OS_TIMER
@@ -415,20 +413,17 @@ char *benchmark_format(struct fmt_main *format, int salts,
 		MEM_FREE(two_salts[index]);
 	}
 
-	/* unsmash the passwords */
-	if (pw_mangled) {
-		struct fmt_tests *current = format->params.tests;
-		int i=0;
-		while (current->ciphertext) {
-			if (current->plaintext[0]) {
-				TmpPW[i][0] ^= 5;
-				current->plaintext = TmpPW[i++];
-			}
-			++current;
-		}
-		/* -1001 turns into -1 and -1000 turns into 0 , and -999 turns into 1 for benchmark length */
-		format->params.benchmark_length -= 1000;
+	/* Unsmash/unbuffer the passwords. */
+	i = 0;
+	current = format->params.tests;
+	while (current->ciphertext && i < 1024) {
+		MEM_FREE(current->plaintext);
+		current->plaintext = TmpPW[i++];
+		++current;
 	}
+
+	if (pw_mangled)
+		format->params.benchmark_length -= 1000;
 
 	return event_abort ? "" : NULL;
 }
@@ -516,9 +511,12 @@ int benchmark_all(void)
 AGAIN:
 #endif
 	total = failed = 0;
-#ifdef DEBUG
+#ifdef WITH_ASAN
 	if (benchmark_time)
-	puts("NOTE: This is a debug build, figures might be lower than normal");
+	puts("NOTE: This is an ASan debug build, speed will be lower than normal");
+#elif defined(DEBUG)
+	if (benchmark_time)
+	puts("NOTE: This is a -DDEBUG build, speed may be lower than normal");
 #endif
 #ifndef BENCH_BUILD
 	options.loader.field_sep_char = 31;
@@ -537,8 +535,14 @@ AGAIN:
 /* Format disabled in john.conf, unless forced */
 		if (fmt_list->next &&
 		    cfg_get_bool(SECTION_DISABLED, SUBSECTION_FORMATS,
-		                 format->params.label, 0))
+		                 format->params.label, 0)) {
+#ifdef DEBUG
+			if ((format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) {
+				// in debug mode, we 'allow' dyna
+			} else
+#endif
 			continue;
+		}
 
 /* Just test the encoding-aware formats if --encoding was used explicitly */
 		if (!pers_opts.default_enc && pers_opts.target_enc != ASCII &&

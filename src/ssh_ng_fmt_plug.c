@@ -96,10 +96,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked   = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -111,31 +117,31 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 7;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* cipher */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* cipher */
 		goto err;
 	cipher = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)	/* salt len */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* salt len */
 		goto err;
 	len = atoi(p);
-	if(len > 16)
+	if(len > 16 || !len)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
 	if(strlen(p) != len * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* ciphertext length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext length */
 		goto err;
 	len = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)	/* ciphertext */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext */
 		goto err;
 	if(strlen(p) != len * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if (cipher == 2) {
-		if ((p = strtok(NULL, "$")) == NULL)	/* rounds */
+		if ((p = strtokm(NULL, "$")) == NULL)	/* rounds */
 			goto err;
 		if (!isdec(p))
 			goto err;
@@ -157,22 +163,22 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(struct custom_salt));
 	ctcopy += 7;	/* skip over "$sshng$" */
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.cipher = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.sl = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.sl; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.ctl = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.ctl; i++)
 		cs.ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	if (cs.cipher == 2) {
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		cs.rounds = atoi(p);
 	}
 	MEM_FREE(keeptr);
@@ -349,7 +355,7 @@ int bcrypt_pbkdf(const char *pass, size_t passlen, const uint8_t *salt, size_t s
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -368,9 +374,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			memcpy(key1, key, 8);
 			memcpy(key2, key + 8, 8);
 			memcpy(key3, key + 16, 8);
-			DES_set_key((C_Block *) key1, &ks1);
-			DES_set_key((C_Block *) key2, &ks2);
-			DES_set_key((C_Block *) key3, &ks3);
+			DES_set_key((DES_cblock *) key1, &ks1);
+			DES_set_key((DES_cblock *) key2, &ks2);
+			DES_set_key((DES_cblock *) key3, &ks3);
 			memcpy(ivec, cur_salt->salt, 8);
 			// DES_ede3_cbc_encrypt(cur_salt->ct, out, cur_salt->ctl, &ks1, &ks2, &ks3, &ivec, DES_DECRYPT);
 			DES_ede3_cbc_encrypt(cur_salt->ct, out, SAFETY_FACTOR, &ks1, &ks2, &ks3, &ivec, DES_DECRYPT);
@@ -443,11 +449,11 @@ static int cmp_exact(char *source, int index)
 
 static void sshng_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -477,7 +483,7 @@ struct fmt_main fmt_sshng = {
 		sshng_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

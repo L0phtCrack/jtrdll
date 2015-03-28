@@ -136,10 +136,14 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_plain = mem_calloc_tiny(sizeof(*saved_plain) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	output = mem_calloc_tiny(sizeof(*output) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_ctx = mem_calloc_tiny(sizeof(*saved_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
+	                         sizeof(*saved_plain));
+	saved_len   = mem_calloc(self->params.max_keys_per_crypt,
+	                         sizeof(*saved_len));
+	output      = mem_calloc(self->params.max_keys_per_crypt,
+	                         sizeof(*output));
+	saved_ctx   = mem_calloc(self->params.max_keys_per_crypt,
+	                         sizeof(*saved_ctx));
 
 	if (pers_opts.target_enc == UTF_8) {
 		tests[1].plaintext = "\xC3\xBC"; // German u-umlaut in UTF-8
@@ -158,7 +162,15 @@ static void init(struct fmt_main *self)
 	}
 }
 
-static void *salt(char *ciphertext)
+static void done(void)
+{
+	MEM_FREE(saved_ctx);
+	MEM_FREE(output);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_plain);
+}
+
+static void *get_salt(char *ciphertext)
 {
 	static struct salt_t salt;
 	char *p;
@@ -214,7 +226,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return out;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static unsigned char *binary;
 	char *p;
@@ -313,7 +325,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	const unsigned char one[] = { 1, 0, 0, 0 };
 	int i = 0;
 
@@ -434,13 +446,13 @@ struct fmt_main fmt_mskrb5 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

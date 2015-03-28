@@ -114,7 +114,7 @@ static struct fmt_tests tests[] = {
 	{NULL}
 };
 
-static void done()
+static void done(void)
 {
 	MEM_FREE(inbuffer);
 	MEM_FREE(outbuffer);
@@ -124,8 +124,8 @@ static void init(struct fmt_main *self)
 {
 	///Allocate memory for hashes and passwords
 	inbuffer =
-	    (crypt_md5_password *) mem_calloc(MAX_KEYS_PER_CRYPT *
-	    sizeof(crypt_md5_password));
+		(crypt_md5_password *) mem_calloc(MAX_KEYS_PER_CRYPT,
+		                                  sizeof(crypt_md5_password));
 	outbuffer =
 	    (crypt_md5_crack *) mem_alloc(MAX_KEYS_PER_CRYPT *
 	    sizeof(crypt_md5_crack));
@@ -135,20 +135,20 @@ static void init(struct fmt_main *self)
 }
 
 void *MD5_std_get_binary(char *ciphertext);
-static void *binary(char *ciphertext)
-{
-	return MD5_std_get_binary(ciphertext);
-}
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 #ifdef CUDA_DEBUG
-	printf("salt(%s)\n", ciphertext);
+	printf("get_salt(%s)\n", ciphertext);
 #endif
 	static crypt_md5_salt ret;
 	uint8_t i, *pos = (uint8_t *) ciphertext, *end;
 	char *dest = ret.salt;
-	if (strncmp(ciphertext, md5_salt_prefix, strlen(md5_salt_prefix)) == 0) {
+
+	memset(&ret, 0, SALT_SIZE);
+
+	if (strncmp(ciphertext, md5_salt_prefix, strlen(md5_salt_prefix)) == 0)
+	{
 		pos += strlen(md5_salt_prefix);
 		ret.prefix = '1';
 	}
@@ -259,8 +259,8 @@ struct fmt_main fmt_cuda_cryptmd5 = {
 		fmt_default_prepare,
 		cryptmd5_common_valid,
 		fmt_default_split,
-		binary,
-		salt,
+		MD5_std_get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

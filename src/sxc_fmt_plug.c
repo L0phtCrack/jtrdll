@@ -33,8 +33,8 @@ john_register_one(&fmt_sxc);
 
 #define FORMAT_LABEL		"sxc"
 #define FORMAT_NAME		"StarOffice .sxc"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME		"SHA1 Blowfish " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME		"SHA1 Blowfish " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME		"SHA1 Blowfish 32/" ARCH_BITS_STR
 #endif
@@ -45,7 +45,7 @@ john_register_one(&fmt_sxc);
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
 #define SALT_ALIGN		sizeof(int)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -89,9 +89,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -100,76 +107,76 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *keeptr;
 	char *p;
 	int res;
-	if (strncmp(ciphertext, "$sxc$", 5))
+	if (strncmp(ciphertext, "$sxc$*", 6))
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 6;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* cipher type */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* cipher type */
 		goto err;
 	res = atoi(p);
 	if (res != 0 && res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* checksum type */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum type */
 		goto err;
 	res = atoi(p);
 	if (res != 0 && res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	res = atoi(p);
 	if (res <= 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* key size */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* key size */
 		goto err;
 	res = atoi(p);
 	if (res != 16 && res != 32)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* checksum field (skipped) */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum field (skipped) */
 		goto err;
 	if (strlen(p) != BINARY_SIZE * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 16)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 32)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* original length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* original length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 1024)             /* 1024 because of "unsigned char output[1024];" in crypt_all */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* length */
 		goto err;
 	res = atoi(p);
 	if (res <= 0 || res > 1024)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* content */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if (strtok(NULL, "*") != NULL)	        /* the end */
+	if (strtokm(NULL, "*") != NULL)	        /* the end */
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -189,33 +196,33 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 6;	/* skip over "$sxc$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.cipher_type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.checksum_type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iterations = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.key_size = atoi(p);
-	strtok(NULL, "*");
+	strtokm(NULL, "*");
 	/* skip checksum field */
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iv_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.iv_length; i++)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.salt_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.salt_length; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.original_length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.length = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.length; i++)
 		cs.content[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -235,11 +242,11 @@ static void *get_binary(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 	ctcopy += 6;	/* skip over "$sxc$*" */
-	strtok(ctcopy, "*");
-	strtok(NULL, "*");
-	strtok(NULL, "*");
-	strtok(NULL, "*");
-	p = strtok(NULL, "*");
+	strtokm(ctcopy, "*");
+	strtokm(NULL, "*");
+	strtokm(NULL, "*");
+	strtokm(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
 			(atoi16[ARCH_INDEX(*p)] << 4) |
@@ -265,7 +272,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -286,7 +293,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA1_Update(&ctx, (unsigned char *)saved_key[index+i], strlen(saved_key[index+i]));
 			SHA1_Final((unsigned char *)hash[i], &ctx);
 		}
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		{
 			int lens[MAX_KEYS_PER_CRYPT];
 			unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
@@ -345,11 +352,11 @@ static int cmp_exact(char *source, int index)
 
 static void sxc_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -391,7 +398,7 @@ struct fmt_main fmt_sxc = {
 		sxc_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

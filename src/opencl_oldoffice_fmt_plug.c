@@ -35,7 +35,7 @@ john_register_one(&FORMAT_STRUCT);
 #define ALGORITHM_NAME		"MD5/SHA1 RC4 OpenCL"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1000 /* Use 0 for benchmarking w/ mitm */
-#define PLAINTEXT_LENGTH	19 //* 19 for leaner code, 51 max */
+#define PLAINTEXT_LENGTH	19 //* 19 is leanest, 24, 28, 31, max. 51 */
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		MEM_ALIGN_NONE
 #define SALT_SIZE		sizeof(struct custom_salt)
@@ -48,14 +48,11 @@ john_register_one(&FORMAT_STRUCT);
 #define TAG_LEN			(sizeof(FORMAT_TAG) - 1)
 
 static struct fmt_tests oo_tests[] = {
-#if 1
 	{"$oldoffice$1*de17a7f3c3ff03a39937ba9666d6e952*2374d5b6ce7449f57c9f252f9f9b53d2*e60e1185f7aecedba262f869c0236f81", "test"},
 	{"$oldoffice$0*e40b4fdade5be6be329c4238e2099b8a*259590322b55f7a3c38cb96b5864e72d*2e6516bfaf981770fe6819a34998295d", "123456789012345"},
 	/* Meet-in-the-middle candidate produced with oclHashcat -m9710 */
 	/* Real pw is "hashcat", one collision is "zvDtu!" */
 	{"$oldoffice$1*d6aabb63363188b9b73a88efb9c9152e*afbbb9254764273f8f4fad9a5d82981f*6f09fd2eafc4ade522b5f2bee0eaf66d*f2ab1219ae", "zvDtu!"},
-#endif
-#if 1
 #if PLAINTEXT_LENGTH >= 24
 	/* 2003-RC4-40bit-MS-Base-Crypto-1.0_myhovercraftisfullofeels_.doc */
 	{"$oldoffice$3*9f32522fe9bcb69b12f39d3c24b39b2f*fac8b91a8a578468ae7001df4947558f*f2e267a5bea45736b52d6d1051eca1b935eabf3a", "myhovercraftisfullofeels"},
@@ -71,7 +68,6 @@ static struct fmt_tests oo_tests[] = {
 	/* the following hash was extracted from Proc2356.ppt (manually + by oldoffice2john.py */
 	{"$oldoffice$3*DB575DDA2E450AB3DFDF77A2E9B3D4C7*AB183C4C8B5E5DD7B9F3AF8AE5FFF31A*B63594447FAE7D4945D2DAFD113FD8C9F6191BF5", "crypto"},
 	{"$oldoffice$3*3fbf56a18b026e25815cbea85a16036c*216562ea03b4165b54cfaabe89d36596*91308b40297b7ce31af2e8c57c6407994b205590", "openwall"},
-#endif
 	{NULL}
 };
 
@@ -106,6 +102,7 @@ static size_t key_offset, idx_offset;
 static cl_mem cl_saved_key, cl_saved_idx, cl_salt, cl_mid_key, cl_result;
 static cl_mem pinned_key, pinned_idx, pinned_result;
 static cl_kernel oldoffice_utf16, oldoffice_md5, oldoffice_sha1;
+static struct fmt_main *self;
 
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
@@ -218,10 +215,11 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[96];
-	size_t gws_limit = 4 << 20;
+
+	self = _self;
 
 	if (pers_opts.target_enc == UTF_8)
 		max_len = self->params.plaintext_length =
@@ -240,14 +238,21 @@ static void init(struct fmt_main *self)
 	oldoffice_sha1 =
 		clCreateKernel(program[gpu_id], "oldoffice_sha1", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel. Double-check kernel name?");
+}
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 3, self, create_clobj, release_clobj,
-	                       2 * sizeof(mid_t), gws_limit);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		size_t gws_limit = 4 << 20;
 
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, gws_limit, 1000000000);
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 3,
+		                       self, create_clobj, release_clobj,
+		                       2 * sizeof(mid_t), gws_limit);
+
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, gws_limit, 1000000000);
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -263,24 +268,24 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 0;
 	keeptr = ctcopy;
 	ctcopy += TAG_LEN;
-	if (!(ptr = strtok(ctcopy, "*"))) /* type */
+	if (!(ptr = strtokm(ctcopy, "*"))) /* type */
 		goto error;
 	res = atoi(ptr);
 	if (res > 4)
 		goto error;
-	if (!(ptr = strtok(NULL, "*"))) /* salt */
+	if (!(ptr = strtokm(NULL, "*"))) /* salt */
 		goto error;
 	if (strlen(ptr) != 32)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*"))) /* verifier */
+	if (!(ptr = strtokm(NULL, "*"))) /* verifier */
 		goto error;
 	if (strlen(ptr) != 32)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, "*"))) /* verifier hash */
+	if (!(ptr = strtokm(NULL, "*"))) /* verifier hash */
 		goto error;
 	if (strlen(ptr) != 32 && strlen(ptr) != 40)
 		goto error;
@@ -312,17 +317,17 @@ static void *get_salt(char *ciphertext)
 
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += TAG_LEN;	/* skip over "$oldoffice$" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 16; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 16; i++)
 		cs.verifier[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	if(cs.type < 3) {
 		for (i = 0; i < 16; i++)
 			cs.verifierHash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -333,7 +338,7 @@ static void *get_salt(char *ciphertext)
 			cs.verifierHash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
-	if ((p = strtok(NULL, "*"))) {
+	if ((p = strtokm(NULL, "*"))) {
 		cs.has_mitm = 1;
 		for (i = 0; i < 5; i++)
 			cs.mitm[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -401,7 +406,8 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int index, count = *pcount;
+	int index;
+	const int count = *pcount;
 	int m = cur_salt->has_mitm;
 	size_t lws;
 
@@ -543,7 +549,7 @@ struct fmt_main FORMAT_STRUCT = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

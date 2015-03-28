@@ -42,6 +42,7 @@ john_register_one(&fmt_phpassmd5);
 #include "common.h"
 #include "formats.h"
 #include "dynamic.h"
+#include "aligned.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"phpass"
@@ -51,7 +52,8 @@ john_register_one(&fmt_phpassmd5);
 #define BENCHMARK_COMMENT		" ($P$9)"
 #define BENCHMARK_LENGTH		-1
 
-#define PLAINTEXT_LENGTH		38
+// set PLAINTEXT_LENGTH to 0, so dyna will set this
+#define PLAINTEXT_LENGTH		0
 #define CIPHERTEXT_LENGTH		34
 
 #define BINARY_SIZE				16
@@ -82,7 +84,7 @@ static struct fmt_tests phpassmd5_tests[] = {
 
 /* (256+256+512+1024+8192)/5 = 2048 */
 
-static char Conv_Buf[80];
+JTR_ALIGN(BINARY_ALIGN) static char Conv_Buf[80];
 static struct fmt_main *pDynamic_17;
 static void phpassmd5_init(struct fmt_main *self);
 static void get_ptr();
@@ -189,11 +191,9 @@ static void link_funcs() {
 
 static void phpassmd5_init(struct fmt_main *self)
 {
-	get_ptr();
 	if (self->private.initialized == 0) {
-		pDynamic_17 = dynamic_THIN_FORMAT_LINK(&fmt_phpassmd5, Convert(Conv_Buf, phpassmd5_tests[0].ciphertext), "phpass", 1);
-		link_funcs();
-		fmt_phpassmd5.params.algorithm_name = pDynamic_17->params.algorithm_name;
+		get_ptr();
+		pDynamic_17->methods.init(pDynamic_17);
 		self->private.initialized = 1;
 	}
 }

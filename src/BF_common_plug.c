@@ -1,4 +1,4 @@
-/* 
+/*
  * bcrypt cracker patch for JtR, common code. 2014 by JimF
  * This file takes replicated but common code, shared between the CPU
  * and the GPU formats, and places it into one common location
@@ -144,7 +144,14 @@ void *BF_common_get_salt(char *ciphertext) {
 	BF_swap(salt.salt, 4);
 
 	salt.rounds = atoi(&ciphertext[4]);
-	if (ciphertext[2] == 'a')
+/*
+ * 'a' is ambiguous due to past bugs, but for password cracking we treat it the
+ * same as 'y' (if a hash is known to be affected by the sign extension bug, it
+ * should be explicitly marked with 'x' instead of 'a').
+ *
+ * 'b' is in fact the same as 'y'.
+ */
+	if (ciphertext[2] == 'a' || ciphertext[2] == 'b')
 		salt.subtype = 'y';
 	else
 		salt.subtype = ciphertext[2];

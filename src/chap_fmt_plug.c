@@ -33,7 +33,11 @@ john_register_one(&fmt_chap);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifdef __MIC__
+#define OMP_SCALE               2048
+#else
 #define OMP_SCALE               65536 // core i7 no HT
+#endif
 #endif
 #include "memdbg.h"
 
@@ -74,9 +78,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -87,15 +98,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 6;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* id */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* id */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* challenge */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* challenge */
 		goto err;
 	if (strlen(p) > 64)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* binary */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* binary */
 		goto err;
 	if (strlen(p) != BINARY_SIZE*2)
 		goto err;
@@ -118,9 +129,9 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 	ctcopy += 6; /* skip over "$chap$" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.id = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.challenge_length = strlen(p) / 2;
 	for (i = 0; i < cs.challenge_length; i++)
 		cs.challenge[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -164,7 +175,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -204,11 +215,11 @@ static int cmp_exact(char *source, int index)
 
 static void chap_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -238,7 +249,7 @@ struct fmt_main fmt_chap = {
 		chap_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

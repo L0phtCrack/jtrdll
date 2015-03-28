@@ -105,6 +105,7 @@ static crypt_md5_salt host_salt;		/** salt **/
 //OpenCL variables:
 static cl_mem mem_in, mem_out, pinned_in, pinned_out, mem_salt;
 static int new_keys;
+static struct fmt_main *self;
 
 #define insize (sizeof(crypt_md5_password) * global_work_size)
 #define outsize (sizeof(crypt_md5_hash) * global_work_size)
@@ -261,7 +262,7 @@ static void set_salt(void *salt)
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt, CL_FALSE, 0, saltsize, &host_salt, 0, NULL, NULL), "Copy memsalt");
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static uint8_t ret[SALT_SIZE];
 	uint8_t i, *pos = (uint8_t *) ciphertext, *dest = ret, *end;
@@ -295,32 +296,39 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt);
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
+	self = _self;
+
 	opencl_init("$JOHN/kernels/cryptmd5_kernel.cl", gpu_id, NULL);
 
 	///Create Kernel
 	crypt_kernel = clCreateKernel(program[gpu_id], KERNEL_NAME, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error while creating kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-		warn, 1, self, create_clobj, release_clobj,
-		sizeof(crypt_md5_password), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1, self,
+		                       create_clobj, release_clobj,
+		                       sizeof(crypt_md5_password), 0);
 
-	//Auto tune execution from shared/included code.
-	autotune_run(self, 1000, 0, 500);
+		//Auto tune execution from shared/included code.
+		autotune_run(self, 1000, 0, 500);
+	}
 }
 
 void *MD5_std_get_binary(char *ciphertext);
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	return MD5_std_get_binary(ciphertext);
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
 	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
@@ -427,12 +435,12 @@ struct fmt_main fmt_opencl_cryptMD5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		cryptmd5_common_valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

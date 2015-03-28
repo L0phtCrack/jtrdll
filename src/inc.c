@@ -448,6 +448,11 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	log_event("Proceeding with \"incremental\" mode: %.100s", mode);
 
+	xxx add mode directly specifying file, minlen, maxlen, count
+	xxx switch to customizable crack types, as well as customizable charsets with sensible defaults
+	xxx and always use this 'mode' option rather than john.conf options.
+	xxx investigate this for dictionary too
+
 	if (!(charset = cfg_get_param(SECTION_INC, mode, "File"))) {
 		if(cfg_get_section(SECTION_INC, mode) == NULL) {
 			log_event("! Unknown incremental mode: %s", mode);

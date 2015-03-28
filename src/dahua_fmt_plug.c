@@ -20,7 +20,11 @@ john_register_one(&fmt_dahua);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifdef __MIC__
+#define OMP_SCALE 512
+#else
 #define OMP_SCALE 32768		// tuned K8-dual HT
+#endif
 #endif
 
 #include "arch.h"
@@ -70,12 +74,19 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -143,7 +154,7 @@ static void compressor(unsigned char *in, unsigned char *out)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -218,7 +229,7 @@ struct fmt_main fmt_dahua = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

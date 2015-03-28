@@ -38,11 +38,12 @@ static int omp_t = 1;
 #include <omp.h>
 #define OMP_SCALE                   1
 #endif
+#include "memdbg.h"
 
 #define PLAINTEXT_LENGTH            125
 #define SALT_SIZE                   sizeof(struct custom_salt)
 #define SALT_ALIGN                  4
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT          SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT          SSE_GROUP_SZ_SHA1
 #else
@@ -94,20 +95,20 @@ static int valid(char* ciphertext, struct fmt_main *self)
 	keeptr = ctcopy;
 	ctcopy += 18;
 
-	if ((p = strtok(ctcopy, "$")) == NULL)
+	if ((p = strtokm(ctcopy, "$")) == NULL)
 		goto err;
 	i = atoi(p);
 	if (i < 0)                /* iterations */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (strlen(p) != 2 * 128) /* salt */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (strlen(p) != 2 * 32 * 64) /* masked keys */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (strlen(p) != 2 * BINARY_SIZE) /* HMAC-SHA1 */
 		goto err;
@@ -134,13 +135,13 @@ static void* get_salt(char *ciphertext)
 	char *p;
 
 	ctcopy += 18;
-	p = strtok(ctcopy, "$"); /* iterations */
+	p = strtokm(ctcopy, "$"); /* iterations */
 	cs.num_iterations = atoi(p);
-	p = strtok(NULL, "$");   /* salt */
+	p = strtokm(NULL, "$");   /* salt */
 	for (i = 0; i < OPENBSD_SOFTRAID_SALTLENGTH ; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");   /* masked keys */
+	p = strtokm(NULL, "$");   /* masked keys */
 	for (i = 0; i < OPENBSD_SOFTRAID_KEYLENGTH * OPENBSD_SOFTRAID_KEYS; i++)
 		cs.masked_keys[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -149,7 +150,7 @@ static void* get_salt(char *ciphertext)
 	return (void *)&cs;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[BINARY_SIZE];
@@ -171,7 +172,7 @@ static void *binary(char *ciphertext)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -246,7 +247,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	void *bin = binary(source);
+	void *bin = get_binary(source);
 	return !memcmp(bin, crypt_out[index], 20);
 }
 
@@ -275,8 +276,8 @@ $openbsd-softraid$8192$c2891132ca5305d1189a7da94d32de29182abc2f56dc641d685e47193
 	{NULL}
 };
 
-#ifdef MMX_COEF
-#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME          "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -310,7 +311,7 @@ struct fmt_main fmt_openbsd_softraid = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{

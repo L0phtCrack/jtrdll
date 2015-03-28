@@ -120,7 +120,7 @@ static void init(struct fmt_main *self)
 }
 
 /*Utility function to convert hex to bin */
-static void * binary (char *ciphertext)
+static void * get_binary(char *ciphertext)
 {
   static char realcipher[BINARY_SIZE];
   int i;
@@ -268,7 +268,7 @@ static void lotus_mix (unsigned char *m0, unsigned char *m1)
 /*the last public function; generates ciphertext*/
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 
 #ifdef _OPENMP
@@ -386,7 +386,7 @@ struct fmt_main fmt_lotus5 = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

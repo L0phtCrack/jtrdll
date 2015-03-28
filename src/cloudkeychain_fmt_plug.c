@@ -41,7 +41,7 @@ john_register_one(&fmt_cloud_keychain);
 
 #define FORMAT_LABEL		"cloudkeychain"
 #define FORMAT_NAME		"1Password Cloud Keychain"
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define ALGORITHM_NAME		"PBKDF2-SHA512  " SHA512_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA512 32/" ARCH_BITS_STR
@@ -54,7 +54,7 @@ john_register_one(&fmt_cloud_keychain);
 #define PLAINTEXT_LENGTH	125
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
 #else
@@ -105,10 +105,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked   = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -122,71 +128,71 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 15;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* salt length */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* salt length */
 		goto err;
 	len = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if(strlen(p) != len * 2)	/* validates salt_len also */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* iterations */
 		goto err;
 	if (!isdecu(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* masterkey length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* masterkey length */
 		goto err;
 	len = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)	/* masterkey */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* masterkey */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if(strlen(p) != len * 2)	/* validates masterkey_len also */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* plaintext length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* plaintext length */
 		goto err;
 	if (!isdecu(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* iv length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* iv length */
 		goto err;
 	len = atoi(p);
 	if(len > IVLEN || len < 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* iv */
 		goto err;
 	if(strlen(p) != len * 2)	/* validates iv_len */
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* cryptext length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* cryptext length */
 		goto err;
 	len = atoi(p);
 	if (len > CTLEN || len < 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* cryptext */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* cryptext */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if(strlen(p) != len * 2)	/* validates cryptext_len */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* expectedhmac length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* expectedhmac length */
 		goto err;
 	len = atoi(p);
 	if (len > EHMLEN || len < 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* expectedhmac */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* expectedhmac */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if(strlen(p) != len * 2)	/* validates expectedhmac_len */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* hmacdata length */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* hmacdata length */
 		goto err;
 	len = atoi(p);
 	if (len > CTLEN || len < 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* hmacdata */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* hmacdata */
 		goto err;
 	if (!ishex(p))
 		goto err;
@@ -210,44 +216,44 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 15;	/* skip over "$cloudkeychain$" */
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.saltlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.saltlen; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.iterations = atou(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.masterkeylen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.masterkeylen; i++)
 		cs.masterkey[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.plaintextlen = atou(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.ivlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.ivlen; i++)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.cryptextlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.cryptextlen; i++)
 		cs.cryptext[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.expectedhmaclen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.expectedhmaclen; i++)
 		cs.expectedhmac[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 		cs.hmacdatalen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.hmacdatalen; i++)
 		cs.hmacdata[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -303,7 +309,7 @@ static int ckcdecrypt(unsigned char *key)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -366,11 +372,11 @@ static int cmp_exact(char *source, int index)
 
 static void cloud_keychain_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -412,7 +418,7 @@ struct fmt_main fmt_cloud_keychain = {
 		cloud_keychain_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

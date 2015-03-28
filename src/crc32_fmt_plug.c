@@ -21,6 +21,7 @@
  *
  *  The 2nd 8 hex value is what we are looking for.
  *
+ * If you want alternate plaintexts, run with --keep-guessing option.
  */
 
 #if FMT_EXTERNS_H
@@ -83,8 +84,16 @@ static void init(struct fmt_main *self)
 	self->params.max_keys_per_crypt *= (n*OMP_SCALE);
 #endif
 	//printf("Using %u x %u = %u keys per crypt\n", MAX_KEYS_PER_CRYPT, n, self->params.max_keys_per_crypt);
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crcs = mem_calloc_tiny(sizeof(*crcs) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crcs      = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crcs));
+}
+
+static void done(void)
+{
+	MEM_FREE(crcs);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -122,7 +131,7 @@ static int get_hash_4(int index) { return crcs[index] & 0xfffff; }
 static int get_hash_5(int index) { return crcs[index] & 0xffffff; }
 static int get_hash_6(int index) { return crcs[index] & 0x7ffffff; }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static ARCH_WORD_32 *out;
 	if (!out)
@@ -134,7 +143,7 @@ static void *binary(char *ciphertext)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static ARCH_WORD_32 *out;
 	if (!out)
@@ -177,7 +186,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i;
 #ifdef _OPENMP
 #pragma omp parallel for private(i)
@@ -231,20 +240,20 @@ struct fmt_main fmt_crc32 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_NOT_EXACT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

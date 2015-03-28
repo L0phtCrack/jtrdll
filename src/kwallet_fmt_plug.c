@@ -77,10 +77,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked = mem_calloc(self->params.max_keys_per_crypt,
+	                     sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -92,10 +98,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 9;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* ctlen */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* ctlen */
 		goto err;
 	res = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)	/* ct */
+	if (!res)
+		goto err;
+	if ((p = strtokm(NULL, "$")) == NULL)	/* ct */
 		goto err;
 	if(strlen(p) != res * 2)
 		goto err;
@@ -113,11 +121,11 @@ static void *get_salt(char *ciphertext)
 	char *keeptr = ctcopy;
 	int i;
 	char *p;
-	ctcopy += 9;	/* skip over "$kwallet$*" */
+	ctcopy += 9;	/* skip over "$kwallet$" */
 	cur_salt = mem_calloc_tiny(sizeof(struct custom_salt), MEM_ALIGN_WORD);
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cur_salt->ctlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cur_salt->ctlen; i++)
 		cur_salt->ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -239,7 +247,7 @@ static int verify_passphrase(char *passphrase)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -277,11 +285,11 @@ static int cmp_exact(char *source, int index)
 
 static void kwallet_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -311,7 +319,7 @@ struct fmt_main fmt_kwallet = {
 		kwallet_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

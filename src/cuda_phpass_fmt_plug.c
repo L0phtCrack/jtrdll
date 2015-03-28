@@ -104,9 +104,11 @@ static void init(struct fmt_main *self)
 {
 	///Allocate memory for hashes and passwords
 	inbuffer =
-	    (uint8_t *) mem_calloc(MAX_KEYS_PER_CRYPT * sizeof(phpass_password));
+		(uint8_t *) mem_calloc(MAX_KEYS_PER_CRYPT,
+		                       sizeof(phpass_password));
 	outbuffer =
-	    (phpass_crack *) mem_calloc(MAX_KEYS_PER_CRYPT * sizeof(phpass_crack));
+		(phpass_crack *) mem_calloc(MAX_KEYS_PER_CRYPT,
+		                            sizeof(phpass_crack));
 	check_mem_allocation(inbuffer, outbuffer);
 	///Initialize CUDA
 	cuda_init();
@@ -164,14 +166,14 @@ static void pbinary(char *ciphertext, unsigned char *out)
 	out[bidx] |= (sixbits << 6);
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static unsigned char b[BINARY_SIZE];
 	pbinary(ciphertext, b);
 	return (void *) b;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static phpass_salt salt;
 	salt.rounds = 1 << atoi64[ARCH_INDEX(ciphertext[3])];
@@ -269,8 +271,8 @@ struct fmt_main fmt_cuda_phpass = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

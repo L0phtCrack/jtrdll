@@ -14,19 +14,9 @@
  * 3. http://en.wikipedia.org/wiki/MD4  */
 
 #include "opencl_device_info.h"
+#define AMD_PUTCHAR_NOCAST
+#include "opencl_misc.h"
 #include "opencl_mask.h"
-
-#if gpu_amd(DEVICE_INFO)
-#define USE_BITSELECT
-#endif
-
-/* Macros for reading/writing chars from int32's (from rar_kernel.cl) */
-#define GETCHAR(buf, index) (((uchar*)(buf))[(index)])
-#if gpu_amd(DEVICE_INFO) || no_byte_addressable(DEVICE_INFO)
-#define PUTCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << (((index) & 3) << 3))) + ((val) << (((index) & 3) << 3))
-#else
-#define PUTCHAR(buf, index, val) ((uchar*)(buf))[index] = (val)
-#endif
 
 /* The basic MD4 functions */
 #ifdef USE_BITSELECT
@@ -35,14 +25,18 @@
 #define F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
 #endif
 #define G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
-#define H(x, y, z)	((x) ^ (y) ^ (z))
+
+#define H(x, y, z)	(((x) ^ (y)) ^ (z))
+#define H2(x, y, z)	((x) ^ ((y) ^ (z)))
 
 /* The MD4 transformation for all three rounds. */
 #define STEP(f, a, b, c, d, x, s)	  \
 	(a) += f((b), (c), (d)) + (x); \
 	(a) = rotate((a), (uint)(s))
 
-inline void md4_encrypt(__private uint *hash, __private uint *W, uint len) {
+inline void md4_encrypt(__private uint *hash, __private uint *W, uint len)
+{
+
 	PUTCHAR(W, len, 0x80);
 	W[14] = len << 3;
 
@@ -69,7 +63,7 @@ inline void md4_encrypt(__private uint *hash, __private uint *W, uint len) {
 	STEP(F, hash[2], hash[3], hash[0], hash[1], W[14], 11);
 	STEP(F, hash[1], hash[2], hash[3], hash[0], W[15], 19);
 
-	/* Rounhash[3] 2 */
+	/* Round 2 */
 	STEP(G, hash[0], hash[1], hash[2], hash[3], W[0] + 0x5a827999, 3);
 	STEP(G, hash[3], hash[0], hash[1], hash[2], W[4] + 0x5a827999, 5);
 	STEP(G, hash[2], hash[3], hash[0], hash[1], W[8] + 0x5a827999, 9);
@@ -87,23 +81,23 @@ inline void md4_encrypt(__private uint *hash, __private uint *W, uint len) {
 	STEP(G, hash[2], hash[3], hash[0], hash[1], W[11] + 0x5a827999, 9);
 	STEP(G, hash[1], hash[2], hash[3], hash[0], W[15] + 0x5a827999, 13);
 
-	/* Rounhash[3] 3 */
+	/* Round 3 */
 	STEP(H, hash[0], hash[1], hash[2], hash[3], W[0] + 0x6ed9eba1, 3);
-	STEP(H, hash[3], hash[0], hash[1], hash[2], W[8] + 0x6ed9eba1, 9);
+	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[8] + 0x6ed9eba1, 9);
 	STEP(H, hash[2], hash[3], hash[0], hash[1], W[4] + 0x6ed9eba1, 11);
-	STEP(H, hash[1], hash[2], hash[3], hash[0], W[12] + 0x6ed9eba1, 15);
+	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[12] + 0x6ed9eba1, 15);
 	STEP(H, hash[0], hash[1], hash[2], hash[3], W[2] + 0x6ed9eba1, 3);
-	STEP(H, hash[3], hash[0], hash[1], hash[2], W[10] + 0x6ed9eba1, 9);
+	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[10] + 0x6ed9eba1, 9);
 	STEP(H, hash[2], hash[3], hash[0], hash[1], W[6] + 0x6ed9eba1, 11);
-	STEP(H, hash[1], hash[2], hash[3], hash[0], W[14] + 0x6ed9eba1, 15);
+	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[14] + 0x6ed9eba1, 15);
 	STEP(H, hash[0], hash[1], hash[2], hash[3], W[1] + 0x6ed9eba1, 3);
-	STEP(H, hash[3], hash[0], hash[1], hash[2], W[9] + 0x6ed9eba1, 9);
+	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[9] + 0x6ed9eba1, 9);
 	STEP(H, hash[2], hash[3], hash[0], hash[1], W[5] + 0x6ed9eba1, 11);
-	STEP(H, hash[1], hash[2], hash[3], hash[0], W[13] + 0x6ed9eba1, 15);
+	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[13] + 0x6ed9eba1, 15);
 	STEP(H, hash[0], hash[1], hash[2], hash[3], W[3] + 0x6ed9eba1, 3);
-	STEP(H, hash[3], hash[0], hash[1], hash[2], W[11] + 0x6ed9eba1, 9);
+	STEP(H2, hash[3], hash[0], hash[1], hash[2], W[11] + 0x6ed9eba1, 9);
 	STEP(H, hash[2], hash[3], hash[0], hash[1], W[7] + 0x6ed9eba1, 11);
-	STEP(H, hash[1], hash[2], hash[3], hash[0], W[15] + 0x6ed9eba1, 15);
+	STEP(H2, hash[1], hash[2], hash[3], hash[0], W[15] + 0x6ed9eba1, 15);
 }
 
 inline void cmp(uint gid,

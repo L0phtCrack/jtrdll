@@ -29,7 +29,11 @@ john_register_one(&fmt_eigrp);
 // 64k  - 16106k/14700k
 // 64k  - 16674k/14674k
 // 128k - 17795k/14663k  --test=0 has a tiny delay, but not bad.
+#ifdef __MIC__
+#define OMP_SCALE 32768
+#else
 #define OMP_SCALE 131072
+#endif
 #endif
 
 #include "arch.h"
@@ -94,12 +98,19 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -112,26 +123,26 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ptrkeep = strdup(ciphertext);
 	p = &ptrkeep[TAG_LENGTH];
 
-	if ((p = strtok(p, "$")) == NULL)
+	if ((p = strtokm(p, "$")) == NULL)
 		goto err;
 	res = atoi(p);
 
 	if (res != 2 && res != 3)  // MD5 hashes + HMAC-SHA256 hashes
 		goto err;
 
-	if ((p = strtok(NULL, "$")) == NULL)	// salt
+	if ((p = strtokm(NULL, "$")) == NULL)	// salt
 		goto err;
 	if (strlen(p) > MAX_SALT_SIZE*2)
 		goto err;
 	if (!ishex(p))
 		goto err;
 
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	res = atoi(p);
 	if (p[1] || res > 1)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	// salt2 (or a junk field)
+	if ((p = strtokm(NULL, "$")) == NULL)	// salt2 (or a junk field)
 		goto err;
 	if (res == 1) {
 		// we only care about extra salt IF that number was a 1
@@ -141,16 +152,16 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 	}
 
-	if ((p = strtok(NULL, "$")) == NULL)	// binary hash (or IP)
+	if ((p = strtokm(NULL, "$")) == NULL)	// binary hash (or IP)
 		goto err;
 	if (!strcmp(p, "1")) {	// this was an IP
-		if ((p = strtok(NULL, "$")) == NULL)	// IP
+		if ((p = strtokm(NULL, "$")) == NULL)	// IP
 			goto err;
 		// not doing too much IP validation. Length will have to do.
 		// 5 char ip 'could' be 127.1  I know of no short IP. 1.1.1.1 is longer.
 		if (strlen(p) < 5 || strlen(p) > sizeof(cur_salt->ip))
 			goto err;
-		if ((p = strtok(NULL, "$")) == NULL)	// ok, now p is binary.
+		if ((p = strtokm(NULL, "$")) == NULL)	// ok, now p is binary.
 			goto err;
 	}
 	res = strlen(p);
@@ -257,7 +268,7 @@ static unsigned char zeropad[16] = {0};
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -357,7 +368,7 @@ struct fmt_main fmt_eigrp = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

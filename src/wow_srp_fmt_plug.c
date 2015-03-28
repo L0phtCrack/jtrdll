@@ -142,10 +142,12 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	pSRP_CTX = mem_calloc_tiny(sizeof(*pSRP_CTX) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+	pSRP_CTX  = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*pSRP_CTX));
 
 	for (i = 0; i < self->params.max_keys_per_crypt; ++i) {
 #ifdef HAVE_LIBGMP
@@ -167,6 +169,13 @@ static void init(struct fmt_main *self)
 		pSRP_CTX[i].BN_ctx = BN_CTX_new();
 #endif
 	}
+}
+
+static void done(void)
+{
+	MEM_FREE(pSRP_CTX);
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -294,7 +303,7 @@ static void *get_binary(char *ciphertext)
 	return out.b;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static union {
 		unsigned char b[SALT_SIZE];
@@ -371,7 +380,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int j;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -490,13 +499,13 @@ struct fmt_main fmt_blizzard = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid,
 		split,
 		get_binary,
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

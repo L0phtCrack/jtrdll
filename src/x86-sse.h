@@ -3,7 +3,6 @@
  * Copyright (c) 1996-2002,2005,2006,2008,2010,2011,2013 by Solar Designer
  *
  * ...with changes in the jumbo patch for mingw and MSC, by JimF.
- * ...and introduction of MMX_TYPE and MMX_COEF by Simon Marechal.
  * ...and NT_SSE2 by Alain Espinosa.
  * ...and various little things by magnum
  *
@@ -267,12 +266,29 @@
 #endif
 #endif
 
-#define MMX_TYPE			" SSE2"
-#define MMX_COEF			4
+#define SIMD_TYPE_STR			" SSE2"
 
 #define NT_SSE2
 
-#define MMX_COEF_SHA256 4
-#define MMX_COEF_SHA512 2
+#define SIMD_COEF_32 4
+#define SIMD_COEF_64 2
+
+// SIMD_COEF32_BITS can be used instead of division. So  buffer[(size)>>SIMD_COEF32_BITS]
+// would be same as buffer[(size)/SIMD_COEF_32] but without the division
+#if (SIMD_COEF_32==4)
+#define SIMD_COEF32_BITS 2
+#elif (SIMD_COEF_32==8)
+#define SIMD_COEF32_BITS 3
+#elif (SIMD_COEF_32==16)
+#define SIMD_COEF32_BITS 4
+#endif
+
+#if (SIMD_COEF_64==2)
+#define SIMD_COEF64_BITS 1
+#elif (SIMD_COEF_64==4)
+#define SIMD_COEF64_BITS 2
+#elif (SIMD_COEF_64==8)
+#define SIMD_COEF64_BITS 3
+#endif
 
 #endif

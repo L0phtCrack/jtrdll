@@ -185,8 +185,9 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 #endif
 
 	/* Initial hash of password */
+#if PLAINTEXT_LENGTH > 27
 	md5_init(md5);
-
+#endif
 #if PLAINTEXT_LENGTH > 31
 	if (len > 31) {
 		for (i = 0; i < 32; i += 2)
@@ -226,7 +227,11 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 			PUTSHORT(W, i, 0);
 		W[14] = len << 4;
 		W[15] = 0;
+#if PLAINTEXT_LENGTH > 27
 		md5_block(W, md5);
+#else
+		md5_single(W, md5);
+#endif
 	}
 
 	for (i = 0; i < 4; i++)
@@ -376,6 +381,11 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 {
 	uint i;
 	uint gid = get_global_id(0);
+	uint A, B, C, D, E, temp;
+#if PLAINTEXT_LENGTH > 27
+	/* Silly AMD bug workaround */
+	uint a, b, c, d, e;
+#endif
 	uint W[64/4];
 	uint verifier[32/4];
 	uint sha1[20/4];
@@ -387,7 +397,9 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 #endif
 
 	/* Initial hash of salt.password */
+#if PLAINTEXT_LENGTH > (27 - 8)
 	sha1_init(key);
+#endif
 	for (i = 0; i < 4; i++)
 		W[i] = SWAP32(cs->salt[i]);
 #if PLAINTEXT_LENGTH > (31 - 8)
@@ -433,10 +445,13 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 		for (i = len + 1; i < 30; i++)
 			PUTSHORT_BE(W, i, 0);
 		W[15] = len << 4;
+#if PLAINTEXT_LENGTH > (27 - 8)
 		sha1_block(W, key);
+#else
+		sha1_single(W, key);
+#endif
 	}
 
-	sha1_init(sha1);
 	for (i = 0; i < 5; i++)
 		W[i] = key[i];
 	W[5] = 0;
@@ -444,7 +459,7 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 	for (i = 7; i < 15; i++)
 		W[i] = 0;
 	W[15] = 24 << 3;
-	sha1_block(W, sha1);
+	sha1_single(W, sha1);
 
 	sha1[0] = SWAP32(sha1[0]);
 	sha1[1] = SWAP32(sha1[1]);
@@ -478,8 +493,7 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 		for (i = 5; i < 15; i++)
 			W[i] = 0;
 		W[15] = 16 << 3;
-		sha1_init(key);
-		sha1_block(W, key);
+		sha1_single(W, key);
 
 		verifier[0] = SWAP32(key[0]);
 		verifier[1] = SWAP32(key[1]);

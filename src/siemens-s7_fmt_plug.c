@@ -36,6 +36,7 @@ john_register_one(&fmt_s7);
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	0
 #define PLAINTEXT_LENGTH	125
+#define CIPHERTEXT_LENGTH	(1 + 10 + 1 + 1 + 1 + 40 + 1 + 40)
 #define BINARY_SIZE		20
 #define SALT_SIZE		20
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
@@ -65,12 +66,22 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_SIMD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	ipad_ctx = mem_calloc_tiny(sizeof(*opad_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	opad_ctx = mem_calloc_tiny(sizeof(*opad_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+	ipad_ctx  = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*ipad_ctx));
+	opad_ctx  = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*opad_ctx));
+}
+
+static void done(void)
+{
+	MEM_FREE(opad_ctx);
+	MEM_FREE(ipad_ctx);
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -78,26 +89,45 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *p;
 	char *ctcopy;
 	char *keeptr;
-	int outcome;
 	if (strncmp(ciphertext, "$siemens-s7$", 12) != 0)
+		return 0;
+	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 12;		/* skip over "$siemens-s7$" */
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* outcome */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* outcome, currently unused */
 		goto bail;
-	outcome = atoi(p);
-	if (outcome != 1 && outcome != 0)
+	if (strlen(p) != 1 || (*p != '1' && *p != '0')) /* outcome must be '1' or '0' */
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL)	/* challenge */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* challenge */
 		goto bail;
-	if (strlen(p) != 40)
+	if (strlen(p) != 40 || !ishexlc(p))     /* must be hex string and lower cases*/
+		goto bail;
+	if ((p = strtokm(NULL, "$")) == NULL)	/* Fix bug: #1090 */
+		goto bail;
+	if (strlen(p) != 40 || !ishexlc(p))
 		goto bail;
 	MEM_FREE(keeptr);
 	return 1;
 bail:
 	MEM_FREE(keeptr);
 	return 0;
+}
+
+/*
+ * Hash versions '0' and '1' were exactly the same.
+ * Version '0' is still supported for backwards compatibility,
+ * but version '1' is used as the canonical hash representation
+ */
+static char *split(char *ciphertext, int index, struct fmt_main *self)
+{
+	static char out[CIPHERTEXT_LENGTH+1];
+
+	strnzcpy(out, ciphertext, CIPHERTEXT_LENGTH+1);
+	if( out[12] == '0')
+		out[12] = '1';
+	return out;
 }
 
 static void *get_salt(char *ciphertext)
@@ -108,8 +138,8 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static unsigned char lchallenge[20];
 	ctcopy += 12;		/* skip over "$siemens-s7$" */
-	p = strtok(ctcopy, "$");
-	p = strtok(NULL, "$");
+	p = strtokm(ctcopy, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < 20; i++)
 		lchallenge[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -152,7 +182,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -219,17 +249,29 @@ static int cmp_exact(char *source, int index)
 
 static void s7_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 	new_keys = 1;
 }
 
 static char *get_key(int index)
 {
 	return saved_key[index];
+}
+
+static int salt_hash(void *salt)
+{
+    unsigned char *s = salt;
+    unsigned int hash = 5381;
+    unsigned int len = SALT_SIZE;
+
+    while (len--)
+        hash = ((hash << 5) + hash) ^ *s++;
+
+    return hash & (SALT_HASH_SIZE - 1);
 }
 
 struct fmt_main fmt_s7 = {
@@ -254,11 +296,11 @@ struct fmt_main fmt_s7 = {
 		s7_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
-		fmt_default_split,
+		split,
 		get_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
@@ -274,7 +316,7 @@ struct fmt_main fmt_s7 = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		NULL,
 		set_salt,
 		s7_set_key,

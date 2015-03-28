@@ -45,7 +45,7 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"RAR5"
 #define FORMAT_NAME		""
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
 #if ARCH_BITS >= 64
@@ -60,7 +60,7 @@ static int omp_t = 1;
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
 #define SALT_ALIGN		sizeof(int)
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #else
@@ -90,7 +90,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -137,27 +137,17 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static void rar5_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
 {
 	return saved_key[index];
 }
-
-#if FMT_MAIN_VERSION > 11
-static unsigned int iteration_count(void *salt)
-{
-	struct custom_salt *my_salt;
-
-	my_salt = salt;
-	return my_salt->iterations;
-}
-#endif
 
 struct fmt_main fmt_rar5 = {
 	{

@@ -24,7 +24,11 @@ john_register_one(&fmt_pst);
 #include "pkzip.h"  // includes the 'inline' crc table.
 #ifdef _OPENMP
 #include <omp.h>
+#ifdef __MIC__
+#define OMP_SCALE               1024
+#else
 #define OMP_SCALE               16384 // core i7 no HT
+#endif
 static int omp_t = 1;
 #endif
 #include "memdbg.h"
@@ -65,9 +69,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -107,7 +118,7 @@ static int cmp_exact(char *source, int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i;
 
 #ifdef _OPENMP
@@ -167,7 +178,7 @@ struct fmt_main fmt_pst = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

@@ -73,9 +73,9 @@ static void done(void)
 
 static void init(struct fmt_main *self)
 {
-        host_pass = mem_calloc(KEYS_PER_CRYPT * sizeof(pwsafe_pass));
-        host_hash = mem_calloc(KEYS_PER_CRYPT * sizeof(pwsafe_hash));
-        host_salt = mem_calloc(sizeof(pwsafe_salt));
+	host_pass = mem_calloc(KEYS_PER_CRYPT, sizeof(pwsafe_pass));
+	host_hash = mem_calloc(KEYS_PER_CRYPT, sizeof(pwsafe_hash));
+	host_salt = mem_calloc(1, sizeof(pwsafe_salt));
 	cuda_init();
 }
 
@@ -90,21 +90,21 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 9;		/* skip over "$pwsafe$*" */
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* version */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* version */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) < 64)
 		goto err;
 	if (strspn(p, "0123456789abcdef") != 64)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != 64)
 		goto err;
@@ -126,15 +126,15 @@ static void *get_salt(char *ciphertext)
         pwsafe_salt *salt_struct =
             mem_alloc_tiny(sizeof(pwsafe_salt), MEM_ALIGN_WORD);
 	ctcopy += 9;            /* skip over "$pwsafe$*" */
-        p = strtok(ctcopy, "*");
+        p = strtokm(ctcopy, "*");
         salt_struct->version = atoi(p);
-        p = strtok(NULL, "*");
+        p = strtokm(NULL, "*");
         for (i = 0; i < 32; i++)
                 salt_struct->salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
                     + atoi16[ARCH_INDEX(p[i * 2 + 1])];
-        p = strtok(NULL, "*");
+        p = strtokm(NULL, "*");
         salt_struct->iterations = (unsigned int) atoi(p);
-        p = strtok(NULL, "*");
+        p = strtokm(NULL, "*");
         for (i = 0; i < 32; i++)
                 salt_struct->hash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
                     + atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -153,7 +153,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 
         gpu_pwpass(host_pass, host_salt, host_hash, count);
         return count;
@@ -182,9 +182,9 @@ static int cmp_exact(char *source, int index)
 
 static void pwsafe_set_key(char *key, int index)
 {
-        int saved_key_length = MIN(strlen(key), PLAINTEXT_LENGTH);
-        memcpy(host_pass[index].v, key, saved_key_length);
-        host_pass[index].length = saved_key_length;
+        int saved_len = MIN(strlen(key), PLAINTEXT_LENGTH);
+        memcpy(host_pass[index].v, key, saved_len);
+        host_pass[index].length = saved_len;
 }
 
 static char *get_key(int index)

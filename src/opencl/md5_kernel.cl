@@ -14,18 +14,7 @@
  * 4. http://en.wikipedia.org/wiki/MD5#Algorithm */
 
 #include "opencl_device_info.h"
-
-#if gpu_amd(DEVICE_INFO)
-#define USE_BITSELECT
-#endif
-
-/* Macros for reading/writing chars from int32's (from rar_kernel.cl) */
-#define GETCHAR(buf, index) (((uchar*)(buf))[(index)])
-#if gpu_amd(DEVICE_INFO) || no_byte_addressable(DEVICE_INFO)
-#define PUTCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << (((index) & 3) << 3))) + ((val) << (((index) & 3) << 3))
-#else
-#define PUTCHAR(buf, index, val) ((uchar*)(buf))[index] = (val)
-#endif
+#include "opencl_misc.h"
 
 /* The basic MD5 functions */
 #ifdef USE_BITSELECT
@@ -35,7 +24,8 @@
 #define F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
 #define G(x, y, z)	((y) ^ ((z) & ((x) ^ (y))))
 #endif
-#define H(x, y, z)	((x) ^ (y) ^ (z))
+#define H(x, y, z)	(((x) ^ (y)) ^ (z))
+#define H2(x, y, z)	((x) ^ ((y) ^ (z)))
 #define I(x, y, z)	((y) ^ ((x) | ~(z)))
 
 /* The MD5 transformation for all four rounds. */
@@ -43,9 +33,6 @@
 	(a) += f((b), (c), (d)) + (x) + (t); \
 	    (a) = rotate((a), (uint)(s)); \
 	    (a) += (b)
-
-/* some constants used below are passed with -D */
-//#define KEY_LENGTH (MD4_PLAINTEXT_LENGTH + 1)
 
 /* OpenCL kernel entry point. Copy key to be hashed from
  * global to local (thread) memory. Break the key into 16 32-bit (uint)
@@ -111,21 +98,21 @@ __kernel void md5(__global const uint *keys, __global const uint *index, __globa
 
 	/* Round 3 */
 	STEP(H, a, b, c, d, W[5], 0xfffa3942, 4);
-	STEP(H, d, a, b, c, W[8], 0x8771f681, 11);
+	STEP(H2, d, a, b, c, W[8], 0x8771f681, 11);
 	STEP(H, c, d, a, b, W[11], 0x6d9d6122, 16);
-	STEP(H, b, c, d, a, W[14], 0xfde5380c, 23);
+	STEP(H2, b, c, d, a, W[14], 0xfde5380c, 23);
 	STEP(H, a, b, c, d, W[1], 0xa4beea44, 4);
-	STEP(H, d, a, b, c, W[4], 0x4bdecfa9, 11);
+	STEP(H2, d, a, b, c, W[4], 0x4bdecfa9, 11);
 	STEP(H, c, d, a, b, W[7], 0xf6bb4b60, 16);
-	STEP(H, b, c, d, a, W[10], 0xbebfbc70, 23);
+	STEP(H2, b, c, d, a, W[10], 0xbebfbc70, 23);
 	STEP(H, a, b, c, d, W[13], 0x289b7ec6, 4);
-	STEP(H, d, a, b, c, W[0], 0xeaa127fa, 11);
+	STEP(H2, d, a, b, c, W[0], 0xeaa127fa, 11);
 	STEP(H, c, d, a, b, W[3], 0xd4ef3085, 16);
-	STEP(H, b, c, d, a, W[6], 0x04881d05, 23);
+	STEP(H2, b, c, d, a, W[6], 0x04881d05, 23);
 	STEP(H, a, b, c, d, W[9], 0xd9d4d039, 4);
-	STEP(H, d, a, b, c, W[12], 0xe6db99e5, 11);
+	STEP(H2, d, a, b, c, W[12], 0xe6db99e5, 11);
 	STEP(H, c, d, a, b, W[15], 0x1fa27cf8, 16);
-	STEP(H, b, c, d, a, W[2], 0xc4ac5665, 23);
+	STEP(H2, b, c, d, a, W[2], 0xc4ac5665, 23);
 
 	/* Round 4 */
 	STEP(I, a, b, c, d, W[0], 0xf4292244, 6);

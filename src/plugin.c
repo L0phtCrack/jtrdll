@@ -40,6 +40,7 @@
 #endif
 
 #include "plugin.h"
+#include "memory.h"
 #include "memdbg.h"
 
 /*
@@ -93,8 +94,12 @@ void register_dlls(
 	list_init(&cfg_list);
 	if (config_param) {
 		cfg_names = strdup(config_param);	/* so strtok can modify */
+		/*
+		 * XXX memory leak?!? in the strdup calls.
+		 * Also, looks like an infinite loop, or simply BUSTED code
+		 */
 		for (dll_name = strtok(strdup(cfg_names), ","); dll_name;
-			dll_name = strtok(0, ",")) {
+			dll_name = strtok(NULL, ",")) {
 			dll_name += strspn(dll_name, " \t");	/* skip whitespace */
 			if (*dll_name)
 				list_add(cfg_list, dll_name);
@@ -120,7 +125,7 @@ void register_dlls(
 	/*
          * Step through combined list and load files named.
          */
-	dll_handle = malloc(sizeof(void *) * (cfg_list->count + dll_list->count));
+	dll_handle = mem_alloc(sizeof(void *) * (cfg_list->count + dll_list->count));
 	ndx = 0;
 	for (; le; le = le->next) {
 

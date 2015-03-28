@@ -42,8 +42,8 @@ john_register_one(&fmt_cryptsha1);
 #define BENCHMARK_COMMENT           ""
 #define BENCHMARK_LENGTH            -1001
 
-#ifdef MMX_COEF
-#define ALGORITHM_NAME          "PBKDF1-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME          "PBKDF1-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME          "PBKDF1-SHA1 " ARCH_BITS_STR "/" ARCH_BITS_STR
 #endif
@@ -54,8 +54,8 @@ john_register_one(&fmt_cryptsha1);
 #define SALT_SIZE                   sizeof(struct saltstruct)
 #define SALT_ALIGN                  4
 
-#ifdef MMX_COEF
-#define MIN_KEYS_PER_CRYPT      MMX_COEF
+#ifdef SIMD_COEF_32
+#define MIN_KEYS_PER_CRYPT      SIMD_COEF_32
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -91,8 +91,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
@@ -121,7 +129,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -246,7 +254,7 @@ struct fmt_main fmt_cryptsha1 = {
 		sha1crypt_common_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		sha1crypt_common_valid,

@@ -68,6 +68,7 @@ typedef struct {
 
 static int *cracked;
 static int any_cracked;
+static struct fmt_main *self;
 
 static struct fmt_tests keychain_tests[] = {
 	{"$keychain$*10f7445c8510fa40d9ef6b4e0f8c772a9d37e449*f3d19b2a45cdcccb*8c3c3b1c7d48a24dad4ccbd4fd794ca9b0b3f1386a0a4527f3548bfe6e2f1001804b082076641bbedbc9f3a7c33c084b", "password"},
@@ -134,9 +135,9 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	settingsize = sizeof(keychain_salt);
 	cracked_size = sizeof(*cracked) * gws;
 
-	inbuffer = mem_calloc(insize);
+	inbuffer = mem_calloc(1, insize);
 	outbuffer = mem_alloc(outsize);
-	cracked = mem_calloc(cracked_size);
+	cracked = mem_calloc(1, cracked_size);
 
 	/// Allocate memory
 	mem_in =
@@ -179,9 +180,11 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DKEYLEN=%d -DSALTLEN=%d -DOUTLEN=%d",
@@ -193,14 +196,19 @@ static void init(struct fmt_main *self)
 
 	crypt_kernel = clCreateKernel(program[gpu_id], "derive_key", &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
+}
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 1, self, create_clobj, release_clobj,
-	                       sizeof(keychain_password), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1, self,
+		                       create_clobj, release_clobj,
+		                       sizeof(keychain_password), 0);
 
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000);
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, 0, 1000);
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -211,15 +219,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 11;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* salt */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
 	if(strlen(p) != SALTLEN * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
 	if(strlen(p) != IVLEN * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* ciphertext */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
 	if(strlen(p) != CTLEN * 2)
 		goto err;
@@ -242,15 +250,15 @@ static void *get_salt(char *ciphertext)
 	salt_struct = mem_calloc_tiny(sizeof(struct custom_salt),
 	                              MEM_ALIGN_WORD);
 	ctcopy += 11;	/* skip over "$keychain$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	for (i = 0; i < SALTLEN; i++)
 		salt_struct->salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < IVLEN; i++)
 		salt_struct->iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < CTLEN; i++)
 		salt_struct->ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -301,9 +309,9 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 	memcpy(key1, key, 8);
 	memcpy(key2, key + 8, 8);
 	memcpy(key3, key + 16, 8);
-	DES_set_key((C_Block *) key1, &ks1);
-	DES_set_key((C_Block *) key2, &ks2);
-	DES_set_key((C_Block *) key3, &ks3);
+	DES_set_key((DES_cblock *) key1, &ks1);
+	DES_set_key((DES_cblock *) key2, &ks2);
+	DES_set_key((DES_cblock *) key3, &ks3);
 	memcpy(ivec, iv, 8);
 	DES_ede3_cbc_encrypt(data, out, CTLEN, &ks1, &ks2, &ks3, &ivec,  DES_DECRYPT);
 
@@ -335,7 +343,7 @@ static void print_hex(unsigned char *str, int len)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -415,7 +423,7 @@ struct fmt_main fmt_opencl_keychain = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

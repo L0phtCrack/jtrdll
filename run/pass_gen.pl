@@ -61,30 +61,26 @@ my @funcs = (qw(DESCrypt BigCrypt BSDIcrypt md5crypt md5crypt_a BCRYPT BCRYPTx
 		mssql oracle oracle_no_upcase_change oracle11 hdaa netntlm_ess
 		openssha l0phtcrack netlmv2 netntlmv2 mschapv2 mscash2 mediawiki
 		crc_32 Dynamic dummy raw-sha224 raw-sha256 raw-sha384 raw-sha512
-		dragonfly3-32 dragonfly4-32 dragonfly3-64 dragonfly4-64 ssh
+		dragonfly3-32 dragonfly4-32 dragonfly3-64 dragonfly4-64
 		salted-sha1 raw_gost raw_gost_cp hmac-sha1 hmac-sha224 mozilla
 		hmac-sha256 hmac-sha384 hmac-sha512 sha1crypt sha256crypt sha512crypt
 		XSHA512 dynamic_27 dynamic_28 pwsafe django drupal7 epi zip
-		episerver_sha1 episerver_sha256 hmailserver ike keepass pkzip
-		keychain nukedclan pfx racf radmin raw-SHA sip SybaseASE vnc
+		episerver_sha1 episerver_sha256 hmailserver ike keepass
+		keychain nukedclan radmin raw-SHA sip SybaseASE
 		wbb3 wpapsk sunmd5 wowsrp django-scrypt aix-ssha1 aix-ssha256
-		aix-ssha512 pbkdf2-hmac-sha512 pbkdf2-hmac-sha256 scrypt pdf
+		aix-ssha512 pbkdf2-hmac-sha512 pbkdf2-hmac-sha256 scrypt
 		rakp osc formspring skey-md5 pbkdf2-hmac-sha1 odf odf-1 office_2007
 		skey-md4 skey-sha1 skey-rmd160 cloudkeychain agilekeychain
-		rar rar5 ecryptfs office_2010 office_2013 tc_ripemd160 tc_sha512
-		tc_whirlpool Haval-256 SAP-H rsvp pbkdf2-hmac-sha1-p5k2
+		rar ecryptfs office_2010 office_2013 tc_ripemd160 tc_sha512
+		tc_whirlpool SAP-H rsvp pbkdf2-hmac-sha1-p5k2
 		pbkdf2-hmac-sha1-pkcs5s2 md5crypt-smd5 ripemd-128 ripemd-160
 		raw-tiger raw-whirlpool hsrp known-hosts chap bb-es10 citrix-ns10
-		clipperz-srp dahua fortigate lp lastpass rawmd2 mdc2 mongodb mysqlna
+		clipperz-srp dahua fortigate lp lastpass rawmd2 mongodb mysqlna
 		o5logon postgres pst raw-blake2 raw-keccak raw-keccak256 siemens-s7
-		raw-skein-256 raw-skein-512 ssha512 tcp-md5 strip bitcoin sevenz afs
-		blockchain cq dmg dominosec efs eigrp encfs fde gpg haval-128 keyring
-		oldoffice openbsd-softraid openssl-enc openvms panama putty snefru-128
-		snefru-256 ssh-ng sxc sybase-prop tripcode vtp whirlpool0 whirlpool1
-		keystore krb4 krb5 krb5pa-sha1 kwallet luks ));
+		raw-skein-256 raw-skein-512 ssha512 tcp-md5 strip bitcoin blockchain
+	      ));
 
-
-# todo: sapb sapfg ike keepass cloudkeychain agilekeychain pfx racf vnc pdf pkzip rar5 ssh raw_gost_cp
+# todo: sapb sapfg ike keepass cloudkeychain pfx racf vnc pdf pkzip rar5 ssh raw_gost_cp cq dmg dominosec efs eigrp encfs fde gpg haval-128 Haval-256 keyring keystore krb4 krb5 krb5pa-sha1 kwallet luks pfx racf mdc2 sevenz afs ssh oldoffice openbsd-softraid openssl-enc openvms panama putty snefru-128 snefru-256 ssh-ng sxc sybase-prop tripcode vtp whirlpool0 whirlpool1
 my $i; my $h; my $u; my $salt;  my $out_username; my $out_extras; my $out_uc_pass; my $l0pht_fmt;
 my @chrAsciiText=('a'..'z','A'..'Z');
 my @chrAsciiTextLo=('a'..'z');
@@ -1359,7 +1355,7 @@ sub siemens_s7 {
 	$h = Digest::SHA::hmac_sha1($salt, sha1($_[1]));
 	$salt = unpack("H*",$salt);
 	$h = unpack("H*",$h);
-	return "\$siemens-s7\$\$1\$$salt\$$h";
+	return "\$siemens-s7\$1\$$salt\$$h";
 }
 sub ssha512 {
 	$salt = get_salt(8, -16);
@@ -1540,7 +1536,7 @@ sub chap {
 	$salt = get_salt(16);
 	my $h = md5("\0" . $_[1] . $salt);
 	$salt = unpack("H*",$salt);
-	$h = unpack("H*",$h); 
+	$h = unpack("H*",$h);
 	return "\$chap\$0*$salt*$h";
 }
 sub fortigate {
@@ -1690,22 +1686,58 @@ sub ike {
 sub cloudkeychain {
 }
 sub agilekeychain {
+	my $nkeys=1;
+	my $iterations=1000;
+	my $salt=get_salt(8);
+	my $iv=get_iv(16);
+	my $dat=randstr(1040-32); # not sure what would be here, but JtR does not do anything with it.
+	$dat .= $iv;
+	my $key = pp_pbkdf2($_[1], $salt, $iterations,"sha1",16, 64);
+	require Crypt::OpenSSL::AES;
+	require Crypt::CBC;
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $h = $crypt->encrypt("\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10");
+	$dat .= substr($h,0,16);
+
+	return "\$agilekeychain\$$nkeys*$iterations*8*".unpack("H*", $salt)."*1040*".unpack("H*", $dat)."*".unpack("H*", $key);
 }
 sub mdc2 {
 }
 sub bitcoin {
-#	my $cry_master; my $cry_salt; my $cry_rounds; my $ckey; my $public_key;
-#	$cry_salt = get_salt(16);
-#	$h = sha512($_[1] . $cry_salt);
-#	for (my $i = 1; $i < $cry_rounds; $i++) {
-#		$h = sha512($h);
-#	}
+	my $master; my $rounds; # my $ckey; my $public_key;
+	$master = pack("H*", "0e34a996b1ce8a1735bba1acf6d696a43bc6730b5c41224206c93006f14f951410101010101010101010101010101010");
+	$salt = get_salt(8);
+	#$rounds = 177864;
+	$rounds = 20000;		# very SMALL number of rounds as default.
+	$h = sha512($_[1] . $salt);
+	for (my $i = 1; $i < $rounds; $i++) {
+		$h = sha512($h);
+	}
+	require Crypt::OpenSSL::AES;
+	require Crypt::CBC;
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => substr($h,0,32), -keysize => 32, -iv => substr($h,32,16), -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	return '$bitcoin$96$'.substr(unpack("H*", $crypt->encrypt($master)),0,96).'$16$'.unpack("H*", $salt).'$'.$rounds.'$2$00$2$00';
 }
 sub sevenz {
 }
 sub afs {
 }
 sub blockchain {
+	my $unenc = "{\n{\t\"guid\" : \"246093c1-de47-4227-89be-".randstr(12,\@chrHexLo)."\",\n\t\"sharedKey\" : \"fccdf579-707c-46bc-9ed1-".randstr(12,\@chrHexLo)."\",\n\t";
+	$unenc .= "\"options\" : {\"pbkdf2_iterations\":10,\"fee_policy\":0,\"html5_notifications\":false,\"logout_time\":600000,\"tx_display\":0,\"always_keep_local_backup\":false},\n\t";
+	$unenc .= "\"keys\" : [\n\t{\"addr\" : \"156yFScjeoMCvPnNji2UiztuVuYL2MY16Z\",\n\t \"priv\" : \"DNDjMS2CsrKE8kXhwkZawbou56fJECiGCqNEzZbwgxSJ\"}\n\t]\n}";
+	my $len = length($unenc);
+	$len = floor(($len+15)/16);
+	$len *= 16;
+	my $data;
+	my $iv = get_salt(16);
+	my $key = pp_pbkdf2($_[1], $iv, 10,"sha1",32, 64);
+	require Crypt::OpenSSL::AES;
+	require Crypt::CBC;
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 32, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $h = $crypt->encrypt($unenc);
+	$data = $iv.substr($h,0,$len);
+	return '$blockchain$'.length($data).'$'.unpack("H*", $data);
 }
 sub cq {
 }
@@ -2349,13 +2381,13 @@ sub _sha_crypts {
 	return $tmp;
 }
 sub sha256crypt {
-	$salt = get_salt(16);
+	$salt = get_salt(-16);
 	my $bin = _sha_crypts(\&sha256, 256, $_[1], $salt);
 	if ($arg_loops != -1) { return "\$5\$rounds=${arg_loops}\$$salt\$$bin"; }
 	return "\$5\$$salt\$$bin";
 }
 sub sha512crypt {
-	$salt = get_salt(16);
+	$salt = get_salt(-16);
 	my $bin = _sha_crypts(\&sha512, 512, $_[1], $salt);
 	if ($arg_loops != -1) { return "\$6\$rounds=${arg_loops}\$$salt\$$bin" }
 	return "\$6\$$salt\$$bin";
@@ -2394,7 +2426,7 @@ sub ipb2 {
 }
 sub phps {
 	$salt = get_salt(3);
-	return "\$PHPS\$".unpack("H*",$salt)."\$", md5_hex(md5_hex($_[1]), $salt);
+	return "\$PHPS\$".unpack("H*",$salt)."\$".md5_hex(md5_hex($_[1]),$salt);
 }
 sub md4p {
 	$salt = get_salt(8);
@@ -2974,7 +3006,7 @@ sub pad_md64 {
 }
 
 sub dynamic_17 { #dynamic_17 --> phpass ($P$ or $H$)	phpass
-	if (defined $argsalt) { $salt = md5_hex($argsalt); } else { $salt=randstr(8); }
+	$salt=get_salt(8);
 	my $h = PHPass_hash($_[1], 11, $salt);
 	return "\$dynamic_17\$".substr(base64i($h),0,22)."\$".to_phpbyte(11).$salt;
 }
@@ -3250,6 +3282,7 @@ sub dynamic_compile {
 			$dynamic_args==1030 && do {$fmt='trunc32(whirlpool($p))';	last SWITCH; };
 			$dynamic_args==1031 && do {$fmt='trunc32(gost($p))';	last SWITCH; };
 			$dynamic_args==1032 && do {$fmt='sha1_64(utf16($p))';	last SWITCH; };
+			$dynamic_args==1033 && do {$fmt='sha1_64(utf16($p).$s)';	last SWITCH; };
 			$dynamic_args==1300 && do {$fmt='md5(md5_raw($p))';	last SWITCH; };
 			$dynamic_args==1350 && do {$fmt='md5(md5($s.$p).$c1.$s),saltlen=2,const1=:';	last SWITCH; };
 			$dynamic_args==1400 && do {$fmt='sha1u($p)';	last SWITCH; };

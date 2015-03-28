@@ -111,6 +111,7 @@ static dmg_password *inbuffer;
 static dmg_hash *outbuffer;
 static dmg_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
+static struct fmt_main *self;
 
 size_t insize, outsize, settingsize, cracked_size;
 
@@ -235,9 +236,9 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	settingsize = sizeof(dmg_salt);
 	cracked_size = sizeof(*cracked) * gws;
 
-	inbuffer = mem_calloc(insize);
+	inbuffer = mem_calloc(1, insize);
 	outbuffer = mem_alloc(outsize);
-	cracked = mem_calloc(cracked_size);
+	cracked = mem_calloc(1, cracked_size);
 
 	/// Allocate memory
 	mem_in =
@@ -280,9 +281,11 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DKEYLEN=%d -DSALTLEN=%d -DOUTLEN=%d",
@@ -294,14 +297,19 @@ static void init(struct fmt_main *self)
 
 	crypt_kernel = clCreateKernel(program[gpu_id], "derive_key", &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
+}
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 1, self, create_clobj, release_clobj,
-	                       sizeof(dmg_password), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1, self,
+		                       create_clobj, release_clobj,
+		                       sizeof(dmg_password), 0);
 
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000);
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, 0, 1000);
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -316,83 +324,83 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 5;	/* skip over "$dmg$" marker */
-	if ((p = strtok(ctcopy, "*")) == NULL)
+	if ((p = strtokm(ctcopy, "*")) == NULL)
 		goto err;
 	headerver = atoi(p);
 	if (headerver == 2) {
-		if ((p = strtok(NULL, "*")) == NULL)	/* salt len */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* salt len */
 			goto err;
 		res = atoi(p);
 		if (res > 20)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* ivlen */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* ivlen */
 			goto err;
 		res = atoi(p);
 		if (atoi(p) > 32)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* encrypted_keyblob_size */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* encrypted_keyblob_size */
 			goto err;
 		res = atoi(p);
 		if (res > 128)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* encrypted keyblob */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* encrypted keyblob */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* chunk number */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* chunk number */
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* data_size */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* data_size */
 			goto err;
 		res = atoi(p);
-		if ((p = strtok(NULL, "*")) == NULL)	/* chunk */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* chunk */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
 		if (res > 8192)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* scp */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* scp */
 			goto err;
 		res = atoi(p);
 		if (res == 1) {
-			if ((p = strtok(NULL, "*")) == NULL)	/* zchunk */
+			if ((p = strtokm(NULL, "*")) == NULL)	/* zchunk */
 				goto err;
 			if (strlen(p) != 4096 * 2)
 				goto err;
 		}
 	}
 	else if (headerver == 1) {
-		if ((p = strtok(NULL, "*")) == NULL)	/* salt len */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* salt len */
 			goto err;
 		res = atoi(p);
 		if (res > 20)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* len_wrapped_aes_key */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* len_wrapped_aes_key */
 			goto err;
 		res = atoi(p);
 		if (res > 296)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* wrapped_aes_key  */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* wrapped_aes_key  */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* len_hmac_sha1_key */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* len_hmac_sha1_key */
 			goto err;
 		res = atoi(p);
 		if (res > 300)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)	/* hmac_sha1_key */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* hmac_sha1_key */
 			goto err;
 		if (strlen(p) != res * 2)
 			goto err;
@@ -415,68 +423,68 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	static struct custom_salt cs;
 	ctcopy += 5;
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.headerver = atoi(p);
 	if (cs.headerver == 2) {
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.saltlen = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.saltlen; i++)
 			cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.ivlen = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.ivlen; i++)
 			cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.encrypted_keyblob_size = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.encrypted_keyblob_size; i++)
 			cs.encrypted_keyblob[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.cno = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.data_size = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.data_size; i++)
 			cs.chunk[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.scp = atoi(p);
 		if (cs.scp == 1) {
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			for (i = 0; i < 4096; i++)
 				cs.zchunk[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 					+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		}
-		if ((p = strtok(NULL, "*")))
+		if ((p = strtokm(NULL, "*")))
 			cs.iterations = atoi(p);
 		else
 			cs.iterations = 1000;
 	}
 	else {
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.saltlen = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.saltlen; i++)
 			cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.len_wrapped_aes_key = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.len_wrapped_aes_key; i++)
 			cs.wrapped_aes_key[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.len_hmac_sha1_key = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < cs.len_hmac_sha1_key; i++)
 			cs.wrapped_hmac_sha1_key[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		if ((p = strtok(NULL, "*")))
+		if ((p = strtokm(NULL, "*")))
 			cs.iterations = atoi(p);
 		else
 			cs.iterations = 1000;
@@ -736,7 +744,7 @@ static int hash_plugin_check_hash(unsigned char *derived_key)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -830,7 +838,7 @@ struct fmt_main fmt_opencl_dmg = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

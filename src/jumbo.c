@@ -262,7 +262,7 @@ int strcasecmp(char *dst, char *src) {
 		if ( ((l = (unsigned char)(*(src++))) >= 'A') && (l <= 'Z') )
 			l -= 'A' - 'a';
 	} while (f && (f==l));
-	return return(f - l);
+	return(f - l);
 }
 #endif
 
@@ -356,5 +356,14 @@ char *strrev(char *str) {
 		*p1 ^= *p2; *p2 ^= *p1; *p1 ^= *p2;
 	}
 	return str;
+}
+#endif
+
+#if AC_BUILT && !HAVE_STRNLEN
+size_t strnlen(const char *s, size_t max) {
+	const char *p=s;
+	while(*p && max--)
+		++p;
+	return(p - s);
 }
 #endif

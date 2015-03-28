@@ -73,7 +73,8 @@ static void init(struct fmt_main *self)
 {
 	//Allocate memory for hashes and passwords
 	inbuffer =
-	    (mscash2_password *) mem_calloc(MAX_KEYS_PER_CRYPT*sizeof(mscash2_password));
+		(mscash2_password *) mem_calloc(MAX_KEYS_PER_CRYPT,
+		                                sizeof(mscash2_password));
 	outbuffer =
 	    (mscash2_hash *) mem_alloc(MAX_KEYS_PER_CRYPT*sizeof(mscash2_hash));
 	check_mem_allocation(inbuffer, outbuffer);
@@ -96,7 +97,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return mscash2_valid(ciphertext, MAX_SALT_LENGTH, self);
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static uint32_t binary[4];
 	char *hash = strrchr(ciphertext, '#') + 1;
@@ -110,7 +111,7 @@ static void *binary(char *ciphertext)
 	return binary;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static mscash2_salt salt;
 	UTF8 insalt[3 * MAX_SALT_LENGTH + 1];
@@ -171,7 +172,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 
 	mscash2_gpu(inbuffer, outbuffer, &currentsalt, count);
 	return count;
@@ -281,8 +282,8 @@ struct fmt_main fmt_cuda_mscash2 = {
 		mscash2_prepare,
 		valid,
 		mscash2_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

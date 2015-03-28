@@ -34,7 +34,7 @@ john_register_one(&fmt_lastpass);
 
 #define FORMAT_LABEL		"lp"
 #define FORMAT_NAME		"LastPass offline"
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA256 32/" ARCH_BITS_STR
@@ -46,7 +46,7 @@ john_register_one(&fmt_lastpass);
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN		sizeof(ARCH_WORD_32)
 #define SALT_ALIGN			sizeof(int)
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #else
@@ -94,11 +94,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 4;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* email */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* email */
 		goto err;
 	if (strlen(p) > 32)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != 32)
 		goto err;
@@ -121,7 +121,7 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 4;	/* skip over "$lp$" */
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	strncpy((char*)cs.salt, p, 32);
 	cs.salt_length = strlen((char*)p);
 	MEM_FREE(keeptr);
@@ -161,7 +161,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -169,7 +169,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 	{
 		AES_KEY akey;
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		ARCH_WORD_32 key[MAX_KEYS_PER_CRYPT][8];
@@ -229,11 +229,11 @@ static int cmp_exact(char *source, int index)
 
 static void lastpass_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

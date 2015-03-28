@@ -96,6 +96,7 @@ static crack_t *host_crack;			      /** hash**/
 static cl_int cl_error;
 static cl_mem mem_in, mem_out, mem_salt, mem_state;
 static cl_kernel split_kernel;
+static struct fmt_main *self;
 
 static const char * warn[] = {
         "P xfer: "  ,  ", S xfer: "   , ", init: " , ", crypt: ",
@@ -124,9 +125,9 @@ static void create_clobj(size_t kpc, struct fmt_main *self)
 #define CLKERNELARG(kernel, id, arg, msg)\
 	HANDLE_CLERROR(clSetKernelArg(kernel, id, sizeof(arg), &arg), msg);
 
-	host_pass = mem_calloc(kpc * sizeof(pass_t));
-	host_crack = mem_calloc(kpc * sizeof(crack_t));
-	host_salt = mem_calloc(sizeof(salt_t));
+	host_pass = mem_calloc(kpc, sizeof(pass_t));
+	host_crack = mem_calloc(kpc, sizeof(crack_t));
+	host_salt = mem_calloc(1, sizeof(salt_t));
 
 	mem_in =
 		CLCREATEBUFFER(CL_RO, kpc * sizeof(pass_t),
@@ -187,9 +188,11 @@ static void release_clobj(void)
 	MEM_FREE(host_crack);
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%u",
@@ -205,17 +208,23 @@ static void init(struct fmt_main *self)
 	split_kernel =
 	    clCreateKernel(program[gpu_id], SPLIT_KERNEL_NAME, &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating split kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
-		warn, 3, self, create_clobj, release_clobj,
-		sizeof(state_t), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn,
+		                       3, self, create_clobj, release_clobj,
+		                       sizeof(state_t), 0);
 
-	//Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, ITERATIONS, 0,
-	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
-	self->methods.crypt_all = crypt_all;
+		//Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, ITERATIONS, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              1000000000 : 10000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static void done(void)
@@ -248,7 +257,7 @@ static void opencl_limit_gws(int count)
 
 static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	size_t gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -291,7 +300,8 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int i, count = *pcount;
+	int i;
+	const int count = *pcount;
 	int loops = host_salt->rounds / HASH_LOOPS;
 
 	loops += host_salt->rounds % HASH_LOOPS > 0;
@@ -344,10 +354,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = MIN(strlen(key), PLAINTEXT_LENGTH);
+	int saved_len = MIN(strlen(key), PLAINTEXT_LENGTH);
 
-	memcpy(host_pass[index].v, key, saved_key_length);
-	host_pass[index].length = saved_key_length;
+	memcpy(host_pass[index].v, key, saved_len);
+	host_pass[index].length = saved_len;
 #if 0
 	fprintf(stderr, "%s(%s)\n", __FUNCTION__, key);
 #endif
@@ -360,16 +370,6 @@ static char *get_key(int index)
 	ret[MIN(host_pass[index].length, PLAINTEXT_LENGTH)] = 0;
 	return ret;
 }
-
-#if FMT_MAIN_VERSION > 11
-static unsigned int iteration_count(void *salt)
-{
-	salt_t *my_salt;
-
-	my_salt = salt;
-	return (unsigned int)my_salt->rounds;
-}
-#endif
 
 struct fmt_main fmt_ocl_rar5 = {
 {
@@ -396,7 +396,7 @@ struct fmt_main fmt_ocl_rar5 = {
 }, {
 	init,
 	done,
-	fmt_default_reset,
+	reset,
 	fmt_default_prepare,
 	valid,
 	fmt_default_split,

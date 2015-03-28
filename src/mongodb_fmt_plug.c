@@ -28,7 +28,11 @@ john_register_one(&fmt_mongodb);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifdef __MIC__
+#define OMP_SCALE               512
+#else
 #define OMP_SCALE               16384	// Tuned on K8-dual HT
+#endif
 #endif
 #include "memdbg.h"
 
@@ -74,9 +78,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -91,26 +102,26 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	keeptr = ctcopy;
 	ctcopy += 9;
 
-	if (!(ptr = strtok(ctcopy, "$"))) /* type */
+	if (!(ptr = strtokm(ctcopy, "$"))) /* type */
 		goto error;
 	type = atoi(ptr);
 	if (type != 0 && type != 1)
 		goto error;
-	if (!(ptr = strtok(NULL, "$"))) /* username */
+	if (!(ptr = strtokm(NULL, "$"))) /* username */
 		goto error;
 	if (strlen(ptr) > 127)
 		goto error;
 	if (type == 0) {
-		if (!(ptr = strtok(NULL, "$"))) /* hash */
+		if (!(ptr = strtokm(NULL, "$"))) /* hash */
 			goto error;
 		if (strlen(ptr) != 32 || !ishex(ptr))
 			goto error;
 	} else {
-		if (!(ptr = strtok(NULL, "$"))) /* salt */
+		if (!(ptr = strtokm(NULL, "$"))) /* salt */
 			goto error;
 		if (strlen(ptr) != 16 || !ishex(ptr))
 			goto error;
-		if (!(ptr = strtok(NULL, "$"))) /* hash */
+		if (!(ptr = strtokm(NULL, "$"))) /* hash */
 			goto error;
 		if (strlen(ptr) != 32 || !ishex(ptr))
 			goto error;
@@ -131,13 +142,13 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 9;	/* skip over "$mongodb$*" */
-	p = strtok(ctcopy, "$");
+	ctcopy += 9;	/* skip over "$mongodb$" */
+	p = strtokm(ctcopy, "$");
 	cs.type = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	strcpy((char*)cs.username, p);
 	if (cs.type == 1) {
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		strcpy((char*)cs.salt, p);
 	}
 	MEM_FREE(keeptr);
@@ -189,7 +200,7 @@ static inline void hex_encode(unsigned char *str, int len, unsigned char *out)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -247,11 +258,11 @@ static int cmp_exact(char *source, int index)
 
 static void mongodb_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -297,7 +308,7 @@ struct fmt_main fmt_mongodb = {
 		mongodb_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

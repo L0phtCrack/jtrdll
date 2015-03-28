@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2013 by Solar Designer
+ * Copyright (c) 1996-2015 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JimF and magnum (and various others?)
  *
@@ -55,9 +55,21 @@
 #define _PER_NODE ""
 #endif
 #ifdef DEBUG
-#define DEBUG_STRING "-dbg"
+#define DEBUG_STRING "_dbg"
 #else
 #define DEBUG_STRING ""
+#endif
+#ifdef WITH_ASAN
+#define ASAN_STRING "_asan"
+#else
+#define ASAN_STRING ""
+#endif
+#if defined(MEMDBG_ON) && defined(MEMDBG_EXTRA_CHECKS)
+#define MEMDBG_STRING "_memdbg-ex"
+#elif defined(MEMDBG_ON)
+#define MEMDBG_STRING "_memdbg"
+#else
+#define MEMDBG_STRING ""
 #endif
 #ifdef HAVE_OPENCL
 #include "common-opencl.h"
@@ -87,7 +99,7 @@ static struct opt_entry opt_list[] = {
 	{"prince", FLG_PRINCE_SET, FLG_CRACKING_CHK,
 		0, 0, OPT_FMT_STR_ALLOC, &options.wordlist},
 	{"prince-loopback", FLG_PRINCE_SET | FLG_PRINCE_LOOPBACK | FLG_DUPESUPP,
-		FLG_CRACKING_CHK, 0, FLG_PRINCE_MMAP, OPT_FMT_STR_ALLOC,
+		FLG_CRACKING_CHK, 0, 0, OPT_FMT_STR_ALLOC,
 		&options.wordlist},
 	{"prince-elem-cnt-min", FLG_ZERO, 0, FLG_PRINCE_CHK,
 		OPT_REQ_PARAM, "%d", &prince_elem_cnt_min},
@@ -98,12 +110,14 @@ static struct opt_entry opt_list[] = {
 	{"prince-limit", FLG_ZERO, 0, FLG_PRINCE_CHK,
 		0, OPT_FMT_STR_ALLOC, &prince_limit_str},
 	{"prince-wl-dist-len", FLG_PRINCE_DIST, 0, FLG_PRINCE_CHK, 0},
+	{"prince-wl-max", FLG_ZERO, 0, FLG_PRINCE_CHK,
+		OPT_REQ_PARAM, "%d", &prince_wl_max},
 	{"prince-case-permute", FLG_PRINCE_CASE_PERMUTE, 0,
 		FLG_PRINCE_CHK, FLG_PRINCE_MMAP},
 	{"prince-keyspace", FLG_PRINCE_KEYSPACE | FLG_STDOUT, 0,
 		FLG_PRINCE_CHK, 0},
 	{"prince-mmap", FLG_PRINCE_MMAP, 0,
-		FLG_PRINCE_CHK, FLG_PRINCE_LOOPBACK | FLG_PRINCE_CASE_PERMUTE},
+		FLG_PRINCE_CHK, FLG_PRINCE_CASE_PERMUTE},
 #endif
 	/* -enc is an alias for -input-enc for legacy reasons */
 	{"encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
@@ -298,8 +312,8 @@ static struct opt_entry opt_list[] = {
 #endif
 
 #define JOHN_USAGE	  \
-"John the Ripper password cracker, version " JOHN_VERSION _MP_VERSION DEBUG_STRING " [" JOHN_BLD "]\n" \
-"Copyright (c) 1996-2014 by " JOHN_COPYRIGHT "\n" \
+"John the Ripper password cracker, version " JOHN_VERSION _MP_VERSION DEBUG_STRING MEMDBG_STRING ASAN_STRING " [" JOHN_BLD "]\n" \
+"Copyright (c) 1996-2015 by " JOHN_COPYRIGHT "\n" \
 "Homepage: http://www.openwall.com/john/\n" \
 "\n" \
 "Usage: %s [OPTIONS] [PASSWORD-FILES]\n" \
@@ -335,11 +349,8 @@ JOHN_USAGE_FORK \
 "--list=WHAT               list capabilities, see --list=help or doc/OPTIONS\n"
 
 #define JOHN_USAGE_FORMAT \
-"--format=NAME             force hash type NAME:"
-
-#define JOHN_USAGE_INDENT \
-"                         " // formats are prepended with a space
-
+"--format=NAME             force hash of type NAME. The supported formats can\n" \
+"                          be seen with --list=formats and --list=subformats\n\n"
 #if defined(HAVE_OPENCL) && defined(HAVE_CUDA)
 #define JOHN_USAGE_GPU \
 "--devices=N[,..]          set OpenCL or CUDA device(s)\n"
@@ -351,65 +362,16 @@ JOHN_USAGE_FORK \
 "--device=N                set CUDA device (list using --list=cuda-devices)\n"
 #endif
 
-static int qcmpstr(const void *p1, const void *p2)
-{
-	return strcasecmp(*(const char**)p1, *(const char**)p2);
-}
-
 static void print_usage(char *name)
 {
-	int column;
-	struct fmt_main *format;
-	int i, dynamics = 0;
-	char **formats_list;
-
 	if (!john_main_process)
 		exit(0);
-
-	i = 1;
-	format = fmt_list;
-	while ((format = format->next))
-		i++;
-
-	formats_list = mem_alloc(i * sizeof(char*));
-
-	i = 0;
-	format = fmt_list;
-	do {
-		char *label = format->params.label;
-		if (!strncmp(label, "dynamic", 7)) {
-			if (dynamics++)
-				continue;
-			else
-				label = "dynamic_n";
-		}
-		formats_list[i++] = label;
-	} while ((format = format->next));
-	formats_list[i] = NULL;
-
-	qsort(formats_list, i, sizeof(formats_list[0]), qcmpstr);
 
 	printf(JOHN_USAGE, name);
 #if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
 	printf("%s", JOHN_USAGE_GPU);
 #endif
 	printf("%s", JOHN_USAGE_FORMAT);
-	column = sizeof(JOHN_USAGE_FORMAT);
-
-	i = 0;
-	do {
-		int length;
-		char *label = formats_list[i++];
-		length = strlen(label) + 1;
-		column += length;
-		if (column > 79) { /* silly Redmond Bug[tm] if we use 80 */
-			printf("\n" JOHN_USAGE_INDENT);
-			column = strlen(JOHN_USAGE_INDENT) + length;
-		}
-		printf(" %s%s", label, formats_list[i] ? "" : "\n");
-	} while (formats_list[i]);
-	MEM_FREE(formats_list);
-
 	exit(0);
 }
 
@@ -479,9 +441,9 @@ void opt_print_hidden_usage(void)
 	puts("--prince-limit=N          limit number of candidates generated");
 	puts("--prince-wl-dist-len      calculate length distribution from wordlist");
 	puts("                          instead of using built-in table");
+	puts("--prince-wl-max=N         load only N words from input wordlist");
 	puts("--prince-case-permute     permute case of first letter");
-	puts("--prince-mmap             memory-map input file (not available for loopback");
-	puts("                          or when permuting case)");
+	puts("--prince-mmap             memory-map infile (not available when permuting case)");
 	puts("--prince-keyspace         just show total keyspace that would be produced");
 	puts("                          (disregarding skip and limit)");
 #endif

@@ -16,8 +16,8 @@
  * correct password.). The alternative is to implement/use a full unzip engine.
  *
  * This format significantly improved, Summer of 2014, JimF.  Changed the signature
- * to the $zip2$, and added logic to properly make this format work. Now it is NOT a
- * 'FMT_NOT_EXACT' format any more.  Now it properly cracks the passwords. There is
+ * to the $zip2$, and added logic to properly make this format work. Now there is no
+ * false positives any more.  Now it properly cracks the passwords. There is
  * an hmac-sha1 'key' that is also processed (and the decryption key), in the pbkdf2
  * call.  Now we use this hmac-sha1 key, process the compressed and encrypted buffer,
  * compare to a 10 byte checksum (which is now the binary blob), and we KNOW that we
@@ -91,8 +91,8 @@ typedef struct my_salt_t {
 #define FORMAT_TAG			"$zip2$"
 #define FORMAT_CLOSE_TAG	"$/zip2$"
 #define TAG_LENGTH			6
-#ifdef MMX_COEF
-#define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -103,7 +103,7 @@ typedef struct my_salt_t {
 #define BINARY_ALIGN        sizeof(ARCH_WORD_32)
 #define SALT_SIZE           sizeof(my_salt*)
 #define SALT_ALIGN          sizeof(my_salt*)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -162,9 +162,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_key));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_key);
+	MEM_FREE(saved_key);
 }
 
 static const char *ValidateZipFileData(u8 *Fn, u8 *Oh, u8 *Ob, unsigned len, u8 *Auth) {
@@ -355,7 +362,7 @@ static void *get_salt(char *ciphertext)
 
 	// Ok, now create the allocated salt record we are going to return back to John, using the dynamic
 	// sized data buffer.
-	psalt = (my_salt*)mem_calloc(sizeof(my_salt)+salt.comp_len);
+	psalt = (my_salt*)mem_calloc(1, sizeof(my_salt)+salt.comp_len);
 	psalt->v.type = salt.v.type;
 	psalt->v.mode = salt.v.mode;
 	psalt->comp_len = salt.comp_len;
@@ -426,11 +433,11 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -462,7 +469,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #pragma omp parallel for default(none) private(index) shared(count, saved_key, saved_salt, crypt_key)
 #endif
 	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		unsigned char pwd_ver[(2+64)*MAX_KEYS_PER_CRYPT];
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
@@ -558,7 +565,7 @@ struct fmt_main fmt_zip = {
 		zip_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

@@ -27,7 +27,7 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 #include "options.h"
 #define OUTLEN 20
 #include "opencl_pbkdf2_hmac_sha1.h"
-#undef MMX_COEF
+#undef SIMD_COEF_32
 #define PBKDF2_HMAC_SHA1_ALSO_INCLUDE_CTX 1
 #include "pbkdf2_hmac_sha1.h"
 
@@ -143,10 +143,7 @@ static pbkdf2_salt *cur_salt;
 static cl_mem mem_in, mem_out, mem_salt, mem_state;
 static unsigned int v_width = 1;	/* Vector width of kernel */
 static int new_keys;
-
-#if 0
-struct fmt_main *me;
-#endif
+static struct fmt_main *self;
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
@@ -154,7 +151,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	key_buf_size = PLAINTEXT_LENGTH * gws;
 
 	/// Allocate memory
-	inbuffer = mem_calloc(key_buf_size);
+	inbuffer = mem_calloc(1, key_buf_size);
 	output = mem_alloc(sizeof(pbkdf2_out) * gws);
 
 	mem_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, key_buf_size, NULL, &ret_code);
@@ -198,14 +195,13 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
 	static char valgo[sizeof(ALGORITHM_NAME) + 8] = "";
 
-#if 0
-	me = self;
-#endif
+	self = _self;
+
 	opencl_preinit();
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
 	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
@@ -232,17 +228,23 @@ static void init(struct fmt_main *self)
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
 	pbkdf2_final = clCreateKernel(program[gpu_id], "pbkdf2_final", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
-		warn, 2, self, create_clobj, release_clobj,
-	        v_width * sizeof(pbkdf2_state), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events, warn,
+		                       2, self, create_clobj, release_clobj,
+		                       v_width * sizeof(pbkdf2_state), 0);
 
-	//Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, 2*999+4, 0,
-		(cpu(device_info[gpu_id]) ? 1000000000 : 5000000000ULL));
-	self->methods.crypt_all = crypt_all;
+		//Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, 2*999+4, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              1000000000 : 5000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static char *prepare(char *fields[10], struct fmt_main *self)
@@ -305,18 +307,18 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	if (!(ptr = strtok(ctcopy, delim)))
+	if (!(ptr = strtokm(ctcopy, delim)))
 		goto error;
 	if (!atoi(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, delim)))
+	if (!(ptr = strtokm(NULL, delim)))
 		goto error;
 	len = strlen(ptr); // salt hex length
 	if (len > 2 * MAX_SALT_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, delim)))
+	if (!(ptr = strtokm(NULL, delim)))
 		goto error;
 	len = strlen(ptr); // binary hex length
 	if (len < BINARY_SIZE || len > MAX_BINARY_SIZE || len & 1)
@@ -339,7 +341,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static pbkdf2_salt cs;
 	char *p;
@@ -366,7 +368,7 @@ static void *salt(char *ciphertext)
 	return (void*)&cs;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[MAX_BINARY_SIZE];
@@ -438,7 +440,7 @@ static char* get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i;
 	size_t scalar_gws;
 
@@ -626,12 +628,12 @@ struct fmt_main fmt_ocl_pbkdf1_sha1 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,

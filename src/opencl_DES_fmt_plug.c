@@ -20,6 +20,7 @@ john_register_one(&fmt_opencl_DES);
 #include "formats.h"
 #include "config.h"
 #include "opencl_DES_bs.h"
+#include "opencl_DES_hst_dev_shared.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"descrypt-opencl"
@@ -28,7 +29,6 @@ john_register_one(&fmt_opencl_DES);
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		0
 
-#define PLAINTEXT_LENGTH		8
 #define CIPHERTEXT_LENGTH_1		13
 #define CIPHERTEXT_LENGTH_2		24
 
@@ -47,24 +47,37 @@ static struct fmt_tests tests[] = {
 #define BINARY_SIZE			(2 * sizeof(WORD))
 #define SALT_SIZE			sizeof(WORD)
 
-static void done()
-{
-	DES_opencl_clean_all_buffer();
-}
+void (*opencl_DES_bs_init_global_variables)(void);
+void (*opencl_DES_bs_select_device)(struct fmt_main *);
 
 static void init(struct fmt_main *pFmt)
 {
 	unsigned int i;
+
+	if (HARDCODE_SALT && FULL_UNROLL)
+		opencl_DES_bs_f_register_functions(pFmt);
+	else if (HARDCODE_SALT)
+		opencl_DES_bs_h_register_functions(pFmt);
+	else
+		opencl_DES_bs_b_register_functions(pFmt);
 
 	// Check if specific LWS/GWS was requested
 	opencl_get_user_preferences(FORMAT_LABEL);
 
 	opencl_DES_bs_init_global_variables();
 
-	for(i=0;i<MULTIPLIER;i++)
-		opencl_DES_bs_init(0, DES_bs_cpt,i);
+	if (local_work_size & (local_work_size - 1)) {
+		if (local_work_size < 4) local_work_size = 4;
+		else if (local_work_size < 8) local_work_size = 8;
+		else if (local_work_size < 16) local_work_size = 16;
+		else if (local_work_size < 32) local_work_size = 32;
+		else local_work_size = WORK_GROUP_SIZE;
+	}
 
-	DES_bs_select_device(pFmt);
+	for (i = 0; i < MULTIPLIER; i++)
+		opencl_DES_bs_init(i);
+
+	opencl_DES_bs_select_device(pFmt);
 }
 
 static int valid(char *ciphertext, struct fmt_main *pFmt)
@@ -105,7 +118,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static WORD out;
 
@@ -127,36 +140,19 @@ static int salt_hash(void *salt)
 	return *(WORD *)salt & (SALT_HASH_SIZE - 1);
 }
 
-static void set_salt(void *salt)
+static int cmp_all(WORD *binary, int count)
 {
-	opencl_DES_bs_set_salt(*(WORD *)salt);
+	return 1;
+}
+
+static int cmp_one(void *binary, int index)
+{
+	return opencl_DES_bs_cmp_one_b((WORD*)binary, 32, index);
 }
 
 static int cmp_exact(char *source, int index)
 {
 	return opencl_DES_bs_cmp_one_b(opencl_DES_bs_get_binary(source), 64, index);
-}
-
-static char *get_key(int index)
-{
-	static char out[PLAINTEXT_LENGTH + 1];
-	unsigned int sector,block;
-	unsigned char *src;
-	char *dst;
-	sector = index/DES_BS_DEPTH;
-	block  = index%DES_BS_DEPTH;
-	init_t();
-
-	src = opencl_DES_bs_all[sector].pxkeys[block];
-	dst = out;
-	while (dst < &out[PLAINTEXT_LENGTH] && (*dst = *src)) {
-		src += sizeof(DES_bs_vector) * 8;
-		dst++;
-	}
-	*dst = 0;
-
-
-	return out;
 }
 
 struct fmt_main fmt_opencl_DES = {
@@ -181,8 +177,8 @@ struct fmt_main fmt_opencl_DES = {
 		tests
 	}, {
 		init,
-		done,
-		opencl_DES_reset,
+		NULL,
+		NULL,
 		fmt_default_prepare,
 		valid,
 		split,
@@ -190,7 +186,7 @@ struct fmt_main fmt_opencl_DES = {
 
 			opencl_DES_bs_get_binary,
 
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -206,11 +202,11 @@ struct fmt_main fmt_opencl_DES = {
 		},
 		salt_hash,
 		NULL,
-		set_salt,
+		NULL,
 		opencl_DES_bs_set_key,
-		get_key,
+		NULL,
 		fmt_default_clear_keys,
-		opencl_DES_bs_crypt_25,
+		NULL,
 		{
 			get_hash_0,
 			get_hash_1,
@@ -221,9 +217,9 @@ struct fmt_main fmt_opencl_DES = {
 			get_hash_6
 		},
 
-		(int (*)(void *, int))opencl_DES_bs_cmp_all,
+		(int (*)(void *, int))cmp_all,
 
-		opencl_DES_bs_cmp_one,
+		cmp_one,
 		cmp_exact
 	}
 };

@@ -250,7 +250,7 @@ static char *get_key(int index) {
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	unsigned char buf[sizeof(cur_salt)];
 	unsigned int l;
 
@@ -276,7 +276,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	return count;
 }
 
-static void * binary(char *ciphertext)
+static void * get_binary(char *ciphertext)
 {
 	static unsigned char *out3;
 	int l;
@@ -376,7 +376,7 @@ struct fmt_main fmt_oracle = {
 		prepare,
 		valid,
 		split,
-		binary,
+		get_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

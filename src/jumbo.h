@@ -263,10 +263,6 @@ extern char *strlwr(char *s);
 extern char *strupr(char *s);
 #endif
 
-#if (AC_BUILT && !HAVE_BZERO) || (!AC_BUILT && _MSC_VER)
-#define bzero(a,b) memset(a,0,b)
-#endif
-
 #if !HAVE_ATOLL
 #if HAVE__ATOI64
 #define atoll _atoi64
@@ -305,9 +301,6 @@ extern int _exit(int);
 #ifdef _MSC_VER
 #undef inline
 #define inline _inline
-#if !defined (MEMDBG_ON)
-#define strdup _strdup
-#endif
 #define strupr _strupr
 #define strlwr _strlwr
 #define open _open
@@ -315,7 +308,7 @@ extern int _exit(int);
 #endif
 
 #ifndef MEMDBG_ON
-#if (AC_BUILT && HAVE__STRDUP) || (!AC_BUILT && _MSC_VER)
+#if ((AC_BUILT && HAVE__STRDUP)  || (!AC_BUILT && _MSC_VER)) && !defined (strdup)
 #undef strdup
 #define strdup _strdup
 #endif
@@ -398,5 +391,14 @@ char *strrev(char *str);
 //HAVE_STRSPN
 //HAVE_STRTOL
 //HAVE_STRTOUL
+
+/*
+ * Like strlen but will not scan past max, so will return at most max.
+ */
+#if AC_BUILT && !HAVE_STRNLEN
+#undef strnlen
+#define strnlen jtr_strnlen
+extern size_t strnlen(const char *s, size_t max);
+#endif
 
 #endif /* _JTR_JUMBO_H */

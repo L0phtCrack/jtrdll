@@ -139,10 +139,21 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_plain = mem_calloc_tiny(sizeof(*saved_plain) * self->params.max_keys_per_crypt, MEM_ALIGN_NONE);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	output = mem_calloc_tiny(sizeof(*output) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_ctx = mem_calloc_tiny(sizeof(*saved_ctx) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
+	                         sizeof(*saved_plain));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
+	output = mem_calloc(self->params.max_keys_per_crypt, sizeof(*output));
+	saved_ctx = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_ctx));
+}
+
+static void done(void)
+{
+	MEM_FREE(saved_ctx);
+	MEM_FREE(output);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_plain);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -283,7 +294,7 @@ static void *get_binary(char *ciphertext)
 */
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int identity_length, challenge_size;
 	int i = 0;
 
@@ -521,7 +532,7 @@ struct fmt_main fmt_NETNTLMv2 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid,

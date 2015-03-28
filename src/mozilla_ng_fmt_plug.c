@@ -82,12 +82,19 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -101,52 +108,53 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	p = &keepptr[TAG_LENGTH];
 	if (*p != '*')
 		goto err;
-	if ((p = strtok(p, "*")) == NULL) /* version */
+	++p;
+	if ((p = strtokm(p, "*")) == NULL) /* version */
 		goto err;
 	res = atoi(p);
 	if (res != 3)  /* we only know about this particular version */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* local_salt_length */
+	if ((p = strtokm(NULL, "*")) == NULL) /* local_salt_length */
 		goto err;
 	res = atoi(p);
 	if (res > 20)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* nnLen (we ignore nnlen) */
+	if ((p = strtokm(NULL, "*")) == NULL) /* nnLen (we ignore nnlen) */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* local_salt */
+	if ((p = strtokm(NULL, "*")) == NULL) /* local_salt */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* oidDatalen */
+	if ((p = strtokm(NULL, "*")) == NULL) /* oidDatalen */
 		goto err;
 	res = atoi(p);
 	if (res > 20)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* oidData */
+	if ((p = strtokm(NULL, "*")) == NULL) /* oidData */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* password_check_length */
+	if ((p = strtokm(NULL, "*")) == NULL) /* password_check_length */
 		goto err;
 	res = atoi(p);
 	if (res > 20)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* password_check */
+	if ((p = strtokm(NULL, "*")) == NULL) /* password_check */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* global_salt_length */
+	if ((p = strtokm(NULL, "*")) == NULL) /* global_salt_length */
 		goto err;
 	res = atoi(p);
 	if (res > 20)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL) /* global_salt */
+	if ((p = strtokm(NULL, "*")) == NULL) /* global_salt */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
@@ -270,7 +278,7 @@ static void set_salt(void *salt)
 // http://www.drh-consultancy.demon.co.uk/key3.html
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -343,9 +351,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		SHA1_Final(key+20, &ctxo);
 
 		// k = k1||k2 // encrypt "password-check" string using this key
-		DES_set_key((C_Block *) key, &ks1);
-		DES_set_key((C_Block *) (key+8), &ks2);
-		DES_set_key((C_Block *) (key+16), &ks3);
+		DES_set_key((DES_cblock *) key, &ks1);
+		DES_set_key((DES_cblock *) (key+8), &ks2);
+		DES_set_key((DES_cblock *) (key+16), &ks3);
 		memcpy(ivec, key + 32, 8);  // last 8 bytes!
 		// PKCS#5 padding (standard block padding)
 		DES_ede3_cbc_encrypt((unsigned char*)"password-check\x02\x02", (unsigned char*)crypt_out[index], 16, &ks1, &ks2, &ks3, &ivec, DES_ENCRYPT);
@@ -408,7 +416,7 @@ struct fmt_main fmt_mozilla = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

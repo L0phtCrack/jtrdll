@@ -172,13 +172,19 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
-	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
+	cracked = mem_calloc(cracked_size, 1);
 
 	Twofish_initialise();
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -193,43 +199,43 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 10;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* version */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* version */
 		goto err;
 	if (strlen(p) != 1)
 		goto err;
 	version = atoi(p);
 	if (version != 1 && version != 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* rounds */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* rounds */
 		goto err;
 	if (strlen(p) > 10)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* offset */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* offset */
 		goto err;
 	if (strlen(p) > 10)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* final random seed */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* final random seed */
 		goto err;
 	res = strlen(p);
 	if (res != 32 && res != 64)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* transf random seed */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* transf random seed */
 		goto err;
 	res = strlen(p);
 	if (res != 64)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* env_iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* env_iv */
 		goto err;
 	res = strlen(p);
 	if (res != 32)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash or expected bytes*/
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash or expected bytes*/
 		goto err;
 	res = strlen(p);
 	if (res != 64)
@@ -237,7 +243,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!ishex(p))
 		goto err;
 	if (version == 1) {
-		if ((p = strtok(NULL, "*")) == NULL)	/* inline flag */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* inline flag */
 			goto err;
 		res = atoi(p);
 		if (res != 1 && res != 2) {
@@ -246,23 +252,23 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			fprintf(stderr, "See https://github.com/magnumripper/JohnTheRipper/issues/1026\n");
 			error();
 		}
-		if ((p = strtok(NULL, "*")) == NULL)	/* content size */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* content size */
 			goto err;
 		contentsize = atoi(p);
-		if ((p = strtok(NULL, "*")) == NULL)	/* content */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 			goto err;
 		res = strlen(p);
 		if (res != contentsize * 2)
 			goto err;
 		if (!ishex(p))
 			goto err;
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		if (p) {
 			// keyfile handling
-			if ((p = strtok(NULL, "*")) == NULL)
+			if ((p = strtokm(NULL, "*")) == NULL)
 				goto err;
 			res = strlen(p);
-			if ((p = strtok(NULL, "*")) == NULL)
+			if ((p = strtokm(NULL, "*")) == NULL)
 				goto err;
 			if (res != 32 || strlen(p) != 64)
 				goto err;
@@ -271,7 +277,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		}
 	}
 	else {
-		if ((p = strtok(NULL, "*")) == NULL)	/* content */
+		if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 			goto err;
 		res = strlen(p);
 		if (res != 64)
@@ -297,45 +303,45 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 10;	/* skip over "$keepass$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
 	if(cs.version == 1) {
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.key_transf_rounds = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		// cs.offset = atoll(p); // Twofish handling hack!
 		cs.algorithm = atoll(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 16; i++)
 			cs.final_randomseed[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.transf_randomseed[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 16; i++)
 			cs.enc_iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.contents_hash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.isinline = atoi(p);
 		if(cs.isinline == 1) {
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			cs.contentsize = atoi(p);
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			for (i = 0; i < cs.contentsize; i++)
 				cs.contents[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 					+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		}
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		if (p) { /* keyfile handling */
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			cs.keyfilesize = atoi(p);
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			for (i = 0; i < cs.keyfilesize; i++)
 				cs.keyfile[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 					+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -343,28 +349,28 @@ static void *get_salt(char *ciphertext)
 		}
 	}
 	else {
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.key_transf_rounds = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		// cs.offset = atoll(p);  // Twofish handling hack
 		cs.algorithm = atoll(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.final_randomseed[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.transf_randomseed[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 16; i++)
 			cs.enc_iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.expected_bytes[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < 32; i++)
 			cs.contents[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -384,7 +390,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 	if (any_cracked) {
@@ -488,11 +494,11 @@ static int cmp_exact(char *source, int index)
 
 static void KeePass_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -546,7 +552,7 @@ struct fmt_main fmt_KeePass = {
 		KeePass_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

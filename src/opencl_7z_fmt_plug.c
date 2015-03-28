@@ -115,6 +115,7 @@ static cl_kernel sevenzip_init;
 #define statesize (sizeof(sevenzip_state) * global_work_size)
 #define saltsize (sizeof(sevenzip_salt))
 #define cracked_size (sizeof(*cracked) * global_work_size)
+static struct fmt_main *self;
 
 #define MIN(a, b)		(((a) > (b)) ? (b) : (a))
 
@@ -161,10 +162,10 @@ static void create_clobj(size_t global_work_size, struct fmt_main *self)
 {
 	cl_int cl_error;
 
-	inbuffer = (sevenzip_password*) mem_calloc(insize);
+	inbuffer = (sevenzip_password*) mem_calloc(1, insize);
 	outbuffer = (sevenzip_hash*) mem_alloc(outsize);
 
-	cracked = mem_calloc(cracked_size);
+	cracked = mem_calloc(1, cracked_size);
 
 	// Allocate memory
 	mem_in =
@@ -223,11 +224,13 @@ static void done(void)
 static int crypt_all(int *pcount, struct db_salt *salt);
 static int crypt_all_benchmark(int *pcount, struct db_salt *salt);
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	CRC32_t crc;
 	char build_opts[64];
 	cl_int cl_error;
+
+	self = _self;
 
 	CRC32_Init(&crc);
 	snprintf(build_opts, sizeof(build_opts),
@@ -244,18 +247,24 @@ static void init(struct fmt_main *self)
 	                              &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn, 2, self,
-	                       create_clobj, release_clobj,
-	                       sizeof(sevenzip_salt), 0);
-
-	//  Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, 1 << 19, 0, 15000000000ULL);
-	self->methods.crypt_all = crypt_all;
-
 	if (pers_opts.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
+}
+
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
+		                       warn, 2, self,
+		                       create_clobj, release_clobj,
+		                       sizeof(sevenzip_salt), 0);
+
+		//  Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, 1 << 19, 0, 15000000000ULL);
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -269,52 +278,52 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
-	if ((p = strtok(ctcopy, "$")) == NULL)
+	if ((p = strtokm(ctcopy, "$")) == NULL)
 		goto err;
 	if (strlen(p) > 1)
 		goto err;
 	type = atoi(p);
 	if (type != 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* NumCyclesPower */
+	if ((p = strtokm(NULL, "$")) == NULL) /* NumCyclesPower */
 		goto err;
 	if (strlen(p) > 2)
 		goto err;
 	NumCyclesPower = atoi(p);
 	if (NumCyclesPower > 24 || NumCyclesPower < 1)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* salt length */
+	if ((p = strtokm(NULL, "$")) == NULL) /* salt length */
 		goto err;
 	len = atoi(p);
 	if(len > 16 || len < 0) /* salt length */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* salt */
+	if ((p = strtokm(NULL, "$")) == NULL) /* salt */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* iv length */
+	if ((p = strtokm(NULL, "$")) == NULL) /* iv length */
 		goto err;
 	if (strlen(p) > 2)
 		goto err;
 	len = atoi(p);
 	if(len < 0 || len > 16) /* iv length */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* iv */
+	if ((p = strtokm(NULL, "$")) == NULL) /* iv */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if (strlen(p) > len*2 && strcmp(p+len*2, "0000000000000000"))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* crc */
+	if ((p = strtokm(NULL, "$")) == NULL) /* crc */
 		goto err;
 	if (!isdecu(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* data length */
+	if ((p = strtokm(NULL, "$")) == NULL) /* data length */
 		goto err;
 	len = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL) /* unpacksize */
+	if ((p = strtokm(NULL, "$")) == NULL) /* unpacksize */
 		goto err;
 	if (!isdec(p))	/* no way to validate, other than atoi() works for it */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL) /* data */
+	if ((p = strtokm(NULL, "$")) == NULL) /* data */
 		goto err;
 	if (strlen(p) != len * 2)	/* validates data_len atoi() */
 		goto err;
@@ -341,26 +350,26 @@ static void *get_salt(char *ciphertext)
 	struct custom_salt *cs = &(un._cs);
 
 	ctcopy += 4;
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs->type = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs->NumCyclesPower = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs->SaltSize = atoi(p);
-	p = strtok(NULL, "$"); /* salt */
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$"); /* salt */
+	p = strtokm(NULL, "$");
 	cs->ivSize = atoi(p);
-	p = strtok(NULL, "$"); /* iv */
+	p = strtokm(NULL, "$"); /* iv */
 	for (i = 0; i < cs->ivSize; i++)
 		cs->iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$"); /* crc */
+	p = strtokm(NULL, "$"); /* crc */
 	cs->crc = atou(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs->length = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs->unpacksize = atoi(p);
-	p = strtok(NULL, "$"); /* crc */
+	p = strtokm(NULL, "$"); /* crc */
 	for (i = 0; i < cs->length; i++)
 		cs->data[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -479,7 +488,7 @@ static int sevenzip_decrypt(unsigned char *derived_key, unsigned char *data)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i, index;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -622,7 +631,7 @@ struct fmt_main fmt_opencl_sevenzip = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

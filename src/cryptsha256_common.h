@@ -51,7 +51,7 @@ static int valid(char * ciphertext, struct fmt_main * self) {
 			ciphertext = endp + 1;
 			}
 	for (pos = ciphertext; *pos && *pos != '$'; pos++);
-	if (!*pos || pos < ciphertext || pos > &ciphertext[SALT_LENGTH]) return 0;
+	if (!*pos || pos < ciphertext) return 0;
 
 	start = ++pos;
 	while (atoi64[ARCH_INDEX(*pos)] != 0x7F) pos++;
@@ -93,7 +93,7 @@ static void * get_binary(char * ciphertext) {
 // implementations:
 //    opencl:  #define PLAINTEXT_LENGTH        35
 //    CPU:     #define PLAINTEXT_LENGTH        24
-//    cuda:    #define PLAINTEXT_LENGTH        15
+//    cuda:    #define PLAINTEXT_LENGTH        23 (should be 24, bug somewhere)
 
 /* here is our 'unified' tests array. */
 #ifdef __CRYPTSHA256_CREATE_PROPER_TESTS_ARRAY__
@@ -102,7 +102,7 @@ static struct fmt_tests tests[] = {
 	{"$5$LKO/Ute40T3FNF95$fdgfoJEBoMajNxCv3Ru9LyQ0xZgv0OBMQoq80LQ/Qd.", "U*U***U"},
 	{"$5$LKO/Ute40T3FNF95$8Ry82xGnnPI/6HtFYnvPBTYgOL23sdMXn8C29aO.x/A", "U*U***U*"},
 	{"$5$9mx1HkCz7G1xho50$O7V7YgleJKLUhcfk9pgzdh3RapEaWqMtEp9UUBAKIPA", "*U*U*U*U"},
-	{"$5$kc7lRD1fpYg0g.IP$d7CMTcEqJyTXyeq8hTdu/jB/I6DGkoo62NXbHIR7S43", ""},
+	{"$5$kc7lRD1fpYg0g.IP.ThisShouldBeTruncated.$d7CMTcEqJyTXyeq8hTdu/jB/I6DGkoo62NXbHIR7S43", ""},
 	{"$5$saltstring$5B8vYYiY.CVt1RlTTf8KbXBH3hsxY/GNooZaBBGWEc5", "Hello world!"},
 	{"$5$V8UMZ8/8.j$GGzeGHZy60318qdLiocMj7DddCnfr7jIcLMDIRy9Tr0", "password"},
 
@@ -159,6 +159,25 @@ static struct fmt_tests tests[] = {
 	{"$5$saltstring$VxW44bFDcvixlQoTE4E.k5c8v1w0fGMyZ4tn8nGcWn0", "abcdefghijklmno"},
 
 	{"$5$QSTVVEKDIDYRNK$4j8TST.29P07GHASD.BUHd0UTaFz7h.Mz//zcHokoZ5", "cgyihfkqk"},
+
+	// These were found in a bug #1077 https://github.com/magnumripper/JohnTheRipper/issues/1077
+	// and created by pass_gen to test all lengths of salts. NOTE, I could
+	// not get pass_gen.pl to do a null salt. Not sure it could be made anyway
+	{"$5$1$EjlWWGGbmWXm00wmWG2EutReY7G/TA9awDah5IvTSy2", "short_salt"},
+	{"$5$12$lhPEqohC1/lflYSl2juFZgDasZIiVdryUeIP/.XKRDA", "short_salt"},
+	{"$5$123$KOc9ndqmAVjarsk6RvQu2bEca5o7qly.lG2gNTAvzYA", "short_salt"},
+	{"$5$1234$LqOTc55Fc4K0O6h53GqAVINUCmtYuAW/8zNDoXE9zjA", "short_salt"},
+	{"$5$12345$9fAbLJJamYElIPFc5Pb9S6XfteLYOEHjdBMwdy1oWp.", "short_salt"},
+	{"$5$123456$qKfIMUCUvbINEaqXwe6LAvog3Ofj6YKXPpTXGWc5VPB", "short_salt"},
+	{"$5$1234567$367DyB16D3vHEhYfZAPQPqynsKNgkClsdQiB/I3EfQ6", "short_salt"},
+	{"$5$12345678$5Xt3LE6ogpAZvCXdQ/vPCwpzNYpABPINvsLiM5iJ9Z4", "short_salt"},
+	{"$5$123456789$csTeZZS4O/WMMHBn9mgI9mrQC8xuffJvd/jdrvYRHV5", "short_salt"},
+	{"$5$1234567890$ZS3MJOM5Rin821TVyDKq0QNTRnU6di94XhLwJc.BTj5", "short_salt"},
+	{"$5$12345678901$QdspXWcGfNr9E/Y85tslyPjFt5yQzZLsnUTlFH5AXq4", "short_salt"},
+	{"$5$123456789012$g4ldCaiyPo9fwJLJZV/oA1qux/hHElXYdgo//9UOqB6", "short_salt"},
+	{"$5$1234567890123$rejKhy.g7TXlffFRqEgPxI1gTDbqt/LDuvfRPinDHs3", "short_salt"},
+	{"$5$12345678901234$aKCh3GXmEudusN/fbNpSprqtwetjEGrEzNJdkAm9HF/", "short_salt"},
+	{"$5$123456789012345$F0HVo5HW7oxYD6cYALYrLXPq.oILAyWpdjn9pdGw6M/", "short_salt"},
 
 	// from a comment in the OpenCL implementation:
 	//{"$5$EKt.VLXiPjwyv.xe$52wdOp9ixFXMsHDI1JcCw8KJ83IakDP6J7MIEV2OUk0", "1234567"},

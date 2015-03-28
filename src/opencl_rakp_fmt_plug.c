@@ -75,10 +75,7 @@ static const char * warn[] = {
 
 static unsigned char salt_storage[SALT_STORAGE_SIZE];
 
-cl_command_queue queue_prof;
-cl_int ret_code;
-cl_kernel crypt_kernel;
-cl_mem salt_buffer, keys_buffer, idx_buffer, digest_buffer;
+static cl_mem salt_buffer, keys_buffer, idx_buffer, digest_buffer;
 
 static unsigned int *keys;
 static unsigned int *idx;
@@ -86,6 +83,7 @@ static ARCH_WORD_32 (*digest);
 static unsigned int key_idx = 0;
 static unsigned int v_width = 1;	/* Vector width of kernel */
 static int partial_output;
+static struct fmt_main *self;
 
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
@@ -169,7 +167,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	gws *= v_width;
 
 	keys = mem_alloc((PLAINTEXT_LENGTH + 1) * gws);
-	idx = mem_calloc(sizeof(*idx) * gws);
+	idx = mem_calloc(gws, sizeof(*idx));
 	digest = mem_alloc(gws * BINARY_SIZE);
 
 	salt_buffer = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, SALT_STORAGE_SIZE, NULL, &ret_code);
@@ -221,11 +219,12 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Error releasing program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
 	static char valgo[48] = "";
-	size_t gws_limit;
+
+	self = _self;
 
 	opencl_preinit();
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
@@ -243,23 +242,30 @@ static void init(struct fmt_main *self)
 	snprintf(build_opts, sizeof(build_opts), "-DV_WIDTH=%u", v_width);
 	opencl_init("$JOHN/kernels/rakp_kernel.cl", gpu_id, build_opts);
 
-        // Current key_idx can only hold 26 bits of offset so
-        // we can't reliably use a GWS higher than 4M or so.
-	gws_limit = MIN((1 << 26) * 4 / (v_width * BUFFER_SIZE),
-	                get_max_mem_alloc_size(gpu_id) /
-	                (v_width * BUFFER_SIZE));
-
 	// create kernel to execute
 	crypt_kernel = clCreateKernel(program[gpu_id], "rakp_kernel", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
-	                       self, create_clobj, release_clobj,
-	                       v_width * BUFFER_SIZE, gws_limit);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		size_t gws_limit;
 
-	//Auto tune execution from shared/included code.
-	autotune_run(self, ROUNDS, gws_limit, 200);
+		// Current key_idx can only hold 26 bits of offset so
+		// we can't reliably use a GWS higher than 4M or so.
+		gws_limit = MIN((1 << 26) * 4 / (v_width * BUFFER_SIZE),
+		                get_max_mem_alloc_size(gpu_id) /
+		                (v_width * BUFFER_SIZE));
+
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
+		                       self, create_clobj, release_clobj,
+		                       v_width * BUFFER_SIZE, gws_limit);
+
+		//Auto tune execution from shared/included code.
+		autotune_run(self, ROUNDS, gws_limit, 200);
+	}
 }
 
 static void clear_keys(void)
@@ -296,7 +302,7 @@ static char *get_key(int index)
 	return out;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[BINARY_SIZE];
@@ -320,7 +326,7 @@ static void *binary(char *ciphertext)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
@@ -330,7 +336,7 @@ static void *salt(char *ciphertext)
 	if (!strncmp(ctcopy, FORMAT_TAG, TAG_LENGTH))
 		ctcopy += TAG_LENGTH;
 
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	len = strlen(p) / 2;
 	for (i = 0; i < len; i++) {
 		salt_storage[i ^ 3] =
@@ -382,7 +388,7 @@ static int cmp_exact(char *source, int index)
 		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], digest_buffer, CL_TRUE, 0, BINARY_SIZE * global_work_size * v_width, digest, 0, NULL, NULL), "failed reading results back");
 		partial_output = 0;
 	}
-	b = (ARCH_WORD_32*)binary(source);
+	b = (ARCH_WORD_32*)get_binary(source);
 
 	for(i = 0; i < BINARY_SIZE / 4; i++)
 		if (digest[i * global_work_size * v_width + index] != b[i])
@@ -392,7 +398,7 @@ static int cmp_exact(char *source, int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -453,12 +459,12 @@ struct fmt_main fmt_opencl_rakp = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

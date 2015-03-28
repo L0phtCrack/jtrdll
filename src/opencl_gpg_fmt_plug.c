@@ -40,34 +40,26 @@ john_register_one(&fmt_opencl_gpg);
 #include "common-opencl.h"
 #include "options.h"
 #include "sha2.h"
+#include "stdint.h"
 
 #define FORMAT_LABEL		"gpg-opencl"
 #define FORMAT_NAME		"OpenPGP / GnuPG Secret Key"
 #define ALGORITHM_NAME		"SHA1 OpenCL"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
+#define PLAINTEXT_LENGTH	125
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 #define BINARY_SIZE		0
-#define PLAINTEXT_LENGTH	32
-#define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN		MEM_ALIGN_WORD
+#define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		MEM_ALIGN_WORD
-
-
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		unsigned int
+#define SALT_LENGTH		8
 
 typedef struct {
 	uint32_t length;
 	uint8_t v[PLAINTEXT_LENGTH];
 } gpg_password;
-
-#define KEYBUFFER_LENGTH 8192
-#ifndef MD5_DIGEST_LENGTH
-#define MD5_DIGEST_LENGTH 16
-#endif
 
 typedef struct {
 	uint8_t v[16];
@@ -76,8 +68,11 @@ typedef struct {
 typedef struct {
 	uint32_t length;
 	uint32_t count;
-	uint8_t salt[8];
+	uint8_t salt[SALT_LENGTH];
 } gpg_salt;
+
+// mul is at most (PLAINTEXT_LENGTH + SALT_LENGTH)
+#define KEYBUFFER_LENGTH ((PLAINTEXT_LENGTH + SALT_LENGTH) * 64)
 
 // Minimum number of bits when checking the first BN
 #define MIN_BN_BITS 64
@@ -132,7 +127,7 @@ static struct custom_salt {
 	char cipher_algorithm;
 	int usage;
 	int bits;
-	unsigned char salt[8];
+	unsigned char salt[SALT_LENGTH];
 	unsigned char iv[16];
 	int ivlen;
 	int count;
@@ -192,6 +187,7 @@ static gpg_password *inbuffer;
 static gpg_hash *outbuffer;
 static gpg_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
+static struct fmt_main *self;
 
 size_t insize, outsize, settingsize, cracked_size;
 
@@ -236,9 +232,9 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	settingsize = sizeof(gpg_salt);
 	cracked_size = sizeof(*cracked) * gws;
 
-	inbuffer = mem_calloc(insize);
+	inbuffer = mem_calloc(1, insize);
 	outbuffer = mem_alloc(outsize);
-	cracked = mem_calloc(cracked_size);
+	cracked = mem_calloc(1, cracked_size);
 
 	/// Allocate memory
 	mem_in =
@@ -282,7 +278,7 @@ static uint32_t blockSize(char algorithm)
 		case CIPHER_BLOWFISH:
 			return BF_BLOCK;
 		case CIPHER_IDEA:
-			return 8; // XXX
+			return 8;
 		case CIPHER_AES128:
 		case CIPHER_AES192:
 		case CIPHER_AES256:
@@ -319,6 +315,35 @@ static uint32_t keySize(char algorithm)
 	return 0;
 }
 
+static void init(struct fmt_main *_self)
+{
+	char build_opts[64];
+
+	self = _self;
+
+	snprintf(build_opts, sizeof(build_opts),
+	         "-DPLAINTEXT_LENGTH=%d -DSALT_LENGTH=%d",
+	         PLAINTEXT_LENGTH, SALT_LENGTH);
+	opencl_init("$JOHN/kernels/gpg_kernel.cl",
+	                gpu_id, build_opts);
+
+	crypt_kernel = clCreateKernel(program[gpu_id], "gpg", &cl_error);
+	HANDLE_CLERROR(cl_error, "Error creating kernel");
+}
+
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1, self,
+		                       create_clobj, release_clobj,
+		                       sizeof(gpg_password), 0);
+
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, 0, 1000);
+	}
+}
+
 static void done(void)
 {
 	release_clobj();
@@ -327,154 +352,132 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
-{
-	char build_opts[64];
-
-	snprintf(build_opts, sizeof(build_opts),
-	         "-DPLAINTEXT_LENGTH=%d",
-	         PLAINTEXT_LENGTH);
-	opencl_init("$JOHN/kernels/gpg_kernel.cl",
-	                gpu_id, build_opts);
-
-	crypt_kernel = clCreateKernel(program[gpu_id], "gpg", &cl_error);
-	HANDLE_CLERROR(cl_error, "Error creating kernel");
-
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 1, self, create_clobj, release_clobj,
-	                       sizeof(gpg_password), 0);
-
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000);
-}
-
 static int valid_cipher_algorithm(int cipher_algorithm)
 {
-	switch(cipher_algorithm)
-	{
-	  case CIPHER_CAST5: return 1;
-	  case CIPHER_BLOWFISH: return 1;
-	  case CIPHER_AES128: return 1;
-	  case CIPHER_AES192: return 1;
-	  case CIPHER_AES256: return 1;
-	  case CIPHER_IDEA: return 1;
-	  case CIPHER_3DES: return 1;
+	switch(cipher_algorithm) {
+		case CIPHER_CAST5: return 1;
+		case CIPHER_BLOWFISH: return 1;
+		case CIPHER_AES128: return 1;
+		case CIPHER_AES192: return 1;
+		case CIPHER_AES256: return 1;
+		case CIPHER_IDEA: return 1;
+		case CIPHER_3DES: return 1;
 	}
+
 	return 0;
 }
 
 static int valid_hash_algorithm(int hash_algorithm, int spec)
 {
-	if(spec == SPEC_SIMPLE || spec == SPEC_SALTED) {
-		return 0;
+	if(spec == SPEC_SIMPLE || spec == SPEC_SALTED)
+#if 1
+		goto print_warn;
+#else
+		switch(hash_algorithm) {
+			case HASH_SHA1: return 1;
+			case HASH_MD5: return 1;
+			case 0: return 1; // http://www.ietf.org/rfc/rfc1991.txt
+		}
+#endif
+
+	if(spec == SPEC_ITERATED_SALTED)
 		switch(hash_algorithm)
 		{
-		  case HASH_SHA1: return 1;
-		  case HASH_MD5: return 1;
-		  case 0: return 1; // http://www.ietf.org/rfc/rfc1991.txt
-		}
-	}
-	if(spec == SPEC_ITERATED_SALTED)
-	switch(hash_algorithm)
-	{
-	  case HASH_SHA1: return 1;
+			case HASH_SHA1: return 1;
 #if 0
-	  case HASH_MD5: return 1;
-	  case HASH_SHA256: return 1;
-	  case HASH_RIPEMD160: return 1;
-	  case HASH_SHA512: return 1;
+			case HASH_MD5: return 1;
+			case HASH_SHA256: return 1;
+			case HASH_RIPEMD160: return 1;
+			case HASH_SHA512: return 1;
 #endif
-	}
+		}
+print_warn:
 	fprintf(stderr, "[-] gpg-opencl currently only supports keys using iterated salted SHA1\n");
+
 	return 0;
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int res,i,j,spec,usage,algorithm,ex_flds=0;
+	int res,j,spec,usage,algorithm,ex_flds=0;
 
-	if (strncmp(ciphertext, "$gpg$", 5) != 0)
+	if (strncmp(ciphertext, "$gpg$*", 6) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 5;	/* skip over "$gpg$" marker */
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* algorithm */
+	ctcopy += 6;	/* skip over "$gpg$" marker and '*' */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* algorithm */
 		goto err;
 	algorithm = atoi(p);
-	if ((p = strtok(NULL, "*")) == NULL)	/* datalen */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* datalen */
 		goto err;
 	res = atoi(p);
 	if (res > BIG_ENOUGH * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* bits */
-		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* data */
-		goto err;
-	if (strlen(p) != res * 2)
-		goto err;
-	for(i = 0; i < strlen(p); i++) {
-		if(atoi16[ARCH_INDEX(p[i])] == 0x7F)
-			goto err;
-	}
-	if ((p = strtok(NULL, "*")) == NULL)	/* spec */
-		goto err;
-	if (strlen(p) >= 10)
-		goto err;
-	spec = atoi(p);
-	if ((p = strtok(NULL, "*")) == NULL)	/* usage */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* bits */
 		goto err;
 	if (!isdec(p))
 		goto err;
+	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
+		goto err;
+	if (strlen(p) != res * 2)
+		goto err;
+	if (!ishex(p))
+		goto err;
+	if ((p = strtokm(NULL, "*")) == NULL)	/* spec */
+		goto err;
+	spec = atoi(p);
+	if (!isdec(p))
+		goto err;
+	if ((p = strtokm(NULL, "*")) == NULL)	/* usage */
+		goto err;
 	usage = atoi(p);
+	if (!isdec(p))
+		goto err;
 	if(usage != 0 && usage != 254 && usage != 255 && usage != 1)
 		goto err;
-
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash_algorithm */
-		goto err;
-	if (strlen(p) >= 10)
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash_algorithm */
 		goto err;
 	res = atoi(p);
+	if (!isdec(p))
+		goto err;
 	if(!valid_hash_algorithm(res, spec))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* cipher_algorithm */
-		goto err;
-	if (strlen(p) >= 10)
+	if ((p = strtokm(NULL, "*")) == NULL)	/* cipher_algorithm */
 		goto err;
 	res = atoi(p);
+	if (!isdec(p))
+		goto err;
 	if(!valid_cipher_algorithm(res))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* ivlen */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* ivlen */
 		goto err;
 	res = atoi(p);
 	if (res != 8 && res != 16)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
 	if (strlen(p) != res * 2)
 		goto err;
-	for(i = 0; i < strlen(p); i++) {
-		if(atoi16[ARCH_INDEX(p[i])] == 0x7F)
-			goto err;
-	}
+	if (!ishex(p))
+		goto err;
 	/* handle "SPEC_SIMPLE" correctly */
 	if (spec == 0) {
 		MEM_FREE(keeptr);
 		return 1;
 	}
-	if ((p = strtok(NULL, "*")) == NULL)	/* count */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* count */
 		goto err;
 	if (!isdec(p))
 		goto err;
 	res = atoi(p);
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if (strlen(p) != 8 * 2)
+	if (strlen(p) != SALT_LENGTH * 2)
 		goto err;
-	for (i = 0; i < strlen(p); i++)
-		if(atoi16[ARCH_INDEX(p[i])] == 0x7F)
-			goto err;
+	if (!ishex(p))
+		goto err;
 	/*
 	 * For some test vectors, there are no more fields,
 	 * for others, there are (and need to be checked)
@@ -491,12 +494,16 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		ex_flds = 1; /* handle p */
 	} else if (usage == 255 && spec == 3 && algorithm == 1) {
 		/* gpg --homedir . --s2k-cipher-algo 3des --simple-sk-checksum --gen-key */
+#if 1
 		ex_flds = 0; /* do NOT handle p at this time.  Cause the hash to be invalid. */
+#else
+		ex_flds = 1; /* handle p */
+#endif
 	} else {
 		/* NOT sure what to do here, probably nothing */
 	}
 
-	p = strtok(NULL, "*"); /* NOTE, do not goto err if null, we WANT p nul if there are no fields */
+	p = strtokm(NULL, "*"); /* NOTE, do not goto err if null, we WANT p nul if there are no fields */
 
 	for (j = 0; j < ex_flds; ++j) {  /* handle extra p, q, g, y fields */
 		if (!p) /* check for null p */
@@ -504,15 +511,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		res = atoi(p);
 		if (res > BIG_ENOUGH * 2)
 			goto err;
-		if ((p = strtok(NULL, "*")) == NULL)
+		if ((p = strtokm(NULL, "*")) == NULL)
 			goto err;
-		if (strlen(p) != res * 2)
+		if (strlen(p) != res * 2) /* validates res is a valid int */
 			goto err;
-		for(i = 0; i < strlen(p); i++) {
-			if(atoi16[ARCH_INDEX(p[i])] == 0x7F)
-				goto err;
-		}
-		p = strtok(NULL, "*");  /* NOTE, do not goto err if null, we WANT p nul if there are no fields */
+		if (!ishex(p))
+			goto err;
+		p = strtokm(NULL, "*");  /* NOTE, do not goto err if null, we WANT p nul if there are no fields */
 	}
 
 	if (p)	/* at this point, there should be NO trailing stuff left from the hash. */
@@ -535,97 +540,96 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 
 	memset(&cs, 0, sizeof(cs));
-
-	ctcopy += 5;	/* skip over "$gpg$" marker */
-	p = strtok(ctcopy, "*");
+	ctcopy += 6;	/* skip over "$gpg$" marker and first '*' */
+	p = strtokm(ctcopy, "*");
 	cs.pk_algorithm = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.datalen = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.bits = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.datalen; i++)
 		cs.data[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.spec = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.usage = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.hash_algorithm = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.cipher_algorithm = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.ivlen = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.ivlen; i++)
 		cs.iv[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	/* handle "SPEC_SIMPLE" correctly */
 	if (cs.spec != 0 || cs.usage == 255) {
 		cs.count = atoi(p);
-		p = strtok(NULL, "*");
-		for (i = 0; i < 8; i++)
+		p = strtokm(NULL, "*");
+		for (i = 0; i < SALT_LENGTH; i++)
 			cs.salt[i] =
 			atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
 	if (cs.usage == 255 && cs.spec == 1 && cs.pk_algorithm == 17) {
 		/* old hashes will crash!, "gpg --s2k-mode 1 --gen-key" */
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.pl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.ql = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.q[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.gl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.yl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
 	if (cs.usage == 255 && cs.spec == 1 && cs.pk_algorithm == 16) {
 		/* ElGamal */
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.pl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.gl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.yl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
 	if (cs.usage == 255 && cs.pk_algorithm == 1) {
 		/* RSA */
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		cs.nl = atoi(p);
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
 			cs.n[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -638,7 +642,7 @@ static void *get_salt(char *ciphertext)
 static void set_salt(void *salt)
 {
 	cur_salt = (struct custom_salt *)salt;
-	currentsalt.length = 8;
+	currentsalt.length = SALT_LENGTH;
 	memcpy((char*)currentsalt.salt, cur_salt->salt, currentsalt.length);
 	currentsalt.count = cur_salt->count;
 
@@ -650,7 +654,7 @@ static void set_salt(void *salt)
 #undef set_key
 static void set_key(char *key, int index)
 {
-	uint8_t length = strlen(key);
+	uint32_t length = strlen(key);
 	if (length > PLAINTEXT_LENGTH)
 		length = PLAINTEXT_LENGTH;
 	inbuffer[index].length = length;
@@ -660,7 +664,7 @@ static void set_key(char *key, int index)
 static char *get_key(int index)
 {
 	static char ret[PLAINTEXT_LENGTH + 1];
-	uint8_t length = inbuffer[index].length;
+	uint32_t length = inbuffer[index].length;
 	memcpy(ret, inbuffer[index].v, length);
 	ret[length] = '\0';
 	return ret;
@@ -819,7 +823,7 @@ static int check(unsigned char *keydata, int ks)
 		case CIPHER_IDEA: {
 					   IDEA_KEY_SCHEDULE iks;
 					   JtR_idea_set_encrypt_key(keydata, &iks);
-					   JtR_idea_cfb64_encrypt(cur_salt->data, out, 8, &iks, ivec, &tmp, IDEA_DECRYPT);
+					   JtR_idea_cfb64_encrypt(cur_salt->data, out, SALT_LENGTH, &iks, ivec, &tmp, IDEA_DECRYPT);
 				   }
 				   break;
 		case CIPHER_CAST5: {
@@ -851,10 +855,10 @@ static int check(unsigned char *keydata, int ks)
 					  memcpy(key2, keydata + 8, 8);
 					  memcpy(key3, keydata + 16, 8);
 					  memcpy(divec, ivec, 8);
-					  DES_set_key((C_Block *)key1, &ks1);
-					  DES_set_key((C_Block *)key2, &ks2);
-					  DES_set_key((C_Block *)key3, &ks3);
-					  DES_ede3_cfb64_encrypt(cur_salt->data, out, 8, &ks1, &ks2, &ks3, &divec, &num, DES_DECRYPT);
+					  DES_set_key((DES_cblock *)key1, &ks1);
+					  DES_set_key((DES_cblock *)key2, &ks2);
+					  DES_set_key((DES_cblock *)key3, &ks3);
+					  DES_ede3_cfb64_encrypt(cur_salt->data, out, SALT_LENGTH, &ks1, &ks2, &ks3, &divec, &num, DES_DECRYPT);
 				    }
 				    break;
 
@@ -905,9 +909,9 @@ static int check(unsigned char *keydata, int ks)
 					  memcpy(key2, keydata + 8, 8);
 					  memcpy(key3, keydata + 16, 8);
 					  memcpy(divec, ivec, 8);
-					  DES_set_key((C_Block *) key1, &ks1);
-					  DES_set_key((C_Block *) key2, &ks2);
-					  DES_set_key((C_Block *) key3, &ks3);
+					  DES_set_key((DES_cblock *) key1, &ks1);
+					  DES_set_key((DES_cblock *) key2, &ks2);
+					  DES_set_key((DES_cblock *) key3, &ks3);
 					  DES_ede3_cfb64_encrypt(cur_salt->data, out, cur_salt->datalen, &ks1, &ks2, &ks3, &divec, &num, DES_DECRYPT);
 				    }
 				    break;
@@ -957,10 +961,10 @@ static int check(unsigned char *keydata, int ks)
 			ElGamal_secret_key elg;
 			RSA_secret_key rsa;
 			if (strlen(str) != blen * 2) { /* verifier 2 */
-				free(str);
+				OPENSSL_free(str);
 				return 0;
 			}
-			free(str);
+			OPENSSL_free(str);
 
 			if (cur_salt->pk_algorithm == 17) { /* DSA check */
 				dsa.p = BN_bin2bn(cur_salt->p, cur_salt->pl, NULL);
@@ -1012,7 +1016,7 @@ static int check(unsigned char *keydata, int ks)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -1072,7 +1076,7 @@ static int cmp_exact(char *source, int index)
 
 #if FMT_MAIN_VERSION > 11
 /*
- * Report iteration count algorithm as 1st tunable cost,
+ * Report iteration count as 1st tunable cost,
  * hash algorithm as 2nd tunable cost,
  * cipher algorithm as 3rd tunable cost.
  */
@@ -1128,7 +1132,7 @@ struct fmt_main fmt_opencl_gpg = {
 	{
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

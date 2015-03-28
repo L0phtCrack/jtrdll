@@ -106,31 +106,31 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 10;
-	if ((p = strtok(ctcopy, "$")) == NULL)
+	if ((p = strtokm(ctcopy, "$")) == NULL)
 		goto bail;
 	target = atoi(p);
 	if (target != 1 && target != 0)
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto bail;
 	v = atoi(p);
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto bail;
 	if (strlen(p) != v * 2)
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL) /* hash */
+	if ((p = strtokm(NULL, "$")) == NULL) /* hash */
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL) /* number of keys */
+	if ((p = strtokm(NULL, "$")) == NULL) /* number of keys */
 		goto bail;
 	/* currently we support only 1 key */
 	if(atoi(p) != 1)
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL) /* key length */
+	if ((p = strtokm(NULL, "$")) == NULL) /* key length */
 		goto bail;
 	v = atoi(p);
 	if (v > SZ)
 		goto bail;
-	if ((p = strtok(NULL, "$")) == NULL) /* key data */
+	if ((p = strtokm(NULL, "$")) == NULL) /* key data */
 		goto bail;
 	if (strlen(p) != v * 2)
 		goto bail;
@@ -151,18 +151,18 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 10; /* skip over "$keystore$" */
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.target = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.data_length = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.data_length; i++)
 		cs.data[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$"); /* skip hash */
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$"); /* skip hash */
+	p = strtokm(NULL, "$");
 	cs.count = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.keysize = atoi(p);
 	for (i = 0; i < cs.keysize; i++)
 		cs.keydata[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -183,10 +183,10 @@ static void *get_binary(char *ciphertext)
 	char *keeptr = ctcopy;
 	char *p;
 	ctcopy += 10; /* skip over "$keystore$" */
-	p = strtok(ctcopy, "$");
-	p = strtok(NULL, "$");
-	p = strtok(NULL, "$");
-	p = strtok(NULL, "$"); /* at hash now */
+	p = strtokm(ctcopy, "$");
+	p = strtokm(NULL, "$");
+	p = strtokm(NULL, "$");
+	p = strtokm(NULL, "$"); /* at hash now */
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
 		    (atoi16[ARCH_INDEX(*p)] << 4) |
@@ -212,7 +212,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -253,11 +253,11 @@ static int cmp_exact(char *source, int index)
 
 static void keystore_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

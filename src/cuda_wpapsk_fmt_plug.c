@@ -38,9 +38,9 @@ extern hccap_t hccap;
 extern mic_t *mic;
 extern void wpapsk_gpu(wpapsk_password *, wpapsk_hash *, wpapsk_salt *, int);
 
-extern void *salt(char *ciphertext);
+extern void *get_salt(char *ciphertext);
 
-static void done()
+static void done(void)
 {
 	MEM_FREE(inbuffer);
 	MEM_FREE(outbuffer);
@@ -51,8 +51,8 @@ static void init(struct fmt_main *self)
 {
 	///Allocate memory for hashes and passwords
 	inbuffer =
-	    (wpapsk_password *) mem_calloc(MAX_KEYS_PER_CRYPT *
-	      sizeof(wpapsk_password));
+		(wpapsk_password *) mem_calloc(MAX_KEYS_PER_CRYPT,
+		                               sizeof(wpapsk_password));
 	outbuffer =
 	    (wpapsk_hash *) mem_alloc(MAX_KEYS_PER_CRYPT * sizeof(wpapsk_hash));
 	check_mem_allocation(inbuffer, outbuffer);
@@ -63,7 +63,7 @@ static void init(struct fmt_main *self)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 
 	if (new_keys || strcmp(last_ssid, hccap.essid)) {
 		wpapsk_gpu(inbuffer, outbuffer, &currentsalt, count);
@@ -102,8 +102,8 @@ struct fmt_main fmt_cuda_wpapsk = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
-		salt,
+		get_binary,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

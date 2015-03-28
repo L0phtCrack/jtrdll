@@ -186,21 +186,21 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += CLIPPERZSIGLEN;
-	if ((p = strtok(ctcopy, "$")) == NULL)
+	if ((p = strtokm(ctcopy, "$")) == NULL)
 		goto err;
 	if (strlen(p) > CIPHERTEXT_LENGTH)
 		goto err;
 	if (!ishex(p))
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)
+	if ((p = strtokm(NULL, "*")) == NULL)
 		goto err;
 	if (strlen(p) > SZ)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)
+	if ((p = strtokm(NULL, "*")) == NULL)
 		goto err;
 	if (strlen(p) > SZ)
 		goto err;
-	if ((p = strtok(NULL, "*")))
+	if ((p = strtokm(NULL, "*")))
 		goto err;
 	MEM_FREE(keeptr);
 	return 1;
@@ -270,7 +270,7 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	char *p;
 	char *q;
@@ -348,7 +348,7 @@ static INLINE void hex_encode(unsigned char *str, int len, unsigned char *out)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int j;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -468,7 +468,7 @@ struct fmt_main fmt_clipperz = {
 		valid,
 		split,
 		get_binary,
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

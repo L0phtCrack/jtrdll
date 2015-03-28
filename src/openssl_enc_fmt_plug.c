@@ -107,10 +107,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked = mem_calloc(self->params.max_keys_per_crypt,
+	                     sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 //#define DEBUG_VALID
@@ -223,41 +229,41 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += TAG_LENGTH;
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.cipher = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.md = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.saltlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.saltlen; i++)
 		cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 + atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	res = strlen(p) / 2;
 	for (i = 0; i < res; i++)
 		cs.last_chunks[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.inlined = atoi(p);
 	if (cs.inlined) {
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		cs.kpa = atoi(p);
 		if (cs.kpa) {
-			p = strtok(NULL, "$");
+			p = strtokm(NULL, "$");
 			strncpy((char*)cs.kpt, p, 255);
 		}
 	}
 	else {
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		cs.datalen = atoi(p);
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		for (i = 0; i < cs.datalen; i++)
 		cs.data[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		cs.kpa = atoi(p);
 		if (cs.kpa) {
-			p = strtok(NULL, "$");
+			p = strtokm(NULL, "$");
 			strncpy((char*)cs.kpt, p, 255);
 		}
 	}
@@ -361,11 +367,11 @@ static void set_salt(void *salt)
 
 static void openssl_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -375,7 +381,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 
 #ifdef _OPENMP
@@ -436,7 +442,7 @@ struct fmt_main fmt_openssl = {
 		openssl_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

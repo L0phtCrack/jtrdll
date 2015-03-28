@@ -33,8 +33,8 @@ john_register_one(&fmt_strip);
 
 #define FORMAT_LABEL		"STRIP"
 #define FORMAT_NAME		"Password Manager"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -45,7 +45,7 @@ john_register_one(&fmt_strip);
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN	1
 #define SALT_ALIGN		1
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -96,12 +96,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	if (strncmp(ciphertext, "$strip$", 7))
+	if (strncmp(ciphertext, "$strip$*", 8))
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 7;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* salt + data */
+	ctcopy += 7+1;	/* skip over "$strip$" and first '*' */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt + data */
 		goto err;
 	if (strlen(p) != 2048)
 		goto err;
@@ -123,8 +123,8 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	int i;
 	static struct custom_salt cs;
-	ctcopy += 7;	/* skip over "$strip$" */
-	p = strtok(ctcopy, "*");
+	ctcopy += 7+1;	/* skip over "$strip$" and first '*' */
+	p = strtokm(ctcopy, "*");
 	for (i = 0; i < 16; i++)
 			cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -175,7 +175,7 @@ static int verify_page(unsigned char *page1)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -192,7 +192,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		int reserve_sz = 16; /* for HMAC off case */
 		AES_KEY akey;
 
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		int len[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
@@ -253,11 +253,11 @@ static int cmp_exact(char *source, int index)
 
 static void strip_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

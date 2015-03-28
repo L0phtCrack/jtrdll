@@ -73,8 +73,8 @@ john_register_one(&fmt_luks);
 
 #define FORMAT_LABEL		"LUKS"
 #define FORMAT_NAME		""
-#ifdef MMX_COEF
-#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -85,7 +85,7 @@ john_register_one(&fmt_luks);
 #define BINARY_ALIGN		4
 #define SALT_SIZE		sizeof(struct custom_salt_LUKS*)
 #define SALT_ALIGN			sizeof(struct custom_salt_LUKS*)
-#if MMX_COEF
+#if SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
 #else
@@ -223,7 +223,7 @@ static int AF_merge(unsigned char *src, unsigned char *dst, int afsize,
 	char *bufblock;
 	int blocksize = afsize / stripes;
 
-	bufblock = mem_calloc(blocksize + 20);
+	bufblock = mem_calloc(1, blocksize + 20);
 
 	for (i = 0; i < (stripes - 1); i++) {
 		XORblock((char *) (src + (blocksize * i)), bufblock, bufblock,
@@ -292,7 +292,7 @@ static int hash_plugin_parse_hash(char *filename, unsigned char **cp, int afsize
 	}
 
 	// can this go over 4gb?
-	*cp =(unsigned char*) mem_calloc(afsize + 1);
+	*cp =(unsigned char*) mem_calloc(1, afsize + 1);
 	if (!*cp)
 		goto bad;
 	// printf(">>> %d\n", cs->afsize);
@@ -372,30 +372,30 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 6;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* is_inlined */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* is_inlined */
 		goto err;
 	is_inlined = atoi(p);
 
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	res = atoi(p);
 	afsize = res;
 	if (res != sizeof(struct luks_phdr))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (res * 2 != strlen(p))
 		goto err;
 	if (!ishexlc(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)
+	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	res = atoi(p);
 
 	if (is_inlined) {
-		if ((p = strtok(NULL, "$")) == NULL)
+		if ((p = strtokm(NULL, "$")) == NULL)
 			goto err;
-		if ((p = strtok(NULL, "$")) == NULL)
+		if ((p = strtokm(NULL, "$")) == NULL)
 			goto err;
 		if (strlen(p) != LUKS_DIGESTSIZE * 2)
 			goto err;
@@ -403,12 +403,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 	}
 	else {
-		if ((p = strtok(NULL, "$")) == NULL)	/* LUKS file */
+		if ((p = strtokm(NULL, "$")) == NULL)	/* LUKS file */
 			goto err;
-		if ((p = strtok(NULL, "$")) == NULL)	/* dump file */
+		if ((p = strtokm(NULL, "$")) == NULL)	/* dump file */
 			goto err;
 		q = p;
-		if ((p = strtok(NULL, "$")) == NULL)	/* mkDigest */
+		if ((p = strtokm(NULL, "$")) == NULL)	/* mkDigest */
 			goto err;
 		if (strlen(p) != LUKS_DIGESTSIZE * 2)
 			goto err;
@@ -452,19 +452,19 @@ static void *get_salt(char *ciphertext)
 	memset(&cs, 0, sizeof(cs));
 	out = (unsigned char*)&cs.myphdr;
 
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	is_inlined = atoi(p);
 
 	/* common handling */
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	res = atoi(p);
 	assert(res == sizeof(struct luks_phdr));
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < res; i++) {
 		out[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
 		p += 2;
 	}
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	res = atoi(p);
 
 	cs.afsize = af_sectors(john_ntohl(cs.myphdr.keyBytes),
@@ -473,15 +473,15 @@ static void *get_salt(char *ciphertext)
 	assert(res == cs.afsize);
 
 	if (is_inlined) {
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 		size = strlen(p) / 4 * 3 + 1;
-		buf = mem_calloc(size+4);
+		buf = mem_calloc(1, size+4);
 		base64_decode(p, strlen(p), (char*)buf);
 		cs.afsize = size;
 	}
 	else {
-		p = strtok(NULL, "$");
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
+		p = strtokm(NULL, "$");
 		strcpy(cs.path, p);
 		size = hash_plugin_parse_hash(cs.path, &buf, cs.afsize, 1);
 	}
@@ -546,7 +546,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -559,7 +559,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		int dklen = john_ntohl(cur_salt->myphdr.keyBytes);
 		ARCH_WORD_32 keycandidate[MAX_KEYS_PER_CRYPT][256/4];
 		ARCH_WORD_32 masterkeycandidate[MAX_KEYS_PER_CRYPT][256/4];
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		union {
@@ -593,7 +593,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			john_ntohl(cur_salt->myphdr.keyblock[cur_salt->bestslot].stripes));
 		}
 		// pbkdf2 again
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			lens[i] = john_ntohl(cur_salt->myphdr.keyBytes);
 			pin[i] = (unsigned char*)masterkeycandidate[i];
@@ -640,11 +640,11 @@ static int cmp_exact(char *source, int index)
 
 static void luks_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

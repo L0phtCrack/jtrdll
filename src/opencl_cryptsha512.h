@@ -1,9 +1,9 @@
 /*
- * Developed by Claudio André <claudio.andre at correios.net.br> in 2012
+ * Developed by Claudio André <claudioandre.br at gmail.com> in 2012
  *
  * More information at http://openwall.info/wiki/john/OpenCL-SHA-512
  *
- * Copyright (c) 2012 Claudio André <claudio.andre at correios.net.br>
+ * Copyright (c) 2012-2015 Claudio André <claudioandre.br at gmail.com>
  * This program comes with ABSOLUTELY NO WARRANTY; express or implied.
  *
  * This is free software, and you are welcome to redistribute it
@@ -18,22 +18,25 @@
 #include "opencl_sha512.h"
 
 /* ***
- * TODO: IMPORTANT => due to optimizations
+ *   IMPORTANT => due to optimizations
  *       len(salt) + len(key) MUST BE less than 40 bytes.
- *       Need to put this information somewhere since if the user has
- *       a 16 bytes salt, he will never be able to crack a
+ *
+ *       - if the user has a 16 bytes salt, he will never be able to crack a
  *       password of 24 bytes. If the salt has less than 16 bytes
  *       JtR will be able to crack a 24 bytes password without problems.
+ *
+ *	 So, for safety, the format claims its limit is, in fact,
+ *       - PLAINTEXT_LENGTH 23
  *** */
 
 //Constants.
 #define SALT_LENGTH             16
 #define SALT_ALIGN              4
-#define PLAINTEXT_LENGTH        24
+#define PLAINTEXT_LENGTH        23
 #define CIPHERTEXT_LENGTH	86
 #define BUFFER_ARRAY            8
 #define SALT_ARRAY              (SALT_LENGTH / 8)
-#define PLAINTEXT_ARRAY         (PLAINTEXT_LENGTH / 8)
+#define PLAINTEXT_ARRAY         ((PLAINTEXT_LENGTH + 7) / 8)
 #define BINARY_SIZE             64
 #define BINARY_ALIGN            4
 #define STEP                    0

@@ -52,6 +52,12 @@
 #include <omp.h>
 #endif
 
+#ifdef _MSC_VER
+#define malloc(a) _aligned_malloc(a,16)
+#define realloc(a,b) _aligned_realloc(a,b,16)
+#define free(a) _aligned_free(a)
+#endif
+
 /*
  * This function ALWAYS must be defined. It is (HAS) to be used if there is code which
  * has some library code that allocates memory which was NOT handled by one of the allocation
@@ -68,8 +74,8 @@ void *MEMDBG_libc_alloc(size_t size) {
 	return malloc(size);
 }
 
-void *MEMDBG_libc_calloc(size_t size) {
-	return calloc(1, size);
+void *MEMDBG_libc_calloc(size_t count, size_t size) {
+	return calloc(count, size);
 }
 
 #if defined (MEMDBG_ON)
@@ -115,7 +121,7 @@ typedef struct _hdr {
    const char  *mdbg_file;
    ARCH_WORD_32 mdbg_line;
    ARCH_WORD_32 mdbg_cnt;
-   size_t mdbg_size;
+   ARCH_WORD_32 mdbg_size;
    ARCH_WORD_32 mdbg_fpst; /* this should be 'right' against the allocated memory, for underflow catching */
 } MEMDBG_HDR;
 
@@ -521,9 +527,10 @@ static void release_oldest_freed_block() {
 }
 #endif
 
-void * MEMDBG_calloc(size_t size, char *file, int line)
+void * MEMDBG_calloc(size_t count, size_t size, char *file, int line)
 {
 	char *p;
+	size *= count;
 	if ( ((signed long long)mem_size) < 0)
 		fprintf(stderr, "MEMDBG_calloc %lld %s:%d  mem:%lld\n", (unsigned long long)size, file, line, (unsigned long long)mem_size);
 	p = (char*)MEMDBG_alloc(size,file,line);
@@ -595,6 +602,71 @@ void * MEMDBG_alloc(size_t size, char *file, int line)
 		fprintf(stderr, "MEMDBG_alloc (end) %lld %s:%d  mem:%lld\n", (unsigned long long)size, file, line, (unsigned long long)mem_size);
 	return HDR_2_CLIENT(p);
 }
+
+static void *_mem_alloc_align(size_t size, size_t align)
+{
+	void *ptr;
+#if HAVE_ALIGNED_ALLOC
+	if (!(ptr = aligned_alloc(align, size)))
+		perror("aligned_alloc");
+#elif HAVE_POSIX_MEMALIGN
+	if (posix_memalign(&ptr, align, size))
+		perror("posix_memalign");
+#elif HAVE_MEMALIGN
+	/* Let's just pray this implementation can actually free it */
+	if (!(ptr = memalign(&ptr, align, size)))
+		perror("memalign");
+#elif HAVE___MINGW_ALIGNED_MALLOC
+	if (!(ptr = __mingw_aligned_malloc(size, align)))
+		perror("__mingw_aligned_malloc");
+#elif HAVE__ALIGNED_MALLOC
+	if (!(ptr = _aligned_malloc(size, align)))
+		perror("_aligned_malloc");
+#else
+#error No suitable alligned alloc found, please report to john-dev mailing list (state your OS details).
+#endif
+	return ptr;
+}
+
+/*
+ *  MEMDBG_alloc_align
+ *  Allocate a memory block. makes a protected call to malloc(), allocating
+ *  extra data, and adding data to all required structures.
+ */
+void * MEMDBG_alloc_align(size_t size, int align, char *file, int line)
+{
+	MEMDBG_HDR      *p;
+
+	if ( ((signed long long)mem_size) < 0)
+		fprintf(stderr, "MEMDBG_alloc_align %lld %s:%d  mem:%lld\n", (unsigned long long)size, file, line, (unsigned long long)mem_size);
+
+	p = (MEMDBG_HDR*)_mem_alloc_align(RESERVE_SZ + size + 4, align);
+	if (!p) {
+		if ( ((signed long long)mem_size) < 0)
+			fprintf(stderr, "MEMDBG_alloc_align (end) %lld %s:%d  mem:%lld\n", (unsigned long long)size, file, line, (unsigned long long)mem_size);
+		return NULL;
+	}
+	p->mdbg_fpst = MEMFPOST;
+	p->mdbg_size = size;
+	p->mdbg_file = file;
+	p->mdbg_line = line;
+	p->mdbg_hdr2 = (MEMDBG_HDR2*)(((char*)p)+RESERVE_SZ + size);
+	memcpy(p->mdbg_hdr2, cpMEMFPOST, 4);
+#ifdef _OPENMP
+#pragma omp critical (memdbg_crit)
+#endif
+	{
+		p->mdbg_cnt = ++alloc_cnt;
+		mem_size += size;
+		if (mem_size > max_mem_size)
+			max_mem_size = mem_size;
+		MEMDBG_LIST_add(p);
+	}
+	if ( ((signed long long)mem_size) < 0)
+		fprintf(stderr, "MEMDBG_alloc_align (end) %lld %s:%d  mem:%lld\n", (unsigned long long)size, file, line, (unsigned long long)mem_size);
+	return HDR_2_CLIENT(p);
+}
+
 
 /*
  *  MEMDBG_realloc
@@ -791,7 +863,7 @@ char *MEMDBG_strdup(const char *str, char *file, int line)
 {
 	char * s;
 	if ( ((signed long long)mem_size) < 0)
-		fprintf(stderr, "MEMDBG_strdup(%ld) %s:%d  mem:%lld\n", strlen(str), file, line, (unsigned long long)mem_size);
+		fprintf(stderr, "MEMDBG_strdup(%ld) %s:%d  mem:%lld\n", (long)strlen(str), file, line, (unsigned long long)mem_size);
 	s = (char*)MEMDBG_alloc(strlen(str)+1, file, line);
 	if (s != NULL)
 		strcpy(s, str);

@@ -49,8 +49,8 @@
 #endif
 
 #ifdef MD5_SSE_PARA
-#undef MMX_COEF
-#define MMX_COEF 4
+#undef SIMD_COEF_32
+#define SIMD_COEF_32 4
 #endif
 
 //
@@ -135,8 +135,8 @@
 //dynamic_84 -->sha512(sha512_raw($p))
 //dynamic_85 -->sha512(sha512($p).$s)
 //dynamic_86 -->sha512($s.sha512($p))
-//dynamic_87 -->sha512(sha512($s).sha512($p))
-//dynamic_88 -->sha512(sha512($p).sha512($p))
+//dynamic_87 -->sha512(sha512($s).sha512($p))   NOTE, can not be done in SIMD with 2 limb sha512
+//dynamic_88 -->sha512(sha512($p).sha512($p))   NOTE, can not be done in SIMD with 2 limb sha512
 	// Try to group GOST here (from dyna-90 to dyna-99)
 //dynamic_90 -->GOST($p)
 //dynamic_91 -->GOST($s.$p)
@@ -228,7 +228,7 @@ static struct fmt_tests _Preloads_0[] =
 	// to turn on these 'max length' tests, just rebuild with -DDEBUG
 #ifdef DEBUG
 	{"$dynamic_0$c9ccf168914a1bcfc3229f1948e67da0","1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_0$57edf4a22be3c955ac49da2e2107b67a","12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -252,7 +252,7 @@ static struct fmt_tests _Preloads_1[] =
 #ifdef DEBUG
 	// commented out to keep speed test 'same'.  Uncomment to make sure max lengths work, then recomment back in.
 	{"$dynamic_1$ff979803ae8048aced292752c8c2cb03$12345678901234567890123456789012", "12345678901234567890123"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_1$2554e084ca33c249ae7105c6482dda60$12345678901234567890123456789012", "123456789012345678901234567890123456789012345678"},
   #endif
 #endif
@@ -278,7 +278,7 @@ static struct fmt_tests _Preloads_2[] =
 	{"$dynamic_2$9992295627e7e7162bdf77f14734acf8","test3"},
 #ifdef DEBUG
 	{"$dynamic_2$4da0b552b078998f671795b925aed4ae","1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_2$c2c683fad194ae92af02c98519b24e9f","12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -306,7 +306,7 @@ static struct fmt_tests _Preloads_3[] =
 	{"$dynamic_3$2e54db8c72b312007f3f228d9d4dd34d","test3"},
 #ifdef DEBUG
 	{"$dynamic_3$7f1e5f4cace82433c8d63a19e1b2c413","1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_3$6129e5eb9f595f8661b889d6d95085e5","12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -330,7 +330,7 @@ static struct fmt_tests _Preloads_4[] =
 	{"$dynamic_4$3a032e36a9609df6411b8004070431d3$aaaaa","test3"},
 #ifdef DEBUG
 	{"$dynamic_4$2cec94d4cfdbd3494174e0dc6c089690$123456789012345678901234","1234567890123456789012345678901"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_4$43801689631a0113fcb5d3cfaad0431f$123456789012345678901234","12345678901234567890123456789012345678901234567890123456"},
   #endif
 #endif
@@ -355,7 +355,7 @@ static struct fmt_tests _Preloads_5[] =
 	{"$dynamic_5$e7222e806a8ce5efa6d48acb3aa56dc2$aaaaa","test3"},
 #ifdef DEBUG
 	{"$dynamic_5$6a322a856f03abd780a9c6766a03eb79$123456789012","1234567890123456789012345678901"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_5$10c50d85674ff20ca34f582894bc688d$123456789012","12345678901234567890123456789012345678901234567890123456"},
   #endif
 #endif
@@ -386,7 +386,7 @@ static struct fmt_tests _Preloads_6[] =
 	{"$dynamic_6$9164fe53be481f811f15efd769aaf0f7$aReallyLongSaltHere","test3"},
 #ifdef DEBUG
 	{"$dynamic_6$22fb37a13d47d420b73cb89773764be2$12345678901234567890123", "1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_6$2099aa2c138eb97713e790b6c49012e5$12345678901234567890123", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -437,7 +437,7 @@ static struct fmt_tests _Preloads_8[] =
 	{"$dynamic_8$2f6f3881972653ebcf86e5ad3071a4ca$5555hh","test3"},
 #ifdef DEBUG
 	{"$dynamic_8$23f865a14edba990cd1bff1f113fd0a0$12345678901234567890123456789012", "12345678901234567890123"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_8$a5c3893a720936da50edad336ea14f46$12345678901234567890123456789012", "123456789012345678901234567890123456789012345678"},
   #endif
 #endif
@@ -447,7 +447,7 @@ static struct fmt_tests _Preloads_8[] =
 //dynamic_9 --> md5($s.md5($p))
 static DYNAMIC_primitive_funcp _Funcs_9[] =
 {
-#if defined (MMX_COEF)
+#if defined (SIMD_COEF_32)
 	//MGF_KEYS_CRYPT_IN2
 	DynamicFunc__clean_input,
 	DynamicFunc__append_salt,
@@ -470,7 +470,7 @@ static struct fmt_tests _Preloads_9[] =
 	{"$dynamic_9$899af20e3ebdd77aaecb0d9bc5fbbb66$5555hh","test3"},
 #ifdef DEBUG
 	{"$dynamic_9$1d01316a7bc597a5b2743f2da41b10ef$12345678901234567890123", "1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_9$299d55d735d64bb70f517312a2a62946$12345678901234567890123", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -497,7 +497,7 @@ static struct fmt_tests _Preloads_10[] =
 	{"$dynamic_10$9e3702bb13386270cd4b0bd4dbdd489e$5555hh","test3"},
 #ifdef DEBUG
 	{"$dynamic_10$b40b30cba281d45c54c12b1b54c6b278$12345678901234567890123", "12345678901234567890123456789012"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_10$0d6e0b9feace8cd90de6e2e683eba981$12345678901234567890123", "123456789012345678901234567890123456789012345678901234567"},
   #endif
 #endif
@@ -524,7 +524,7 @@ static struct fmt_tests _Preloads_11[] =
 	{"$dynamic_11$78a61ea73806ebf27bef2ab6a9bf5412$5555hh","test3"},
 #ifdef DEBUG
 	{"$dynamic_11$e2e915bd2946037165f4000b0b38aaa9$12345678901234567890123", "12345678901234567890123456789012"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_11$b2b3fe7e67e191782faa16d8440c1a26$12345678901234567890123", "123456789012345678901234567890123456789012345678901234567"},
   #endif
 #endif
@@ -575,7 +575,7 @@ static struct fmt_tests _Preloads_13[] =
 //dynamic_14 --> md5($s.md5($p).$s)
 static DYNAMIC_primitive_funcp _Funcs_14[] =
 {
-#if defined (MMX_COEF)
+#if defined (SIMD_COEF_32)
 	//MGF_KEYS_CRYPT_IN2
 	DynamicFunc__clean_input,
 	DynamicFunc__append_salt,
@@ -600,7 +600,7 @@ static struct fmt_tests _Preloads_14[] =
 	{"$dynamic_14$1b3c72e16427a2f4f0819243877f7967$5555hh","test3"},
 #ifdef DEBUG
 	{"$dynamic_14$6aaa97fcf40c519006926520af3264fd$12345678901", "1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_14$abdb659cdc44d5fde6b238f7013f71dc$12345678901", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -631,7 +631,7 @@ static struct fmt_tests _Preloads_15[] =
 	{"$dynamic_15$6093d5cb3e2f99d9110eb9c4bbca5f8c$HEX$6161615358422424556a6f65626c6f77","test1"},
 #ifdef DEBUG
 	{"$dynamic_15$a2609e968a7124a8ac299c5f03341b85$123456789012$$Ubarney", "1234567890123456789012345678901234567890123456789012345"},
-  #ifndef MMX_COEF
+  #ifndef SIMD_COEF_32
 	{"$dynamic_15$230942ea4c6f83d50ce2498cae73a83c$123456789012$$Uripper", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
   #endif
 #endif
@@ -659,7 +659,7 @@ static struct fmt_tests _Preloads_16[] =
 	// repeat the hash in exactly the same format as it gets stored in john.pot
 	{"$dynamic_16$d8deb4f271694c7a9a6c54f5068e3825$HEX$3535353568682424327378787833","test3"},
 	{"$dynamic_16$0b714c79c5790c913a6e44faad39f597$12345678901234567890123$$23IJIps", "1234567890123456789012345678901234567890123456789012345"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_16$1e27f26c540f2980809f4d74989e20e3$12345678901234567890123$$2730ZnC", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -689,7 +689,7 @@ static struct fmt_tests _Preloads_17[] =
 	{"$dynamic_17$Y5RwgMij0xFsUIrr33lM1/$9555555hh","test3"},
 
 	{"$dynamic_17$JyPbSuePnNXiY9336yq0R1$9Auz3pFS7", "12345678901234567890123456789012345678"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 #if ARCH_LITTLE_ENDIAN
 	{"$dynamic_17$tGuFea/ssk7VS3TBfuokh/$9WCK6e/dw", "12345678901234567890123456789012345678901234567890123456789012345678901"},
 #endif
@@ -720,7 +720,7 @@ static struct fmt_tests _Preloads_18[] =
 	{"$dynamic_18$9be296cf73d2f548dae3cccafaff1dd9$82916963c701200625cba2acd40d6569", "FRED"},
 	{"$dynamic_18$a0e2078f0354846ec5bc4c7d7be08a46$82916963c701200625cba2acd40d6569", ""},
 	{"$dynamic_18$2401086f2193f35db28c0035b27feb2a$767179c7a2bff19651ce97d294c30cfb", "12345678901234567890123456789012"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_18$52eece2c63887509d49506254163dc48$767179c7a2bff19651ce97d294c30cfb", "123456789012345678901234567890123456789012345678"},
 #endif
 	{NULL}
@@ -796,7 +796,7 @@ static struct fmt_tests _Preloads_22[] =
 	{"$dynamic_22$067dda3ad565339fffa61ba74fab0ba3","thatsworking"},
 	{"$dynamic_22$71a1083be5c288da7e57b8c2bd7cbc96","test3"},
 	{"$dynamic_22$fbbd5aa600379a7964cef214c8a86b8a", "1234567890123456789012345678901234567890123456789012345"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_22$970aa601bafc0335f2249ff43e0504ef", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -820,7 +820,7 @@ static struct fmt_tests _Preloads_23[] =
 	{"$dynamic_23$6cd62e1767b65eec58d687de6d9c08a828018254","thatsworking"},
 	{"$dynamic_23$7d653cf00d747a9fbab213b6c2b335cfe8199ff3","test3"},
 	{"$dynamic_23$e290c79e9584e4cd61faded848ff96f03d89e649", "1234567890123456789012345678901234567890123456789012345"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_23$609fed73c093edfbcc9913004656f3609bd3a5be", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -865,6 +865,8 @@ static struct fmt_tests _Preloads_25[] =
 	{"$dynamic_25$a34af873d9047541b4d76ceae7b391f0664ca99e$xxRW","thatsworking"},
 	{"$dynamic_25$f0058038be0e821caa3031b463aed00fbe7e3beb$s3xx","test3"},
 MTL({"$dynamic_25$1b8cde0e3ecaed9abfa4deaf37addc7adcb8a932$123456789012345678901234", "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456"},)
+	// Inno Setup, Digest::SHA1("PasswordCheckHash" . salt . password)
+	{"$dynamic_25$6d29001f8a5062d7b6f5b32b30a8cf64da6567e0$HEX$50617373776f7264436865636b48617368463243d92abc14cc", "openwall"},
 	{NULL}
 };
 
@@ -919,7 +921,7 @@ static struct fmt_tests _Preloads_29[] =
 	{"$dynamic_29$8c4cb7e8b33b56a833cdaa8673f3b425","test4"},
 	{"$dynamic_29$537e738b1ac5551f65106368dc301ece","thatsworking"},
 	{"$dynamic_29$35a4af9e0a634cd450551137193da28f", "123456789012345678901234567"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_29$002ca7054ae8657c55fb8b32008e113d", "1234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -938,7 +940,7 @@ static struct fmt_tests _Preloads_30[] =
 	{"$dynamic_30$921c92ad4664b899470e6f5a8e37b8f8","thatsworking"},
 	{"$dynamic_30$cd23914be346f8d20da217890915809c","test3"},
 	{"$dynamic_30$f75ceb87e3be2cf77aca6d243716358d", "1234567890123456789012345678901234567890123456789012345"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_30$e33b4ddc9c38f2199c3e7b164fcc0536", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -958,7 +960,7 @@ static struct fmt_tests _Preloads_31[] =
 	{"$dynamic_31$c2dd539797c1cdefdbdd2c83ecb8e841$x84Smbf7","thatsworking"},
 	{"$dynamic_31$3a90c6e0b30cda0df2735267a2cce59c$MgTzwUaX","test3"},
 	{"$dynamic_31$22748c473e37cd6fd02152cff43ade7c$123456789012345678901234", "1234567890123456789012345678901"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_31$6ee26901bf4abd05a372988f27bd9133$123456789012345678901234", "12345678901234567890123456789012345678901234567890123456"},
 #endif
 	{NULL}
@@ -978,7 +980,7 @@ static struct fmt_tests _Preloads_32[] =
 	{"$dynamic_32$ac41e895dcebe4b4badc4280c7bbbe21$9i6Xjysc","thatsworking"},
 	{"$dynamic_32$86ea8d1ac762fe341a3c811092eda3d4$IUazKzjG","test3"},
 	{"$dynamic_32$d20c883c8ea9eca7019d6795e1b2939e$123456789012345678901234", "1234567890123456789012345678901"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_32$7f67e75ef8aead6a1b61afe9a2cb41c8$123456789012345678901234", "12345678901234567890123456789012345678901234567890123456"},
 #endif
 	{NULL}
@@ -999,7 +1001,7 @@ static struct fmt_tests _Preloads_33[] =
 	{"$dynamic_33$2a506e79bc1c0cf0e4da9c4053aa18ce","thatsworking"},
 	{"$dynamic_33$ed78e4bee2001d143286284067c3be3f","test3"},
 	{"$dynamic_33$c9102388a53aef8457aed9f14168e2f9", "123456789012345678901234567"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_33$adced3e86b7af2ee3e5131bc2b0bb6cb", "1234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -1023,7 +1025,7 @@ static struct fmt_tests _Preloads_34[] =
 	{"$dynamic_34$7e716c197034cfc4dcdc1d23234bf65a","thatsworking"},
 	{"$dynamic_34$68fb8e1b89e88a8d006905edf3c3207f","test3"},
 	{"$dynamic_34$1af18a178e07721f618dbe6ef4340aea", "1234567890123456789012345678901234567890123456789012345"},
-#ifndef MMX_COEF
+#ifndef SIMD_COEF_32
 	{"$dynamic_34$e4f6c3f090122b8002e6d3951327926c", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 #endif
 	{NULL}
@@ -1915,6 +1917,7 @@ MTL({"$dynamic_86$aba2ed0a61430a2eb16edc25630163f1ca217005947a120985451290f30a05
 	{NULL}
 };
 
+#ifndef SIMD_COEF_64
 //	dynamic_87: SHA512(SHA512($s).SHA512($p))
 static DYNAMIC_primitive_funcp _Funcs_87[] =
 {
@@ -1958,6 +1961,7 @@ static struct fmt_tests _Preloads_88[] =
 MTL({"$dynamic_88$e72007ff2735138d15aa10f816b7244655d33e15953e579ca9bd7d4ef603e3d04bd53e4dd0f09195fa88db57cf7ef53ed1b1f70efa56051ca74f9823d88b1b5f", "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"},)
 	{NULL}
 };
+#endif
 
 //	dynamic_90: GOST($p)
 static DYNAMIC_primitive_funcp _Funcs_90[] =
@@ -3308,21 +3312,21 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_10: md5($s.md5($s.$p))",         _Funcs_10,_Preloads_10,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 	{ "dynamic_11: md5($s.md5($p.$s))",         _Funcs_11,_Preloads_11,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 
-	{ "dynamic_12: md5(md5($s).md5($p)) (IPB)", _Funcs_12,_Preloads_12,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_Offset32, -32, 110 },
-	{ "dynamic_13: md5(md5($p).md5($s))",       _Funcs_13,_Preloads_13,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110 },
-#if defined (MMX_COEF)
+	{ "dynamic_12: md5(md5($s).md5($p)) (IPB)", _Funcs_12,_Preloads_12,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_Offset32, -32, 110, 110 },
+	{ "dynamic_13: md5(md5($p).md5($s))",       _Funcs_13,_Preloads_13,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
+#if defined (SIMD_COEF_32)
 	{ "dynamic_14: md5($s.md5($p).$s)",         _Funcs_14,_Preloads_14,_ConstDefault, MGF_SALTED,MGF_KEYS_CRYPT_IN2, -11, 55, 80, -24 },
 #else
 	{ "dynamic_14: md5($s.md5($p).$s)",          _Funcs_14,_Preloads_14,_ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1, -11, 55, 80, -24},
 #endif
-	{ "dynamic_15: md5($u.md5($p).$s)",         _Funcs_15,_Preloads_15,_ConstDefault, MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110 },
-	{ "dynamic_16: md5(md5(md5($p).$s).$s2)",   _Funcs_16,_Preloads_16,_ConstDefault, MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110 },
+	{ "dynamic_15: md5($u.md5($p).$s)",         _Funcs_15,_Preloads_15,_ConstDefault, MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
+	{ "dynamic_16: md5(md5(md5($p).$s).$s2)",   _Funcs_16,_Preloads_16,_ConstDefault, MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
 	#if !ARCH_LITTLE_ENDIAN
 	{ "dynamic_17: phpass ($P$ or $H$)",        _Funcs_17,_Preloads_17,_ConstDefault, MGF_SALTED|MGF_INPBASE64, MGF_PHPassSetup, 9, 38, 38 },
 	#else
 	{ "dynamic_17: phpass ($P$ or $H$)",        _Funcs_17,_Preloads_17,_ConstDefault, MGF_SALTED|MGF_INPBASE64, MGF_PHPassSetup, 9, 38 },
 	#endif
-	{ "dynamic_18: md5($s.Y.$p.0xF7.$s) (Post.Office MD5)",  _Funcs_18,_Preloads_18,_Const_18,     MGF_SALTED|MGF_NOTSSE2Safe, MGF_POSetup, 32, 32 },
+	{ "dynamic_18: md5($s.Y.$p.0xF7.$s) (Post.Office MD5)",  _Funcs_18,_Preloads_18,_Const_18,     MGF_SALTED|MGF_NOTSSE2Safe, MGF_POSetup, 32, 110, 110 },
 	{ "dynamic_19: Cisco PIX (MD5)",            _Funcs_19,_Preloads_19,_ConstDefault, MGF_INPBASE64_4x6, MGF_POOR_OMP, 0, 16, 16 },
 	{ "dynamic_20: Cisco ASA (MD5 salted)",     _Funcs_20,_Preloads_20,_ConstDefault, MGF_INPBASE64_4x6|MGF_SALTED, MGF_NO_FLAG, 4, 12, 12 },
 #if 0
@@ -3333,8 +3337,8 @@ static DYNAMIC_Setup Setups[] =
 #endif
 	{ "dynamic_22: md5(sha1($p))",              _Funcs_22,_Preloads_22,_ConstDefault, MGF_StartInX86Mode, MGF_KEYS_INPUT },
 	{ "dynamic_23: sha1(md5($p))",              _Funcs_23,_Preloads_23,_ConstDefault, MGF_NO_FLAG, MGF_INPUT_20_BYTE|MGF_KEYS_INPUT },
-	{ "dynamic_24: sha1($p.$s)",                _Funcs_24,_Preloads_24,_ConstDefault, MGF_FLAT_BUFFERS|MGF_SALTED, MGF_NO_FLAG|MGF_INPUT_20_BYTE, -24 },
-	{ "dynamic_25: sha1($s.$p)",                _Funcs_25,_Preloads_25,_ConstDefault, MGF_FLAT_BUFFERS|MGF_SALTED, MGF_NO_FLAG|MGF_INPUT_20_BYTE, -24 },
+	{ "dynamic_24: sha1($p.$s)",                _Funcs_24,_Preloads_24,_ConstDefault, MGF_FLAT_BUFFERS|MGF_SALTED, MGF_NO_FLAG|MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_25: sha1($s.$p)",                _Funcs_25,_Preloads_25,_ConstDefault, MGF_FLAT_BUFFERS|MGF_SALTED, MGF_NO_FLAG|MGF_INPUT_20_BYTE, -64, 110, 110 },
 	{ "dynamic_26: sha1($p) raw-sha1",          _Funcs_26,_Preloads_26,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE|MGF_POOR_OMP },
 // Dyna 27/28 have been removed, Spring of 2013.  These dyna numbers should NOT be reused for any purpose.
 //dynamic_27 --> FreeBSD MD5
@@ -3345,122 +3349,124 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_32: md4($p.$s)",                 _Funcs_32,_Preloads_32,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -24 },
 	{ "dynamic_33: md4(unicode($p))",           _Funcs_33,_Preloads_33,_ConstDefault, MGF_UTF8, MGF_POOR_OMP, 0, 27, 40 }, // if we are in utf8 mode, we triple this in the init() call
 	{ "dynamic_34: md5(md4($p))",               _Funcs_34,_Preloads_34,_ConstDefault, MGF_NO_FLAG, MGF_KEYS_INPUT|MGF_SET_INP2LEN32|MGF_POOR_OMP },
-	{ "dynamic_35: sha1(uc($u).:.$p) (ManGOS)", _Funcs_35,_Preloads_35,_Const_35,     MGF_FLAT_BUFFERS|MGF_USERNAME_UPCASE, MGF_INPUT_20_BYTE, -23 },
-	{ "dynamic_36: sha1($u.:.$p) (ManGOS2)",    _Funcs_36,_Preloads_36,_Const_36,     MGF_FLAT_BUFFERS|MGF_USERNAME, MGF_INPUT_20_BYTE, -23 },
-	{ "dynamic_37: sha1(lc($u).$p) (SMF)",      _Funcs_37,_Preloads_37,_ConstDefault,MGF_FLAT_BUFFERS| MGF_USERNAME, MGF_INPUT_20_BYTE, -23 },
-	{ "dynamic_38: sha1($s.sha1($s.sha1($p))) (Wolt3BB)",  _Funcs_38,_Preloads_38,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -23 },
+	{ "dynamic_35: sha1(uc($u).:.$p) (ManGOS)", _Funcs_35,_Preloads_35,_Const_35,     MGF_FLAT_BUFFERS|MGF_USERNAME_UPCASE, MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_36: sha1($u.:.$p) (ManGOS2)",    _Funcs_36,_Preloads_36,_Const_36,     MGF_FLAT_BUFFERS|MGF_USERNAME, MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_37: sha1(lc($u).$p) (SMF)",      _Funcs_37,_Preloads_37,_ConstDefault,MGF_FLAT_BUFFERS| MGF_USERNAME, MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_38: sha1($s.sha1($s.sha1($p))) (Wolt3BB)",  _Funcs_38,_Preloads_38,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -64, 110, 110 },
 	{ "dynamic_39: md5($s.pad16($p)) (net-md5)",  _Funcs_39,_Preloads_39,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_NO_FLAG, -230, 16, 16 },
 	{ "dynamic_40: sha1($s.pad20($p)) (net-sha1)",  _Funcs_40,_Preloads_40,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_20_BYTE, -230, 20, 20 },
 
 	// Try to group sha224 here (from dyna-50 to dyna-59)
 	{ "dynamic_50: sha224($p)",                  _Funcs_50,_Preloads_50,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE|MGF_POOR_OMP },
-	{ "dynamic_51: sha224($s.$p)",               _Funcs_51,_Preloads_51,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_28_BYTE, -20 },
-	{ "dynamic_52: sha224($p.$s)",               _Funcs_52,_Preloads_52,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_28_BYTE, -20 },
+	{ "dynamic_51: sha224($s.$p)",               _Funcs_51,_Preloads_51,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_28_BYTE, -64, 110, 110 },
+	{ "dynamic_52: sha224($p.$s)",               _Funcs_52,_Preloads_52,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_28_BYTE, -64, 110, 110 },
 	{ "dynamic_53: sha224(sha224($p))",          _Funcs_53,_Preloads_53,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE },
 	{ "dynamic_54: sha224(sha224_raw($p))",      _Funcs_54,_Preloads_54,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE },
-	{ "dynamic_55: sha224(sha224($p).$s)",       _Funcs_55,_Preloads_55,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -20 },
-	{ "dynamic_56: sha224($s.sha224($p))",       _Funcs_56,_Preloads_56,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -20 },
-	{ "dynamic_57: sha224(sha224($s).sha224($p))",_Funcs_57,_Preloads_57,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -20 },
+	{ "dynamic_55: sha224(sha224($p).$s)",       _Funcs_55,_Preloads_55,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -64, 110, 110 },
+	{ "dynamic_56: sha224($s.sha224($p))",       _Funcs_56,_Preloads_56,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -64, 110, 110 },
+	{ "dynamic_57: sha224(sha224($s).sha224($p))",_Funcs_57,_Preloads_57,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE, -64, 110, 110 },
 	{ "dynamic_58: sha224(sha224($p).sha224($p))",_Funcs_58,_Preloads_58,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_28_BYTE },
 	// Try to group sha256 here (from dyna-60 to dyna-69)
 	{ "dynamic_60: sha256($p)",                  _Funcs_60,_Preloads_60,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE|MGF_POOR_OMP },
-	{ "dynamic_61: sha256($s.$p)",               _Funcs_61,_Preloads_61,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_62: sha256($p.$s)",               _Funcs_62,_Preloads_62,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_61: sha256($s.$p)",               _Funcs_61,_Preloads_61,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_62: sha256($p.$s)",               _Funcs_62,_Preloads_62,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_63: sha256(sha256($p))",          _Funcs_63,_Preloads_63,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	{ "dynamic_64: sha256(sha256_raw($p))",      _Funcs_64,_Preloads_64,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
-	{ "dynamic_65: sha256(sha256($p).$s)",       _Funcs_65,_Preloads_65,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_66: sha256($s.sha256($p))",       _Funcs_66,_Preloads_66,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_67: sha256(sha256($s).sha256($p))",_Funcs_67,_Preloads_67,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_65: sha256(sha256($p).$s)",       _Funcs_65,_Preloads_65,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_66: sha256($s.sha256($p))",       _Funcs_66,_Preloads_66,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_67: sha256(sha256($s).sha256($p))",_Funcs_67,_Preloads_67,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_68: sha256(sha256($p).sha256($p))",_Funcs_68,_Preloads_68,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	// Try to group sha384 here (from dyna-70 to dyna-79)
-	{ "dynamic_70: sha384($p)",                  _Funcs_70,_Preloads_70,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
-	{ "dynamic_71: sha384($s.$p)",               _Funcs_71,_Preloads_71,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_48_BYTE, -20 },
-	{ "dynamic_72: sha384($p.$s)",               _Funcs_72,_Preloads_72,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_48_BYTE, -20 },
-	{ "dynamic_73: sha384(sha384($p))",          _Funcs_73,_Preloads_73,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
-	{ "dynamic_74: sha384(sha384_raw($p))",      _Funcs_74,_Preloads_74,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
-	{ "dynamic_75: sha384(sha384($p).$s)",       _Funcs_75,_Preloads_75,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -20 },
-	{ "dynamic_76: sha384($s.sha384($p))",       _Funcs_76,_Preloads_76,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -20 },
-	{ "dynamic_77: sha384(sha384($s).sha384($p))",_Funcs_77,_Preloads_77,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -20 },
-	{ "dynamic_78: sha384(sha384($p).sha384($p))",_Funcs_78,_Preloads_78,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
+	{ "dynamic_70: sha384($p)",                  _Funcs_70,_Preloads_70,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
+	{ "dynamic_71: sha384($s.$p)",               _Funcs_71,_Preloads_71,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_48_BYTE, -64, 110, 110 },
+	{ "dynamic_72: sha384($p.$s)",               _Funcs_72,_Preloads_72,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_48_BYTE, -64, 110, 110 },
+	{ "dynamic_73: sha384(sha384($p))",          _Funcs_73,_Preloads_73,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
+	{ "dynamic_74: sha384(sha384_raw($p))",      _Funcs_74,_Preloads_74,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
+	{ "dynamic_75: sha384(sha384($p).$s)",       _Funcs_75,_Preloads_75,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -64, 110, 110 },
+	{ "dynamic_76: sha384($s.sha384($p))",       _Funcs_76,_Preloads_76,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -64, 110, 110 },
+	{ "dynamic_77: sha384(sha384($s).sha384($p))",_Funcs_77,_Preloads_77,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE, -64, 110, 110 },
+	{ "dynamic_78: sha384(sha384($p).sha384($p))",_Funcs_78,_Preloads_78,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_48_BYTE },
 	// Try to group sha512 here (from dyna-80 to dyna-89)
-	{ "dynamic_80: sha512($p)",                  _Funcs_80,_Preloads_80,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
-	{ "dynamic_81: sha512($s.$p)",               _Funcs_81,_Preloads_81,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_82: sha512($p.$s)",               _Funcs_82,_Preloads_82,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_83: sha512(sha512($p))",          _Funcs_83,_Preloads_83,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
-	{ "dynamic_84: sha512(sha512_raw($p))",      _Funcs_84,_Preloads_84,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
-	{ "dynamic_85: sha512(sha512($p).$s)",       _Funcs_85,_Preloads_85,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_86: sha512($s.sha512($p))",       _Funcs_86,_Preloads_86,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_87: sha512(sha512($s).sha512($p))",_Funcs_87,_Preloads_87,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
+	{ "dynamic_80: sha512($p)",                  _Funcs_80,_Preloads_80,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
+	{ "dynamic_81: sha512($s.$p)",               _Funcs_81,_Preloads_81,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_82: sha512($p.$s)",               _Funcs_82,_Preloads_82,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_83: sha512(sha512($p))",          _Funcs_83,_Preloads_83,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
+	{ "dynamic_84: sha512(sha512_raw($p))",      _Funcs_84,_Preloads_84,_ConstDefault, MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
+	{ "dynamic_85: sha512(sha512($p).$s)",       _Funcs_85,_Preloads_85,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_86: sha512($s.sha512($p))",       _Funcs_86,_Preloads_86,_ConstDefault, MGF_SALTED|MGF_FLAT_BUFFERS, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
+#ifndef SIMD_COEF_64
+	{ "dynamic_87: sha512(sha512($s).sha512($p))",_Funcs_87,_Preloads_87,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
 	{ "dynamic_88: sha512(sha512($p).sha512($p))",_Funcs_88,_Preloads_88,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
+#endif
 	// Try to group GOST here (from dyna-90 to dyna-99)
 	{ "dynamic_90: GOST($p)",                    _Funcs_90,_Preloads_90,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
-	{ "dynamic_91: GOST($s.$p)",                 _Funcs_91,_Preloads_91,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_92: GOST($p.$s)",                 _Funcs_92,_Preloads_92,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_91: GOST($s.$p)",                 _Funcs_91,_Preloads_91,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_92: GOST($p.$s)",                 _Funcs_92,_Preloads_92,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_93: GOST(GOST($p))",              _Funcs_93,_Preloads_93,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	{ "dynamic_94: GOST(GOST_raw($p))",          _Funcs_94,_Preloads_94,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
-	{ "dynamic_95: GOST(GOST($p).$s)",           _Funcs_95,_Preloads_95,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_96: GOST($s.GOST($p))",           _Funcs_96,_Preloads_96,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_97: GOST(GOST($s).GOST($p))",     _Funcs_97,_Preloads_97,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_95: GOST(GOST($p).$s)",           _Funcs_95,_Preloads_95,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_96: GOST($s.GOST($p))",           _Funcs_96,_Preloads_96,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_97: GOST(GOST($s).GOST($p))",     _Funcs_97,_Preloads_97,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_98: GOST(GOST($p).GOST($p))",     _Funcs_98,_Preloads_98,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	// Try to group WHIRLPOOL here (from dyna-100 to dyna-109)
 	{ "dynamic_100: WHIRLPOOL($p)",              _Funcs_100,_Preloads_100,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
-	{ "dynamic_101: WHIRLPOOL($s.$p)",           _Funcs_101,_Preloads_101,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_102: WHIRLPOOL($p.$s)",           _Funcs_102,_Preloads_102,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -20 },
+	{ "dynamic_101: WHIRLPOOL($s.$p)",           _Funcs_101,_Preloads_101,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_102: WHIRLPOOL($p.$s)",           _Funcs_102,_Preloads_102,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_64_BYTE, -64, 110, 110 },
 	{ "dynamic_103: WHIRLPOOL(WHIRLPOOL($p))",   _Funcs_103,_Preloads_103,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
 	{ "dynamic_104: WHIRLPOOL(WHIRLPOOL_raw($p))",_Funcs_104,_Preloads_104,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
-	{ "dynamic_105: WHIRLPOOL(WHIRLPOOL($p).$s)",_Funcs_105,_Preloads_105,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_106: WHIRLPOOL($s.WHIRLPOOL($p))",_Funcs_106,_Preloads_106,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
-	{ "dynamic_107: WHIRLPOOL(WHIRLPOOL($s).WHIRLPOOL($p))",_Funcs_107,_Preloads_107,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -20 },
+	{ "dynamic_105: WHIRLPOOL(WHIRLPOOL($p).$s)",_Funcs_105,_Preloads_105,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_106: WHIRLPOOL($s.WHIRLPOOL($p))",_Funcs_106,_Preloads_106,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
+	{ "dynamic_107: WHIRLPOOL(WHIRLPOOL($s).WHIRLPOOL($p))",_Funcs_107,_Preloads_107,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE, -64, 110, 110 },
 	{ "dynamic_108: WHIRLPOOL(WHIRLPOOL($p).WHIRLPOOL($p))",_Funcs_108,_Preloads_108,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_64_BYTE },
 	// Try to group Tiger here (from dyna-110 to dyna-119)
 	{ "dynamic_110: Tiger($p)",                  _Funcs_110,_Preloads_110,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE },
-	{ "dynamic_111: Tiger($s.$p)",               _Funcs_111,_Preloads_111,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_24_BYTE, -20 },
-	{ "dynamic_112: Tiger($p.$s)",               _Funcs_112,_Preloads_112,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_24_BYTE, -20 },
+	{ "dynamic_111: Tiger($s.$p)",               _Funcs_111,_Preloads_111,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_24_BYTE, -64, 110, 110 },
+	{ "dynamic_112: Tiger($p.$s)",               _Funcs_112,_Preloads_112,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_24_BYTE, -64, 110, 110 },
 	{ "dynamic_113: Tiger(Tiger($p))",           _Funcs_113,_Preloads_113,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE },
 	{ "dynamic_114: Tiger(Tiger_raw($p))",       _Funcs_114,_Preloads_114,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE },
-	{ "dynamic_115: Tiger(Tiger($p).$s)",        _Funcs_115,_Preloads_115,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -20 },
-	{ "dynamic_116: Tiger($s.Tiger($p))",        _Funcs_116,_Preloads_116,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -20 },
-	{ "dynamic_117: Tiger(Tiger($s).Tiger($p))", _Funcs_117,_Preloads_117,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -20 },
+	{ "dynamic_115: Tiger(Tiger($p).$s)",        _Funcs_115,_Preloads_115,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -64, 110, 110 },
+	{ "dynamic_116: Tiger($s.Tiger($p))",        _Funcs_116,_Preloads_116,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -64, 110, 110 },
+	{ "dynamic_117: Tiger(Tiger($s).Tiger($p))", _Funcs_117,_Preloads_117,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE, -64, 110, 110 },
 	{ "dynamic_118: Tiger(Tiger($p).Tiger($p))", _Funcs_118,_Preloads_118,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_24_BYTE },
 	// Try to group RIPEMD128 here (from dyna-120 to dyna-129)
 	{ "dynamic_120: RIPEMD128($p)",                  _Funcs_120,_Preloads_120,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT },
-	{ "dynamic_121: RIPEMD128($s.$p)",               _Funcs_121,_Preloads_121,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_NO_FLAG, -20 },
-	{ "dynamic_122: RIPEMD128($p.$s)",               _Funcs_122,_Preloads_122,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_NO_FLAG, -20 },
+	{ "dynamic_121: RIPEMD128($s.$p)",               _Funcs_121,_Preloads_121,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_NO_FLAG, -64, 110, 110 },
+	{ "dynamic_122: RIPEMD128($p.$s)",               _Funcs_122,_Preloads_122,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_NO_FLAG, -64, 110, 110 },
 	{ "dynamic_123: RIPEMD128(RIPEMD128($p))",           _Funcs_123,_Preloads_123,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG },
 	{ "dynamic_124: RIPEMD128(RIPEMD128_raw($p))",       _Funcs_124,_Preloads_124,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG },
-	{ "dynamic_125: RIPEMD128(RIPEMD128($p).$s)",        _Funcs_125,_Preloads_125,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -20 },
-	{ "dynamic_126: RIPEMD128($s.RIPEMD128($p))",        _Funcs_126,_Preloads_126,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -20 },
-	{ "dynamic_127: RIPEMD128(RIPEMD128($s).RIPEMD128($p))", _Funcs_127,_Preloads_127,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -20 },
+	{ "dynamic_125: RIPEMD128(RIPEMD128($p).$s)",        _Funcs_125,_Preloads_125,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -64, 110, 110 },
+	{ "dynamic_126: RIPEMD128($s.RIPEMD128($p))",        _Funcs_126,_Preloads_126,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -64, 110, 110 },
+	{ "dynamic_127: RIPEMD128(RIPEMD128($s).RIPEMD128($p))", _Funcs_127,_Preloads_127,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG, -64, 110, 110 },
 	{ "dynamic_128: RIPEMD128(RIPEMD128($p).RIPEMD128($p))", _Funcs_128,_Preloads_128,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_NO_FLAG },
 	// Try to group RIPEMD160 here (from dyna-130 to dyna-139)
 	{ "dynamic_130: RIPEMD160($p)",                  _Funcs_130,_Preloads_130,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE },
-	{ "dynamic_131: RIPEMD160($s.$p)",               _Funcs_131,_Preloads_131,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_20_BYTE, -20 },
-	{ "dynamic_132: RIPEMD160($p.$s)",               _Funcs_132,_Preloads_132,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_20_BYTE, -20 },
+	{ "dynamic_131: RIPEMD160($s.$p)",               _Funcs_131,_Preloads_131,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_132: RIPEMD160($p.$s)",               _Funcs_132,_Preloads_132,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_20_BYTE, -64, 110, 110 },
 	{ "dynamic_133: RIPEMD160(RIPEMD160($p))",           _Funcs_133,_Preloads_133,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE },
 	{ "dynamic_134: RIPEMD160(RIPEMD160_raw($p))",       _Funcs_134,_Preloads_134,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE },
-	{ "dynamic_135: RIPEMD160(RIPEMD160($p).$s)",        _Funcs_135,_Preloads_135,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -20 },
-	{ "dynamic_136: RIPEMD160($s.RIPEMD160($p))",        _Funcs_136,_Preloads_136,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -20 },
-	{ "dynamic_137: RIPEMD160(RIPEMD160($s).RIPEMD160($p))", _Funcs_137,_Preloads_137,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -20 },
+	{ "dynamic_135: RIPEMD160(RIPEMD160($p).$s)",        _Funcs_135,_Preloads_135,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_136: RIPEMD160($s.RIPEMD160($p))",        _Funcs_136,_Preloads_136,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -64, 110, 110 },
+	{ "dynamic_137: RIPEMD160(RIPEMD160($s).RIPEMD160($p))", _Funcs_137,_Preloads_137,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE, -64, 110, 110 },
 	{ "dynamic_138: RIPEMD160(RIPEMD160($p).RIPEMD160($p))", _Funcs_138,_Preloads_138,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_20_BYTE },
 	// Try to group RIPEMD256 here (from dyna-140 to dyna-149)
 	{ "dynamic_140: RIPEMD256($p)",                  _Funcs_140,_Preloads_140,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
-	{ "dynamic_141: RIPEMD256($s.$p)",               _Funcs_141,_Preloads_141,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_142: RIPEMD256($p.$s)",               _Funcs_142,_Preloads_142,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_141: RIPEMD256($s.$p)",               _Funcs_141,_Preloads_141,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_142: RIPEMD256($p.$s)",               _Funcs_142,_Preloads_142,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_143: RIPEMD256(RIPEMD256($p))",           _Funcs_143,_Preloads_143,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	{ "dynamic_144: RIPEMD256(RIPEMD256_raw($p))",       _Funcs_144,_Preloads_144,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
-	{ "dynamic_145: RIPEMD256(RIPEMD256($p).$s)",        _Funcs_145,_Preloads_145,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_146: RIPEMD256($s.RIPEMD256($p))",        _Funcs_146,_Preloads_146,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
-	{ "dynamic_147: RIPEMD256(RIPEMD256($s).RIPEMD256($p))", _Funcs_147,_Preloads_147,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -20 },
+	{ "dynamic_145: RIPEMD256(RIPEMD256($p).$s)",        _Funcs_145,_Preloads_145,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_146: RIPEMD256($s.RIPEMD256($p))",        _Funcs_146,_Preloads_146,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
+	{ "dynamic_147: RIPEMD256(RIPEMD256($s).RIPEMD256($p))", _Funcs_147,_Preloads_147,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE, -64, 110, 110 },
 	{ "dynamic_148: RIPEMD256(RIPEMD256($p).RIPEMD256($p))", _Funcs_148,_Preloads_148,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_32_BYTE },
 	// Try to group RIPEMD320 here (from dyna-150 to dyna-159)
 	{ "dynamic_150: RIPEMD320($p)",                  _Funcs_150,_Preloads_150,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE },
-	{ "dynamic_151: RIPEMD320($s.$p)",               _Funcs_151,_Preloads_151,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_40_BYTE, -20 },
-	{ "dynamic_152: RIPEMD320($p.$s)",               _Funcs_152,_Preloads_152,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_40_BYTE, -20 },
+	{ "dynamic_151: RIPEMD320($s.$p)",               _Funcs_151,_Preloads_151,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_40_BYTE, -64, 110, 110 },
+	{ "dynamic_152: RIPEMD320($p.$s)",               _Funcs_152,_Preloads_152,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_INPUT_40_BYTE, -64, 110, 110 },
 	{ "dynamic_153: RIPEMD320(RIPEMD320($p))",           _Funcs_153,_Preloads_153,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE },
 	{ "dynamic_154: RIPEMD320(RIPEMD320_raw($p))",       _Funcs_154,_Preloads_154,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE },
-	{ "dynamic_155: RIPEMD320(RIPEMD320($p).$s)",        _Funcs_155,_Preloads_155,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -20 },
-	{ "dynamic_156: RIPEMD320($s.RIPEMD320($p))",        _Funcs_156,_Preloads_156,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -20 },
-	{ "dynamic_157: RIPEMD320(RIPEMD320($s).RIPEMD320($p))", _Funcs_157,_Preloads_157,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -20 },
+	{ "dynamic_155: RIPEMD320(RIPEMD320($p).$s)",        _Funcs_155,_Preloads_155,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -64, 110, 110 },
+	{ "dynamic_156: RIPEMD320($s.RIPEMD320($p))",        _Funcs_156,_Preloads_156,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -64, 110, 110 },
+	{ "dynamic_157: RIPEMD320(RIPEMD320($s).RIPEMD320($p))", _Funcs_157,_Preloads_157,_ConstDefault, MGF_SALTED|MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE, -64, 110, 110 },
 	{ "dynamic_158: RIPEMD320(RIPEMD320($p).RIPEMD320($p))", _Funcs_158,_Preloads_158,_ConstDefault, MGF_NOTSSE2Safe, MGF_KEYS_INPUT|MGF_INPUT_40_BYTE },
 };
 
@@ -3508,8 +3514,10 @@ int dynamic_IS_VALID(int i, int force)
 	sprintf(Type, "dynamic_%d", i);
 	if (i < 0 || i >= 5000)
 		return -1;
+#ifndef DEBUG
 	if (!force && cfg_get_bool(SECTION_DISABLED, SUBSECTION_FORMATS, Type, 0))
 		return 0;
+#endif
 	if (i < 1000) {
 		int j,len;
 		len=strlen(Type);

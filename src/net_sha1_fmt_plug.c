@@ -66,6 +66,7 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
 static void get_ptr();
 static void init(struct fmt_main *self);
+static void done(void);
 
 #define MAGIC 0xfe5aa5ef
 
@@ -127,10 +128,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 static void *get_salt(char *ciphertext)
 {
-	static struct custom_salt cs;
+	static char *pBuf=NULL;
+	struct custom_salt *cs;
 	char *orig_ct = ciphertext;
 	int i, len;
-	memset(&cs, 0, sizeof(cs));
+
+	if (!pBuf) pBuf = (char *)mem_alloc_tiny(sizeof(struct custom_salt), MEM_ALIGN_WORD);
+	cs = (struct custom_salt*) pBuf;
+	memset(cs, 0, sizeof(*cs));
 
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
@@ -138,20 +143,20 @@ static void *get_salt(char *ciphertext)
 	len = (strrchr(ciphertext, '$') - ciphertext) / 2;
 
 	for (i = 0; i < len; i++)
-		cs.salt[i] = (atoi16[ARCH_INDEX(ciphertext[2 * i])] << 4) |
+		cs->salt[i] = (atoi16[ARCH_INDEX(ciphertext[2 * i])] << 4) |
 			atoi16[ARCH_INDEX(ciphertext[2 * i + 1])];
 
 	if (len < 230) {
 		// return our memset buffer (putting the dyna salt pointer into it).
 		// This keeps teh 'pre-cleaned salt() warning from hitting this format)
 		//return pDynamicFmt->methods.salt(Convert(Conv_Buf, orig_ct));
-		memcpy((char*)(&cs), pDynamicFmt->methods.salt(Convert(Conv_Buf, orig_ct)), pDynamicFmt->params.salt_size);
+		memcpy((char*)cs, pDynamicFmt->methods.salt(Convert(Conv_Buf, orig_ct)), pDynamicFmt->params.salt_size);
 		dyna_salt_seen=1;
-		return &cs;
+		return cs;
 	}
-	cs.magic = MAGIC;
-	cs.length = len;
-	return &cs;
+	cs->magic = MAGIC;
+	cs->length = len;
+	return cs;
 }
 
 static void *get_binary(char *ciphertext)
@@ -199,7 +204,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 	if (cur_salt->magic != MAGIC) {
@@ -293,7 +298,7 @@ struct fmt_main fmt_netsha1 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid,
@@ -359,8 +364,17 @@ static void init(struct fmt_main *self)
 		pDynamicFmt = dynamic_THIN_FORMAT_LINK(pNetSha1_Dyna, Convert(Conv_Buf, tests[1].ciphertext), "net-sha1", 1);
 		self->private.initialized = 1;
 	}
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
+	pDynamicFmt->methods.done();
 }
 
 #endif /* plugin stanza */

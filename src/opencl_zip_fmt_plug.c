@@ -115,8 +115,9 @@ static zip_password *inbuffer;
 static zip_hash *outbuffer;
 static zip_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
+static struct fmt_main *self;
 
-size_t insize, outsize, settingsize;
+static size_t insize, outsize, settingsize;
 
 #define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
@@ -158,9 +159,9 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	outsize = sizeof(zip_hash) * gws;
 	settingsize = sizeof(zip_salt);
 
-	inbuffer = mem_calloc(insize);
+	inbuffer = mem_calloc(1, insize);
 	outbuffer = mem_alloc(outsize);
-	crypt_key = mem_calloc(sizeof(*crypt_key) * gws);
+	crypt_key = mem_calloc(gws, sizeof(*crypt_key));
 
 	mem_in =
 	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, insize, NULL,
@@ -202,9 +203,11 @@ static void done(void)
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts),
 	         "-DKEYLEN=%d -DSALTLEN=%d -DOUTLEN=%d",
@@ -216,14 +219,19 @@ static void init(struct fmt_main *self)
 
 	crypt_kernel = clCreateKernel(program[gpu_id], "derive_key", &cl_error);
 	HANDLE_CLERROR(cl_error, "Error creating kernel");
+}
 
-	// Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 0, NULL,
-	                       warn, 1, self, create_clobj, release_clobj,
-	                       sizeof(zip_password), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		// Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 0, NULL, warn, 1,
+		                       self, create_clobj, release_clobj,
+		                       sizeof(zip_password), 0);
 
-	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, 0, 1000);
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 1, 0, 1000);
+	}
 }
 
 static const char *ValidateZipFileData(u8 *Fn, u8 *Oh, u8 *Ob, unsigned len, u8 *Auth) {
@@ -365,7 +373,7 @@ Bail:;
 	return ret;
 }
 
-static void *binary(char *ciphertext) {
+static void *get_binary(char *ciphertext) {
 	static unsigned buf[(BINARY_SIZE+sizeof(unsigned)-1)/sizeof(unsigned)];
 	unsigned char *bin = (unsigned char*)buf;
 	char *c = strrchr(ciphertext, '*')-2*BINARY_SIZE;
@@ -411,7 +419,7 @@ static void *get_salt(char *ciphertext)
 
 	// Ok, now create the allocated salt record we are going to return back to John, using the dynamic
 	// sized data buffer.
-	psalt = (my_salt*)mem_calloc(sizeof(my_salt)+salt.comp_len);
+	psalt = (my_salt*)mem_calloc(1, sizeof(my_salt) + salt.comp_len);
 	psalt->v.type = salt.v.type;
 	psalt->v.mode = salt.v.mode;
 	psalt->comp_len = salt.comp_len;
@@ -510,7 +518,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
@@ -581,7 +589,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	void *b = binary(source);
+	void *b = get_binary(source);
 	return !memcmp(b, crypt_key[index], sizeof(crypt_key[index]));
 }
 
@@ -608,11 +616,11 @@ struct fmt_main fmt_opencl_zip = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

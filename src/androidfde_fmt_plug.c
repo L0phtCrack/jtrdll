@@ -61,8 +61,8 @@ static int omp_t = 1;
 #define TAG_LENGTH          5
 #define FORMAT_LABEL        "fde"
 #define FORMAT_NAME         "Android FDE"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME      "PBKDF2-SHA1 SHA256/AES " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME      "PBKDF2-SHA1 SHA256/AES " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 SHA256/AES 32/" ARCH_BITS_STR
 #endif
@@ -73,7 +73,7 @@ static int omp_t = 1;
 #define BINARY_ALIGN		1
 #define SALT_ALIGN			sizeof(int)
 #define SALT_SIZE           sizeof(struct custom_salt)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -111,11 +111,17 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	max_cracked = self->params.max_keys_per_crypt;
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	cracked   = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*cracked));
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -130,25 +136,25 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
-	if ((p = strtok(ctcopy, "$")) == NULL)
+	if ((p = strtokm(ctcopy, "$")) == NULL)
 		goto err;
 	saltlen = atoi(p);
 	if(saltlen > 16)			/* saltlen */
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) != saltlen * 2)
 		goto err;
-	if ((p = strtok(NULL, "*$")) == NULL)	/* keysize */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* keysize */
 		goto err;
 	keysize = atoi(p);
 	if(keysize > 64)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* key */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* key */
 		goto err;
 	if(strlen(p) != keysize * 2)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* data */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* data */
 		goto err;
 	if(strlen(p) != 512 * 3 * 2)
 		goto err;
@@ -171,21 +177,21 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += TAG_LENGTH;
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.saltlen = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.saltlen; i++) {
 		cs.salt[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
 		p += 2;
 	}
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.keysize = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < cs.keysize; i++) {
 		cs.mkey[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
 		p += 2;
 	}
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	for (i = 0; i < 512 * 3; i++) {
 		cs.data[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
 		p += 2;
@@ -233,7 +239,7 @@ void hash_plugin_check_hash(int index)
 	uint32_t v1,v5;
 	int j = 0;
 
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 	unsigned char *keycandidate, Keycandidate[SSE_GROUP_SZ_SHA1][255];
 	int lens[SSE_GROUP_SZ_SHA1], i;
 	unsigned char *pin[SSE_GROUP_SZ_SHA1];
@@ -264,7 +270,7 @@ void hash_plugin_check_hash(int index)
 #endif
 
 	j = 0;
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 	for (; j < SSE_GROUP_SZ_SHA1; ++j) {
 	keycandidate = Keycandidate[j];
 #endif
@@ -293,14 +299,14 @@ void hash_plugin_check_hash(int index)
 		if ((v1<5)&&(v2<4)&&(v3<5)&&(v4<2)&&(v5<5))
 			cracked[index+j] = 1;
 	}
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 	}
 #endif
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 	memset(cracked, 0, sizeof(cracked[0])*max_cracked);
@@ -335,11 +341,11 @@ static int cmp_exact(char *source, int index)
 
 static void fde_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -369,7 +375,7 @@ struct fmt_main fmt_fde = {
 		fde_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

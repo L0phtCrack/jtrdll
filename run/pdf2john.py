@@ -68,7 +68,9 @@ class PdfParser:
         r = dr.findall(rr.findall(encryption_dictionary)[0])[0]
         lr = re.compile(b'\/Length \d+')
         longest = 0
-        length = ''
+        # According to the docs:
+        # Length : (Optional; PDF 1.4; only if V is 2 or 3). Default value: 40
+        length = b'40'
         for le in lr.findall(encryption_dictionary):
             if(int(dr.findall(le)[0]) > longest):
                 longest = int(dr.findall(le)[0])
@@ -133,9 +135,9 @@ class PdfParser:
                     # print >> sys.stderr, encryption_dictionary
                     try:
                         pas = pr.findall(encryption_dictionary)[0]
-                        output += self.get_password_from_byte_string(pas)+"*"
                     except IndexError:
                         break
+                output += self.get_password_from_byte_string(pas)+"*"
             else:
                 pr = re.compile(let + b'\s*<\w+>')
                 pas = pr.findall(encryption_dictionary)
@@ -312,10 +314,13 @@ class PdfParser:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.stderr.write("Usage: %s <PDF file(s)>\n" % \
-                         sys.argv[0])
+                         os.path.basename(sys.argv[0]))
         sys.exit(-1)
     for j in range(1, len(sys.argv)):
-        filename = sys.argv[j].decode('UTF-8')
+        if not PY3:
+            filename = sys.argv[j].decode('UTF-8')
+        else:
+            filename = sys.argv[j]
         # sys.stderr.write("Analyzing %s\n" % sys.argv[j].decode('UTF-8'))
         parser = PdfParser(filename)
         try:

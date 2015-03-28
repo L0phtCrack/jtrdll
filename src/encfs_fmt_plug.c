@@ -39,8 +39,8 @@ john_register_one(&fmt_encfs);
 
 #define FORMAT_LABEL        "EncFS"
 #define FORMAT_NAME         ""
-#ifdef MMX_COEF
-#define ALGORITHM_NAME      "PBKDF2-SHA1 AES/Blowfish " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME      "PBKDF2-SHA1 AES/Blowfish " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 AES/Blowfish 32/" ARCH_BITS_STR
 #endif
@@ -51,7 +51,7 @@ john_register_one(&fmt_encfs);
 #define BINARY_ALIGN        MEM_ALIGN_NONE
 #define SALT_SIZE           sizeof(*cur_salt)
 #define SALT_ALIGN          sizeof(int)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -131,7 +131,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 	if (any_cracked) {
 		memset(cracked, 0, cracked_size);
@@ -150,7 +150,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		unsigned int checksum2 = 0;
 		unsigned char out[MAX_KEYS_PER_CRYPT][MAX_KEYLENGTH + MAX_IVLENGTH];
 
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		int len[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {

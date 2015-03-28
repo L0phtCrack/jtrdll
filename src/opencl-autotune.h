@@ -1,8 +1,8 @@
 /*
- * Developed by Claudio André <claudio.andre at correios.net.br> in 2012
+ * Developed by Claudio André <claudioandre.br at gmail.com> in 2012
  *
  *
- * Copyright (c) 2012 Claudio André <claudio.andre at correios.net.br>
+ * Copyright (c) 2012-2015 Claudio André <claudioandre.br at gmail.com>
  * This program comes with ABSOLUTELY NO WARRANTY; express or implied.
  *
  * This is free software, and you are welcome to redistribute it
@@ -129,7 +129,7 @@ static void autotune_run(struct fmt_main * self, unsigned int rounds,
 	global_work_size = GET_EXACT_MULTIPLE(global_work_size, local_work_size);
 	create_clobj(global_work_size, self);
 
-	if (options.verbosity > 2)
+	if (options.verbosity > 3 && !(options.flags & FLG_SHOW_CHK))
 		fprintf(stderr,
 		        "Local worksize (LWS) "FMT_SIZE_T", global worksize (GWS) "FMT_SIZE_T"n",
 		        local_work_size, global_work_size);

@@ -1,5 +1,5 @@
 /*
- * Cracker for MD5 authentication in HSRP, VRRP and GLBP.
+ * Cracker for MD5 authentication in HSRP, HSRPv2, VRRP, and GLBP.
  * http://www.rfc-editor.org/rfc/rfc1828.txt
  *
  * This is dedicated to Darya. You inspire me.
@@ -28,7 +28,11 @@ john_register_one(&fmt_hsrp);
 // 32k  - 12111k 7803k  ** this value chosen
 // 64k  - 12420k 6523k
 // 128k - 12220k 6741k
+#ifdef __MIC__
+#define OMP_SCALE 16384
+#else
 #define OMP_SCALE 32768
+#endif
 #endif
 
 #include "arch.h"
@@ -42,7 +46,7 @@ john_register_one(&fmt_hsrp);
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "hsrp"
-#define FORMAT_NAME             "\"MD5 authentication\" HSRP, VRRP, GLBP"
+#define FORMAT_NAME             "\"MD5 authentication\" HSRP, HSRPv2, VRRP, GLBP"
 #define FORMAT_TAG              "$hsrp$"
 #define TAG_LENGTH              (sizeof(FORMAT_TAG) - 1)
 #define ALGORITHM_NAME          "MD5 32/" ARCH_BITS_STR
@@ -62,6 +66,9 @@ static struct fmt_tests tests[] = {
 	{"$hsrp$000004030a64010000000000000000000a000064041c010000000a0000140000000000000000000000000000000000000000$52e1db09d18d695b8fefb3730ff8d9d6", "password12345"},
 	{"$hsrp$000004030a5a01000000000000000000ac102801041c01000000ac1028140000000000000000000000000000000000000000$f15dfa631a0679e0801f8e6b0c0c17ac", "openwall"},
 	{"$hsrp$000010030a64010000000000000000000a000064041c010000000a0000140000000000000000000000000000000000000000$f02fc41b1b516e2d1261d8800d39ccea", "openwall12345"},
+	/* HSRPv2 hashes */
+	{"$hsrp$0128020006040001aabbcc000a000000006400000bb8000027100a000064000000000000000000000000041c010000000a00000a0000000000000000000000000000000000000000$642fedafe1f374bd2fdd8f1ba81d87a2", "password"},
+	{"$hsrp$0128020006040001aabbcc001400000000c800000bb8000027100a000064000000000000000000000000041c010000000a0000140000000000000000000000000000000000000000$0481257f0fe583b275f03a48e88de72f", "password12345"},
 	{NULL}
 };
 
@@ -83,12 +90,19 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -179,7 +193,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -264,7 +278,7 @@ struct fmt_main fmt_hsrp = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

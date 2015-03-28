@@ -27,7 +27,7 @@ dnl further. If there is no SSE4, then there will never be a need
 dnl to test for AVX or XOP.  This CPU simply does not have them.
 dnl
 dnl
-dnl TODO: We should move the MMX_COEF and *_PARA shite into this file and
+dnl TODO: We should move the SIMD_COEF_32 and *_PARA shite into this file and
 dnl ifdef it out from the arch.h
 dnl
 dnl TODO: Ultimately we should not depend on any predefined stuff in arch.h
@@ -47,7 +47,7 @@ dnl
 #############################################################################
 dnl
 CFLAGS="$CFLAGS -O0"
-if test "x$enable_native_tests" = xyes; then
+if test "x$enable_native_tests" != xno; then
   CPU_NOTFOUND=0
   AC_MSG_NOTICE([Testing build host's native CPU features])
   CC="$CC_BACKUP -mmmx"
@@ -158,7 +158,7 @@ if test "x$enable_native_tests" = xyes; then
     )
     AS_IF([test x$OSX_AS_CLANG != x],
       [CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"]
-      [AS_IF([test x$AS = xgcc], [AS="$AS $OSX_AS_CLANG"])]
+      [AS_IF([test "x$AS" = xgcc], [AS="$AS $OSX_AS_CLANG"])]
      ,[CC="$CC_BACKUP"])
     ])]
   )
@@ -227,8 +227,7 @@ else
   # cross-compile versions of the same tests
   ##########################################
   CPU_NOTFOUND=0
-  AC_MSG_NOTICE([Testing build host's native CPU features])
-  CC="$CC_BACKUP -mmmx"
+  AC_MSG_NOTICE([Testing tool-chain's CPU features])
   AC_MSG_CHECKING([for MMX])
   AC_LINK_IFELSE(
     [
@@ -247,7 +246,6 @@ else
   )
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -msse2"
   AC_MSG_CHECKING([for SSE2])
   AC_LINK_IFELSE(
     [
@@ -267,7 +265,6 @@ else
   ])
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -mssse3"
   CPU_NOTFOUND=0
   AC_MSG_CHECKING([for SSSE3])
   AC_LINK_IFELSE(
@@ -288,7 +285,6 @@ else
   )
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -msse4.1"
   CPU_NOTFOUND=0
   AC_MSG_CHECKING([for SSE4.1])
   AC_LINK_IFELSE(
@@ -336,14 +332,13 @@ else
     )
     AS_IF([test x$OSX_AS_CLANG != x],
       [CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"]
-      [AS_IF([test x$AS = xgcc], [AS="$AS $OSX_AS_CLANG"])]
+      [AS_IF([test "x$AS" = xgcc], [AS="$AS $OSX_AS_CLANG"])]
      ,[CC="$CC_BACKUP"])
     ])]
   )
 
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -mavx"
   AC_MSG_CHECKING([for AVX])
   AC_LINK_IFELSE(
     [
@@ -364,7 +359,6 @@ else
 
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -mavx2"
   AC_MSG_CHECKING([for AVX2])
   AC_LINK_IFELSE(
     [
@@ -383,7 +377,6 @@ else
   )
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -mxop"
   AC_MSG_CHECKING([for XOP])
   AC_LINK_IFELSE(
     [

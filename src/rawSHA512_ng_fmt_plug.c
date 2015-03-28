@@ -249,9 +249,21 @@ static void init(struct fmt_main *self)
     omp_t *= OMP_SCALE;
     self->params.max_keys_per_crypt *= omp_t;
 #endif
-    saved_key = mem_calloc_tiny(sizeof(*saved_key) * self->params.max_keys_per_crypt, MEM_ALIGN_CACHE);
+    saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
+                           sizeof(*saved_key), MEM_ALIGN_SIMD);
     for (i = 0; i < 8; i++)
-	    crypt_key[i] = mem_calloc_tiny(sizeof(uint64_t) * self->params.max_keys_per_crypt, MEM_ALIGN_CACHE);
+        crypt_key[i] = mem_calloc_align(self->params.max_keys_per_crypt,
+	                          sizeof(uint64_t), MEM_ALIGN_SIMD);
+}
+
+
+static void done(void)
+{
+    int i;
+
+    for (i = 0; i < 8; i++)
+        MEM_FREE(crypt_key[i]);
+    MEM_FREE(saved_key);
 }
 
 
@@ -581,7 +593,7 @@ struct fmt_main fmt_rawSHA512_ng = {
     }, {
         init,
 #if FMT_MAIN_VERSION > 10
-        fmt_default_done,
+        done,
         fmt_default_reset,
 #endif
         fmt_default_prepare,

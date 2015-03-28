@@ -1,9 +1,9 @@
 /*
- * Developed by Claudio André <claudio.andre at correios.net.br> in 2012
+ * Developed by Claudio André <claudioandre.br at gmail.com> in 2012
  *
  * More information at http://openwall.info/wiki/john/OpenCL-RAWSHA-256
  *
- * Copyright (c) 2012 Claudio André <claudio.andre at correios.net.br>
+ * Copyright (c) 2012-2015 Claudio André <claudioandre.br at gmail.com>
  * This program comes with ABSOLUTELY NO WARRANTY; express or implied.
  *
  * This is free software, and you are welcome to redistribute it
@@ -18,13 +18,14 @@
 #include "opencl_sha256.h"
 
 //Constants.
-#define RAW_PLAINTEXT_LENGTH    56      /* 55 characters + 0x80 */
+#define RAW_PLAINTEXT_LENGTH    55	/* 55 characters + 0x80 */
 #define CISCO_PLAINTEXT_LENGTH  26      /* 25 characters + 0x80 */
+#define PLAINTEXT_LENGTH	RAW_PLAINTEXT_LENGTH
 
 #define BUFFER_SIZE             56      /* RAW_PLAINTEXT_LENGTH multiple of 4 */
 #define CIPHERTEXT_LENGTH       64
-#define BINARY_SIZE             4
-#define FULL_BINARY_SIZE        32
+#define BINARY_SIZE             32
+#define HASH_PARTS		BINARY_SIZE / 4
 #define BINARY_ALIGN            4
 #define SALT_SIZE               0
 #define SALT_ALIGN              1

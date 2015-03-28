@@ -157,7 +157,7 @@ static int hex_decode(char *src, unsigned char *dst, int outsize)
 	return (q - dst);
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static struct salt_st salt;
 	char *p;
@@ -202,7 +202,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		                  saved_salt->realm,
 		                  &saved_key.key);
 	else
-		des_string_to_key(saved_key.string,
+		DES_string_to_key(saved_key.string,
 		                  &saved_key.key);
 
 	return *pcount;
@@ -276,7 +276,7 @@ struct fmt_main fmt_KRB4 = {
 		valid,
 		fmt_default_split,
 		fmt_default_binary,
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

@@ -103,11 +103,18 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
 	if (pers_opts.target_enc == UTF_8)
 		self->params.plaintext_length = PLAINTEXT_LENGTH * 3;
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -122,20 +129,20 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 12;	/* skip leading '$episerver$*' */
 	if (strlen(ciphertext) > 255)
 		goto error;
-	if (!(ptr = strtok(ctcopy, "*")))
+	if (!(ptr = strtokm(ctcopy, "*")))
 		goto error;
 	/* check version, must be '0' or '1' */
 	if (*ptr != '0' && *ptr != '1')
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))	/* salt */
+	if (!(ptr = strtokm(NULL, "*")))	/* salt */
 		goto error;
 	if (strlen(ptr) > 24)
 		goto error;
-	if (!(ptr = strtok(NULL, "*"))) /* hash */
+	if (!(ptr = strtokm(NULL, "*"))) /* hash */
 		goto error;
 	if (strlen(ptr) > 44)
 		goto error;
-	if ((ptr = strtok(NULL, "*"))) /* end */
+	if ((ptr = strtokm(NULL, "*"))) /* end */
 		goto error;
 	MEM_FREE(keeptr);
 	return 1;
@@ -154,9 +161,9 @@ static void *get_salt(char *ciphertext)
 	strncpy(ctcopy, ciphertext, 255);
 	ctcopy[255] = 0;
 	ctcopy += 12;	/* skip over "$episerver$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	base64_decode(p, strlen(p), (char*)cs.esalt);
 	return (void *)&cs;
 }
@@ -191,7 +198,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -292,7 +299,7 @@ struct fmt_main fmt_episerver = {
 		episerver_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

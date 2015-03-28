@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "arch.h"
 
@@ -36,8 +37,8 @@
 /*
  * SIMD buffers need to be aligned to register size
  */
-#if MMX_COEF
-#define MEM_ALIGN_SIMD			(MMX_COEF * 4)
+#if SIMD_COEF_32
+#define MEM_ALIGN_SIMD			(SIMD_COEF_32 * 4)
 #else
 #define MEM_ALIGN_SIMD			(16)
 #endif
@@ -75,7 +76,7 @@ extern void *mem_alloc_func(size_t size
  * this version same as mem_alloc, but initialized the memory
  * to NULL bytes, like CALLOC(3) function does
  */
-extern void *mem_calloc_func(size_t size
+extern void *mem_calloc_func(size_t count, size_t size
 #if defined (MEMDBG_ON)
 	, char *file, int line
 #endif
@@ -83,25 +84,65 @@ extern void *mem_calloc_func(size_t size
 
 #if defined (MEMDBG_ON)
 #define mem_alloc(a) mem_alloc_func(a,__FILE__,__LINE__)
-#define mem_calloc(a) mem_calloc_func(a,__FILE__,__LINE__)
+#define mem_calloc(a,b) mem_calloc_func(a,b,__FILE__,__LINE__)
 #define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b,__FILE__,__LINE__)
 #define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b,__FILE__,__LINE__)
 #define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c,__FILE__,__LINE__)
 #define str_alloc_copy(a) str_alloc_copy_func(a,__FILE__,__LINE__)
+#define mem_alloc_align(a,b) mem_alloc_align_func(a,b,__FILE__,__LINE__)
+#define mem_calloc_align(a,b,c) mem_calloc_align_func(a,b,c,__FILE__,__LINE__)
 #else
 #define mem_alloc(a) mem_alloc_func(a)
-#define mem_calloc(a) mem_calloc_func(a)
+#define mem_calloc(a,b) mem_calloc_func(a,b)
 #define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b)
 #define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b)
 #define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c)
 #define str_alloc_copy(a) str_alloc_copy_func(a)
+#define mem_alloc_align(a,b) mem_alloc_align_func(a,b)
+#define mem_calloc_align(a,b,c) mem_calloc_align_func(a,b,c)
 #endif
+
+/* These allow alignment and are wrappers to system-specific functions */
+void *mem_alloc_align_func(size_t size, size_t align
+#if defined (MEMDBG_ON)
+	, char *file, int line
+#endif
+	);
+
+void *mem_calloc_align_func(size_t count, size_t size, size_t align
+#if defined (MEMDBG_ON)
+	, char *file, int line
+#endif
+	);
 
 /*
  * Frees memory allocated with mem_alloc() and sets the pointer to NULL.
  * Does nothing if the pointer is already NULL.
  */
 #undef MEM_FREE
+
+#ifdef _MSC_VER
+#if !defined (MEMDBG_ON)
+#define strdup(a) strdup_MSVC(a)
+char *strdup_MSVC(const char *str);
+#define MEM_FREE(ptr) \
+{ \
+	if ((ptr)) { \
+		_aligned_free((ptr)); \
+		(ptr) = NULL; \
+	} \
+}
+#else
+#define MEM_FREE(ptr) \
+{ \
+	if ((ptr)) { \
+		MEMDBG_free(((const void*)ptr),__FILE__,__LINE__); \
+		(ptr) = NULL; \
+	} \
+}
+#endif
+
+#else
 #define MEM_FREE(ptr) \
 { \
 	if ((ptr)) { \
@@ -109,6 +150,7 @@ extern void *mem_calloc_func(size_t size
 		(ptr) = NULL; \
 	} \
 }
+#endif
 
 /*
  * Similar to the above function, except the memory can't be freed.
@@ -166,11 +208,14 @@ void dump_stuff_be_msg(void *msg, void *x, unsigned int size);
 void dump_stuff_be_noeol(void *x, unsigned int size);
 void dump_stuff_be_msg_sepline(void *msg, void *x, unsigned int size);
 
-#if defined (MMX_COEF) || defined(NT_X86_64) || defined (MD5_SSE_PARA) || defined (MD4_SSE_PARA) || defined (SHA1_SSE_PARA)
+#if defined (SIMD_COEF_32) || defined(NT_X86_64) || defined (MD5_SSE_PARA) || defined (MD4_SSE_PARA) || defined (SHA1_SSE_PARA)
 void dump_stuff_mmx(void *x, unsigned int size, unsigned int index);
 void dump_stuff_mmx_noeol(void *x, unsigned int size, unsigned int index);
 void dump_stuff_mmx_msg(void *msg, void *buf, unsigned int size, unsigned int index);
 void dump_stuff_mmx_msg_sepline(void *msg, void *buf, unsigned int size, unsigned int index);
+// for flat input, we do want to see SHA512 without byte swapping.
+void dump_stuff_mmx64(void *buf, unsigned int size, unsigned int index);
+void dump_stuff_mmx64_msg(void *msg, void *buf, unsigned int size, unsigned int index);
 void dump_out_mmx(void *x, unsigned int size, unsigned int index);
 void dump_out_mmx_noeol(void *x, unsigned int size, unsigned int index);
 void dump_out_mmx_msg(void *msg, void *buf, unsigned int size, unsigned int index);

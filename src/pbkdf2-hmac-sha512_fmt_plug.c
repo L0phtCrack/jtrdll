@@ -40,7 +40,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #define FORMAT_TAG3             "grub.pbkdf2.sha512."
 #define FORMAT_NAME             "GRUB2 / OS X 10.8+"
 
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define ALGORITHM_NAME		"PBKDF2-SHA512 " SHA512_ALGORITHM_NAME
 #else
 #if ARCH_BITS >= 64
@@ -55,7 +55,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #define MAX_BINARY_SIZE         (4*64) /* Bump this and code will adopt */
 #define MAX_SALT_SIZE           128 /* Bump this and code will adopt */
 #define SALT_SIZE               sizeof(struct custom_salt)
-#ifdef MMX_COEF_SHA512
+#ifdef SIMD_COEF_64
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
 #else
@@ -130,25 +130,25 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	if (!(ptr = strtok(ctcopy, ".")))
+	if (!(ptr = strtokm(ctcopy, ".")))
 		goto error;
 	if (!isdecu(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, ".")))
+	if (!(ptr = strtokm(NULL, ".")))
 		goto error;
 	len = strlen(ptr); // salt length
 	if (len > 2 * MAX_SALT_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, ".")))
+	if (!(ptr = strtokm(NULL, ".")))
 		goto error;
 	len = strlen(ptr); // binary length
 	if (len < BINARY_SIZE || len > MAX_BINARY_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	ptr = strtok(NULL, ".");
+	ptr = strtokm(NULL, ".");
 	if (ptr)
 		goto error;
 	MEM_FREE(keeptr);
@@ -274,7 +274,7 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -364,11 +364,11 @@ static int cmp_exact(char *source, int index)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

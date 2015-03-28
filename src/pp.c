@@ -66,6 +66,7 @@
 #include <getopt.h>
 #endif
 #include <ctype.h>
+#include <signal.h>
 #if _MSC_VER || __MINGW32__ || __MINGW64__ || __CYGWIN__ || HAVE_WINDOWS_H
 #include "win32_memmap.h"
 #ifndef __CYGWIN__
@@ -93,7 +94,7 @@
 /**
  * Name........: princeprocessor (pp)
  * Description.: Standalone password candidate generator using the PRINCE algorithm
- * Version.....: 0.21
+ * Version.....: 0.22
  * Autor.......: Jens Steube <jens.steube@gmail.com>
  * License.....: MIT
  */
@@ -128,6 +129,7 @@
 #include "prince.h"
 #include "rpp.h"
 #include "rules.h"
+#include "mask.h"
 #include "memdbg.h"
 
 #define _STR_VALUE(arg) #arg
@@ -135,6 +137,7 @@
 
 int prince_elem_cnt_min;
 int prince_elem_cnt_max;
+int prince_wl_max;
 char *prince_skip_str;
 char *prince_limit_str;
 
@@ -149,10 +152,13 @@ static char *mem_map, *map_pos, *map_end;
 #define ELEM_CNT_MIN  1
 #define ELEM_CNT_MAX  8
 #define WL_DIST_LEN   0
+#define WL_MAX        10000000
 #define CASE_PERMUTE  0
 #define DUPE_CHECK    1
+#define SAVE_POS      1
+#define SAVE_FILE     "pp.save"
 
-#define VERSION_BIN   21
+#define VERSION_BIN   22
 
 #define ALLOC_NEW_ELEMS  0x40000
 #define ALLOC_NEW_CHAINS 0x10
@@ -286,7 +292,7 @@ static const u32 DEF_HASH_LOG_SIZE[33] =
 
 static const char *USAGE_MINI[] =
 {
-  "Usage: %s [options] < wordlist",
+  "Usage: %s [options] [<] wordlist",
   "",
   "Try --help for more help.",
   NULL
@@ -294,7 +300,7 @@ static const char *USAGE_MINI[] =
 
 static const char *USAGE_BIG[] =
 {
-  "Usage: %s [options] < wordlist",
+  "Usage: %s [options] [<] wordlist",
   "",
   "* Startup:",
   "",
@@ -312,7 +318,9 @@ static const char *USAGE_BIG[] =
   "       --elem-cnt-min=NUM    Minimum number of elements per chain",
   "       --elem-cnt-max=NUM    Maximum number of elements per chain",
   "       --wl-dist-len         Calculate output length distribution from wordlist",
+  "       --wl-max=NUM          Load only NUM words from input wordlist or use 0 to disable",
   "  -c,  --dupe-check-disable  Disable dupes check for faster inital load",
+  "       --save-pos-disable    Save the position for later resume with -s",
   "",
   "* Resources:",
   "",
@@ -728,7 +736,7 @@ static char *add_elem (db_entry_t *db_entry, char *input_buf, int input_len)
 
   memcpy (elem_buf->buf, input_buf, input_len);
 #else
-  if (mem_map)
+  if (mem_map && pers_opts.input_enc == pers_opts.target_enc)
   {
     elem_buf->buf = (u8*)input_buf;
   }
@@ -800,12 +808,28 @@ static void add_uniq (db_entry_t *db_entry, char *input_buf, int input_len)
   uniq->index++;
 }
 
+mpz_t save;
+
 #ifndef JTR_MODE
+static void catch_int ()
+{
+  FILE *fp = fopen (SAVE_FILE, "w");
+
+  if (fp == NULL) fp = stderr;
+
+  mpz_out_str (fp, 10, save);
+
+  fprintf (fp, "\n");
+
+  fclose (fp);
+
+  exit (0);
+}
+
 int main (int argc, char *argv[])
 #else
-static FILE *word_file;
 static mpf_t count;
-static mpz_t pos, rec_pos;
+static mpz_t rec_pos;
 static int rec_pos_destroyed;
 static int rule_number, rule_count;
 static struct rpp_context *rule_ctx;
@@ -842,7 +866,7 @@ static int restore_state(FILE *file)
 
 static void fix_state(void)
 {
-  mpz_set(rec_pos, pos);
+  mpz_set(rec_pos, save);
 }
 
 static double get_progress(void)
@@ -959,7 +983,7 @@ static MAYBE_INLINE char *mgets(int *len)
   return pos;
 }
 
-void do_prince_crack(struct db_main *db, char *filename, int rules)
+void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 #endif
 {
   mpz_t pw_ks_pos[OUT_LEN_MAX + 1];
@@ -979,7 +1003,6 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
 #else
   mpf_init_set_ui(count,     1);
   mpz_init_set_ui(rec_pos,   0);
-  mpz_init_set_ui(pos,       0);
 #endif
   int     keyspace      = 0;
   int     pw_min        = PW_MIN;
@@ -987,42 +1010,48 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
   int     elem_cnt_min  = ELEM_CNT_MIN;
   int     elem_cnt_max  = ELEM_CNT_MAX;
   int     wl_dist_len   = WL_DIST_LEN;
+  int     wl_max        = WL_MAX;
   int     case_permute  = CASE_PERMUTE;
   int     dupe_check    = DUPE_CHECK;
 #ifndef JTR_MODE
+  int     save_pos      = SAVE_POS;
   char   *output_file   = NULL;
 #endif
 
-  #define IDX_VERSION             'V'
-  #define IDX_USAGE               'h'
-  #define IDX_PW_MIN              0x1000
-  #define IDX_PW_MAX              0x2000
-  #define IDX_ELEM_CNT_MIN        0x3000
-  #define IDX_ELEM_CNT_MAX        0x4000
-  #define IDX_KEYSPACE            0x5000
-  #define IDX_WL_DIST_LEN         0x6000
-  #define IDX_CASE_PERMUTE        0x7000
-  #define IDX_DUPE_CHECK_DISABLE  'c'
-  #define IDX_SKIP                's'
-  #define IDX_LIMIT               'l'
-  #define IDX_OUTPUT_FILE         'o'
+  #define IDX_VERSION               'V'
+  #define IDX_USAGE                 'h'
+  #define IDX_PW_MIN                0x1000
+  #define IDX_PW_MAX                0x2000
+  #define IDX_ELEM_CNT_MIN          0x3000
+  #define IDX_ELEM_CNT_MAX          0x4000
+  #define IDX_KEYSPACE              0x5000
+  #define IDX_WL_DIST_LEN           0x6000
+  #define IDX_WL_MAX                0x7000
+  #define IDX_CASE_PERMUTE          0x8000
+  #define IDX_SAVE_POS_DISABLE      0x9000
+  #define IDX_DUPE_CHECK_DISABLE    'c'
+  #define IDX_SKIP                  's'
+  #define IDX_LIMIT                 'l'
+  #define IDX_OUTPUT_FILE           'o'
 
 #ifndef JTR_MODE
   struct option long_options[] =
   {
-    {"version",            no_argument,       0, IDX_VERSION},
-    {"help",               no_argument,       0, IDX_USAGE},
-    {"keyspace",           no_argument,       0, IDX_KEYSPACE},
-    {"pw-min",             required_argument, 0, IDX_PW_MIN},
-    {"pw-max",             required_argument, 0, IDX_PW_MAX},
-    {"elem-cnt-min",       required_argument, 0, IDX_ELEM_CNT_MIN},
-    {"elem-cnt-max",       required_argument, 0, IDX_ELEM_CNT_MAX},
-    {"wl-dist-len",        no_argument,       0, IDX_WL_DIST_LEN},
-    {"case-permute",       no_argument,       0, IDX_CASE_PERMUTE},
-    {"dupe-check-disable", no_argument,       0, IDX_DUPE_CHECK_DISABLE},
-    {"skip",               required_argument, 0, IDX_SKIP},
-    {"limit",              required_argument, 0, IDX_LIMIT},
-    {"output-file",        required_argument, 0, IDX_OUTPUT_FILE},
+    {"version",               no_argument,       0, IDX_VERSION},
+    {"help",                  no_argument,       0, IDX_USAGE},
+    {"keyspace",              no_argument,       0, IDX_KEYSPACE},
+    {"pw-min",                required_argument, 0, IDX_PW_MIN},
+    {"pw-max",                required_argument, 0, IDX_PW_MAX},
+    {"elem-cnt-min",          required_argument, 0, IDX_ELEM_CNT_MIN},
+    {"elem-cnt-max",          required_argument, 0, IDX_ELEM_CNT_MAX},
+    {"wl-dist-len",           no_argument,       0, IDX_WL_DIST_LEN},
+    {"wl-max",                required_argument, 0, IDX_WL_MAX},
+    {"case-permute",          no_argument,       0, IDX_CASE_PERMUTE},
+    {"dupe-check-disable",    no_argument,       0, IDX_DUPE_CHECK_DISABLE},
+    {"save-pos-disable",      no_argument,       0, IDX_SAVE_POS_DISABLE},
+    {"skip",                  required_argument, 0, IDX_SKIP},
+    {"limit",                 required_argument, 0, IDX_LIMIT},
+    {"output-file",           required_argument, 0, IDX_OUTPUT_FILE},
     {0, 0, 0, 0}
   };
 
@@ -1036,20 +1065,22 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
   {
     switch (c)
     {
-      case IDX_VERSION:             version           = 1;              break;
-      case IDX_USAGE:               usage             = 1;              break;
-      case IDX_KEYSPACE:            keyspace          = 1;              break;
-      case IDX_PW_MIN:              pw_min            = atoi (optarg);  break;
-      case IDX_PW_MAX:              pw_max            = atoi (optarg);  break;
-      case IDX_ELEM_CNT_MIN:        elem_cnt_min      = atoi (optarg);  break;
-      case IDX_ELEM_CNT_MAX:        elem_cnt_max      = atoi (optarg);
-                                    elem_cnt_max_chgd = 1;              break;
-      case IDX_WL_DIST_LEN:         wl_dist_len       = 1;              break;
-      case IDX_CASE_PERMUTE:        case_permute      = 1;              break;
-      case IDX_DUPE_CHECK_DISABLE:  dupe_check        = 0;              break;
-      case IDX_SKIP:                mpz_set_str (skip,  optarg, 0);     break;
-      case IDX_LIMIT:               mpz_set_str (limit, optarg, 0);     break;
-      case IDX_OUTPUT_FILE:         output_file       = optarg;         break;
+      case IDX_VERSION:               version           = 1;              break;
+      case IDX_USAGE:                 usage             = 1;              break;
+      case IDX_KEYSPACE:              keyspace          = 1;              break;
+      case IDX_PW_MIN:                pw_min            = atoi (optarg);  break;
+      case IDX_PW_MAX:                pw_max            = atoi (optarg);  break;
+      case IDX_ELEM_CNT_MIN:          elem_cnt_min      = atoi (optarg);  break;
+      case IDX_ELEM_CNT_MAX:          elem_cnt_max      = atoi (optarg);
+                                      elem_cnt_max_chgd = 1;              break;
+      case IDX_WL_DIST_LEN:           wl_dist_len       = 1;              break;
+      case IDX_WL_MAX:                wl_max            = atoi (optarg);  break;
+      case IDX_CASE_PERMUTE:          case_permute      = 1;              break;
+      case IDX_DUPE_CHECK_DISABLE:    dupe_check        = 0;              break;
+      case IDX_SAVE_POS_DISABLE:      save_pos          = 0;              break;
+      case IDX_SKIP:                  mpz_set_str (skip,  optarg, 0);     break;
+      case IDX_LIMIT:                 mpz_set_str (limit, optarg, 0);     break;
+      case IDX_OUTPUT_FILE:           output_file       = optarg;         break;
 
       default: return (-1);
     }
@@ -1074,11 +1105,18 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     return (-1);
   }
 
-  if (optind != argc)
+  if ((optind != argc) && (optind + 1 != argc))
   {
     usage_mini_print (argv[0]);
 
     return (-1);
+  }
+
+  char *wordlist = NULL;
+
+  if (optind + 1 == argc)
+  {
+    wordlist = argv[optind];
   }
 
   if (pw_min <= 0)
@@ -1154,30 +1192,70 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
 #else
   struct rpp_context ctx;
   char *prerule="", *rule="", *word="";
-  char *last = "\r";
+  char last_buf[PLAINTEXT_BUFFER_SIZE] = "\r";
+  char *last = last_buf;
   int loopback = (options.flags & FLG_PRINCE_LOOPBACK) ? 1 : 0;
+  int our_fmt_len = db->format->params.plaintext_length - mask_add_len;
 
   dupe_check = (options.flags & FLG_DUPESUPP) ? 1 : 0;
-
-  if (options.force_maxlength > OUT_LEN_MAX)
-  {
-    if (john_main_process)
-    fprintf (stderr, "Error: --max-len for PRINCE can't be greater than %d\n",
-             OUT_LEN_MAX);
-
-    error();
-  }
 
   log_event("Proceeding with PRINCE (" REALGMP " version)%s",
             loopback ? " in loopback mode" : "");
 
   /* This mode defaults to length 16 (unless lowered by format) */
   pw_min = MAX(PW_MIN, options.force_minlength);
-  pw_max = MIN(PW_MAX, db->format->params.plaintext_length);
+  pw_max = MIN(PW_MAX, our_fmt_len);
 
   /* ...but can be bumped using -max-len */
   if (options.force_maxlength)
     pw_max = options.force_maxlength;
+
+  if (mask_num_qw > 1) {
+    pw_min /= MIN(PW_MIN, mask_num_qw);
+    pw_max /= mask_num_qw;
+  }
+
+  if (pw_max > OUT_LEN_MAX)
+  {
+    if (john_main_process)
+    fprintf (stderr, "Error: net max length for PRINCE can't be greater than %d\n",
+             OUT_LEN_MAX);
+
+    error();
+  }
+
+	if (pw_min > pw_max) {
+		log_event("! MinLen = %d exceeds MaxLen = %d",
+              pw_min, pw_max);
+		if (john_main_process)
+			fprintf(stderr, "MinLen = %d exceeds MaxLen = %d\n",
+              pw_min, pw_max);
+		error();
+	}
+
+	if (pw_min > our_fmt_len) {
+		log_event("! MinLen = %d is too large for this hash type",
+              pw_min);
+		if (john_main_process)
+			fprintf(stderr,
+              "MinLen = %d exceeds the maximum possible "
+              "length for the current hash type (%d)\n",
+              pw_min, db->format->params.plaintext_length);
+		error();
+	}
+
+	if (pw_max > our_fmt_len) {
+		log_event("! MaxLen = %d is too large for this hash type",
+              pw_max);
+		if (john_main_process)
+			fprintf(stderr, "Warning: MaxLen = %d is too large "
+              "for the current hash type, reduced to %d\n",
+              pw_max,
+              our_fmt_len);
+		pw_max = our_fmt_len;
+	}
+
+  wl_max = prince_wl_max; /* JtR defaults to 0 as in unlimited */
 
   if (prince_elem_cnt_min)
     elem_cnt_min = MAX(1, prince_elem_cnt_min);
@@ -1207,16 +1285,16 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     mpz_set_str(limit, prince_limit_str, 0);
 
   /* If we did not give a name for loopback mode, we use the active pot file */
-  if (loopback && !filename)
-    filename = pers_opts.activepot;
+  if (loopback && !wordlist)
+    wordlist = pers_opts.activepot;
 
   /* If we did not give a name for wordlist mode, we use one from john.conf */
-  if (!filename)
-  if (!(filename = cfg_get_param(SECTION_PRINCE, NULL, "Wordlist")))
-  if (!(filename = cfg_get_param(SECTION_OPTIONS, NULL, "Wordlist")))
-    filename = options.wordlist = WORDLIST_NAME;
+  if (!wordlist)
+  if (!(wordlist = cfg_get_param(SECTION_PRINCE, NULL, "Wordlist")))
+  if (!(wordlist = cfg_get_param(SECTION_OPTIONS, NULL, "Wordlist")))
+    wordlist = options.wordlist = WORDLIST_NAME;
 
-  log_event("- Wordlist file: %.100s", path_expand(filename));
+  log_event("- Wordlist file: %.100s", path_expand(wordlist));
   log_event("- Will generate candidates of length %d - %d", pw_min, pw_max);
   log_event("- Using chains with %d - %d elements.", elem_cnt_min, elem_cnt_max);
 
@@ -1234,7 +1312,7 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
       error();
     }
 
-    /* rules.c honors -min/max-len options on its own */
+  /* rules.c honors -min/max-len options on its own */
     rules_init(pers_opts.internal_enc == pers_opts.target_enc ?
                pw_max : db->format->params.plaintext_length);
     rule_count = rules_count(&ctx, -1);
@@ -1242,6 +1320,11 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     log_event("- %d preprocessed word mangling rules", rule_count);
 
     prerule = rpp_next(&ctx);
+  }
+  else
+  {
+    log_event("- No word mangling rules");
+    rule_count = 1;
   }
 #endif
 
@@ -1284,9 +1367,9 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     }
   }
 #else
-  db_entry_t *db_entries   = (db_entry_t *) mem_calloc ((pw_max + 1) * sizeof (db_entry_t));
-  pw_order_t *pw_orders    = (pw_order_t *) mem_calloc ((pw_max + 1) * sizeof (pw_order_t));
-  u64        *wordlen_dist = (u64 *)        mem_calloc ((pw_max + 1) * sizeof (u64));
+  db_entry_t *db_entries   = (db_entry_t *) mem_calloc(pw_max + 1, sizeof (db_entry_t));
+  pw_order_t *pw_orders    = (pw_order_t *) mem_calloc(pw_max + 1, sizeof (pw_order_t));
+  u64        *wordlen_dist = (u64 *)        mem_calloc(pw_max + 1, sizeof (u64));
 #endif
 
   /**
@@ -1306,32 +1389,58 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     }
   }
 
+  /*
+   * catch signal user interrupt
+   */
+
+  if (save_pos)
+  {
+    signal (SIGINT, catch_int);
+  }
+
   /**
    * load elems from stdin
    */
 
-  while (!feof (stdin))
+  FILE *read_fp = stdin;
+
+  if (wordlist)
+  {
+    read_fp = fopen (wordlist, "rb");
+
+    if (read_fp == NULL)
+    {
+      fprintf (stderr, "%s: %s\n", wordlist, strerror (errno));
+
+      return (-1);
+    }
+  }
+
+  int wl_cnt = 0;
+
+  while (!feof (read_fp))
   {
     char buf[BUFSIZ];
 
-    char *input_buf = fgets (buf, sizeof (buf), stdin);
+    char *input_buf = fgets (buf, sizeof (buf), read_fp);
 #else
+  FILE *read_fp;
   uint64_t file_len;
   int warn = cfg_get_bool(SECTION_OPTIONS, NULL, "WarnEncoding", 0);
 
   if (!john_main_process)
     warn = 0;
 
-  filename = path_expand(filename);
+  wordlist = path_expand(wordlist);
 
-  if (!(word_file = jtr_fopen(filename, "rb")))
-    pexit(STR_MACRO(jtr_fopen)": %s", filename);
-  log_event("- Input file: %.100s", filename);
+  if (!(read_fp = jtr_fopen(wordlist, "rb")))
+    pexit(STR_MACRO(jtr_fopen)": %s", wordlist);
+  log_event("- Input file: %.100s", wordlist);
 
-  jtr_fseek64(word_file, 0, SEEK_END);
-  if ((file_len = jtr_ftell64(word_file)) == -1)
+  jtr_fseek64(read_fp, 0, SEEK_END);
+  if ((file_len = jtr_ftell64(read_fp)) == -1)
     pexit(STR_MACRO(jtr_ftell64));
-  jtr_fseek64(word_file, 0, SEEK_SET);
+  jtr_fseek64(read_fp, 0, SEEK_SET);
   if (file_len == 0) {
     if (john_main_process)
       fprintf(stderr, "Error, dictionary file is "
@@ -1352,7 +1461,7 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
 #endif
       mem_map = mmap(NULL, file_len,
                      PROT_READ, MAP_SHARED,
-                     fileno(word_file), 0);
+                     fileno(read_fp), 0);
     if (mem_map == MAP_FAILED) {
       mem_map = NULL;
 #ifdef DEBUG
@@ -1413,7 +1522,9 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     }
   }
 
-  while (!feof (word_file))
+  int wl_cnt = 0;
+
+  while (!feof (read_fp))
   {
     char buf[BUFSIZ];
     char *input_buf;
@@ -1426,7 +1537,7 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     }
     else
     {
-      input_buf = fgets (buf, sizeof (buf), word_file);
+      input_buf = fgets (buf, sizeof (buf), read_fp);
     }
 #endif
 
@@ -1436,7 +1547,12 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     char *p;
 
     if (loopback && (p = strchr(input_buf, options.loader.field_sep_char)))
-      input_buf = p + 1;
+    {
+      p++;
+      if (mem_map)
+        input_len -= (p - input_buf);
+      input_buf = p;
+    }
     else
     if (!strncmp(input_buf, "#!comment", 9))
       continue;
@@ -1451,13 +1567,16 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
       if (pers_opts.input_enc == UTF_8) {
         if (!pp_valid_utf8((UTF8*)line, ep)) {
           warn = 0;
-          fprintf(stderr, "Warning: invalid UTF-8 seen reading %s\n", filename);
+          fprintf(stderr, "Warning: invalid UTF-8 seen reading %s\n", wordlist);
         }
       } else if (line != input_buf || pp_valid_utf8((UTF8*)line, ep) > 1) {
         warn = 0;
-        fprintf(stderr, "Warning: UTF-8 seen reading %s\n", filename);
+        fprintf(stderr, "Warning: UTF-8 seen reading %s\n", wordlist);
       }
     }
+
+    if (mem_map)
+      input_len -= (line - input_buf);
 
     input_buf = line;
 
@@ -1492,8 +1611,8 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     {
       const char old_c = input_buf[0];
 
-      const char new_cu = toupper (old_c);
-      const char new_cl = tolower (old_c);
+      const char new_cu = toupper (ARCH_INDEX(old_c));
+      const char new_cl = tolower (ARCH_INDEX(old_c));
 
       if (old_c != new_cu)
       {
@@ -1523,6 +1642,15 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
         }
       }
     }
+
+    wl_cnt++;
+
+    if (wl_max > 0 && wl_cnt == wl_max) break;
+  }
+
+  if (wordlist)
+  {
+    fclose (read_fp);
   }
 
   if (dupe_check)
@@ -1551,9 +1679,6 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
    */
 
 #ifdef JTR_MODE
-  if (fclose(word_file))
-    pexit("fclose");
-
   log_event("Initializing chains");
 #endif
   for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
@@ -1662,8 +1787,6 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
     mpz_set(skip, rec_pos);
   }
 
-  mpz_set(pos, rec_pos);
-
   log_event("Calculating keyspace");
   size_t tot_mem = (pw_max + 1) * (sizeof(db_entry_t) + sizeof(pw_order_t) + sizeof(u64));
 #endif
@@ -1743,6 +1866,9 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
   }
 
   mpf_set_z(count, total_ks_cnt);
+  mpf_mul_ui(count, count, rule_count);
+  if (mask_tot_cand)
+    mpf_mul_ui(count, count, mask_tot_cand);
 
   crk_init(db, fix_state, NULL);
 #endif
@@ -1834,6 +1960,8 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
 
     mpz_set (total_ks_cnt, tmp);
   }
+
+  mpz_init_set (save, skip);
 
   /**
    * skip to the first main loop that will output a password
@@ -2046,15 +2174,21 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
 
           chain_set_pwbuf_init (chain_buf, db_entries, db_entry->cur_chain_ks_poses, pw_buf);
 
+          const u64 iter_pos_save = iter_max_u64 - iter_pos_u64;
+
           while (iter_pos_u64 < iter_max_u64)
           {
 #ifndef JTR_MODE
             out_push (out, pw_buf, pw_len + 1);
 #else
             if (!rules) {
-              if (ext_filter(pw_buf))
-              if ((jtr_done = crk_process_key(pw_buf)))
-                break;
+              if (options.mask) {
+                if ((jtr_done = do_mask_crack(pw_buf)))
+                  break;
+              } else {
+                if (ext_filter(pw_buf) && (jtr_done = crk_process_key(pw_buf)))
+                  break;
+              }
             } else {
               rule_number = 0;
               if (rpp_init(rule_ctx = &ctx, pers_opts.activewordlistrules)) {
@@ -2084,10 +2218,15 @@ void do_prince_crack(struct db_main *db, char *filename, int rules)
                 if ((word = rules_apply(pw_buf, rule, -1, last))) {
                   last = word;
 
-                  if (ext_filter(word))
-                  if ((jtr_done = crk_process_key(word))) {
-                    rules = 0;
-                    break;
+                  if (options.mask) {
+                    if ((jtr_done = do_mask_crack(word)))
+                      break;
+                  } else {
+                    if (ext_filter(word) && (jtr_done = crk_process_key(word)))
+                    {
+                      rules = 0;
+                      break;
+                    }
                   }
                 }
 
@@ -2107,9 +2246,9 @@ next_rule:
 
             iter_pos_u64++;
           }
-#ifdef JTR_MODE
-          mpz_set(pos, iter_pos_u64);
 
+          mpz_add_ui (save, save, iter_pos_save);
+#ifdef JTR_MODE
           if (jtr_done || event_abort)
             break;
 #endif
@@ -2120,8 +2259,6 @@ next_rule:
 
           set_chain_ks_poses (chain_buf, db_entries, &tmp, db_entry->cur_chain_ks_poses);
 #ifdef JTR_MODE
-          mpz_set(pos, iter_max_u64);
-
           if (jtr_done || event_abort)
             break;
 #endif
@@ -2157,6 +2294,11 @@ next_rule:
 
 #ifndef JTR_MODE
   out_flush (out);
+
+  if (save_pos)
+  {
+    catch_int ();
+  }
 #endif
 
   /**
@@ -2176,6 +2318,7 @@ next_rule:
   mpz_clear (skip);
   mpz_clear (limit);
   mpz_clear (tmp);
+  mpz_clear (save);
 
   for (int pw_len = pw_min; pw_len <= pw_max; pw_len++)
   {
@@ -2217,7 +2360,6 @@ next_rule:
   rec_done(event_abort || (status.pass && db->salts));
 
   mpf_clear(count);
-  mpz_clear(pos);
   rec_pos_destroyed = 1;
   mpz_clear(rec_pos);
 #endif

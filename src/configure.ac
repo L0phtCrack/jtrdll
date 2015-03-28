@@ -37,6 +37,7 @@ m4_include([m4/ax_prog_cc_mpi.m4])
 m4_include([m4/ax_lang_compiler_ms.m4])
 m4_include([m4/ax_check_gnu_make.m4])
 m4_include([m4/jtr_x86_logic.m4])
+m4_include([m4/jtr_mic_logic.m4])
 m4_include([m4/jtr_arm_logic.m4])
 m4_include([m4/jtr_generic_logic.m4])
 m4_include([m4/jtr_systems_specific_logic.m4])
@@ -58,9 +59,11 @@ AC_ARG_WITH(openssl, [AS_HELP_STRING([--without-openssl],[Do not use Openssl (Co
 AC_ARG_WITH(commoncrypto, [AS_HELP_STRING([--with-commoncrypto],[Use CommonCrypto])],,[with_commoncrypto=no])
 # Cludge for endian (if not auto detected)
 AC_ARG_WITH(endian, [AS_HELP_STRING([--with-endian=little|big],[Set endianness for target if it doesn't detect properly])],,[endian=unknown])
+# -DJOHN_SYSTEMWIDE
+AC_ARG_WITH(systemwide, [AS_HELP_STRING([--with-systemwide],[install for all users])],,[with_systemwide=no])
+AC_ARG_WITH(flock, [AS_HELP_STRING([--with-flock],[use flock() file locking instead of fcntl()])],,[with_flock=no])
 
 AC_ARG_ENABLE([memdbg], [AC_HELP_STRING([--enable-memdbg], [Enable memdbg memory debugging (safe level)])], [memdbg=$enableval], [memdbg=no])
-AC_ARG_ENABLE([memdbg-ex], [AC_HELP_STRING([--enable-memdbg-ex], [* Enable memdbg memory debugging (expanded level)])], [memdbgex=$enableval], [memdbgex=no])
 AC_ARG_ENABLE([asan], [AS_HELP_STRING([--enable-asan], [* Build with AddressSanitizer])], [asan=$enableval], [asan=no])
 AC_ARG_ENABLE([plugin-dependencies], [AS_HELP_STRING([--disable-plugin-dependencies], [Do not create best-effort Makefile dependencies for plugins])], [plug_deps=$enableval], [plug_deps=yes])
 
@@ -72,8 +75,8 @@ AC_ARG_ENABLE([mpi], [AC_HELP_STRING([--enable-mpi], [Use OpenMPI])], [enable_mp
 AC_ARG_ENABLE([rexgen], [AC_HELP_STRING([--enable-rexgen], [Use rexgen library if present])], [enable_rexgen=$enableval], [enable_rexgen=auto])
 AC_ARG_ENABLE([cuda], [AC_HELP_STRING([--disable-cuda], [Do not use CUDA])], [enable_cuda=$enableval], [enable_cuda=auto])
 AC_ARG_ENABLE([pcap], [AC_HELP_STRING([--disable-pcap], [Do not build helpers depending on PCAP])], [enable_pcap=$enableval], [enable_pcap=auto])
-AC_ARG_ENABLE([native-tests], [AC_HELP_STRING([--disable-native-tests], [Do not use test build system for target features])], [enable_native_tests=$enableval], [enable_native_tests=auto])
-AC_ARG_ENABLE([native-macro], [AC_HELP_STRING([--disable-native-macro], [Do not use -march=native even if a valid compiler flag. Native tests still can be run in this mode])], [enable_native_macro=$enableval], [enable_native_macro=auto])
+AC_ARG_ENABLE([native-tests], [AC_HELP_STRING([--disable-native-tests], [Do not test build system for target features. Implies --disable-native-march.])], [enable_native_tests=$enableval], [enable_native_tests=auto])
+AC_ARG_ENABLE([native-march], [AC_HELP_STRING([--disable-native-march], [Do not use things like -march=native even if valid compiler option(s). Native tests still can be run in this mode])], [enable_native_march=$enableval], [enable_native_march=auto])
 AC_ARG_ENABLE([ln-s], [AS_HELP_STRING([--enable-ln-s],[Use ln -s vs symlink.c wrappers (Cygwin only)])], [enable_ln_s=$enableval], [enable_ln_s=no])
 AC_ARG_ENABLE([pkg-config], [AS_HELP_STRING([--disable-pkg-config],[do not use pkg-config for any probing tests])], [enable_pkg_config=$enableval], [enable_pkg_config=auto])
 AC_ARG_ENABLE([nt-full-unicode], [AS_HELP_STRING([--enable-nt-full-unicode],[support 4-byte UTF-8 for MS formats])], [enable_nt_unicode=$enableval], [enable_nt_unicode=no])
@@ -111,6 +114,11 @@ if test "x$enable_native_tests" = xauto; then
    else
       enable_native_tests=yes
    fi
+fi
+
+# --disable-native-tests implies --disable-native-march
+if test "x$enable_native_tests" = xno; then
+   enable_native_march=no
 fi
 
 ###
@@ -164,16 +172,32 @@ AS_IF([test "x$JTR_FLAG_CHECK_WORKS" = xyes],
    JTR_FLAG_CHECK([-finline-functions], 1)
    AC_SUBST([OPT_INLINE_FLAGS],["${CFLAGS_EX}"])
 
+   # pick -Og or -O1 for debug targets (applies to ASan too)
+   CFLAGS_EX=""
+   JTR_FLAG_CHECK([-Og], 1)
+   if test "x${CFLAGS_EX}" != x ; then
+      O_DEBUG=${CFLAGS_EX}
+   else
+      O_DEBUG="-O1"
+   fi
+   AC_SUBST([O_DEBUG],[$O_DEBUG])
+
    # if user requested  ASan, make sure we can properly build/link with it.
 if test "x$asan" = xyes ; then
    CFLAGS_EX=""
    LDFLAGS_BAK=${LDFLAGS}
-   LDFLAGS="-fsanitize=address $LDFLAGS"
    JTR_FLAG_CHECK_LINK([-fsanitize=address], 1)
-   LDFLAGS=${LDFLAGS_BAK}
    if test "x${CFLAGS_EX}" = x ; then
-      asan=no
+      JTR_FLAG_CHECK_LINK([-faddress-sanitizer], 1)
+      if test "x${CFLAGS_EX}" = x ; then
+         asan=no
+      else
+         LDFLAGS="-faddress-sanitizer $LDFLAGS"
+      fi
+   else
+      LDFLAGS="-fsanitize=address $LDFLAGS"
    fi
+   LDFLAGS=${LDFLAGS_BAK}
 fi
 
    # now fill out CFLAGS
@@ -193,6 +217,8 @@ fi
    JTR_FLAG_CHECK([-Wno-format-extra-args], 1)
    #JTR_FLAG_CHECK([-Wno-unneeded-internal-declaration], 1)
    AS_IF([test "x$JTR_FLAG_Q_CHECK_WORKS" = xyes], [JTR_FLAG_CHECK([-Qunused-arguments],1)])
+   # Justified and Ancient (see #1093)
+   JTR_FLAG_CHECK([-std=gnu89], 1)
    JTR_LIST_ADD(CFLAGS_EXTRA, ["$CFLAGS_EX"])
 ],[dnl
    AC_MSG_NOTICE([Unable to validate $CC command line arguments. CFLAGS may need to be passed to ./configure for proper build])
@@ -279,6 +305,9 @@ case "$host_cpu" in
   ia64) ARCH_LINK=ia64.h endian=little cpu_family=intel ;;
   i?86) ARCH_LINK=x86-any.h endian=little cpu_family=intel ;;
   m68k*) ARCH_LINK=autoconf_arch.h endian=big ;;
+  mic) ARCH_LINK=mic.h endian=little
+       JTR_MIC_SPECIAL_LOGIC
+       ;;
   mips|mipseb) ARCH_LINK=mips32.h endian=big ;;
   mipsel) ARCH_LINK=mips32.h endian=little ;;
   mips64|mips64eb|mipseb64) ARCH_LINK=mips64.h endian=big ;;
@@ -356,7 +385,7 @@ AS_IF([test "x$with_commoncrypto" = xyes],
 )
 
 AS_IF([test "x$with_openssl" != xno],
-   [if test "x$enable_native_tests" = xyes -a "x$PKG_CONFIG" != xno; then
+   [if test "x$enable_native_tests" != xno -a "x$PKG_CONFIG" != xno; then
    PKG_CHECK_MODULES([OPENSSL], [openssl],
       AC_DEFINE(HAVE_LIBCRYPTO,1,[Define to 1 if you have the `crypto' library (-lcrypto).])
          AC_DEFINE(HAVE_LIBSSL,1,[Define to 1 if you have the `ssl' library (-lssl).]),
@@ -414,8 +443,8 @@ LIBS=""
 using_rexgen=no
 # Check for rexgen only if rexgen wanted
 if test "x$enable_rexgen" != xno ; then
-	AC_CHECK_HEADER([librexgen/api/c/librexgen.h],
-	  [AC_SEARCH_LIBS([c_simplestring_terminate],[rexgen librexgen],
+	AC_CHECK_HEADER([librexgen/c/librexgen.h],
+	  [AC_SEARCH_LIBS([c_simplestring_new],[rexgen librexgen],
 		using_rexgen=yes
 		[AC_DEFINE(HAVE_LIBREXGEN,1,[Define to 1 if you have the `rexgen' library (-lrexgen).])])])
 	AC_SUBST(REXGEN_LIBS, [$LIBS])
@@ -429,9 +458,6 @@ fi
 
 if test "x$memdbg" = xyes ; then
    MEMDBG_CFLAGS="-DMEMDBG_ON"
-fi
-if test "x$memdbgex" = xyes ; then
-   MEMDBG_CFLAGS="-DMEMDBG_ON -DMEMDBG_EXTRA_CHECKS"
 fi
 AC_SUBST([MEMDBG_CFLAGS],["${MEMDBG_CFLAGS}"])
 
@@ -489,7 +515,7 @@ JTR_CUDA
 
 # Checks for header files.
 # Eg. if sys/times.h is found, the below will define HAVE_SYS_TIMES_H
-AC_CHECK_HEADERS([arpa/inet.h crypt.h fcntl.h limits.h locale.h \
+AC_CHECK_HEADERS([arpa/inet.h crypt.h fcntl.h limits.h locale.h malloc.h \
                   net/ethernet.h netdb.h netinet/in.h netinet/in_systm.h \
                   stdint.h string.h strings.h \
                   sys/ethernet.h sys/file.h sys/param.h sys/socket.h \
@@ -571,9 +597,9 @@ AS_IF([test $CPU_BIT_STR -ge 64], [AS_IF([test "x$enable_int128" != xno], [AC_CH
 AC_FUNC_ERROR_AT_LINE
 AC_FUNC_MMAP
 
-# JtR's usage of fork does not work on cygwin, even though the AC_FUNC_FORK says it should
+# JtR's usage of fork may not work on minwin, even though the AC_FUNC_FORK says it should
 case "$host_os" in
-  mingw*|cygwin*)
+  mingw*)
     # FORK is known to 'compile' but to fail and not be usable.
     ac_cv_func_fork=no
     ac_cv_func_fork_works=no
@@ -602,8 +628,8 @@ AC_CHECK_FUNCS([fseek64 fseeko fseeko64 _fseeki64 lseek64 lseek ftell64 ftello \
                ftello64 _ftelli64 fopen64 _fopen64 memmem sleep \
                setenv putenv strcasecmp strncasecmp \
                stricmp strcmpi _stricmp _strcmpi strnicmp strncmpi _strnicmp \
-               _strncmpi strlwr strupr strrev \
-               bzero atoll _atoi64 snprintf sprintf_s])
+               _strncmpi strnlen strlwr strupr strrev \
+               atoll _atoi64 snprintf sprintf_s])
 dnl AC_CHECK_FUNCS([memchr memmove memset munmap pow \
 dnl                 select setlocale socket strchr \
 dnl                 strdup strerror strstr
@@ -612,6 +638,10 @@ dnl                 endpwent isascii mkdir rmdir atexit floor
 dnl                 ftruncate gethostbyname gettimeofday inet_ntoa
 dnl                 strrchr strcspn strspn strtol strtoul
 dnl ])
+
+# This will stop at first found, will be used for mem_alloc_aligned()
+AC_CHECK_FUNCS([aligned_alloc posix_memalign memalign __mingw_aligned_malloc _aligned_malloc], break)
+
 AC_CACHE_SAVE
 
 AC_SUBST([CC_CPU],["${CPU_BEST_FLAGS}"])
@@ -704,7 +734,7 @@ CFLAGS="$CFLAGS_BACKUP"
 if test "x$asan" = xyes ; then
    CFLAGS=`echo $CFLAGS | sed 's/-g //g; s/-O2 //g'`
    CFLAGS=`echo $CFLAGS | sed 's/-g$//g; s/-O2$//g'`
-   CFLAGS="-g -O1 -fsanitize=address $CFLAGS"
+   CFLAGS="-g $O_DEBUG -fsanitize=address $CFLAGS"
    LDFLAGS="-fsanitize=address $LDFLAGS"
 fi
 
@@ -733,6 +763,17 @@ AS_IF([test "x$enable_nt_unicode" != xno], [AC_DEFINE([NT_FULL_UNICODE],1,[Defin
 # code to create M4_INCLUDES (all ./m4/*.m4 )
 AC_SUBST([M4_INCLUDES],[`echo m4/*.m4`])
 
+# Handle --prefix -> JOHN_SYSTEMWIDE_EXEC
+AS_IF([test $prefix != "../run" && test $prefix != "NONE" ],
+   [CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix\"'"],
+   [AS_IF([test $with_systemwide != no], [CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE"
+   prefix=/usr/libexec/john])]
+)
+
+if test x$with_flock != xno; then
+   CFLAGS="$CFLAGS -DPREFER_FLOCK"
+fi
+
 ####################################################
 # Code  to create @PLUGFORMATS_OBJS@ and
 # john_buildrule.h moved from Makefile.in to here.
@@ -760,11 +801,11 @@ AC_OUTPUT(,echo "timestamp from configure.in" > autoconfig-stamp-h)
 # AC_OUTPUT
 ##########################################################
 echo "configure: creating ./fmt_externs.h"
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
 echo "configure: creating ./fmt_registers.h"
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
 
 ########################################################
 # Creates ./run/john.local.conf but ONLY if it does not

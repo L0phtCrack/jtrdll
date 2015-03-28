@@ -35,8 +35,8 @@ john_register_one(&fmt_keychain);
 
 #define FORMAT_LABEL		"keychain"
 #define FORMAT_NAME		"Mac OS X Keychain"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 3DES 32/" ARCH_BITS_STR
 #endif
@@ -47,7 +47,7 @@ john_register_one(&fmt_keychain);
 #define SALT_SIZE		sizeof(*salt_struct)
 #define BINARY_ALIGN		1
 #define SALT_ALIGN			1
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
 #else
@@ -104,15 +104,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 11;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* salt */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
 	if(strlen(p) != SALTLEN * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iv */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
 	if(strlen(p) != IVLEN * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* ciphertext */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
 	if(strlen(p) != CTLEN * 2)
 		goto err;
@@ -133,15 +133,15 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	ctcopy += 11;	/* skip over "$keychain$*" */
 	salt_struct = mem_alloc_tiny(sizeof(struct custom_salt), MEM_ALIGN_WORD);
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	for (i = 0; i < SALTLEN; i++)
 		salt_struct->salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < IVLEN; i++)
 		salt_struct->iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < CTLEN; i++)
 		salt_struct->ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -167,9 +167,9 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 	memcpy(key1, key, 8);
 	memcpy(key2, key + 8, 8);
 	memcpy(key3, key + 16, 8);
-	DES_set_key((C_Block *) key1, &ks1);
-	DES_set_key((C_Block *) key2, &ks2);
-	DES_set_key((C_Block *) key3, &ks3);
+	DES_set_key((DES_cblock *) key1, &ks1);
+	DES_set_key((DES_cblock *) key2, &ks2);
+	DES_set_key((DES_cblock *) key3, &ks3);
 	memcpy(ivec, iv, 8);
 	DES_ede3_cbc_encrypt(data, out, CTLEN, &ks1, &ks2, &ks3, &ivec,  DES_DECRYPT);
 
@@ -191,7 +191,7 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -200,7 +200,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	{
 		unsigned char master[MAX_KEYS_PER_CRYPT][32];
 		int i;
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
@@ -251,11 +251,11 @@ static int cmp_exact(char *source, int index)
 
 static void keychain_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

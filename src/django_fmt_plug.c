@@ -56,7 +56,7 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"Django"
 #define FORMAT_NAME		""
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA256 32/" ARCH_BITS_STR
@@ -70,7 +70,7 @@ static int omp_t = 1;
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
 #define SALT_ALIGN		sizeof(int)
 
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #else
@@ -118,24 +118,24 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;;
 	ctcopy += 9;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* type */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* type */
 		goto err;
 	/* type must be 1 */
 	if (atoi(p) != 1)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* algorithm */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* algorithm */
 		goto err;
 	if (strcmp(p, "pbkdf2_sha256") != 0)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* iterations */
 		goto err;
 	if (!isdec(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p)  > SALT_SIZE)
 		goto err;
-	if ((p = strtok(NULL, "")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p)-1 != base64_valid_length(p,e_b64_mime,flg_Base64_MIME_TRAIL_EQ) || strlen(p)-1 > HASH_LENGTH-1)  {
 		goto err;
@@ -157,14 +157,14 @@ static void *get_salt(char *ciphertext)
 	strncpy(Buf, ciphertext, 119);
 	Buf[119] = 0;
 	ctcopy += 9;	/* skip over "$django$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	/* break up 'p' */
-	strtok(p, "$");
-	t = strtok(NULL, "$");
+	strtokm(p, "$");
+	t = strtokm(NULL, "$");
 	cs.iterations = atoi(t);
-	t = strtok(NULL, "$");
+	t = strtokm(NULL, "$");
 	strcpy((char*)cs.salt, t);
 
 	return (void *)&cs;
@@ -197,14 +197,14 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
 	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
 	{
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		union {

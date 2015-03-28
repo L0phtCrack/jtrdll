@@ -38,7 +38,7 @@ john_register_one(&fmt_sniffed_lastpass);
 
 #define FORMAT_LABEL		"LastPass"
 #define FORMAT_NAME		"sniffed sessions"
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA256 AES " SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA256 AES 32/" ARCH_BITS_STR
@@ -50,7 +50,7 @@ john_register_one(&fmt_sniffed_lastpass);
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN		4
 #define SALT_ALIGN			sizeof(int)
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
 #else
@@ -91,10 +91,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_key));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_key);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -105,15 +111,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 10;
-	if ((p = strtok(ctcopy, "$")) == NULL)	/* username */
+	if ((p = strtokm(ctcopy, "$")) == NULL)	/* username */
 		goto err;
 	if (strlen(p) > 128)
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* iterations */
 		goto err;
 	if (!isdec(p))
 		goto err;
-	if ((p = strtok(NULL, "$")) == NULL)	/* data */
+	if ((p = strtokm(NULL, "$")) == NULL)	/* data */
 		goto err;
 	if (strlen(p) > 50) /* not exact! */
 		goto err;
@@ -134,19 +140,19 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 10;	/* skip over "$lastpass$" */
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	i = strlen(p);
 	if (i > 16)
 		i = 16;
 	cs.length = i; /* truncated length */
 	strncpy(cs.username, p, 128);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	cs.iterations = atoi(p);
 	MEM_FREE(keeptr);
 	return (void *)&cs;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static unsigned int out[4];
 	char Tmp[48];
@@ -166,7 +172,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -175,7 +181,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	{
 		ARCH_WORD_32 key[MAX_KEYS_PER_CRYPT][8];
 		unsigned i;
-#ifdef MMX_COEF_SHA256
+#ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		union {
@@ -240,11 +246,11 @@ static int cmp_exact(char *source, int index)
 
 static void lastpass_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -286,12 +292,12 @@ struct fmt_main fmt_sniffed_lastpass = {
 		lastpass_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{

@@ -37,8 +37,8 @@ john_register_one(&fmt_agile_keychain);
 
 #define FORMAT_LABEL		"agilekeychain"
 #define FORMAT_NAME		"1Password Agile Keychain"
-#ifdef MMX_COEF
-#define ALGORITHM_NAME		"PBKDF2-SHA1 AES " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME		"PBKDF2-SHA1 AES " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 AES 32/" ARCH_BITS_STR
 #endif
@@ -49,7 +49,7 @@ john_register_one(&fmt_agile_keychain);
 #define SALT_ALIGN		sizeof(int)
 #define PLAINTEXT_LENGTH	125
 #define SALT_SIZE		sizeof(struct custom_salt)
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -106,27 +106,27 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 15;
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* nkeys */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* nkeys */
 		goto err;
 	if(atoi(p) > 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt length */
 		goto err;
 	saltlen = atoi(p);
 	if(saltlen > SALTLEN)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if(strlen(p) != saltlen * 2)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* ct length */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* ct length */
 		goto err;
 	ctlen = atoi(p);
 	if (ctlen > CTLEN)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* ciphertext */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
 	if(strlen(p) != ctlen * 2)
 		goto err;
@@ -149,19 +149,19 @@ static void *get_salt(char *ciphertext)
 
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += 15;	/* skip over "$agilekeychain$" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.nkeys = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.iterations[0] = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.saltlen[0] = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.saltlen[0]; i++)
 		cs.salt[0][i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	cs.ctlen[0] = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < cs.ctlen[0]; i++)
 		cs.ct[0][i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -207,14 +207,14 @@ static int akcdecrypt(unsigned char *derived_key, unsigned char *data)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
 	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
 	{
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		unsigned char master[MAX_KEYS_PER_CRYPT][32];
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
@@ -274,12 +274,12 @@ static int cmp_exact(char *source, int index)
 
 static void agile_keychain_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
+	int saved_len = strlen(key);
 
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)

@@ -158,6 +158,8 @@ hex_decode(char *src, unsigned char *dst, int outsize)
 	return (q - dst);
 }
 
+// Since our test strings have 1 space as first delim, and 2 spaces as 2nd
+// delim, then it is NOT equivelant to use strtokm() vs strtok.
 static void *
 skey_salt(char *ciphertext)
 {
@@ -188,7 +190,9 @@ skey_salt(char *ciphertext)
 	return (&salt);
 }
 
-static void *binary(char *ciphertext)
+// Since our test strings have 1 space as first delim, and 2 spaces as 2nd
+// delim, then it is NOT equivelant to use strtokm() vs strtok.
+static void *get_binary(char *ciphertext)
 {
 	static unsigned char *realcipher;
 	char buf[128], *p;
@@ -343,7 +347,7 @@ struct fmt_main fmt_SKEY = {
 		fmt_default_prepare,
 		skey_valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		skey_salt,
 #if FMT_MAIN_VERSION > 11
 		{

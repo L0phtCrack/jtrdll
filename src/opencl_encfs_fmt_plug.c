@@ -87,6 +87,7 @@ static cl_mem mem_in, mem_out, mem_salt, mem_state;
 static unsigned int v_width = 1;	/* Vector width of kernel */
 static size_t key_buf_size;
 static int new_keys;
+static struct fmt_main *self;
 
 static cl_kernel pbkdf2_init, pbkdf2_loop, pbkdf2_final;
 
@@ -144,14 +145,14 @@ struct fmt_main *me;
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
-	global_work_size = gws *= v_width;
+	gws *= v_width;
 
 	key_buf_size = 64 * gws;
 
 	/// Allocate memory
-	inbuffer = mem_calloc(key_buf_size);
+	inbuffer = mem_calloc(1, key_buf_size);
 	output = mem_alloc(sizeof(pbkdf2_out) * gws);
-	cracked = mem_calloc(cracked_size);
+	cracked = mem_calloc(1, cracked_size);
 
 	mem_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, key_buf_size, NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error allocating mem in");
@@ -199,14 +200,13 @@ static void done(void)
 static int crypt_all(int *pcount, struct db_salt *salt);
 static int crypt_all_benchmark(int *pcount, struct db_salt *salt);
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
 	static char valgo[sizeof(ALGORITHM_NAME) + 8] = "";
 
-#if 0
-	me = self;
-#endif
+	self = _self;
+
 	opencl_preinit();
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
 	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
@@ -233,17 +233,24 @@ static void init(struct fmt_main *self)
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
 	pbkdf2_final = clCreateKernel(program[gpu_id], "pbkdf2_final", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
-		warn, 2, self, create_clobj, release_clobj,
-	        v_width * sizeof(pbkdf2_state), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
+		                       warn, 2, self, create_clobj,
+		                       release_clobj,
+		                       v_width * sizeof(pbkdf2_state), 0);
 
-	//Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
-	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
-	self->methods.crypt_all = crypt_all;
+		//Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              1000000000 : 10000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static void set_salt(void *salt)
@@ -286,7 +293,7 @@ static char* get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i, j, index;
 	size_t scalar_gws;
 
@@ -419,7 +426,7 @@ struct fmt_main fmt_opencl_encfs = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		encfs_common_valid,
 		fmt_default_split,

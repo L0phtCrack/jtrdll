@@ -7,6 +7,18 @@
  * modification, are permitted.
  *
  * There's ABSOLUTELY NO WARRANTY, express or implied.
+ *
+ * NOTE: Due to core limitations this format can not crack a plaintext
+ * containing ':' or that has trailing whitespace.
+ *
+ * Example hash generation:
+ *
+ * Without usernames:
+ * perl -ne 'print "\$0\$$_" if m/^[^:]{0,124}[^:\s]$/' < in > out
+ *
+ * With usernames:
+ * perl -ne 'chomp; print "$_:\$0\$$_\n" if m/^[^:]{0,124}[^:\s]$/' < in > out
+ *
  */
 
 #define FMT_STRUCT	fmt_plaintext
@@ -34,6 +46,7 @@ john_register_one(&FMT_STRUCT);
 #define BENCHMARK_LENGTH		-1
 
 #define PLAINTEXT_MIN_LENGTH		0
+/* Max 125, but 95 typically produces fewer L1 data cache tag collisions */
 #define PLAINTEXT_LENGTH		125
 #define CIPHERTEXT_LENGTH		(PLAINTEXT_LENGTH + FORMAT_TAG_LEN)
 
@@ -54,6 +67,7 @@ static struct fmt_tests tests[] = {
 	{"$0$cleartext", "cleartext"},
 	{FORMAT_TAG, ""},
 	{"$0$magnum", "magnum"},
+	{"$0$ spa  ce", " spa  ce"},
 	{"$0$password", "password"},
 	{NULL}
 };
@@ -73,6 +87,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if (len < PLAINTEXT_MIN_LENGTH || len > PLAINTEXT_LENGTH)
 		return 0;
+
 	return 1;
 }
 
@@ -111,7 +126,7 @@ out:
 	return hash;
 }
 
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static plaintext_binary out;
 
@@ -274,7 +289,7 @@ struct fmt_main FMT_STRUCT = {
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
-		binary,
+		get_binary,
 		fmt_default_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

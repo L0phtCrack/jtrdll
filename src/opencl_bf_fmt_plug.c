@@ -57,7 +57,7 @@ static void done(void) {
 }
 
 static void init(struct fmt_main *self) {
-	saved_key = mem_calloc(BF_N * sizeof(*saved_key)) ;
+	saved_key = mem_calloc(BF_N, sizeof(*saved_key)) ;
 	global_work_size = 0 ;
 
 	//Prepare OpenCL environment.
@@ -120,7 +120,7 @@ static char *get_key(int index) {
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt) {
-	int count = *pcount ;
+	const int count = *pcount ;
 	if (keys_mode != saved_salt.subtype) {
 		int i ;
 

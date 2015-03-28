@@ -90,9 +90,9 @@ static void done(void)
 
 static void init(struct fmt_main *self)
 {
-	gkey = mem_calloc(MAX_KEYS_PER_CRYPT * sizeof(xsha512_key));
-	g_ext_key = mem_calloc(MAX_KEYS_PER_CRYPT * sizeof(xsha512_extend_key));
-	ghash = mem_calloc(MAX_KEYS_PER_CRYPT * sizeof(xsha512_hash));
+	gkey = mem_calloc(MAX_KEYS_PER_CRYPT, sizeof(xsha512_key));
+	g_ext_key = mem_calloc(MAX_KEYS_PER_CRYPT, sizeof(xsha512_extend_key));
+	ghash = mem_calloc(MAX_KEYS_PER_CRYPT, sizeof(xsha512_hash));
 
 	cuda_init();
 	cuda_xsha512_init();
@@ -162,7 +162,7 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static void *salt(char *ciphertext)
+static void *get_salt(char *ciphertext)
 {
 	static unsigned char out[SALT_SIZE];
 	char *p;
@@ -303,7 +303,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 
 	cuda_xsha512(gkey, &gsalt, ghash, g_ext_key, count);
 	xsha512_key_changed = 0;
@@ -387,7 +387,7 @@ struct fmt_main fmt_cuda_xsha512 = {
 		valid,
 		fmt_default_split,
 		get_binary,
-		salt,
+		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif

@@ -7,7 +7,7 @@
  * Copyright (c) 2010-2012 Samuele Giovanni Tonon <samu at linuxasylum dot net>
  * Copyright (c) 2010-2013 Lukas Odzioba <ukasz@openwall.net>
  * Copyright (c) 2010-2013 magnum
- * Copyright (c) 2012-2013 Claudio André <claudio.andre at correios.net.br>
+ * Copyright (c) 2012-2015 Claudio André <claudioandre.br at gmail.com>
  * and is hereby released to the general public under the following terms:
  *    Redistribution and use in source and binary forms, with or without
  *    modifications, are permitted.
@@ -15,6 +15,7 @@
 
 #define _BSD_SOURCE // setenv()
 #define NEED_OS_TIMER
+#define NEED_OS_FLOCK
 #include "os.h"
 
 #include <assert.h>
@@ -25,6 +26,9 @@
 #include <signal.h>
 #include <stdlib.h>
 
+#if (!AC_BUILT || HAVE_FCNTL_H)
+#include <fcntl.h>
+#endif
 #include "options.h"
 #include "config.h"
 #include "common-opencl.h"
@@ -235,6 +239,85 @@ static char *opencl_driver_ver(int sequential_id)
 	return ret;
 }
 
+static char *opencl_driver_info(int sequential_id)
+{
+	static char ret[64];
+	char dname[MAX_OCLINFO_STRING_LEN];
+	char *p;
+	int major = 0, minor = 0, i = 0;
+
+	int known_drivers[][2] = {
+		{938, 2},
+		{1084, 4},
+		{1124, 2},
+		{1214, 3},
+		{1311, 2},
+		{1348, 5},
+		{1445, 5},
+		{1526, 3},
+		{1573, 4},
+		{1642, 5},
+		{0, 0}
+	};
+
+	char * drivers_info[] = {
+		"12.8",
+		"13.1",
+		"13.4",
+		"13.6 beta",
+		"13.11 beta-1",
+		"13.12",
+		"14.4 (Mantle)",
+		"14.6 beta (Mantle)",
+		"14.9 (Mantle)",
+		"14.12 (Omega) [supported]",
+		""
+	};
+
+	clGetDeviceInfo(devices[sequential_id], CL_DRIVER_VERSION,
+	                sizeof(dname), dname, NULL);
+
+	p = dname;
+	while (*p && !isdigit((int)*p))
+		p++;
+	if (*p) {
+		major = atoi(p);
+		while (*p && isdigit((int)*p))
+			p++;
+		while (*p && !isdigit((int)*p))
+			p++;
+		if (*p) {
+			minor = atoi(p);
+		}
+	}
+
+	if (gpu_amd(device_info[sequential_id])) {
+
+		while (known_drivers[i][0]) {
+
+			if (known_drivers[i][0] == major && known_drivers[i][1] == minor)
+				break;
+			i++;
+		}
+		snprintf(ret, sizeof (ret), "%s - Catalyst %s", dname, drivers_info[i]);
+
+	} else if (gpu_nvidia(device_info[sequential_id])) {
+
+		if (major >= 319)
+			snprintf(ret, sizeof (ret), "%s%s", dname, " [supported]");
+		else
+			snprintf(ret, sizeof (ret), "%s", dname);
+
+#if 0 /* I see no reason to say "CPU", it's indicated elsewhere */
+	} else if (cpu(device_info[sequential_id])) {
+		snprintf(ret, sizeof (ret), "%s%s", dname, " [CPU]");
+#endif
+	} else
+		snprintf(ret, sizeof (ret), "%s", dname);
+
+	return ret;
+}
+
 static char* ns2string(cl_ulong nanosec)
 {
 	char *buf = mem_alloc_tiny(16, MEM_ALIGN_NONE);
@@ -324,8 +407,6 @@ static cl_int get_pci_info(int sequential_id, hw_bus * hardware_info) {
 	hardware_info->device = -1;
 	memset(hardware_info->busId, '\0', sizeof(hardware_info->busId));
 
-#if defined(CL_DEVICE_TOPOLOGY_AMD) && CL_DEVICE_TOPOLOGY_TYPE_PCIE_AMD == 1
-
 	if (gpu_amd(device_info[sequential_id]) || cpu(device_info[sequential_id])) {
 		cl_device_topology_amd topo;
 
@@ -341,11 +422,7 @@ static cl_int get_pci_info(int sequential_id, hw_bus * hardware_info) {
 				return CL_SUCCESS;
 			else
 				return ret;
-	}
-#endif
-
-#ifdef CL_DEVICE_REGISTERS_PER_BLOCK_NV
-
+	} else
 	if (gpu_nvidia(device_info[sequential_id])) {
 		cl_uint entries;
 
@@ -369,7 +446,7 @@ static cl_int get_pci_info(int sequential_id, hw_bus * hardware_info) {
 		} else
 		    return ret;
 	}
-#endif
+
 	sprintf(hardware_info->busId, "%02x:%02x.%x", hardware_info->bus,
 		hardware_info->device, hardware_info->function);
 	return CL_SUCCESS;
@@ -829,15 +906,13 @@ void opencl_get_user_preferences(char *format)
 static void dev_init(int sequential_id)
 {
 	char device_name[MAX_OCLINFO_STRING_LEN];
-#ifdef CL_DEVICE_BOARD_NAME_AMD
 	cl_int ret_code;
 	int len;
-#endif
+
 	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id], CL_DEVICE_NAME,
 		sizeof(device_name), device_name, NULL),
 		"Error querying DEVICE_NAME");
 
-#ifdef CL_DEVICE_BOARD_NAME_AMD
 	ret_code = clGetDeviceInfo(devices[sequential_id],
 				   CL_DEVICE_BOARD_NAME_AMD,
 				   sizeof(opencl_log), opencl_log, NULL);
@@ -847,12 +922,10 @@ static void dev_init(int sequential_id)
 			len--;
 		opencl_log[len] = '\0';
 
-		if (options.verbosity >= 2)
-			fprintf(stderr, "Device %d: %s (%s)\n",
+		if (options.verbosity >= 2 && !(options.flags & FLG_SHOW_CHK))
+			fprintf(stderr, "Device %d: %s [%s]\n",
 				sequential_id, device_name, opencl_log);
-	} else
-#endif
-	{
+	} else 	{
 		char *dname = device_name;
 
 		/* Skip leading whitespace seen on Intel */
@@ -916,7 +989,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name)
 					     CL_PROGRAM_BUILD_LOG, 0, NULL,
 					     &log_size),
 		       "Error while getting build info I");
-	build_log = (char *) mem_calloc((log_size + 1));
+	build_log = (char *) mem_calloc(1, log_size + 1);
 
 	HANDLE_CLERROR(clGetProgramBuildInfo(program[sequential_id],
 					     devices[sequential_id],
@@ -952,7 +1025,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name)
 		if (options.verbosity > 4)
 			fprintf(stderr, "binary size %zu\n", source_size);
 
-		source = mem_calloc(source_size);
+		source = mem_calloc(1, source_size);
 
 		HANDLE_CLERROR(clGetProgramInfo(program[sequential_id],
 						CL_PROGRAM_BINARIES,
@@ -965,6 +1038,25 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name)
 			fprintf(stderr, "Error creating binary file %s\n",
 				file_name);
 		else {
+#if OS_FLOCK || FCNTL_LOCKS
+			{
+#if FCNTL_LOCKS
+				struct flock lock;
+
+				memset(&lock, 0, sizeof(lock));
+				lock.l_type = F_WRLCK;
+				while (fcntl(fileno(file), F_SETLKW, &lock)) {
+					if (errno != EINTR)
+						pexit("fcntl(F_WRLCK)");
+				}
+#else
+				while (flock(fileno(file), LOCK_EX)) {
+					if (errno != EINTR)
+						pexit("flock(LOCK_EX)");
+				}
+#endif
+			}
+#endif
 			if (fwrite(source, source_size, 1, file) != 1)
 				fprintf(stderr, "error writing binary\n");
 			fclose(file);
@@ -973,7 +1065,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name)
 	}
 }
 
-static void opencl_build_from_binary(int sequential_id)
+void opencl_build_from_binary(int sequential_id)
 {
 	cl_int build_code;
 	const char *srcptr[] = { kernel_source };
@@ -1034,8 +1126,6 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 	int count, tidx = 0;
 	void *salt;
 	char *ciphertext;
-
-	bench_running = 1;
 
 	/* Formats supporting vectorizing should have a default max keys per
 	   crypt that is a multiple of 2 and of 3 */
@@ -1122,6 +1212,7 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 			      self->params.max_keys_per_crypt - 1);
 
 	// Timing run
+	count = self->params.max_keys_per_crypt;
 	self->methods.crypt_all(&count, NULL);
 
 	if (*lastEvent == NULL)
@@ -1173,6 +1264,7 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 				self->params.tests[0].plaintext,
 				self->params.max_keys_per_crypt - 1);
 
+			count = self->params.max_keys_per_crypt;
 			if (self->methods.crypt_all(&count, NULL) < 0) {
 				startTime = endTime = 0;
 				if (options.verbosity > 3)
@@ -1224,8 +1316,6 @@ void opencl_find_best_workgroup_limit(struct fmt_main *self,
 	// These ensure we don't get events from crypt_all() in real use
 	profilingEvent = firstEvent = lastEvent = NULL;
 	dyna_salt_remove(salt);
-
-	bench_running = 0;
 }
 
 // Do the proper test using different global work sizes.
@@ -1256,8 +1346,6 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	void *salt;
 	int amd_bug;
 	char *ciphertext;
-
-	bench_running = 1;
 
 	for (i = 0; i < MAX_EVENTS; i++)
 		benchEvent[i] = NULL;
@@ -1307,7 +1395,6 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		clear_profiling_events();
 		release_clobj();
 		dyna_salt_remove(salt);
-		bench_running = 0;
 		return 0;
 	}
 
@@ -1390,7 +1477,6 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	clear_profiling_events();
 	release_clobj();
 	dyna_salt_remove(salt);
-	bench_running = 0;
 	return runtime;
 }
 
@@ -1437,8 +1523,6 @@ void opencl_find_best_lws(
 	cl_event benchEvent[MAX_EVENTS];
 	void *salt;
 	char *ciphertext;
-
-	bench_running = 1;
 
 	for (i = 0; i < MAX_EVENTS; i++)
 		benchEvent[i] = NULL;
@@ -1522,6 +1606,7 @@ void opencl_find_best_lws(
 		multi_profilingEvent[i] = &benchEvent[i];
 
 	// Timing run
+	count = global_work_size * opencl_v_width;
 	self->methods.crypt_all(&count, NULL);
 
 	HANDLE_CLERROR(
@@ -1567,6 +1652,7 @@ void opencl_find_best_lws(
 			for (j = 0; j < MAX_EVENTS; j++)
 				multi_profilingEvent[j] = &benchEvent[j];
 
+			count = global_work_size * opencl_v_width;
 			if (self->methods.crypt_all(&count, NULL) < 0) {
 				startTime = endTime = 0;
 
@@ -1611,7 +1697,6 @@ void opencl_find_best_lws(
 	local_work_size = optimal_work_group;
 
 	dyna_salt_remove(salt);
-	bench_running = 0;
 }
 
 void opencl_find_best_gws(int step, unsigned long long int max_run_time,
@@ -1692,7 +1777,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 			        num, (long long)(kpc / (run_time / 1E9)),
 			        speed, ns2string(run_time));
 
-		if (best_speed && speed < 2 * best_speed &&
+		if (best_speed && speed < 1.8 * best_speed &&
 		    max_run_time && run_time > max_run_time) {
 			if (!optimal_gws)
 				optimal_gws = num;
@@ -1726,6 +1811,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 static void opencl_get_dev_info(int sequential_id)
 {
 	cl_device_type device;
+	unsigned int major = 0, minor = 0;
 
 	device = get_device_type(sequential_id);
 
@@ -1740,24 +1826,18 @@ static void opencl_get_dev_info(int sequential_id)
 	device_info[sequential_id] += get_processor_family(sequential_id);
 	device_info[sequential_id] += get_byte_addressable(sequential_id);
 
-#ifdef CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV
-	{
-		unsigned int major = 0, minor = 0;
+	get_compute_capability(sequential_id, &major, &minor);
 
-		get_compute_capability(sequential_id, &major, &minor);
-
-		if (major) {
-			device_info[sequential_id] +=
-				(major == 2 ? DEV_NV_C2X : 0);
-			device_info[sequential_id] +=
-				(major == 3 && minor == 0 ? DEV_NV_C30 : 0);
-			device_info[sequential_id] +=
-				(major == 3 && minor == 5 ? DEV_NV_C35 : 0);
-			device_info[sequential_id] +=
-				(major == 5 ? DEV_NV_C5X : 0);
-		}
+	if (major) {
+		device_info[sequential_id] +=
+			(major == 2 ? DEV_NV_C2X : 0);
+		device_info[sequential_id] +=
+			(major == 3 && minor == 0 ? DEV_NV_C30 : 0);
+		device_info[sequential_id] +=
+			(major == 3 && minor == 5 ? DEV_NV_C35 : 0);
+		device_info[sequential_id] +=
+			(major == 5 ? DEV_NV_C5X : 0);
 	}
-#endif
 }
 
 static void find_valid_opencl_device(int *dev_id, int *platform_id)
@@ -1819,12 +1899,31 @@ void opencl_read_source(char *kernel_filename)
 	if (!fp)
 		HANDLE_CLERROR(!CL_SUCCESS, "Source kernel not found!");
 
+#if OS_FLOCK || FCNTL_LOCKS
+	{
+#if FCNTL_LOCKS
+		struct flock lock;
+
+		memset(&lock, 0, sizeof(lock));
+		lock.l_type = F_RDLCK;
+		while (fcntl(fileno(fp), F_SETLKW, &lock)) {
+			if (errno != EINTR)
+				pexit("fcntl(F_RDLCK)");
+		}
+#else
+		while (flock(fileno(fp), LOCK_SH)) {
+			if (errno != EINTR)
+				pexit("flock(LOCK_SH)");
+		}
+#endif
+	}
+#endif
 	fseek(fp, 0, SEEK_END);
 	source_size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 	if (kernel_source)	libc_free(kernel_source);
 	kernel_source = NULL;
-	kernel_source = libc_calloc(source_size + 1);
+	kernel_source = libc_calloc(1, source_size + 1);
 	read_size = fread(kernel_source, sizeof(char), source_size, fp);
 	if (read_size != source_size)
 		fprintf(stderr,
@@ -2034,7 +2133,6 @@ size_t get_kernel_preferred_multiple(int sequential_id, cl_kernel crypt_kernel)
 	return size;
 }
 
-#ifdef CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV
 void get_compute_capability(int sequential_id, unsigned int *major,
         unsigned int *minor)
 {
@@ -2045,7 +2143,6 @@ void get_compute_capability(int sequential_id, unsigned int *major,
                              CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV,
                              sizeof(cl_uint), minor, NULL);
 }
-#endif
 
 cl_uint get_processors_count(int sequential_id)
 {
@@ -2060,37 +2157,40 @@ cl_uint get_processors_count(int sequential_id)
 	ocl_device_list[sequential_id].cores_per_MP = 0;
 
 	if (gpu_nvidia(device_info[sequential_id])) {
-#ifdef CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV
 		unsigned int major = 0, minor = 0;
 
 		get_compute_capability(sequential_id, &major, &minor);
-		if (major == 1)
+		if (major == 1)	// 1.x Tesla
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 8);
-		else if (major == 2 && minor == 0)
-			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 32);	// 2.0
-		else if (major == 2 && minor >= 1)
-			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 48);	// 2.1
-		else if (major == 3)
-			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 192);	// 3.x Kepler
-		else if (major == 5)
-			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);	// 5.x Maxwell
-#else
-		/* Apple does not expose get_compute_capability() so we need
-		   to find out using mory hacky approaches. This needs more
-		   much more clauses to be correct but it's a MESS:
-		   http://en.wikipedia.org/wiki/Comparison_of_Nvidia_graphics_processing_units
-
-		   Note that --list=cuda-devices will show the right figure
-		   even under OSX. */
-
-		// Kepler
-		if (strstr(dname, "GT 65") || strstr(dname, "GTX 65") ||
-			strstr(dname, "GT 66") || strstr(dname, "GTX 66") ||
-			strstr(dname, "GT 67") || strstr(dname, "GTX 67") ||
-			strstr(dname, "GT 68") || strstr(dname, "GTX 68") ||
-			strstr(dname, "GT 69") || strstr(dname, "GTX 69"))
+		else if (major == 2 && minor == 0)	// 2.0 Fermi
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 32);
+		else if (major == 2 && minor >= 1)	// 2.1 Fermi
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 48);
+		else if (major == 3)	// 3.x Kepler
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 192);
-#endif
+		else if (major == 5)	// 5.x Maxwell
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
+
+/*
+ * Apple does not expose get_compute_capability() so we need this crap.
+ * http://en.wikipedia.org/wiki/Comparison_of_Nvidia_graphics_processing_units
+ *
+ * This will produce a *guessed* figure: Note that --list=cuda-devices will
+ * often show a better guess, even under OSX.
+ */
+
+		// Fermi
+		else if (strstr(dname, "GT 5") || strstr(dname, "GTX 5"))
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 48);
+		// Kepler
+		else if (strstr(dname, "GT 6") || strstr(dname, "GTX 6") ||
+			strstr(dname, "GT 7") || strstr(dname, "GTX 7") ||
+			strstr(dname, "GT 8") || strstr(dname, "GTX 8"))
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 192);
+		// Maxwell
+		else if (strstr(dname, "GTX 9"))
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
+
 	} else if (gpu_amd(device_info[sequential_id])) {
 			// 16 thread proc * 5 SP
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = (16 *
@@ -2399,7 +2499,7 @@ void opencl_list_devices(void)
 			       j, sequence_nr, p);
 
 			// Check if device seems to be working.
-/*
+			/*
 			if (!start_opencl_device(sequence_nr, &err_type)) {
 
 				if (err_type == 1)
@@ -2412,13 +2512,12 @@ void opencl_list_devices(void)
 					       get_error_name(ret_code));
 			}
 			*/
-#ifdef CL_DEVICE_BOARD_NAME_AMD
 			ret = clGetDeviceInfo(devices[sequence_nr],
 					      CL_DEVICE_BOARD_NAME_AMD,
 					      sizeof(dname), dname, NULL);
 			if (ret == CL_SUCCESS && strlen(dname))
 				printf("\tBoard name:\t\t%s\n", dname);
-#endif
+
 			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VENDOR,
 					sizeof(dname), dname, NULL);
 			printf("\tDevice vendor:\t\t%s\n", dname);
@@ -2445,9 +2544,7 @@ void opencl_list_devices(void)
 			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VERSION,
 					sizeof(dname), dname, NULL);
 			printf("\tDevice version:\t\t%s\n", dname);
-			clGetDeviceInfo(devices[sequence_nr], CL_DRIVER_VERSION,
-					sizeof(dname), dname, NULL);
-			printf("\tDriver version:\t\t%s\n", dname);
+			printf("\tDriver version:\t\t%s\n", opencl_driver_info(sequence_nr));
 
 			clGetDeviceInfo(devices[sequence_nr],
 					CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR,
@@ -2559,7 +2656,6 @@ void opencl_list_devices(void)
 				       entries,
 				       ocl_device_list[sequence_nr].cores_per_MP);
 
-#ifdef CL_DEVICE_REGISTERS_PER_BLOCK_NV
 			ret = clGetDeviceInfo(devices[sequence_nr],
 					      CL_DEVICE_WARP_SIZE_NV,
 					      sizeof(cl_uint),
@@ -2591,7 +2687,7 @@ void opencl_list_devices(void)
 			if (ret == CL_SUCCESS)
 				printf("\tKernel exec. timeout:\t%s\n",
 				       boolean ? "yes" : "no");
-#endif
+
 			if (ocl_device_list[sequence_nr].pci_info.bus >= 0) {
 				printf("\tPCI device topology:\t%s\n",
 				       ocl_device_list[sequence_nr].pci_info.busId);

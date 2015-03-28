@@ -10,7 +10,9 @@
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  */
 
+#ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE /* for fileno(3) and fsync(2) */
+#endif
 
 #define NEED_OS_FLOCK
 #include "os.h"
@@ -30,7 +32,9 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
+#if (!AC_BUILT || HAVE_FCNTL_H)
 #include <fcntl.h>
+#endif
 #include <errno.h>
 #include <stdarg.h>
 #include <string.h>
@@ -102,30 +106,63 @@ static void log_file_flush(struct log_file *f)
 {
 	int count;
 	long int pos_b4 = 0;
+#if FCNTL_LOCKS
+	struct flock lock;
+#endif
 
 	if (f->fd < 0) return;
 
 	count = f->ptr - f->buffer;
 	if (count <= 0) return;
 
-#if OS_FLOCK
+#if OS_FLOCK || FCNTL_LOCKS
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locking %s...\n", __FUNCTION__, options.node_min, f->name);
+#endif
+#if FCNTL_LOCKS
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_WRLCK;
+	while (fcntl(f->fd, F_SETLKW, &lock)) {
+		if (errno != EINTR)
+			pexit("fcntl(F_WRLCK)");
+	}
+#else
 	while (flock(f->fd, LOCK_EX)) {
 		if (errno != EINTR)
 			pexit("flock(LOCK_EX)");
 	}
 #endif
-	if (f == &pot)
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Locked %s exclusively\n", __FUNCTION__, options.node_min, f->name);
+#endif
+#endif
+
+	if (f == &pot) {
 		pos_b4 = (long int)lseek(f->fd, 0, SEEK_END);
+#if defined(LOCK_DEBUG)
+		fprintf(stderr, "%s(%u): writing %d at %ld, ending at %ld to file %s\n", __FUNCTION__, options.node_min, count, pos_b4, pos_b4+count, f->name);
+#endif
+	}
 
 	if (write_loop(f->fd, f->buffer, count) < 0) pexit("write");
 	f->ptr = f->buffer;
 
 	if (f == &pot && pos_b4 == crk_pot_pos)
-		crk_pot_pos = (long int)lseek(f->fd, 0, SEEK_CUR);
-#if OS_FLOCK
+		crk_pot_pos += count;
+
+#if OS_FLOCK || FCNTL_LOCKS
+#ifdef LOCK_DEBUG
+	fprintf(stderr, "%s(%u): Unlocking %s\n", __FUNCTION__, options.node_min, f->name);
+#endif
+#if FCNTL_LOCKS
+	lock.l_type = F_UNLCK;
+	fcntl(f->fd, F_SETLK, &lock);
+#else
 	if (flock(f->fd, LOCK_UN))
 		pexit("flock(LOCK_UN)");
 #endif
+#endif
+
 #ifdef SIGUSR2
 	/* We don't really send a sync trigger "at crack" but
 	   after it's actually written to the pot file. That is, now. */
@@ -152,10 +189,6 @@ static void log_file_flush(struct log_file *f)
 		if (options.fork)
 			raise(SIGUSR2);
 	}
-#else
-#ifndef _MSC_VER
-#warning SIGUSR2
-#endif
 #endif
 }
 
@@ -274,26 +307,42 @@ static char *components(char *string, int len)
 	return out;
 }
 
-void log_guess(char *login, char *ciphertext, char *rep_plain, char *store_plain, char field_sep)
+void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *store_plain, char field_sep)
 {
 	int count1, count2;
 	int len;
 	char spacer[] = "                ";
 	char *secret = "";
+	char uid_sep[2] = { 0 };
+	char *uid_out = "";
 
-	// This is because printf("%-16s") does not line up multibyte UTF-8.
-	// We need to count characters, not octets.
+/* This is because printf("%-16s") does not line up multibyte UTF-8.
+   We need to count characters, not octets. */
 	if (pers_opts.target_enc == UTF_8 || pers_opts.report_utf8)
 		len = strlen8((UTF8*)rep_plain);
 	else
 		len = strlen(rep_plain);
-	spacer[len > 16 ? 0 : 16 - len] = 0;
 
-	if (options.secure) {
-		secret = components(rep_plain, len);
-		printf("%-16s (%s)\n", secret, login);
-	} else if (options.verbosity > 1)
-	printf("%s%s (%s)\n", rep_plain, spacer, login);
+	if (options.show_uid_on_crack && uid && *uid) {
+		uid_sep[0] = field_sep;
+		uid_out = uid;
+	}
+
+	if (options.verbosity > 1) {
+		if (options.secure) {
+			secret = components(rep_plain, len);
+			printf("%-16s (%s%s%s)\n",
+			       secret, login, uid_sep, uid_out);
+		} else {
+			spacer[len > 16 ? 0 : 16 - len] = 0;
+
+			printf("%s%s (%s%s%s)\n",
+			       rep_plain, spacer, login, uid_sep, uid_out);
+
+			if (options.fork)
+				fflush(stdout);
+		}
+	}
 
 	in_logger = 1;
 
@@ -321,12 +370,13 @@ void log_guess(char *login, char *ciphertext, char *rep_plain, char *store_plain
 		count1 = log_time();
 		if (count1 > 0) {
 			log.ptr += count1;
-			count2 = (int)sprintf(log.ptr, "+ Cracked %s", login);
+			count2 = (int)sprintf(log.ptr, "+ Cracked %s%s%s", login, uid_sep, uid_out);
 
-			if (options.secure)
+			if (options.secure) {
+				secret = components(rep_plain, len);
 				count2 += (int)sprintf(log.ptr + count2,
 				                       ": %s", secret);
-			else
+			} else
 			if (cfg_log_passwords)
 				count2 += (int)sprintf(log.ptr + count2,
 				                       ": %s", rep_plain);
@@ -366,11 +416,11 @@ void log_event(const char *format, ...)
 	if (options.flags & FLG_LOG_STDERR) {
 		unsigned int time;
 
-		if (options.fork
-#ifdef HAVE_MPI
-		    || mpi_p > 1
+#ifndef HAVE_MPI
+		if (options.fork)
+#else
+		if (options.fork || mpi_p > 1)
 #endif
-			)
 			fprintf(stderr, "%u ", options.node_min);
 
 		time = pot.fd >= 0 ? status_get_time() : status_restored_time;

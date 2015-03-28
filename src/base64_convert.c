@@ -758,6 +758,9 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 	if (!mime_setup)
 		setup_mime();
 
+	if (from_t != e_b64_raw)
+		from_len = strnlen((char*)from, from_len);
+
 	switch (from_t) {
 		case e_b64_raw:		/* raw memory */
 		{
@@ -859,7 +862,7 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 					fromWrk=fromTmp;
 				else {
 					alloced = 1;
-					fromWrk = (char*)mem_calloc(from_len+3);
+					fromWrk = (char*)mem_calloc(1, from_len+3);
 				}
 				strnzcpy(fromWrk, (const char*)from, from_len+1);
 				fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
@@ -876,7 +879,7 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 						fromWrk=fromTmp;
 					else {
 						alloced = 1;
-						fromWrk = (char*)mem_calloc(from_len+3);
+						fromWrk = (char*)mem_calloc(1, from_len+3);
 					}
 					strnzcpy(fromWrk, (const char*)from, from_len+1);
 					fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
@@ -894,7 +897,7 @@ int base64_convert(const void *from, b64_convert_type from_t, int from_len, void
 						fromWrk=fromTmp;
 					else {
 						alloced = 1;
-						fromWrk = (char*)mem_calloc(from_len+3);
+						fromWrk = (char*)mem_calloc(1, from_len+3);
 					}
 					strnzcpy(fromWrk, (const char*)from, from_len+1);
 					fromWrk[from_len+1] = fromWrk[from_len+2] = 0;
@@ -1050,7 +1053,7 @@ void base64_convert_error_exit(int err) {
 	exit(1);
 }
 char *base64_convert_error(int err) {
-	char *p = (char*)mem_calloc(256);
+	char *p = (char*)mem_calloc(1, 256);
 	switch (err) {
 		case ERR_base64_unk_from_type:	sprintf(p, "base64_convert error-%d, Unknown From Type\n", err); break;
 		case ERR_base64_unk_to_type:	sprintf(p, "base64_convert error-%d, Unknown To Type\n", err); break;
@@ -1124,13 +1127,14 @@ int base64_valid_length(const char *from, b64_convert_type from_t, unsigned flag
 /* used by base64conv 'main()' function */
 static int usage(char *name)
 {
-	fprintf(stderr, "Usage: %s [-i intype] [-o outtype] [-q] [-e] [-f flag] [data[data ...] | < stdin]\n"
+	fprintf(stderr, "Usage: %s [-l] [-i intype] [-o outtype] [-q] [-e] [-f flag] [data[data ...] | < stdin]\n"
 	        " - data must match input_type i.e. if hex, then data should be in hex\n"
 	        " - if data is not present, then base64conv will read data from std input)\n"
 	        " - if data read from stdin, max size of any line is 256k\n"
 	        "\n"
 	        "  -q will only output resultant string. No extra junk text\n"
 	        "  -e turns on buffer overwrite error checking logic\n"
+	        "  -l performs a 'length' test\n"
 	        "\n"
 	        "Input/Output types:\n"
 	        "  raw      raw data byte\n"
@@ -1184,7 +1188,7 @@ static void do_convert(char *in_str, b64_convert_type in_t,
 	if (in_len == 0)
 		return;
 
-	po = (char*)mem_calloc(in_len*3);
+	po = (char*)mem_calloc(3, in_len);
 	if (err_chk)
 		memset(po, 2, in_len*3);
 	len=base64_convert(in_str, in_t, in_len, po, out_t, in_len*3, flags);
@@ -1212,19 +1216,52 @@ static void do_convert(char *in_str, b64_convert_type in_t,
 	MEM_FREE(po);
 }
 
+void length_test() {
+	/* this test is to see if the length returned is correct, even if we
+	 * list more input data than we have. */
+	char out[256];
+	int len;
+	char *d = "dXNlciA0NGVhZmQyMmZlNzY2NzBmNmIyODc5MDgxYTdmNWY3MQ==";
+	len = base64_convert(d, e_b64_mime, strlen(d),
+	                     out, e_b64_raw,
+	                     sizeof(out),
+	                     flg_Base64_MIME_TRAIL_EQ);
+	printf ("len=%d  data = %s\n", len, out);
+	len = base64_convert(d, e_b64_mime, strlen(d)+1,
+	                     out, e_b64_raw,
+	                     sizeof(out),
+	                     flg_Base64_MIME_TRAIL_EQ);
+	printf ("len=%d  data = %s\n", len, out);
+	len = base64_convert(d, e_b64_mime, strlen(d)+2,
+	                     out, e_b64_raw,
+	                     sizeof(out),
+	                     flg_Base64_MIME_TRAIL_EQ);
+	printf ("len=%d  data = %s\n", len, out);
+	len = base64_convert(d, e_b64_mime, strlen(d)+3,
+	                     out, e_b64_raw,
+	                     sizeof(out),
+	                     flg_Base64_MIME_TRAIL_EQ);
+	printf ("len=%d  data = %s\n", len, out);
+	len = base64_convert(d, e_b64_mime, strlen(d)+8,
+	                     out, e_b64_raw,
+	                     sizeof(out),
+	                     flg_Base64_MIME_TRAIL_EQ);
+	printf ("len=%d  data = %s\n", len, out);
+}
+
 /* simple conerter of strings or raw memory     */
 /* this is a main() function for john, and      */
 /* the program created is ../run/base64_convert */
 int base64conv(int argc, char **argv) {
 	int c;
 	b64_convert_type in_t=e_b64_unk, out_t=e_b64_unk;
-	int quiet=0,err_chk=0;
+	int quiet=0,err_chk=0,did_len_check=0;
 	int flags=flg_Base64_NO_FLAGS;
 
 	/* Parse command line */
 	if (argc == 1)
 		return usage(argv[0]);
-	while ((c = getopt(argc, argv, "i:o:q!e!f:")) != -1) {
+	while ((c = getopt(argc, argv, "i:o:q!e!f:l!")) != -1) {
 		switch (c) {
 		case 'i':
 			in_t = str2convtype(optarg);
@@ -1232,6 +1269,10 @@ int base64conv(int argc, char **argv) {
 				fprintf(stderr, "%s error: invalid input type %s\n", argv[0], optarg);
 				return usage(argv[0]);
 			}
+			break;
+		case 'l':
+			length_test();
+			did_len_check=1;
 			break;
 		case 'f':
 			flags |= handle_flag_type(optarg);
@@ -1254,8 +1295,10 @@ int base64conv(int argc, char **argv) {
 			return usage(argv[0]);
 		}
 	}
-	if (in_t == e_b64_unk || out_t == e_b64_unk)
+	if (in_t == e_b64_unk || out_t == e_b64_unk) {
+		if (did_len_check) return 0;
 		return usage(argv[0]);
+	}
 	argc -= optind;
 	argv += optind;
 	if (!argc) {

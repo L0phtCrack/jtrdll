@@ -38,8 +38,8 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 
 #define TAG_LEN                 (sizeof(FORMAT_TAG) - 1)
 
-#ifdef MMX_COEF
-#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME          "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -55,8 +55,8 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 #define BENCHMARK_COMMENT       ""
 #define BENCHMARK_LENGTH        -1
 
-#ifdef MMX_COEF
-#define MIN_KEYS_PER_CRYPT      MMX_COEF
+#ifdef SIMD_COEF_32
+#define MIN_KEYS_PER_CRYPT      SIMD_COEF_32
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -103,10 +103,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-	                            self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-	                            self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static char *prepare(char *fields[10], struct fmt_main *self)
@@ -169,18 +175,18 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	if (!(ptr = strtok(ctcopy, delim)))
+	if (!(ptr = strtokm(ctcopy, delim)))
 		goto error;
 	if (!atou(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, delim)))
+	if (!(ptr = strtokm(NULL, delim)))
 		goto error;
 	len = strlen(ptr); // salt hex length
 	if (len > 2 * MAX_SALT_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
 		goto error;
-	if (!(ptr = strtok(NULL, delim)))
+	if (!(ptr = strtokm(NULL, delim)))
 		goto error;
 	len = strlen(ptr); // binary length
 	if (len < BINARY_SIZE || len > MAX_BINARY_SIZE || len & 1)
@@ -273,7 +279,7 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -372,11 +378,11 @@ static int cmp_exact(char *source, int index)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -418,7 +424,7 @@ struct fmt_main fmt_pbkdf2_hmac_sha1 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid,

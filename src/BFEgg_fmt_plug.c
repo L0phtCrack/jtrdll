@@ -2,6 +2,10 @@
  * This file is part of Eggdrop blowfish patch for John The Ripper.
  * Copyright (c) 2002 by Sun-Zero <sun-zero at freemail.hu>
  * This is a free software distributable under terms of the GNU GPL.
+ *
+ * This format has collisions for repeated patterns (eg. "1" vs. "11",
+ * or "hey" vs. "heyheyheyhey") - you can run it with --keep-guessing
+ * if you'd like to see alternative plaintexts.
  */
 
 #if FMT_EXTERNS_H
@@ -43,7 +47,7 @@ static int omp_t = 1;
 #define BENCHMARK_LENGTH		-1
 
 #define PLAINTEXT_MIN_LENGTH		1
-#define PLAINTEXT_LENGTH		31
+#define PLAINTEXT_LENGTH		72
 #define CIPHERTEXT_LENGTH		13
 
 #define BINARY_SIZE			7
@@ -60,6 +64,9 @@ static struct fmt_tests tests[] = {
     {"+EEHgy/MBLDd0", "walkman"},
     {"+vPBrs07OTXE/", "tesztuser"},
     {"+zIvO/1nDsd9.", "654321"},
+    {"+V6ZOx0rVGWT0", "1"},
+    {"+V6ZOx0rVGWT0", "11"},
+    {"+Obytd.zXYjH/", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
     {NULL}
 };
 
@@ -87,7 +94,7 @@ static int valid(char *ciphertext, struct fmt_main *self) {
 }
 
 void init(struct fmt_main *self) {
-    const char *pos;
+	const char *pos;
 
 #ifdef _OPENMP
 	omp_t = omp_get_max_threads();
@@ -95,17 +102,24 @@ void init(struct fmt_main *self) {
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
 
-    memset(_atoi64, 0x7F, sizeof(_atoi64));
-    for (pos = _itoa64; pos <= &_itoa64[63]; pos++)
-        _atoi64[ARCH_INDEX(*pos)] = pos - _itoa64;
+	memset(_atoi64, 0x7F, sizeof(_atoi64));
+	for (pos = _itoa64; pos <= &_itoa64[63]; pos++)
+		_atoi64[ARCH_INDEX(*pos)] = pos - _itoa64;
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 /* The base64 is flawed - we just mimic flaws from the original code */
-static void *binary(char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
 	static union toalign {
 		unsigned char c[BINARY_SIZE];
@@ -175,7 +189,7 @@ static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -215,12 +229,12 @@ struct fmt_main fmt_BFEgg = {
     tests
   }, {
     init,
-    fmt_default_done,
+    done,
     fmt_default_reset,
     fmt_default_prepare,
     valid,
     fmt_default_split,
-    binary,
+    get_binary,
     fmt_default_salt,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },

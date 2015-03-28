@@ -92,9 +92,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -103,24 +110,24 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *keeptr;
 	char *p;
 	int res;
-	if (strncmp(ciphertext, "$wbb3$", 6))
+	if (strncmp(ciphertext, "$wbb3$*", 7))
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 7;
-	p = strtok(ctcopy, "*"); /* type */
+	p = strtokm(ctcopy, "*"); /* type */
 	if(!p)
 		goto err;
 	res = atoi(p);
 	if (res != 1)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (!ishex(p))
 		goto err;
 	if (strlen(p) > 40)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != BINARY_SIZE * 2)
 		goto err;
@@ -144,9 +151,9 @@ static void *get_salt(char *ciphertext)
 	memset(&cs, 0, sizeof(cs));
 	strnzcpy(ctcopy, ciphertext, 255);
 	ctcopy += 7;	/* skip over "$wbb3$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	cs.type = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	strcpy((char *)cs.salt, p);
 	return (void *)&cs;
 }
@@ -186,7 +193,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -234,11 +241,11 @@ static int cmp_exact(char *source, int index)
 
 static void wbb3_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -268,7 +275,7 @@ struct fmt_main fmt_wbb3 = {
 		wbb3_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

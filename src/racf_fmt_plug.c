@@ -151,9 +151,16 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_key));
+	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*crypt_out));
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(saved_key);
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -167,10 +174,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 7;
-	p = strtok(ctcopy, "*"); /* username */
+	p = strtokm(ctcopy, "*"); /* username */
 	if(!p)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	q = p;
 	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
@@ -192,7 +199,7 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 
 	ctcopy += 7;	/* skip over "$racf$*" */
-	username = strtok(ctcopy, "*");
+	username = strtokm(ctcopy, "*");
 	/* process username */
 	strncpy((char*)cs.userid, username, 8);
 	cs.userid[8] = 0; // terminate username at 8 bytes
@@ -242,7 +249,7 @@ static void set_salt(void *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 
 #ifdef _OPENMP
@@ -295,11 +302,11 @@ static int cmp_exact(char *source, int index)
 
 static void racf_set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > 8)
-		saved_key_length = 8;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > 8)
+		saved_len = 8;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *get_key(int index)
@@ -329,7 +336,7 @@ struct fmt_main fmt_racf = {
 		racf_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

@@ -682,6 +682,7 @@ ifGNUmake
 SED
 GREP
 LN_S
+O_DEBUG
 OPT_INLINE_FLAGS
 OPT_NORMAL_FLAGS
 HAVE_MPI
@@ -750,8 +751,9 @@ with_icc_asm
 with_openssl
 with_commoncrypto
 with_endian
+with_systemwide
+with_flock
 enable_memdbg
-enable_memdbg_ex
 enable_asan
 enable_plugin_dependencies
 enable_openmp_for_fast_formats
@@ -760,7 +762,7 @@ enable_rexgen
 enable_cuda
 enable_pcap
 enable_native_tests
-enable_native_macro
+enable_native_march
 enable_ln_s
 enable_pkg_config
 enable_nt_full_unicode
@@ -1380,7 +1382,6 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-memdbg         Enable memdbg memory debugging (safe level)
-  --enable-memdbg-ex      * Enable memdbg memory debugging (expanded level)
   --enable-asan           * Build with AddressSanitizer
   --disable-plugin-dependencies
                           Do not create best-effort Makefile dependencies for
@@ -1391,9 +1392,11 @@ Optional Features:
   --enable-rexgen         Use rexgen library if present
   --disable-cuda          Do not use CUDA
   --disable-pcap          Do not build helpers depending on PCAP
-  --disable-native-tests  Do not use test build system for target features
-  --disable-native-macro  Do not use -march=native even if a valid compiler
-                          flag. Native tests still can be run in this mode
+  --disable-native-tests  Do not test build system for target features.
+                          Implies --disable-native-march.
+  --disable-native-march  Do not use things like -march=native even if valid
+                          compiler option(s). Native tests still can be run in
+                          this mode
   --enable-ln-s           Use ln -s vs symlink.c wrappers (Cygwin only)
   --disable-pkg-config    do not use pkg-config for any probing tests
   --enable-nt-full-unicode
@@ -1412,6 +1415,8 @@ Optional Packages:
   --with-endian=little|big
                           Set endianness for target if it doesn't detect
                           properly
+  --with-systemwide       install for all users
+  --with-flock            use flock() file locking instead of fcntl()
 
 Some influential environment variables:
   CFLAGS_EXTRA
@@ -3344,6 +3349,9 @@ ac_config_headers="$ac_config_headers autoconfig.h"
 # as long as this notice is preserved.
 
 
+
+
+
 # JtR configure Arm-NEON instruction active probe test
 # Copyright (C) 2014 Jim Fougeron, for John Ripper project.
 # This file put into public domain. unlimited permission to
@@ -3474,19 +3482,29 @@ else
   endian=unknown
 fi
 
+# -DJOHN_SYSTEMWIDE
+
+# Check whether --with-systemwide was given.
+if test "${with_systemwide+set}" = set; then :
+  withval=$with_systemwide;
+else
+  with_systemwide=no
+fi
+
+
+# Check whether --with-flock was given.
+if test "${with_flock+set}" = set; then :
+  withval=$with_flock;
+else
+  with_flock=no
+fi
+
 
 # Check whether --enable-memdbg was given.
 if test "${enable_memdbg+set}" = set; then :
   enableval=$enable_memdbg; memdbg=$enableval
 else
   memdbg=no
-fi
-
-# Check whether --enable-memdbg-ex was given.
-if test "${enable_memdbg_ex+set}" = set; then :
-  enableval=$enable_memdbg_ex; memdbgex=$enableval
-else
-  memdbgex=no
 fi
 
 # Check whether --enable-asan was given.
@@ -3549,11 +3567,11 @@ else
   enable_native_tests=auto
 fi
 
-# Check whether --enable-native-macro was given.
-if test "${enable_native_macro+set}" = set; then :
-  enableval=$enable_native_macro; enable_native_macro=$enableval
+# Check whether --enable-native-march was given.
+if test "${enable_native_march+set}" = set; then :
+  enableval=$enable_native_march; enable_native_march=$enableval
 else
-  enable_native_macro=auto
+  enable_native_march=auto
 fi
 
 # Check whether --enable-ln-s was given.
@@ -5215,6 +5233,11 @@ $as_echo "$as_me: This is a cross-compile; all native tests disabled" >&6;}
    fi
 fi
 
+# --disable-native-tests implies --disable-native-march
+if test "x$enable_native_tests" = xno; then
+   enable_native_march=no
+fi
+
 ###
 # Here we call setting up many -I in CFLAGS, and -L in
 # LDFLAGS for 'normal' paths, IF we find them.
@@ -5709,11 +5732,66 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
    OPT_INLINE_FLAGS="${CFLAGS_EX}"
 
 
+   # pick -Og or -O1 for debug targets (applies to ASan too)
+   CFLAGS_EX=""
+     if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -Og" >&5
+$as_echo_n "checking if $CC supports -Og... " >&6; }
+fi
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+  ac_saved_cflags="$CFLAGS"
+  CFLAGS="-Werror -Og"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+fi
+      CFLAGS_EX="$CFLAGS_EX -Og"
+
+else
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+  CFLAGS="$ac_saved_cflags"
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+
+   if test "x${CFLAGS_EX}" != x ; then
+      O_DEBUG=${CFLAGS_EX}
+   else
+      O_DEBUG="-O1"
+   fi
+   O_DEBUG=$O_DEBUG
+
+
    # if user requested  ASan, make sure we can properly build/link with it.
 if test "x$asan" = xyes ; then
    CFLAGS_EX=""
    LDFLAGS_BAK=${LDFLAGS}
-   LDFLAGS="-fsanitize=address $LDFLAGS"
      if test "1" = 1; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -fsanitize=address" >&5
 $as_echo_n "checking if $CC supports -fsanitize=address... " >&6; }
@@ -5761,10 +5839,63 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
-   LDFLAGS=${LDFLAGS_BAK}
    if test "x${CFLAGS_EX}" = x ; then
-      asan=no
+        if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -faddress-sanitizer" >&5
+$as_echo_n "checking if $CC supports -faddress-sanitizer... " >&6; }
+fi
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+  ac_saved_cflags="$CFLAGS"
+  CFLAGS="-Werror -faddress-sanitizer"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+fi
+      CFLAGS_EX="$CFLAGS_EX -faddress-sanitizer"
+
+else
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+  CFLAGS="$ac_saved_cflags"
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+
+      if test "x${CFLAGS_EX}" = x ; then
+         asan=no
+      else
+         LDFLAGS="-faddress-sanitizer $LDFLAGS"
+      fi
+   else
+      LDFLAGS="-fsanitize=address $LDFLAGS"
    fi
+   LDFLAGS=${LDFLAGS_BAK}
 fi
 
    # now fill out CFLAGS
@@ -6146,6 +6277,53 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
 fi
+   # Justified and Ancient (see #1093)
+     if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -std=gnu89" >&5
+$as_echo_n "checking if $CC supports -std=gnu89... " >&6; }
+fi
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+  ac_saved_cflags="$CFLAGS"
+  CFLAGS="-Werror -std=gnu89"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+fi
+      CFLAGS_EX="$CFLAGS_EX -std=gnu89"
+
+else
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+  CFLAGS="$ac_saved_cflags"
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+
 
    for i in "$CFLAGS_EX"; do
       jtr_list_add_dupe=0
@@ -7445,6 +7623,15 @@ CFLAGS="$CFLAGS_BACKUP"
   ia64) ARCH_LINK=ia64.h endian=little cpu_family=intel ;;
   i?86) ARCH_LINK=x86-any.h endian=little cpu_family=intel ;;
   m68k*) ARCH_LINK=autoconf_arch.h endian=big ;;
+  mic) ARCH_LINK=mic.h endian=little
+
+# missing flags when configuring for MIC
+LIBS="-lssl -lcrypto $LIBS"
+
+# specific optimization flags for MIC
+CPU_BEST_FLAGS="-no-opt-prefetch $CPU_BEST_FLAGS"
+
+       ;;
   mips|mipseb) ARCH_LINK=mips32.h endian=big ;;
   mipsel) ARCH_LINK=mips32.h endian=little ;;
   mips64|mips64eb|mipseb64) ARCH_LINK=mips64.h endian=big ;;
@@ -7484,7 +7671,7 @@ CFLAGS_BACKUP=$CFLAGS
 # Config probe test code copyright 2014, Jim Fougeron.  Placed into public domain.
 #############################################################################
 CFLAGS="$CFLAGS -O0"
-if test "x$enable_native_tests" = xyes; then
+if test "x$enable_native_tests" != xno; then
   CPU_NOTFOUND=0
   { $as_echo "$as_me:${as_lineno-$LINENO}: Testing build host's native CPU features" >&5
 $as_echo "$as_me: Testing build host's native CPU features" >&6;}
@@ -7697,7 +7884,7 @@ rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
     if test x$OSX_AS_CLANG != x; then :
   CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"
-      if test x$AS = xgcc; then :
+      if test "x$AS" = xgcc; then :
   AS="$AS $OSX_AS_CLANG"
 fi
 
@@ -7832,9 +8019,8 @@ else
   # cross-compile versions of the same tests
   ##########################################
   CPU_NOTFOUND=0
-  { $as_echo "$as_me:${as_lineno-$LINENO}: Testing build host's native CPU features" >&5
-$as_echo "$as_me: Testing build host's native CPU features" >&6;}
-  CC="$CC_BACKUP -mmmx"
+  { $as_echo "$as_me:${as_lineno-$LINENO}: Testing tool-chain's CPU features" >&5
+$as_echo "$as_me: Testing tool-chain's CPU features" >&6;}
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for MMX" >&5
 $as_echo_n "checking for MMX... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -7865,7 +8051,6 @@ rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -msse2"
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for SSE2" >&5
 $as_echo_n "checking for SSE2... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -7898,7 +8083,6 @@ rm -f core conftest.err conftest.$ac_objext \
 fi
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -mssse3"
   CPU_NOTFOUND=0
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for SSSE3" >&5
 $as_echo_n "checking for SSSE3... " >&6; }
@@ -7930,7 +8114,6 @@ rm -f core conftest.err conftest.$ac_objext \
 fi
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -msse4.1"
   CPU_NOTFOUND=0
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for SSE4.1" >&5
 $as_echo_n "checking for SSE4.1... " >&6; }
@@ -8011,7 +8194,7 @@ rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
     if test x$OSX_AS_CLANG != x; then :
   CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"
-      if test x$AS = xgcc; then :
+      if test "x$AS" = xgcc; then :
   AS="$AS $OSX_AS_CLANG"
 fi
 
@@ -8027,7 +8210,6 @@ esac
 
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -mavx"
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for AVX" >&5
 $as_echo_n "checking for AVX... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -8059,7 +8241,6 @@ fi
 
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -mavx2"
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for AVX2" >&5
 $as_echo_n "checking for AVX2... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -8089,7 +8270,6 @@ rm -f core conftest.err conftest.$ac_objext \
 fi
   if test "x$CPU_NOTFOUND" = x0; then :
 
-  CC="$CC_BACKUP -mxop"
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XOP" >&5
 $as_echo_n "checking for XOP... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -8131,8 +8311,7 @@ $as_echo "${ARCH_LINK}" >&6; }
 CC_BACKUP=$CC
 
 # Check for -march=native and add it to CPU_BEST_FLAGS
-# This should be rewritten for aestethical reasons and readability
-if test "x$enable_native_tests" != xno -a "x$enable_native_macro" != xno -a "x$osx_assembler_warn" != xyes; then
+if test "x$enable_native_march" != xno -a "x$osx_assembler_warn" != xyes; then
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether compiler understands -march=native" >&5
 $as_echo_n "checking whether compiler understands -march=native... " >&6; }
   CC="$CC_BACKUP -march=native"
@@ -8803,7 +8982,7 @@ fi
 fi
 
 if test "x$with_openssl" != xno; then :
-  if test "x$enable_native_tests" = xyes -a "x$PKG_CONFIG" != xno; then
+  if test "x$enable_native_tests" != xno -a "x$PKG_CONFIG" != xno; then
 
 pkg_failed=no
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for OPENSSL" >&5
@@ -9494,11 +9673,11 @@ LIBS=""
 using_rexgen=no
 # Check for rexgen only if rexgen wanted
 if test "x$enable_rexgen" != xno ; then
-	ac_fn_c_check_header_mongrel "$LINENO" "librexgen/api/c/librexgen.h" "ac_cv_header_librexgen_api_c_librexgen_h" "$ac_includes_default"
-if test "x$ac_cv_header_librexgen_api_c_librexgen_h" = xyes; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing c_simplestring_terminate" >&5
-$as_echo_n "checking for library containing c_simplestring_terminate... " >&6; }
-if ${ac_cv_search_c_simplestring_terminate+:} false; then :
+	ac_fn_c_check_header_mongrel "$LINENO" "librexgen/c/librexgen.h" "ac_cv_header_librexgen_c_librexgen_h" "$ac_includes_default"
+if test "x$ac_cv_header_librexgen_c_librexgen_h" = xyes; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing c_simplestring_new" >&5
+$as_echo_n "checking for library containing c_simplestring_new... " >&6; }
+if ${ac_cv_search_c_simplestring_new+:} false; then :
   $as_echo_n "(cached) " >&6
 else
   ac_func_search_save_LIBS=$LIBS
@@ -9511,11 +9690,11 @@ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 #ifdef __cplusplus
 extern "C"
 #endif
-char c_simplestring_terminate ();
+char c_simplestring_new ();
 int
 main ()
 {
-return c_simplestring_terminate ();
+return c_simplestring_new ();
   ;
   return 0;
 }
@@ -9528,25 +9707,25 @@ for ac_lib in '' rexgen librexgen; do
     LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
   fi
   if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_c_simplestring_terminate=$ac_res
+  ac_cv_search_c_simplestring_new=$ac_res
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext
-  if ${ac_cv_search_c_simplestring_terminate+:} false; then :
+  if ${ac_cv_search_c_simplestring_new+:} false; then :
   break
 fi
 done
-if ${ac_cv_search_c_simplestring_terminate+:} false; then :
+if ${ac_cv_search_c_simplestring_new+:} false; then :
 
 else
-  ac_cv_search_c_simplestring_terminate=no
+  ac_cv_search_c_simplestring_new=no
 fi
 rm conftest.$ac_ext
 LIBS=$ac_func_search_save_LIBS
 fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_c_simplestring_terminate" >&5
-$as_echo "$ac_cv_search_c_simplestring_terminate" >&6; }
-ac_res=$ac_cv_search_c_simplestring_terminate
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_c_simplestring_new" >&5
+$as_echo "$ac_cv_search_c_simplestring_new" >&6; }
+ac_res=$ac_cv_search_c_simplestring_new
 if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
   using_rexgen=yes
@@ -9573,9 +9752,6 @@ fi
 
 if test "x$memdbg" = xyes ; then
    MEMDBG_CFLAGS="-DMEMDBG_ON"
-fi
-if test "x$memdbgex" = xyes ; then
-   MEMDBG_CFLAGS="-DMEMDBG_ON -DMEMDBG_EXTRA_CHECKS"
 fi
 MEMDBG_CFLAGS="${MEMDBG_CFLAGS}"
 
@@ -10967,7 +11143,7 @@ See \`config.log' for more details" "$LINENO" 5; }
 
 # Checks for header files.
 # Eg. if sys/times.h is found, the below will define HAVE_SYS_TIMES_H
-for ac_header in arpa/inet.h crypt.h fcntl.h limits.h locale.h \
+for ac_header in arpa/inet.h crypt.h fcntl.h limits.h locale.h malloc.h \
                   net/ethernet.h netdb.h netinet/in.h netinet/in_systm.h \
                   stdint.h string.h strings.h \
                   sys/ethernet.h sys/file.h sys/param.h sys/socket.h \
@@ -11687,9 +11863,9 @@ fi
 rm -f conftest.mmap conftest.txt
 
 
-# JtR's usage of fork does not work on cygwin, even though the AC_FUNC_FORK says it should
+# JtR's usage of fork may not work on minwin, even though the AC_FUNC_FORK says it should
 case "$host_os" in
-  mingw*|cygwin*)
+  mingw*)
     # FORK is known to 'compile' but to fail and not be usable.
     ac_cv_func_fork=no
     ac_cv_func_fork_works=no
@@ -11940,8 +12116,8 @@ for ac_func in fseek64 fseeko fseeko64 _fseeki64 lseek64 lseek ftell64 ftello \
                ftello64 _ftelli64 fopen64 _fopen64 memmem sleep \
                setenv putenv strcasecmp strncasecmp \
                stricmp strcmpi _stricmp _strcmpi strnicmp strncmpi _strnicmp \
-               _strncmpi strlwr strupr strrev \
-               bzero atoll _atoi64 snprintf sprintf_s
+               _strncmpi strnlen strlwr strupr strrev \
+               atoll _atoi64 snprintf sprintf_s
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
@@ -11952,6 +12128,21 @@ _ACEOF
 
 fi
 done
+
+
+# This will stop at first found, will be used for mem_alloc_aligned()
+for ac_func in aligned_alloc posix_memalign memalign __mingw_aligned_malloc _aligned_malloc
+do :
+  as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
+if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
+_ACEOF
+ break
+fi
+done
+
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -12992,6 +13183,48 @@ fi
    done
 
 fi
+    # For exposing aligned_alloc
+    case "$host_os" in
+        linux*)
+        if test "x$ac_cv_func_aligned_alloc" = xyes; then :
+
+   for i in -D_ISOC11_SOURCE; do
+      jtr_list_add_dupe=0
+      for j in $CFLAGS_EXTRA; do
+         if test "x$i" = "x$j"; then
+            jtr_list_add_dupe=1
+            break
+         fi
+      done
+      if test $jtr_list_add_dupe = 0; then
+         CFLAGS_EXTRA="$CFLAGS_EXTRA $i"
+         jtr_list_add_result="$jtr_list_add_result $i"
+      fi
+   done
+
+else
+  # For exposing posix_memalign()
+            if test "x$ac_cv_func_posix_memalign" = xyes; then :
+
+   for i in -D_XOPEN_SOURCE=600; do
+      jtr_list_add_dupe=0
+      for j in $CFLAGS_EXTRA; do
+         if test "x$i" = "x$j"; then
+            jtr_list_add_dupe=1
+            break
+         fi
+      done
+      if test $jtr_list_add_dupe = 0; then
+         CFLAGS_EXTRA="$CFLAGS_EXTRA $i"
+         jtr_list_add_result="$jtr_list_add_result $i"
+      fi
+   done
+
+fi
+
+fi
+        ;;
+    esac
     ;;
 
   mingw*)
@@ -13190,7 +13423,7 @@ CFLAGS="$CFLAGS_BACKUP"
 if test "x$asan" = xyes ; then
    CFLAGS=`echo $CFLAGS | sed 's/-g //g; s/-O2 //g'`
    CFLAGS=`echo $CFLAGS | sed 's/-g$//g; s/-O2$//g'`
-   CFLAGS="-g -O1 -fsanitize=address $CFLAGS"
+   CFLAGS="-g $O_DEBUG -fsanitize=address $CFLAGS"
    LDFLAGS="-fsanitize=address $LDFLAGS"
 fi
 
@@ -13226,6 +13459,21 @@ fi
 # code to create M4_INCLUDES (all ./m4/*.m4 )
 M4_INCLUDES=`echo m4/*.m4`
 
+
+# Handle --prefix -> JOHN_SYSTEMWIDE_EXEC
+if test $prefix != "../run" && test $prefix != "NONE" ; then :
+  CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix\"'"
+else
+  if test $with_systemwide != no; then :
+  CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE"
+   prefix=/usr/libexec/john
+fi
+
+fi
+
+if test x$with_flock != xno; then
+   CFLAGS="$CFLAGS -DPREFER_FLOCK"
+fi
 
 ####################################################
 # Code  to create @PLUGFORMATS_OBJS@ and
@@ -14623,11 +14871,11 @@ fi
 # AC_OUTPUT
 ##########################################################
 echo "configure: creating ./fmt_externs.h"
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
 echo "configure: creating ./fmt_registers.h"
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
-$CPP -P -DAC_BUILT $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
 
 ########################################################
 # Creates ./run/john.local.conf but ONLY if it does not

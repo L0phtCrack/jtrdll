@@ -127,6 +127,7 @@ static cl_mem mem_in, mem_out, mem_salt;
 static pwsafe_pass *host_pass;				/** binary ciphertexts **/
 static pwsafe_salt *host_salt;				/** salt **/
 static pwsafe_hash *host_hash;				/** calculated hashes **/
+static struct fmt_main *self;
 
 static void release_clobj(void)
 {
@@ -151,19 +152,19 @@ static void done(void)
 
 static void pwsafe_set_key(char *key, int index)
 {
-	int saved_key_length = MIN(strlen(key), PLAINTEXT_LENGTH);
-	memcpy(host_pass[index].v, key, saved_key_length);
-	host_pass[index].length = saved_key_length;
+	int saved_len = MIN(strlen(key), PLAINTEXT_LENGTH);
+	memcpy(host_pass[index].v, key, saved_len);
+	host_pass[index].length = saved_len;
 }
 
 /* ------- Create and destroy necessary objects ------- */
-static void create_clobj(size_t gws, struct fmt_main * self)
+static void create_clobj(size_t gws, struct fmt_main *self)
 {
 	global_work_size = gws; /* needed for size macros */
 
-	host_pass = mem_calloc(insize);
-	host_hash = mem_calloc(outsize);
-	host_salt = mem_calloc(saltsize);
+	host_pass = mem_calloc(1, insize);
+	host_hash = mem_calloc(1, outsize);
+	host_salt = mem_calloc(1, saltsize);
 
 	// Allocate memory on the GPU
 	mem_salt =
@@ -188,8 +189,10 @@ static void create_clobj(size_t gws, struct fmt_main * self)
 	clSetKernelArg(finish_kernel, 2, sizeof(mem_salt), &mem_salt);
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
+	self = _self;
+
 	opencl_init("$JOHN/kernels/pwsafe_kernel.cl", gpu_id, NULL);
 
 	init_kernel = clCreateKernel(program[gpu_id], KERNEL_INIT_NAME, &ret_code);
@@ -200,17 +203,23 @@ static void init(struct fmt_main *self)
 
 	finish_kernel = clCreateKernel(program[gpu_id], KERNEL_FINISH_NAME, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error while creating finish kernel");
+}
 
-	//Initialize openCL tuning (library) for this format.
-	self->methods.crypt_all = crypt_all_benchmark;
-	opencl_init_auto_setup(SEED, ROUNDS_DEFAULT/8, split_events,
-		warn, 2, self, create_clobj,
-	        release_clobj, sizeof(pwsafe_pass), 0);
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		self->methods.crypt_all = crypt_all_benchmark;
+		opencl_init_auto_setup(SEED, ROUNDS_DEFAULT/8, split_events,
+		                       warn, 2, self, create_clobj,
+		                       release_clobj, sizeof(pwsafe_pass), 0);
 
-	//Auto tune execution from shared/included code.
-	autotune_run(self, ROUNDS_DEFAULT, 0,
-		(cpu(device_info[gpu_id]) ? 500000000ULL : 1000000000ULL));
-	self->methods.crypt_all = crypt_all;
+		//Auto tune execution from shared/included code.
+		autotune_run(self, ROUNDS_DEFAULT, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              500000000ULL : 1000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -224,21 +233,21 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 9;		/* skip over "$pwsafe$*" */
-	if ((p = strtok(ctcopy, "*")) == NULL)	/* version */
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* version */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* salt */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
 	if (strlen(p) < 64)
 		goto err;
 	if (strspn(p, "0123456789abcdef") != 64)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* iterations */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* iterations */
 		goto err;
 	if (atoi(p) == 0)
 		goto err;
-	if ((p = strtok(NULL, "*")) == NULL)	/* hash */
+	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
 	if (strlen(p) != 64)
 		goto err;
@@ -263,15 +272,15 @@ static void *get_salt(char *ciphertext)
 		salt_struct = mem_calloc_tiny(sizeof(pwsafe_salt),
 		                              MEM_ALIGN_WORD);
 	ctcopy += 9;		/* skip over "$pwsafe$*" */
-	p = strtok(ctcopy, "*");
+	p = strtokm(ctcopy, "*");
 	salt_struct->version = atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 32; i++)
 		salt_struct->salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 		    + atoi16[ARCH_INDEX(p[i * 2 + 1])];
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	salt_struct->iterations = (unsigned int) atoi(p);
-	p = strtok(NULL, "*");
+	p = strtokm(NULL, "*");
 	for (i = 0; i < 32; i++)
 		salt_struct->hash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 		    + atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -325,7 +334,7 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int i = 0;
 
 	global_work_size = (count + local_work_size - 1) / local_work_size * local_work_size;
@@ -427,7 +436,7 @@ struct fmt_main fmt_opencl_pwsafe = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

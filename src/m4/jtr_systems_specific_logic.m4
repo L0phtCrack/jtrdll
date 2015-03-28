@@ -72,6 +72,15 @@ case "$host_os" in
   linux*|cygwin*)
     # For exposing memmem()
     AS_IF([test "x$ac_cv_func_memmem" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_GNU_SOURCE])])
+    # For exposing aligned_alloc
+    case "$host_os" in
+        linux*)
+        AS_IF([test "x$ac_cv_func_aligned_alloc" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_ISOC11_SOURCE])],
+            # For exposing posix_memalign()
+            [AS_IF([test "x$ac_cv_func_posix_memalign" = xyes], [JTR_LIST_ADD(CFLAGS_EXTRA, [-D_XOPEN_SOURCE=600])])]
+        )
+        ;;
+    esac
     ;;
 
   mingw*)

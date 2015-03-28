@@ -382,7 +382,7 @@ static void *get_salt(char *ciphertext)
 
 	memset(salt, 0, SALT_SIZE);
 	p = ciphertext + TAG_LENGTH;
-	q = strchr(p, '$');
+	q = strrchr(p, '$');
 	memcpy(salt, p, q - p);
 
 	return salt;
@@ -428,7 +428,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for

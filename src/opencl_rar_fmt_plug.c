@@ -145,6 +145,7 @@ static unsigned char *saved_key;
 static int new_keys;
 static int (*cracked);
 static unpack_data_t (*unpack_data);
+static struct fmt_main *self;
 
 static unsigned int *saved_len;
 static unsigned char *aes_key;
@@ -493,13 +494,13 @@ static void *get_salt(char *ciphertext)
 
 	if (!ptr) ptr = mem_alloc_tiny(sizeof(rarfile*),sizeof(rarfile*));
 	saltcopy += 7;		/* skip over "$RAR3$*" */
-	type = atoi(strtok(saltcopy, "*"));
-	encoded_salt = strtok(NULL, "*");
+	type = atoi(strtokm(saltcopy, "*"));
+	encoded_salt = strtokm(NULL, "*");
 	for (i = 0; i < 8; i++)
 		tmp_salt[i] = atoi16[ARCH_INDEX(encoded_salt[i * 2])] * 16 + atoi16[ARCH_INDEX(encoded_salt[i * 2 + 1])];
 	if (type == 0) {	/* rar-hp mode */
-		char *encoded_ct = strtok(NULL, "*");
-		psalt = mem_calloc(sizeof(*psalt)+16);
+		char *encoded_ct = strtokm(NULL, "*");
+		psalt = mem_calloc(1, sizeof(*psalt)+16);
 		psalt->type = type;
 		ex_len = 16;
 		memcpy(psalt->salt, tmp_salt, 8);
@@ -508,24 +509,24 @@ static void *get_salt(char *ciphertext)
 		psalt->blob = psalt->raw_data;
 		psalt->pack_size = 16;
 	} else {
-		char *p = strtok(NULL, "*");
+		char *p = strtokm(NULL, "*");
 		char crc_c[4];
 		unsigned long long pack_size;
 		unsigned long long unp_size;
 
 		for (i = 0; i < 4; i++)
 			crc_c[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 + atoi16[ARCH_INDEX(p[i * 2 + 1])];
-		pack_size = atoll(strtok(NULL, "*"));
-		unp_size = atoll(strtok(NULL, "*"));
-		inlined = atoi(strtok(NULL, "*"));
+		pack_size = atoll(strtokm(NULL, "*"));
+		unp_size = atoll(strtokm(NULL, "*"));
+		inlined = atoi(strtokm(NULL, "*"));
 		ex_len = pack_size;
 
 		/* load ciphertext. We allocate and load all files
 		   here, and they are freed when password found. */
 #if HAVE_MMAP
-		psalt = mem_calloc(sizeof(*psalt) + (inlined ? ex_len : 0));
+		psalt = mem_calloc(1, sizeof(*psalt) + (inlined ? ex_len : 0));
 #else
-		psalt = mem_calloc(sizeof(*psalt)+ex_len);
+		psalt = mem_calloc(1, sizeof(*psalt) + ex_len);
 #endif
 		psalt->type = type;
 		memcpy(psalt->salt, tmp_salt, 8);
@@ -535,14 +536,14 @@ static void *get_salt(char *ciphertext)
 
 		if (inlined) {
 			unsigned char *d = psalt->raw_data;
-			p = strtok(NULL, "*");
+			p = strtokm(NULL, "*");
 			for (i = 0; i < psalt->pack_size; i++)
 				*d++ = atoi16[ARCH_INDEX(p[i * 2])] * 16 + atoi16[ARCH_INDEX(p[i * 2 + 1])];
 			psalt->blob = psalt->raw_data;
 		} else {
 			FILE *fp;
-			char *archive_name = strtok(NULL, "*");
-			long long pos = atoll(strtok(NULL, "*"));
+			char *archive_name = strtokm(NULL, "*");
+			long long pos = atoll(strtokm(NULL, "*"));
 #if HAVE_MMAP
 			if (!(fp = fopen(archive_name, "rb"))) {
 				fprintf(stderr, "! %s: %s\n", archive_name,
@@ -580,7 +581,7 @@ static void *get_salt(char *ciphertext)
 #endif
 			fclose(fp);
 		}
-		p = strtok(NULL, "*");
+		p = strtokm(NULL, "*");
 		psalt->method = atoi16[ARCH_INDEX(p[0])] * 16 + atoi16[ARCH_INDEX(p[1])];
 		if (psalt->method != 0x30)
 #if ARCH_LITTLE_ENDIAN
@@ -612,9 +613,11 @@ static void set_salt(void *salt)
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_salt, CL_FALSE, 0, 8, saved_salt, 0, NULL, NULL), "failed in clEnqueueWriteBuffer saved_salt");
 }
 
-static void init(struct fmt_main *self)
+static void init(struct fmt_main *_self)
 {
 	char build_opts[64];
+
+	self = _self;
 
 	snprintf(build_opts, sizeof(build_opts), "-DPLAINTEXT_LENGTH=%u", PLAINTEXT_LENGTH);
 	opencl_init("$JOHN/kernels/rar_kernel.cl", gpu_id, build_opts);
@@ -638,17 +641,6 @@ static void init(struct fmt_main *self)
 		self->params.tests = gpu_tests;
 	}
 
-	//Initialize openCL tuning (library) for this format.
-	opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
-		warn, 3, self, create_clobj, release_clobj,
-	        UNICODE_LENGTH + sizeof(cl_int) * 14, 0);
-
-	//Auto tune execution from shared/included code.
-	self->methods.crypt_all = crypt_all_benchmark;
-	autotune_run(self, ITERATIONS, 0,
-	             (cpu(device_info[gpu_id]) ? 1000000000 : 10000000000ULL));
-	self->methods.crypt_all = crypt_all;
-
 #if defined (_OPENMP)
 	omp_t = omp_get_max_threads();
 	init_locks();
@@ -657,7 +649,7 @@ static void init(struct fmt_main *self)
 	if (pers_opts.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
 
-	unpack_data = mem_calloc(sizeof(unpack_data_t) * omp_t);
+	unpack_data = mem_calloc(omp_t, sizeof(unpack_data_t));
 
 	/* OpenSSL init */
 	init_aesni();
@@ -674,6 +666,24 @@ static void init(struct fmt_main *self)
 	}
 }
 
+static void reset(struct db_main *db)
+{
+	if (!db) {
+		//Initialize openCL tuning (library) for this format.
+		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events,
+		                       warn, 3, self,
+		                       create_clobj, release_clobj,
+		                       UNICODE_LENGTH + sizeof(cl_int) * 14, 0);
+
+		//Auto tune execution from shared/included code.
+		self->methods.crypt_all = crypt_all_benchmark;
+		autotune_run(self, ITERATIONS, 0,
+		             (cpu(device_info[gpu_id]) ?
+		              1000000000 : 10000000000ULL));
+		self->methods.crypt_all = crypt_all;
+	}
+}
+
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *ptr, *keeptr;
@@ -687,18 +697,18 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	}
 	keeptr = ctcopy;
 	ctcopy += 7;
-	if (!(ptr = strtok(ctcopy, "*"))) /* -p or -h mode */
+	if (!(ptr = strtokm(ctcopy, "*"))) /* -p or -h mode */
 		goto error;
 	if (hexlen(ptr) != 1)
 		goto error;
 	mode = atoi(ptr);
 	if (mode < 0 || mode > 1)
 		goto error;
-	if (!(ptr = strtok(NULL, "*"))) /* salt */
+	if (!(ptr = strtokm(NULL, "*"))) /* salt */
 		goto error;
 	if (hexlen(ptr) != 16) /* 8 bytes of salt */
 		goto error;
-	if (!(ptr = strtok(NULL, "*")))
+	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
 	if (mode == 0) {
 		if (hexlen(ptr) != 32) /* 16 bytes of encrypted known plain */
@@ -711,7 +721,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 		if (hexlen(ptr) != 8) /* 4 bytes of CRC */
 			goto error;
-		if (!(ptr = strtok(NULL, "*"))) /* pack_size */
+		if (!(ptr = strtokm(NULL, "*"))) /* pack_size */
 			goto error;
 		if (strlen(ptr) > 12) { // pack_size > 1 TB? Really?
 			fprintf(stderr, "pack_size > 1TB not supported (%s)\n", FORMAT_NAME);
@@ -719,7 +729,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		}
 		if ((plen = atoll(ptr)) < 16)
 			goto error;
-		if (!(ptr = strtok(NULL, "*"))) /* unp_size */
+		if (!(ptr = strtokm(NULL, "*"))) /* unp_size */
 			goto error;
 		if (strlen(ptr) > 12) {
 			fprintf(stderr, "unp_size > 1TB not supported (%s)\n", FORMAT_NAME);
@@ -727,14 +737,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		}
 		if ((ulen = atoll(ptr)) < 1)
 			goto error;
-		if (!(ptr = strtok(NULL, "*"))) /* inlined */
+		if (!(ptr = strtokm(NULL, "*"))) /* inlined */
 			goto error;
 		if (hexlen(ptr) != 1)
 			goto error;
 		inlined = atoi(ptr);
 		if (inlined < 0 || inlined > 1)
 			goto error;
-		if (!(ptr = strtok(NULL, "*"))) /* pack_size / archive_name */
+		if (!(ptr = strtokm(NULL, "*"))) /* pack_size / archive_name */
 			goto error;
 		if (inlined) {
 			if (hexlen(ptr) != plen * 2)
@@ -747,13 +757,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 				fprintf(stderr, "! %s: %s, skipping.\n", archive_name, strerror(errno));
 				goto error;
 			}
-			if (!(ptr = strtok(NULL, "*"))) /* pos */
+			if (!(ptr = strtokm(NULL, "*"))) /* pos */
 				goto error;
 			/* We could go on and actually try seeking to pos
 			   but this is enough for now */
 			fclose(fp);
 		}
-		if (!(ptr = strtok(NULL, "*"))) /* method */
+		if (!(ptr = strtokm(NULL, "*"))) /* method */
 			goto error;
 	}
 	MEM_FREE(keeptr);
@@ -903,7 +913,7 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 	int k;
 	size_t gws = ((count + (local_work_size - 1)) / local_work_size) * local_work_size;
@@ -1072,7 +1082,7 @@ struct fmt_main fmt_ocl_rar = {
 	},{
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

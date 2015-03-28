@@ -62,8 +62,8 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL       "krb5pa-sha1"
 #define FORMAT_NAME        "Kerberos 5 AS-REQ Pre-Auth etype 17/18" /* aes-cts-hmac-sha1-96 */
-#ifdef MMX_COEF
-#define ALGORITHM_NAME      SHA1_N_STR MMX_TYPE
+#ifdef SIMD_COEF_32
+#define ALGORITHM_NAME      SHA1_N_STR SIMD_TYPE_STR
 #else
 #define ALGORITHM_NAME     "32/" ARCH_BITS_STR
 #endif
@@ -74,7 +74,7 @@ static int omp_t = 1;
 #define PLAINTEXT_LENGTH	125
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
 #else
@@ -298,27 +298,27 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 
 	ctcopy += 8;
-	p = strtok(ctcopy, "$");
+	p = strtokm(ctcopy, "$");
 	cs.etype = atoi(p);
-	p = strtok(NULL, "$");
+	p = strtokm(NULL, "$");
 	if (p[-1] == '$')
 		cs.user[0] = 0;
 	else {
 		strcpy((char*)cs.user, p);
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 	}
 	if (p[-1] == '$')
 		cs.realm[0] = 0;
 	else {
 		strcpy((char*)cs.realm, p);
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 	}
 	if (p[-1] == '$') {
 		strcpy((char*)cs.salt, (char*)cs.realm);
 		strcat((char*)cs.salt, (char*)cs.user);
 	} else {
 		strcpy((char*)cs.salt, p);
-		p = strtok(NULL, "$");
+		p = strtokm(NULL, "$");
 	}
 	for (i = 0; i < TIMESTAMP_SIZE; i++)
 		cs.ct[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -329,11 +329,11 @@ static void *get_salt(char *ciphertext)
 
 static void set_key(char *key, int index)
 {
-	int saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_key_length);
-	saved_key[index][saved_key_length] = 0;
+	int saved_len = strlen(key);
+	if (saved_len > PLAINTEXT_LENGTH)
+		saved_len = PLAINTEXT_LENGTH;
+	memcpy(saved_key[index], key, saved_len);
+	saved_key[index][saved_len] = 0;
 }
 
 static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
@@ -503,7 +503,7 @@ static void krb_encrypt(const unsigned char ciphertext[], size_t ctext_size,
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 	int index = 0;
 #ifdef _OPENMP
 #pragma omp parallel for
@@ -516,7 +516,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		unsigned char plaintext[44];
 		int key_size, i;
 		int len[MAX_KEYS_PER_CRYPT];
-#ifdef MMX_COEF
+#ifdef SIMD_COEF_32
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			len[i] = strlen(saved_key[i+index]);

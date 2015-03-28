@@ -103,14 +103,20 @@ static void init(struct fmt_main *self)
 	self->params.max_keys_per_crypt = MD5_std_max_kpc;
 #endif
 
-	saved_key = mem_calloc_tiny(
-	    sizeof(*saved_key) * self->params.max_keys_per_crypt,
-	    MEM_ALIGN_CACHE);
+	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
+	                             sizeof(*saved_key), MEM_ALIGN_CACHE);
 #ifdef MD5_SSE_PARA
-	sout = mem_calloc_tiny(sizeof(*sout) *
-	                       self->params.max_keys_per_crypt *
-	                       BINARY_SIZE, sizeof(MD5_word));
+	sout = mem_calloc(self->params.max_keys_per_crypt,
+	                  sizeof(*sout) * BINARY_SIZE);
 #endif
+}
+
+static void done(void)
+{
+#ifdef MD5_SSE_PARA
+	MEM_FREE(sout);
+#endif
+	MEM_FREE(saved_key);
 }
 
 static int get_hash_0(int index)
@@ -119,7 +125,7 @@ static int get_hash_0(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xF;
@@ -132,7 +138,7 @@ static int get_hash_1(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xFF;
@@ -145,7 +151,7 @@ static int get_hash_2(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xFFF;
@@ -158,7 +164,7 @@ static int get_hash_3(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xFFFF;
@@ -171,7 +177,7 @@ static int get_hash_4(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xFFFFF;
@@ -184,7 +190,7 @@ static int get_hash_5(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0xFFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFFFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0xFFFFFF;
@@ -197,7 +203,7 @@ static int get_hash_6(int index)
 	unsigned int x,y;
 	x = index&3;
 	y = index/4;
-	return ((MD5_word *)sout)[x+y*MMX_COEF*4] & 0x7FFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0x7FFFFFF;
 #else
 	init_t();
 	return MD5_out[index][0] & 0x7FFFFFF;
@@ -242,7 +248,7 @@ static char *get_key(int index)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int count = *pcount;
+	const int count = *pcount;
 #ifdef MD5_SSE_PARA
 #ifdef _OPENMP
 	int t;
@@ -263,9 +269,9 @@ static int cmp_all(void *binary, int count)
 #ifdef MD5_SSE_PARA
 	unsigned int x,y;
 
-	for(y=0;y<MD5_SSE_PARA*omp_para;y++) for(x=0;x<MMX_COEF;x++)
+	for(y=0;y<MD5_SSE_PARA*omp_para;y++) for(x=0;x<SIMD_COEF_32;x++)
 	{
-		if( ((MD5_word *)binary)[0] == ((MD5_word *)sout)[x+y*MMX_COEF*4] )
+		if( ((MD5_word *)binary)[0] == ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] )
 			return 1;
 	}
 	return 0;
@@ -294,13 +300,13 @@ static int cmp_one(void *binary, int index)
 	x = index&3;
 	y = index/4;
 
-	if( ((unsigned int *)binary)[0] != ((unsigned int *)sout)[x+y*MMX_COEF*4] )
+	if( ((unsigned int *)binary)[0] != ((unsigned int *)sout)[x+y*SIMD_COEF_32*4] )
 		return 0;
-	if( ((unsigned int *)binary)[1] != ((unsigned int *)sout)[x+y*MMX_COEF*4+4] )
+	if( ((unsigned int *)binary)[1] != ((unsigned int *)sout)[x+y*SIMD_COEF_32*4+4] )
 		return 0;
-	if( ((unsigned int *)binary)[2] != ((unsigned int *)sout)[x+y*MMX_COEF*4+8] )
+	if( ((unsigned int *)binary)[2] != ((unsigned int *)sout)[x+y*SIMD_COEF_32*4+8] )
 		return 0;
-	if( ((unsigned int *)binary)[3] != ((unsigned int *)sout)[x+y*MMX_COEF*4+12] )
+	if( ((unsigned int *)binary)[3] != ((unsigned int *)sout)[x+y*SIMD_COEF_32*4+12] )
 		return 0;
 	return 1;
 #else
@@ -363,7 +369,7 @@ struct fmt_main fmt_MD5 = {
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		cryptmd5_common_valid,
