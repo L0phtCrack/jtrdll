@@ -448,50 +448,27 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	log_event("Proceeding with \"incremental\" mode: %.100s", mode);
 	
-	/* Colons in the mode specify a file:min:max:count incremental mode, not a config file mode */
-	if (strchr(mode, ':') != NULL)
+	/* mode starting with 'file:' specify a path to a character set file */
+	if (strncmp(mode, "file:", 5)==0)
 	{
-		char *tok, *toks;
-		int toknum = 0;
-		toks = mem_alloc_tiny(strlen(mode), MEM_ALIGN_NONE);
-		strcpy(toks, mode);
+		charset = mode + 5;
 
-		charset = NULL;
-		max_count = 0;
-		min_length = 0;
-		max_length = CHARSET_LENGTH;
-		extra = NULL;
-
-		for (tok = strtok(toks, ":"); tok; tok = strtok(NULL, ":"))
+		struct charset_header header;
+		FILE *csf = fopen(charset, "rb");
+		if (!csf)
 		{
-			if (toknum == 0)
-			{
-				charset = tok;
-			}
-			else if (toknum == 1)
-			{
-				max_count = atoi(tok);
-			}
-			else if (toknum == 2)
-			{
-				min_length = atoi(tok);
-			}
-			else if (toknum == 3)
-			{
-				max_length = atoi(tok);
-			}
-
-			toknum++;
-		}
-
-		if (max_count == 0 || charset == NULL)
-		{
-			log_event("! Unknown incremental mode: %s", mode);
+			log_event("! Unable to open character set file: %s", charset);
 			if (john_main_process)
-				fprintf(stderr, "Unknown incremental mode: %s\n",
-				mode);
+				fprintf(stderr, "Unable to open character set file: %s\n", charset);
 			error();
 		}
+		fread(&header, sizeof(header), 1, csf);
+		fclose(csf);
+
+		max_count = header.count;
+		min_length = 0;
+		max_length = header.length;
+		extra = NULL;
 	}
 	else
 	{
