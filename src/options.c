@@ -229,7 +229,7 @@ static struct opt_entry opt_list[] = {
 		"%zu", &options.max_wordfile_memory},
 	{"dupe-suppression", FLG_DUPESUPP, FLG_DUPESUPP, 0,
 		FLG_SAVEMEM | FLG_STDIN_CHK | FLG_PIPE_CHK},
-	{"fix-state-delay", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"fix-state-delay", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.max_fix_state_delay},
 	{"field-separator-char", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &field_sep_char_str},
@@ -238,17 +238,17 @@ static struct opt_entry opt_list[] = {
 	{"nolog", FLG_NOLOG, FLG_NOLOG},
 	{"log-stderr", FLG_LOG_STDERR | FLG_NOLOG, FLG_LOG_STDERR},
 	{"crack-status", FLG_CRKSTAT, FLG_CRKSTAT},
-	{"mkpc", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
-		"%u", &options.force_maxkeys},
-	{"min-length", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"mkpc", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
+		"%d", &options.force_maxkeys},
+	{"min-length", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.force_minlength},
-	{"max-length", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"max-length", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.force_maxlength},
-	{"max-run-time", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"max-run-time", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.max_run_time},
-	{"progress-every", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"progress-every", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.status_interval},
-	{"regen-lost-salts", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
+	{"regen-lost-salts", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &regen_salts_options},
 	{"bare-always-valid", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		"%c", &options.dynamic_bare_hashes_always_valid},
@@ -746,6 +746,12 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	if (options.force_maxlength < 0 || options.force_maxlength > PLAINTEXT_BUFFER_SIZE - 3) {
 		if (john_main_process)
 			fprintf(stderr, "Invalid max length requested\n");
+		error();
+	}
+	if (options.force_maxkeys != 0 && options.force_maxkeys < 1) {
+		if (john_main_process)
+			fprintf(stderr,
+			        "Invalid options: --mkpc must be at least 1\n");
 		error();
 	}
 

@@ -27,7 +27,9 @@ john_register_one(&fmt_opencl_rawsha256);
 #include "config.h"
 #include "options.h"
 #include "opencl_rawsha256.h"
+#define _RAWSHA256_H
 #include "rawSHA256_common.h"
+#undef _RAWSHA256_H
 #include "mask_ext.h"
 #include "opencl_mask_extras.h"
 
@@ -42,6 +44,7 @@ static uint32_t				* plaintext, * saved_idx;
 
 static cl_mem pass_buffer;		//Plaintext buffer.
 static cl_mem idx_buffer;		//Sizes and offsets buffer.
+static cl_kernel prepare_kernel;
 
 //Pinned buffers
 static cl_mem pinned_plaintext, pinned_saved_idx, pinned_int_key_loc;
@@ -54,7 +57,7 @@ static struct fmt_main *self;
 //loaded_hashes: buffer of binary hashes transfered/loaded to GPU
 //hash_ids: information about how recover the cracked password
 //bitmap: a bitmap memory space.
-//int_key_loc: the position of the mask to apply
+//int_key_loc: the position of the mask to apply.
 static cl_mem buffer_int_keys, buffer_loaded_hashes, buffer_hash_ids,
 	buffer_bitmap, buffer_int_key_loc;
 
@@ -80,51 +83,14 @@ static void load_hash(const struct db_salt *salt);
 #include "opencl-autotune.h"
 #include "memdbg.h"
 
-static struct fmt_tests tests[] = {
-	{"71c3f65d17745f05235570f1799d75e69795d469d9fcb83e326f82f1afa80dea", "epixoip"},
-	{HEX_TAG "71c3f65d17745f05235570f1799d75e69795d469d9fcb83e326f82f1afa80dea", "epixoip"},
-	{"25b64f637b373d33a8aa2b7579784e99a20e6b7dfea99a71af124394b8958f27", "doesthiswork"},
-	{"5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8", "password"},
-	{"27c6794c8aa2f70f5f6dc93d3bfb25ca6de9b0752c8318614cbd4ad203bea24c", "ALLCAPS"},
-	{"04cdd6c523673bf448efe055711a9b184817d7843b0a76c2046f5398b5854152", "TestTESTt3st"},
-	{HEX_TAG "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f", "12345678"},
-	{HEX_TAG "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ""},
-	{HEX_TAG "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855", ""},
-	{"LcV6aBcc/53FoCJjXQMd7rBUDEpeevrK8V5jQVoJEhU", "password"},
-	{CISCO_TAG "LcV6aBcc/53FoCJjXQMd7rBUDEpeevrK8V5jQVoJEhU", "password"},
-	{"a49c2c9d0c006c8cb55a9a7a38822b83e0cd442614cb416af952fa50156761dc", "openwall"},
-#ifdef DEBUG //Special test cases.
-	{"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646", "1234567890"},
-	{"6ed645ef0e1abea1bf1e4e935ff04f9e18d39812387f63cda3415b46240f0405", "12345678901234567890"},
-	{"f54e5c8f810648e7638d25eb7ed6d24b7e5999d588e88826f2aa837d2ee52ecd", "123456789012345678901234567890"},
-	{"a4ebdd541454b84cc670c9f1f5508baf67ffd3fe59b883267808781f992a0b1d", "1234567890123456789012345678901234567890"},
-	{"f58fffba129aa67ec63bf12571a42977c0b785d3b2a93cc0538557c91da2115d", "12345678901234567890123456789012345678901234567890"},
-	{"3874d5c9cc5ab726e6bbebadee22c680ce530004d4f0bb32f765d42a0a6c6dc1", "123456789012345678901234567890123456789012345678901"},
-	{"03c3a70e99ed5eeccd80f73771fcf1ece643d939d9ecc76f25544b0233f708e9", "1234567890123456789012345678901234567890123456789012345"},
-	{"9e7d3e56996c5a06a6a378567e62f5aa7138ebb0f55c0bdaf73666bf77f73380", "mot\xf6rhead"},
-	{"0f46e4b0802fee6fed599682a16287d0397699cfd742025482c086a70979e56a", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, // 31
-	{"c62e4615bd39e222572f3a1bf7c2132ea1e65b17ec805047bd6b2842c593493f", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, // 32
-	{"d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, // 55
-	{CISCO_TAG "OsOmQzwozC4ROs/CzpczJoShdCeW9lp7k/tGrPS5Kog", "1"},
-	{CISCO_TAG "d7kgbEk.P6mpKdduC66fUy1BF0MImo3eyJ9uI/JbMRk", "openwall"},
-	{CISCO_TAG "p5BSCWNS3ivUDpZlWthR.k4Q/xWqlFyEqXdaPikHenI", "2"},
-	{CISCO_TAG "HwUf7ev9Fx84X2vvspULAeDbmwlg9jgm/Wk63kc3vfU", "11"},
-	{CISCO_TAG "bsPEUMVATKKO9yeUlJfE3OCzHlgf0s6goJpg3P1k0UU", "test"},
-	{CISCO_TAG "hUsuWZSE8dZERUBYNwRK8Aa8VxEGIHsuZFUCjNj2.Ac", "verylongbutweakpassword"},
-	{CISCO_TAG "fLUL1VG98zYDf9Q.M40nZ5blVT3M6UBex74Blw.UDCc", "thismaximumpasswordlength"},
-	{CISCO_TAG "Xq81UiuCj7bz9B..EX2BZumsU/d8pF5gs2NlRMW6sTk", "applesucks"},
-	{CISCO_TAG "O/D/cn1nawcByQoJfBxrNnUx6jjfWV.FNFx5TzmzihU", "AppleSucks"},
-#endif
-	{NULL}
-};
-
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
 {
 	size_t s;
 
 	s = autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
-	return s;
+	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, prepare_kernel));
+	return MIN(s, 512);
 }
 
 static size_t get_task_max_size()
@@ -201,7 +167,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	HANDLE_CLERROR(ret_code, "Error creating buffer argument buffer_buffer_hash_ids");
 
 	buffer_bitmap = clCreateBuffer(context[gpu_id], CL_MEM_WRITE_ONLY,
-		GET_MULTIPLE_OR_BIGGER(num_loaded_hashes/32 + 1, 32),
+		(num_loaded_hashes/32 + 1) * sizeof(uint32_t),
 		NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating buffer argument buffer_bitmap");
 
@@ -233,6 +199,14 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 		(void *) &buffer_hash_ids), "Error setting argument 7");
 	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 8, sizeof(buffer_bitmap),
 		(void *) &buffer_bitmap), "Error setting argument 8");
+
+	//Set prepare kernel arguments
+	HANDLE_CLERROR(clSetKernelArg(prepare_kernel, 0, sizeof(cl_uint),
+		(void *) &num_loaded_hashes), "Error setting argument 0");
+	HANDLE_CLERROR(clSetKernelArg(prepare_kernel, 1, sizeof(buffer_hash_ids),
+		(void *) &buffer_hash_ids), "Error setting argument 1");
+	HANDLE_CLERROR(clSetKernelArg(prepare_kernel, 2, sizeof(buffer_bitmap),
+		(void *) &buffer_bitmap), "Error setting argument 2");
 
 	//Indicates that the OpenCL objetcs are initialized.
 	ref_counter++;
@@ -274,7 +248,6 @@ static void release_clobj(void)
 	HANDLE_CLERROR(ret_code, "Error Releasing buffer_int_key_loc");
 	ret_code = clReleaseMemObject(buffer_int_keys);
 	HANDLE_CLERROR(ret_code, "Error Releasing buffer_int_keys");
-
 	ret_code = clReleaseMemObject(pinned_plaintext);
 	HANDLE_CLERROR(ret_code, "Error Releasing pinned_plaintext");
 	ret_code = clReleaseMemObject(pinned_saved_idx);
@@ -314,7 +287,8 @@ static void reset(struct db_main *db)
 		//Mask initialization
 		flag = (options.flags & FLG_MASK_CHK) && !global_work_size;
 
-		for (num_loaded_hashes = 0; tests[num_loaded_hashes].ciphertext;)
+		for (num_loaded_hashes = 0;
+			    self->params.tests[num_loaded_hashes].ciphertext;)
 			num_loaded_hashes++;
 		create_mask_buffers();
 
@@ -464,6 +438,8 @@ static void init(struct fmt_main *_self)
 	opencl_get_user_preferences(FORMAT_LABEL);
 
 	// create kernel(s) to execute
+	prepare_kernel = clCreateKernel(program[gpu_id], "kernel_prepare", &ret_code);
+	HANDLE_CLERROR(ret_code, "Error creating kernel_prepare. Double-check kernel name?");
 	crypt_kernel = clCreateKernel(program[gpu_id], "kernel_crypt", &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating kernel. Double-check kernel name?");
 
@@ -475,6 +451,7 @@ static void done(void)
 	release_clobj();
 
 	HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel");
+	HANDLE_CLERROR(clReleaseKernel(prepare_kernel), "Release kernel");
 	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 
 	if (loaded_hashes)
@@ -482,26 +459,6 @@ static void done(void)
 
 	if (hash_ids)
 		MEM_FREE(hash_ids);
-}
-
-/* ------- To binary functions ------- */
-static void * get_binary(char *ciphertext)
-{
-	static unsigned char * out;
-	char *p;
-	int i;
-
-	if (!out) out = mem_alloc_tiny(BINARY_SIZE, MEM_ALIGN_WORD);
-
-	p = ciphertext + 8;
-	for (i = 0; i < BINARY_SIZE; i++) {
-		out[i] =
-				(atoi16[ARCH_INDEX(*p)] << 4) |
-				 atoi16[ARCH_INDEX(p[1])];
-		p += 2;
-	}
-
-	return out;
 }
 
 /* ------- Send hashes to crack (binary) to GPU ------- */
@@ -522,13 +479,14 @@ static void load_hash(const struct db_salt *salt)
 			binary = (uint32_t *) pw->binary;
 		else {
 		    	char * ciphertext;
-		    	char **fields = tests[i].fields;
+		    	char **fields = self->params.tests[i].fields;
 
 			if (!fields[1])
-				fields[1] = tests[i].ciphertext;
+				fields[1] = self->params.tests[i].ciphertext;
 
-			ciphertext = split(prepare(fields, self), 0, self);
-			binary = (uint32_t *) get_binary(ciphertext);
+			ciphertext = sha256_common_split(
+				sha256_common_prepare(fields, self), 0, self);
+			binary = (uint32_t *) sha256_common_binary(ciphertext);
 		}
 
 		// Skip cracked hashes (segfault if removed).
@@ -549,7 +507,7 @@ static void load_hash(const struct db_salt *salt)
 			pw = pw->next;
 			more = (pw != NULL);
 		} else
-		    more = (tests[i].ciphertext != NULL);
+		    more = (self->params.tests[i].ciphertext != NULL);
 
 	} while (more);
 
@@ -558,6 +516,8 @@ static void load_hash(const struct db_salt *salt)
 		loaded_hashes, 0, NULL, NULL),
 		"failed in clEnqueueWriteBuffer num_loaded_hashes");
 
+	HANDLE_CLERROR(clSetKernelArg(prepare_kernel, 0, sizeof(cl_uint),
+		(void *) &num_loaded_hashes), "Error setting argument 0");
 	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 4, sizeof(cl_uint),
 		(void *) &(mask_int_cand.num_int_cand)), "Error setting argument 4");
 	HANDLE_CLERROR(clSetKernelArg(crypt_kernel, 5, sizeof(cl_uint),
@@ -571,14 +531,18 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 {
 	const int count = *pcount;
 	const struct db_salt * salt = _salt;
-	size_t gws;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws, initial = 128;
+	size_t *lws = local_work_size ? &local_work_size : &initial;
 
 	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 	//Check if any password was cracked and reload (if necessary)
 	if (salt && num_loaded_hashes != salt->count)
 		load_hash(salt);
+
+	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], prepare_kernel, 1, NULL,
+		&gws, lws, 0, NULL, NULL),
+		"failed in clEnqueueNDRangeKernel I");
 
 	//Send data to device.
 	if (key_idx > offset)
@@ -640,7 +604,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	uint32_t * binary = (uint32_t *) get_binary(source);
+	uint32_t * binary = (uint32_t *) sha256_common_binary(source);
 
 	if (binary[1] != loaded_hashes[HASH_PARTS * hash_ids[3 + 3 * index] + 1])
 		return 0;
@@ -685,15 +649,15 @@ struct fmt_main fmt_opencl_rawsha256 = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-		tests
+		sha256_common_tests
 	}, {
 		init,
 		done,
 		reset,
-		prepare,
-		valid,
-		split,
-		get_binary,
+		sha256_common_prepare,
+		sha256_common_valid,
+		sha256_common_split,
+		sha256_common_binary,
 		fmt_default_salt,
 		{ NULL },
 		fmt_default_source,

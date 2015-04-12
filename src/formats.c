@@ -12,7 +12,6 @@
 #include "dyna_salt.h"
 #include "misc.h"
 #include "unicode.h"
-#include "config.h"
 #ifndef BENCH_BUILD
 #include "options.h"
 #else
@@ -52,49 +51,30 @@ void fmt_register(struct fmt_main *format)
 
 void fmt_init(struct fmt_main *format)
 {
-	char *opt;
 	if (!format->private.initialized) {
-		double d = 0;
-
 		if (options.flags & FLG_LOOPTEST) {
 			orig_min = format->params.min_keys_per_crypt;
 			orig_max = format->params.max_keys_per_crypt;
 			orig_len = format->params.plaintext_length;
 		}
-
-		if (!(opt = getenv("OMP_SCALE")))
-			opt = cfg_get_param(SECTION_OPTIONS, NULL,
-			                    "FormatBlockScaleTuneMultiplier");
-		if (opt)
-			d = atof(opt);
-		if ((int)d > 1)
-			format->params.max_keys_per_crypt *= (int)d;
 		format->methods.init(format);
 		format->private.initialized = 1;
-		if (d > 0 && d < 1.0) {
-			double tmpd = format->params.max_keys_per_crypt;
-			tmpd *= d;
-			tmpd += .01;
-			if (tmpd < 1) tmpd = 1.01;
-			format->params.max_keys_per_crypt = tmpd;
-		}
 	}
 #ifndef BENCH_BUILD
 	if (options.flags & FLG_KEEP_GUESSING)
 		format->params.flags |= FMT_NOT_EXACT;
 
 	if (options.force_maxkeys) {
-		if (options.force_maxkeys <= format->params.max_keys_per_crypt)
-			format->params.min_keys_per_crypt =
-				format->params.max_keys_per_crypt =
-				options.force_maxkeys;
-		else {
+		if (options.force_maxkeys > format->params.max_keys_per_crypt) {
 			fprintf(stderr,
 			    "Can't set mkpc larger than %u for %s format\n",
 			    format->params.max_keys_per_crypt,
 			    format->params.label);
 			error();
 		}
+		if (options.force_maxkeys < format->params.min_keys_per_crypt)
+			format->params.min_keys_per_crypt =
+				options.force_maxkeys;
 	}
 	if (options.force_maxlength > format->params.plaintext_length) {
 		fprintf(stderr, "Can't set max length larger than %u "

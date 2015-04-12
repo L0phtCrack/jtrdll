@@ -815,7 +815,9 @@ int crk_process_key(char *key)
 
 		crk_methods.set_key(key, crk_key_index++);
 
-		if (crk_key_index >= crk_params.max_keys_per_crypt)
+		if (crk_key_index >= crk_params.max_keys_per_crypt ||
+		    (options.force_maxkeys &&
+		     crk_key_index >= options.force_maxkeys))
 			return crk_salt_loop();
 
 		return 0;
@@ -878,7 +880,8 @@ int crk_process_salt(struct db_salt *salt)
 		ptr += crk_params.plaintext_length;
 
 		crk_methods.set_key(key, index++);
-		if (index >= crk_params.max_keys_per_crypt || !count) {
+		if (index >= crk_params.max_keys_per_crypt || !count ||
+		    (options.force_maxkeys && index >= options.force_maxkeys)) {
 			int done;
 			crk_key_index = index;
 			if ((done = crk_password_loop(salt)) >= 0) {

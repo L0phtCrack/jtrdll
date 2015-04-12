@@ -14,15 +14,31 @@
 #include "opencl_rawsha256.h"
 #include "opencl_mask_extras.h"
 
+///	    *** UNROLL ***
+///AMD: sometimes a bad thing(?).
+#if amd_vliw4(DEVICE_INFO) || amd_vliw5(DEVICE_INFO)
+    #define UNROLL_LEVEL	2
+#elif amd_gcn(DEVICE_INFO)
+    #define UNROLL_LEVEL	1
+#elif gpu_nvidia(DEVICE_INFO)
+    #define UNROLL_LEVEL	2
+#else
+    #define UNROLL_LEVEL	0
+#endif
+
 inline void _memcpy(               uint32_t * dest,
                     __global const uint32_t * src,
                              const uint32_t   len) {
 
-    for (uint32_t i = 0; i < len; i += 4)
-        *dest++ = *src++;
+#if UNROLL_LEVEL > 0
+    #pragma unroll
+#endif
+    for (uint32_t i = 0; i < BUFFER_SIZE + 4; i += 4)
+        *dest++ = select(0U, *src++, i < len);
 }
 
-inline void sha256_block(uint32_t * buffer, int total, uint32_t * H) {
+inline void sha256_block(	  const uint32_t * const buffer,
+				  const uint32_t total, uint32_t * const H) {
     uint32_t a = H0;
     uint32_t b = H1;
     uint32_t c = H2;
@@ -34,14 +50,18 @@ inline void sha256_block(uint32_t * buffer, int total, uint32_t * H) {
     uint32_t t;
     uint32_t w[16];	//#define  w   buffer
 
+#if UNROLL_LEVEL > 0
     #pragma unroll
-    for (int i = 0; i < 15; i++)
+#endif
+    for (uint32_t i = 0; i < 15; i++)
         w[i] = SWAP32(buffer[i]);
-    w[15] = (uint32_t) (total * 8);
+    w[15] = (total * 8U);
 
     /* Do the job. */
+#if UNROLL_LEVEL > 0
     #pragma unroll
-    for (int i = 0; i < 16; i++) {
+#endif
+    for (uint32_t i = 0U; i < 16U; i++) {
 	t = k[i] + w[i] + h + Sigma1(e) + Ch(e, f, g);
 
 	h = g;
@@ -55,8 +75,10 @@ inline void sha256_block(uint32_t * buffer, int total, uint32_t * H) {
 	a = t;
     }
 
+#if UNROLL_LEVEL > 1
     #pragma unroll
-    for (int i = 16; i < 64; i++) {
+#endif
+    for (uint32_t i = 16U; i < 64U; i++) {
 	w[i & 15] = sigma1(w[(i - 2) & 15]) + sigma0(w[(i - 15) & 15]) + w[(i - 16) & 15] + w[(i - 7) & 15];
 	t = k[i] + w[i & 15] + h + Sigma1(e) + Ch(e, f, g);
 
@@ -72,57 +94,52 @@ inline void sha256_block(uint32_t * buffer, int total, uint32_t * H) {
     }
 
     /* Put checksum in context given as argument. */
-    H[0] = SWAP32(a + H0);
-    H[1] = SWAP32(b + H1);
-    H[2] = SWAP32(c + H2);
-    H[3] = SWAP32(d + H3);
-    H[4] = SWAP32(e + H4);
-    H[5] = SWAP32(f + H5);
-    H[6] = SWAP32(g + H6);
-    H[7] = SWAP32(h + H7);
+    H[0] = (a + H0);
+    H[1] = (b + H1);
+    H[2] = (c + H2);
+    H[3] = (d + H3);
+    H[4] = (e + H4);
+    H[5] = (f + H5);
+    H[6] = (g + H6);
+    H[7] = (h + H7);
 }
 
+/* *****************
+- index,		//keys offset and length
+- int_key_loc,		//the position of the mask to apply
+- int_keys,		//mask to be applied
+- candidates_number,	//the number of candidates by mask mode
+- num_loaded_hashes,	//number of password hashes transfered
+- loaded_hashes,	//buffer of password hashes transfered
+- hash_id,		//information about how recover the cracked password
+***************** */
 __kernel
 void kernel_crypt(
-	     __global const uint32_t * keys_buffer,
-             __global const uint32_t * index,		//keys offset and length
-	     __global const uint32_t * int_key_loc,	//the position of the mask to apply
-	     __global const uint32_t * int_keys,	//mask to be applied
-			    uint32_t candidates_number,	//the number of candidates by mask mode
-			    uint32_t num_loaded_hashes,	//number of password hashes transfered
-	     __global const uint32_t * loaded_hashes,	//buffer of password hashes transfered
-    volatile __global       uint32_t * hash_id,		//information about how recover the cracked password
-    volatile __global       uint32_t * bitmap) {
+	     __global const uint32_t *       __restrict keys_buffer,
+             __global const uint32_t * const __restrict index,
+	     __global const uint32_t * const __restrict int_key_loc,
+	     __global const uint32_t * const __restrict int_keys,
+		      const uint32_t              candidates_number,
+		      const uint32_t              num_loaded_hashes,
+	     __global const uint32_t * const __restrict loaded_hashes,
+    volatile __global       uint32_t * const __restrict hash_id,
+    volatile __global       uint32_t * const __restrict bitmap) {
 
     //Compute buffers (on CPU and NVIDIA, better private)
-    int		    total;
-    uint32_t	    w[16];
-    uint32_t	    H[8];
+    uint32_t		w[16];
+    uint32_t		H[8];
+    __local uint32_t	_ltotal[512];
+    #define		total    _ltotal[get_local_id(0)]
+    #define		W_OFFSET    0
 
-    //Get the task to be done
-    size_t gid = get_global_id(0);
+    {
+	//Get position and length of informed key.
+	uint32_t base = index[get_global_id(0)];
+	total = base & 63;
 
-    //Clean bitmap and result buffer
-    if (!gid) {
-	hash_id[0] = 0;
-
-	for (uint i = 0; i < (num_loaded_hashes - 1)/32 + 1; i++)
-	    bitmap[i] = 0;
+	//Ajust keys to it start position.
+	keys_buffer += (base >> 6);
     }
-    barrier(CLK_GLOBAL_MEM_FENCE);
-
-    //Get position and length of informed key.
-    uint32_t base = index[gid];
-    total = base & 63;
-
-    //Ajust keys to it start position.
-    keys_buffer += (base >> 6);
-
-    //Clear the buffer.
-    w[0] = 0;
-    w[1] = 0; w[2] = 0; w[3] = 0;  w[4] = 0;  w[5] = 0;  w[6] = 0;  w[7] = 0;
-    w[8] = 0; w[9] = 0; w[10] = 0; w[11] = 0; w[12] = 0; w[13] = 0; w[14] = 0;
-
     //Get password.
     _memcpy(w, keys_buffer, total);
 
@@ -140,5 +157,20 @@ void kernel_crypt(
 	sha256_block(w, total, H);
 
 	compare(i, num_loaded_hashes, loaded_hashes, hash_id, H, bitmap);
+    }
+}
+
+__kernel
+void kernel_prepare(
+		      const uint32_t                    num_loaded_hashes,
+    volatile __global       uint32_t * const __restrict hash_id,
+    volatile __global       uint32_t * const __restrict bitmap) {
+
+    //Clean bitmap and result buffer
+    if (get_global_id(0) == 0) {
+	hash_id[0] = 0;
+
+	for (uint32_t i = 0; i < (num_loaded_hashes - 1)/32 + 1; i++)
+	    bitmap[i] = 0;
     }
 }

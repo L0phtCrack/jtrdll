@@ -32,6 +32,7 @@
 #include "options.h"
 #include "config.h"
 #include "common-opencl.h"
+#include "mask_ext.h"
 #include "dyna_salt.h"
 #include "signals.h"
 #include "recovery.h"
@@ -210,12 +211,11 @@ int get_sequential_id(unsigned int dev_id, unsigned int platform_id)
 	return (platforms[i].platform ? pos + dev_id : -1);
 }
 
-static char *opencl_driver_ver(int sequential_id)
+void opencl_driver_value(int sequential_id, int * major, int * minor)
 {
-	static char ret[64];
 	char dname[MAX_OCLINFO_STRING_LEN];
 	char *p;
-	int major = 0, minor = 0;
+	*major = 0, *minor = 0;
 
 	clGetDeviceInfo(devices[sequential_id], CL_DRIVER_VERSION,
 	                sizeof(dname), dname, NULL);
@@ -224,15 +224,24 @@ static char *opencl_driver_ver(int sequential_id)
 	while (*p && !isdigit((int)*p))
 		p++;
 	if (*p) {
-		major = atoi(p);
+		*major = atoi(p);
 		while (*p && isdigit((int)*p))
 			p++;
 		while (*p && !isdigit((int)*p))
 			p++;
 		if (*p) {
-			minor = atoi(p);
+			*minor = atoi(p);
 		}
 	}
+}
+
+static char *opencl_driver_ver(int sequential_id)
+{
+	static char ret[64];
+	int major, minor;
+
+	opencl_driver_value(sequential_id, &major, &minor);
+
 	snprintf(ret, sizeof(ret), "-DDEV_VER_MAJOR=%d -DDEV_VER_MINOR=%d",
 	         major, minor);
 
@@ -243,7 +252,6 @@ static char *opencl_driver_info(int sequential_id)
 {
 	static char ret[64];
 	char dname[MAX_OCLINFO_STRING_LEN];
-	char *p;
 	int major = 0, minor = 0, i = 0;
 
 	int known_drivers[][2] = {
@@ -269,27 +277,13 @@ static char *opencl_driver_info(int sequential_id)
 		"13.12",
 		"14.4 (Mantle)",
 		"14.6 beta (Mantle)",
-		"14.9 (Mantle)",
+		"14.9 (Mantle) [recommended]",
 		"14.12 (Omega) [supported]",
 		""
 	};
-
 	clGetDeviceInfo(devices[sequential_id], CL_DRIVER_VERSION,
 	                sizeof(dname), dname, NULL);
-
-	p = dname;
-	while (*p && !isdigit((int)*p))
-		p++;
-	if (*p) {
-		major = atoi(p);
-		while (*p && isdigit((int)*p))
-			p++;
-		while (*p && !isdigit((int)*p))
-			p++;
-		if (*p) {
-			minor = atoi(p);
-		}
-	}
+	opencl_driver_value(sequential_id, &major, &minor);
 
 	if (gpu_amd(device_info[sequential_id])) {
 
@@ -303,7 +297,9 @@ static char *opencl_driver_info(int sequential_id)
 
 	} else if (gpu_nvidia(device_info[sequential_id])) {
 
-		if (major >= 319)
+		if (major >= 346)
+			snprintf(ret, sizeof (ret), "%s%s", dname, " [recommended]");
+		else if (major >= 319)
 			snprintf(ret, sizeof (ret), "%s%s", dname, " [supported]");
 		else
 			snprintf(ret, sizeof (ret), "%s", dname);
@@ -1704,7 +1700,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 {
 	size_t num = 0;
 	size_t optimal_gws = local_work_size;
-	unsigned long long speed, best_speed = 0;
+	unsigned long long speed, best_speed = 0, raw_speed;
 	cl_ulong run_time, min_time = CL_ULONG_MAX;
 
 	/*
@@ -1766,7 +1762,8 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 		if (options.verbosity < 4)
 			advance_cursor();
 
-		speed = rounds * kpc / (run_time / 1000000000.);
+		raw_speed = (kpc / (run_time / 1E9)) * mask_int_cand.num_int_cand;
+		speed = rounds * raw_speed;
 
 		if (run_time < min_time)
 			min_time = run_time;
@@ -1774,8 +1771,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 		if (options.verbosity > 3)
 			fprintf(stderr, "gws: %9zu\t%10llu c/s%12llu "
 			        "rounds/s%10s per crypt_all()",
-			        num, (long long)(kpc / (run_time / 1E9)),
-			        speed, ns2string(run_time));
+			        num, raw_speed, speed, ns2string(run_time));
 
 		if (best_speed && speed < 1.8 * best_speed &&
 		    max_run_time && run_time > max_run_time) {

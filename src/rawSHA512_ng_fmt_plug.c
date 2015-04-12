@@ -1,5 +1,6 @@
 /*
- * Copyright 2013, epixoip.
+ * Copyright (c) 2013, epixoip.
+ * Copyright (c) 2015, magnum (pseudo-intrinsics also supporting AVX2/AVX512)
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that redistribution of source
@@ -7,7 +8,7 @@
  */
 
 #include "arch.h"
-#if defined __SSE2__
+#if __SSE2__ || __MIC__
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_rawSHA512_ng;
@@ -15,9 +16,11 @@ extern struct fmt_main fmt_rawSHA512_ng;
 john_register_one(&fmt_rawSHA512_ng);
 #else
 
-#ifdef _OPENMP
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#elif _OPENMP
 #include <omp.h>
-#if defined __XOP__
+#if __XOP__
 #define OMP_SCALE                 768 /* AMD */
 #else
 #define OMP_SCALE                 2048 /* Intel */
@@ -25,49 +28,38 @@ john_register_one(&fmt_rawSHA512_ng);
 #endif
 
 // These compilers claim to be __GNUC__ but warn on gcc pragmas.
-#if defined(__GNUC__) && !defined(__INTEL_COMPILER) && !defined(__clang__) && !defined(__llvm__) && !defined (_MSC_VER)
+#if __GNUC__ && !__INTEL_COMPILER && !__clang__ && !__llvm__ && !_MSC_VER
 #pragma GCC optimize 3
 #endif
 
 #include "john_stdint.h"
 #include <string.h>
 
-#include <emmintrin.h>
-#if defined __SSE4_1__
-#include <smmintrin.h>
-#endif
-#if defined __SSSE3__
-#include <tmmintrin.h>
-#endif
-#if defined(__XOP__) && !defined(_MSC_VER)
-#include <x86intrin.h>
-#endif
-#if defined(_MSC_VER)
-#include <intrin.h>
-#endif
-
-
+#include "pseudo_intrinsics.h"
 #include "common.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "memdbg.h"
 
-#if defined __XOP__
-#define SIMD_TYPE                 "XOP"
-#elif defined __SSSE3__
-#define SIMD_TYPE                 "SSSE3"
+#if __MIC__
+#define SIMD_TYPE                 "512/512 MIC 8x"
+#elif __AVX512__
+#define SIMD_TYPE                 "512/512 AVX512 8x"
+#elif __AVX2__
+#define SIMD_TYPE                 "256/256 AVX2 4x"
+#elif __XOP__
+#define SIMD_TYPE                 "128/128 XOP 2x"
+#elif __SSSE3__
+#define SIMD_TYPE                 "128/128 SSSE3 2x"
 #else
-#define SIMD_TYPE                 "SSE2"
+#define SIMD_TYPE                 "128/128 SSE2 2x"
 #endif
 
 #define FORMAT_LABEL              "Raw-SHA512-ng"
 #define FORMAT_NAME               ""
-#define ALGORITHM_NAME            "SHA512 128/128 " SIMD_TYPE " 2x"
-#define FORMAT_TAG                "$SHA512$"
-#define TAG_LENGTH                8
+#define ALGORITHM_NAME            "SHA512 " SIMD_TYPE
 
-#define BENCHMARK_COMMENT         ""
-#define BENCHMARK_LENGTH          -1
+#define VWIDTH                    SIMD_COEF_64
 
 // max length is not 119, but 8 less than this, or 111.  111 actually make sense.
 // For SHA512 there are 14 'usable' 8 byte ints, minus 1 byte (for the 0x80).
@@ -75,16 +67,17 @@ john_register_one(&fmt_rawSHA512_ng);
 
 //#define MAXLEN                    119
 #define MAXLEN                    111
+#define PLAINTEXT_LENGTH	  MAXLEN
 #define CIPHERTEXT_LENGTH         128
-#define FULL_BINARY_SIZE          64
-#define BINARY_SIZE               8
-#define BINARY_ALIGN              8
+#define SHORT_BINARY_SIZE         8
 #define SALT_SIZE                 0
 #define SALT_ALIGN                1
-#define MIN_KEYS_PER_CRYPT        2
-#define MAX_KEYS_PER_CRYPT        2
+#define MIN_KEYS_PER_CRYPT        VWIDTH
+#define MAX_KEYS_PER_CRYPT        VWIDTH
+#define __RAWSHA512_CREATE_PROPER_TESTS_ARRAY__
+#include "rawSHA512_common.h"
 
-#if defined (_MSC_VER) && !defined (_M_X64)
+#if _MSC_VER && !_M_X64
 // 32 bit VC does NOT define these intrinsics :((((
 _inline __m128i _mm_set_epi64x(uint64_t a, uint64_t b) {
 	__m128i x;
@@ -100,139 +93,133 @@ _inline __m128i _mm_set1_epi64x(uint64_t a) {
 }
 #endif
 
-#ifndef __XOP__
-#define _mm_roti_epi64(x, n)                                              \
-(                                                                         \
-    _mm_xor_si128 (                                                       \
-        _mm_srli_epi64(x, ~n + 1),                                        \
-        _mm_slli_epi64(x, 64 + n)                                         \
-    )                                                                     \
-)
-
-#define _mm_cmov_si128(y, z, x)                                           \
-(                                                                         \
-    _mm_xor_si128 (z,                                                     \
-        _mm_and_si128 (x,                                                 \
-            _mm_xor_si128 (y, z)                                          \
-        )                                                                 \
-    )                                                                     \
-)
-#endif
-
-#ifdef __SSSE3__
+#if __AVX512__
 #define SWAP_ENDIAN(n)                                                    \
 {                                                                         \
-    n = _mm_shuffle_epi8 (n,                                              \
-            _mm_set_epi64x (0x08090a0b0c0d0e0f, 0x0001020304050607)       \
+    n = vshuffle_epi8(n,                                                  \
+            vset_epi64x(0x38393a3b3c3d3e3f, 0x3031323334353637,           \
+                        0x28292a2b2c2d2e2f, 0x2021222324252627,           \
+                        0x18191a1b1c1d1e1f, 0x1011121314151617,           \
+                        0x08090a0b0c0d0e0f, 0x0001020304050607)           \
+        );                                                                \
+}
+#elif __MIC__
+#define SWAP_ENDIAN(n)                                                    \
+{                                                                         \
+    n = vshuffle_epi32(n, 0xb1);                                          \
+    vswap32(n);                                                           \
+}
+#elif __AVX2__
+#define SWAP_ENDIAN(n)                                                    \
+{                                                                         \
+    n = vshuffle_epi8(n,                                                  \
+            vset_epi64x(0x18191a1b1c1d1e1f, 0x1011121314151617,           \
+                        0x08090a0b0c0d0e0f, 0x0001020304050607)           \
+        );                                                                \
+}
+#elif __SSSE3__
+#define SWAP_ENDIAN(n)                                                    \
+{                                                                         \
+    n = vshuffle_epi8(n,                                                  \
+            vset_epi64x(0x08090a0b0c0d0e0f, 0x0001020304050607)           \
         );                                                                \
 }
 #else
 #define SWAP_ENDIAN(n)                                                    \
 {                                                                         \
-    n = _mm_shufflehi_epi16 (_mm_shufflelo_epi16 (n, 0xb1), 0xb1);        \
-    n = _mm_xor_si128 (_mm_slli_epi16 (n, 8), _mm_srli_epi16 (n, 8));     \
-    n = _mm_shuffle_epi32 (n, 0xb1);                                      \
+    n = vshufflehi_epi16(vshufflelo_epi16(n, 0xb1), 0xb1);                \
+    n = vxor(vslli_epi16(n, 8), vsrli_epi16(n, 8));                       \
+    n = vshuffle_epi32(n, 0xb1);                                          \
 }
 #endif
 
+#if __AVX512__ || __MIC__
 #define GATHER(x,y,z)                                                     \
 {                                                                         \
-    x = _mm_set_epi64x (y[index + 1][z], y[index][z]);                    \
+    x = vset_epi64x(y[index + 7][z], y[index + 6][z],                     \
+                    y[index + 5][z], y[index + 4][z],                     \
+                    y[index + 3][z], y[index + 2][z],                     \
+                    y[index + 1][z], y[index + 0][z]);                    \
 }
+
+#elif __AVX2__
+#define GATHER(x,y,z)                                                     \
+{                                                                         \
+    x = vset_epi64x(y[index + 3][z], y[index + 2][z],                     \
+                    y[index + 1][z], y[index    ][z]);                    \
+}
+#else
+#define GATHER(x,y,z)                                                     \
+{                                                                         \
+    x = vset_epi64x(y[index + 1][z], y[index    ][z]);                    \
+}
+#endif
 
 #define S0(x)                                                             \
 (                                                                         \
-    _mm_xor_si128 (                                                       \
-        _mm_roti_epi64 (x, -39),                                          \
-        _mm_xor_si128 (                                                   \
-            _mm_roti_epi64 (x, -28),                                      \
-            _mm_roti_epi64 (x, -34)                                       \
+    vxor(                                                                 \
+        vroti_epi64(x, -39),                                              \
+        vxor(                                                             \
+            vroti_epi64(x, -28),                                          \
+            vroti_epi64(x, -34)                                           \
         )                                                                 \
     )                                                                     \
 )
 
 #define S1(x)                                                             \
 (                                                                         \
-    _mm_xor_si128 (                                                       \
-        _mm_roti_epi64 (x, -41),                                          \
-        _mm_xor_si128 (                                                   \
-            _mm_roti_epi64 (x, -14),                                      \
-            _mm_roti_epi64 (x, -18)                                       \
+    vxor(                                                                 \
+        vroti_epi64(x, -41),                                              \
+        vxor(                                                             \
+            vroti_epi64(x, -14),                                          \
+            vroti_epi64(x, -18)                                           \
         )                                                                 \
     )                                                                     \
 )
 
 #define s0(x)                                                             \
 (                                                                         \
-    _mm_xor_si128 (                                                       \
-        _mm_srli_epi64 (x, 7),                                            \
-        _mm_xor_si128 (                                                   \
-            _mm_roti_epi64 (x, -1),                                       \
-            _mm_roti_epi64 (x, -8)                                        \
+    vxor(                                                                 \
+        vsrli_epi64(x, 7),                                                \
+        vxor(                                                             \
+            vroti_epi64(x, -1),                                           \
+            vroti_epi64(x, -8)                                            \
         )                                                                 \
     )                                                                     \
 )
 
 #define s1(x)                                                             \
 (                                                                         \
-    _mm_xor_si128 (                                                       \
-        _mm_srli_epi64 (x, 6),                                            \
-        _mm_xor_si128 (                                                   \
-            _mm_roti_epi64 (x, -19),                                      \
-            _mm_roti_epi64 (x, -61)                                       \
+    vxor(                                                                 \
+        vsrli_epi64(x, 6),                                                \
+        vxor(                                                             \
+            vroti_epi64(x, -19),                                          \
+            vroti_epi64(x, -61)                                           \
         )                                                                 \
     )                                                                     \
 )
 
-#define Maj(x,y,z) _mm_cmov_si128 (x, y, _mm_xor_si128 (z, y))
+#define Maj(x,y,z) vcmov(x, y, vxor(z, y))
 
-#define Ch(x,y,z)  _mm_cmov_si128 (y, z, x)
+#define Ch(x,y,z)  vcmov(y, z, x)
 
 #define R(t)                                                              \
 {                                                                         \
-    tmp1 = _mm_add_epi64 (s1(w[t -  2]), w[t - 7]);                       \
-    tmp2 = _mm_add_epi64 (s0(w[t - 15]), w[t - 16]);                      \
-    w[t] = _mm_add_epi64 (tmp1, tmp2);                                    \
+    tmp1 = vadd_epi64(s1(w[t -  2]), w[t - 7]);                           \
+    tmp2 = vadd_epi64(s0(w[t - 15]), w[t - 16]);                          \
+    w[t] = vadd_epi64(tmp1, tmp2);                                        \
 }
 
 #define SHA512_STEP(a,b,c,d,e,f,g,h,x,K)                                  \
 {                                                                         \
-    tmp1 = _mm_add_epi64 (h,    w[x]);                                    \
-    tmp2 = _mm_add_epi64 (S1(e),_mm_set1_epi64x(K));                      \
-    tmp1 = _mm_add_epi64 (tmp1, Ch(e,f,g));                               \
-    tmp1 = _mm_add_epi64 (tmp1, tmp2);                                    \
-    tmp2 = _mm_add_epi64 (S0(a),Maj(a,b,c));                              \
-    d    = _mm_add_epi64 (tmp1, d);                                       \
-    h    = _mm_add_epi64 (tmp1, tmp2);                                    \
+    tmp1 = vadd_epi64(h,    w[x]);                                        \
+    tmp2 = vadd_epi64(S1(e),vset1_epi64x(K));                             \
+    tmp1 = vadd_epi64(tmp1, Ch(e,f,g));                                   \
+    tmp1 = vadd_epi64(tmp1, tmp2);                                        \
+    tmp2 = vadd_epi64(S0(a),Maj(a,b,c));                                  \
+    d    = vadd_epi64(tmp1, d);                                           \
+    h    = vadd_epi64(tmp1, tmp2);                                        \
 }
-
-
-static struct fmt_tests tests[] = {
-	{"f342aae82952db35b8e02c30115e3deed3d80fdfdadacab336f0ba51ac54e297291fa1d6b201d69a2bd77e2535280f17a54fa1e527abc6e2eddba79ad3be11c0", "epixoip"},
-	{FORMAT_TAG "f342aae82952db35b8e02c30115e3deed3d80fdfdadacab336f0ba51ac54e297291fa1d6b201d69a2bd77e2535280f17a54fa1e527abc6e2eddba79ad3be11c0", "epixoip"},
-	{"b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86", "password"},
-	{"2c80f4c2b3db6b677d328775be4d38c8d8cd9a4464c3b6273644fb148f855e3db51bc33b54f3f6fa1f5f52060509f0e4d350bb0c7f51947728303999c6eff446", "john-user"},
-	{"71ebcb1eccd7ea22bd8cebaec735a43f1f7164d003dacdeb06e0de4a6d9f64d123b00a45227db815081b1008d1a1bbad4c39bde770a2c23308ff1b09418dd7ed", "ALLCAPS"},
-	{"82244918c2e45fbaa00c7c7d52eb61f309a37e2f33ea1fba78e61b4140efa95731eec849de02ee16aa31c82848b51fb7b7fbae62f50df6e150a8a85e70fa740c", "TestTESTt3st"},
-	{"fa585d89c851dd338a70dcf535aa2a92fee7836dd6aff1226583e88e0996293f16bc009c652826e0fc5c706695a03cddce372f139eff4d13959da6f1f5d3eabe", "12345678"},
-	{FORMAT_TAG "fa585d89c851dd338a70dcf535aa2a92fee7836dd6aff1226583e88e0996293f16bc009c652826e0fc5c706695a03cddce372f139eff4d13959da6f1f5d3eabe", "12345678"},
-	{FORMAT_TAG "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", ""},
-	{"c96f1c1260074832bd3068ddd29e733090285dfc65939555dbbcafb27834957d15d9c509481cc7df0e2a7e21429783ba573036b78f5284f9928b5fef02a791ef", "mot\xf6rhead"},
-	{"aa3b7bdd98ec44af1f395bbd5f7f27a5cd9569d794d032747323bf4b1521fbe7725875a68b440abdf0559de5015baf873bb9c01cae63ecea93ad547a7397416e", "12345678901234567890"},
-	{"db9981645857e59805132f7699e78bbcf39f69380a41aac8e6fa158a0593f2017ffe48764687aa855dae3023fcceefd51a1551d57730423df18503e80ba381ba", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
-	{"7aba4411846c61b08b0f2282a8a4600232ace4dd96593c755ba9c9a4e7b780b8bdc437b5c55574b3e8409c7b511032f98ef120e25467678f0458643578eb60ff", "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901"},
-	// this one DOES NOT work for a 1 limb. Only 111 bytes max can be used, unless we do 2 sha512 limbs.
-//	{"a5fa73a3c9ca13df56c2cb3ae6f2e57671239a6b461ef5021a65d08f40336bfb458ec52a3003e1004f1a40d0706c27a9f4268fa4e1479382e2053c2b5b47b9b2", "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"},
-#ifdef DEBUG //Special test cases.
-	{"12b03226a6d8be9c6e8cd5e55dc6c7920caaa39df14aab92d5e3ea9340d1c8a4d3d0b8e4314f1f6ef131ba4bf1ceb9186ab87c801af0d5c95b1befb8cedae2b9", "1234567890"},
-	{"eba392e2f2094d7ffe55a23dffc29c412abd47057a0823c6c149c9c759423afde56f0eef73ade8f79bc1d16a99cbc5e4995afd8c14adb49410ecd957aecc8d02", "123456789012345678901234567890"},
-	{"3a8529d8f0c7b1ad2fa54c944952829b718d5beb4ff9ba8f4a849e02fe9a272daf59ae3bd06dde6f01df863d87c8ba4ab016ac576b59a19078c26d8dbe63f79e", "1234567890123456789012345678901234567890"},
-	{"49c1faba580a55d6473f427174b62d8aa68f49958d70268eb8c7f258ba5bb089b7515891079451819aa4f8bf75b784dc156e7400ab0a04dfd2b75e46ef0a943e", "12345678901234567890123456789012345678901234567890"},
-	{"8c5b51368ec88e1b1c4a67aa9de0aa0919447e142a9c245d75db07bbd4d00962b19112adb9f2b52c0a7b29fe2de661a872f095b6a1670098e5c7fde4a3503896", "123456789012345678901234567890123456789012345678901"},
-	{"35ea7bc1d848db0f7ff49178392bf58acfae94bf74d77ae2d7e978df52aac250ff2560f9b98dc7726f0b8e05b25e5132074b470eb461c4ebb7b4d8bf9ef0d93f", "1234567890123456789012345678901234567890123456789012345"},
-#endif
-    {NULL}
-};
 
 static uint64_t (*saved_key)[16];
 static uint64_t *crypt_key[ 8];
@@ -267,7 +254,7 @@ static void done(void)
 }
 
 
-static inline void alter_endianity_64 (uint64_t *x, unsigned int size)
+static inline void alter_endianity_64(uint64_t *x, unsigned int size)
 {
     int i;
 
@@ -276,13 +263,13 @@ static inline void alter_endianity_64 (uint64_t *x, unsigned int size)
 }
 
 
-static int valid (char *ciphertext, struct fmt_main *self)
+static int valid(char *ciphertext, struct fmt_main *self)
 {
     char *p, *q;
 
     p = ciphertext;
 
-    if (! strncmp (p, FORMAT_TAG, TAG_LENGTH))
+    if (! strncmp(p, FORMAT_TAG, TAG_LENGTH))
         p += TAG_LENGTH;
 
     q = p;
@@ -292,43 +279,39 @@ static int valid (char *ciphertext, struct fmt_main *self)
 }
 
 
-#if FMT_MAIN_VERSION > 9
-static char *split (char *ciphertext, int index, struct fmt_main *self)
-#else
-static char *split (char *ciphertext, int index)
-#endif
+static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
     static char out[TAG_LENGTH + CIPHERTEXT_LENGTH + 1];
 
-    if (!strncmp (ciphertext, FORMAT_TAG, TAG_LENGTH))
+    if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
         ciphertext += TAG_LENGTH;
 
-    memcpy (out,  FORMAT_TAG, TAG_LENGTH);
-    memcpy (out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
-    strlwr (out + TAG_LENGTH);
+    memcpy(out,  FORMAT_TAG, TAG_LENGTH);
+    memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
+    strlwr(out + TAG_LENGTH);
 
     return out;
 }
 
 
-static void *get_binary (char *ciphertext)
+static void *get_binary(char *ciphertext)
 {
     static union {
-        unsigned char c[FULL_BINARY_SIZE];
-        uint64_t w[FULL_BINARY_SIZE / sizeof(uint64_t)];
+        unsigned char c[BINARY_SIZE];
+        uint64_t w[BINARY_SIZE / sizeof(uint64_t)];
     } *out;
     int i;
 
     if (!out)
-        out = mem_alloc_tiny (FULL_BINARY_SIZE, BINARY_ALIGN);
+        out = mem_alloc_tiny(BINARY_SIZE, BINARY_ALIGN);
 
     ciphertext += TAG_LENGTH;
 
-    for (i=0; i < FULL_BINARY_SIZE; i++)
+    for (i=0; i < BINARY_SIZE; i++)
         out->c[i] = atoi16[ARCH_INDEX(ciphertext[i*2])] * 16 +
                     atoi16[ARCH_INDEX(ciphertext[i*2 + 1])];
 
-    alter_endianity_64 (out->w, FULL_BINARY_SIZE);
+    alter_endianity_64(out->w, BINARY_SIZE);
 
     out->w[0] -= 0x6a09e667f3bcc908ULL;
     out->w[1] -= 0xbb67ae8584caa73bULL;
@@ -342,16 +325,16 @@ static void *get_binary (char *ciphertext)
     return (void *) out;
 }
 
-static int get_hash_0 (int index) { return crypt_key[0][index] & 0xf; }
-static int get_hash_1 (int index) { return crypt_key[0][index] & 0xff; }
-static int get_hash_2 (int index) { return crypt_key[0][index] & 0xfff; }
-static int get_hash_3 (int index) { return crypt_key[0][index] & 0xffff; }
-static int get_hash_4 (int index) { return crypt_key[0][index] & 0xfffff; }
-static int get_hash_5 (int index) { return crypt_key[0][index] & 0xffffff; }
-static int get_hash_6 (int index) { return crypt_key[0][index] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[0][index] & 0xf; }
+static int get_hash_1(int index) { return crypt_key[0][index] & 0xff; }
+static int get_hash_2(int index) { return crypt_key[0][index] & 0xfff; }
+static int get_hash_3(int index) { return crypt_key[0][index] & 0xffff; }
+static int get_hash_4(int index) { return crypt_key[0][index] & 0xfffff; }
+static int get_hash_5(int index) { return crypt_key[0][index] & 0xffffff; }
+static int get_hash_6(int index) { return crypt_key[0][index] & 0x7ffffff; }
 
 
-static void set_key (char *key, int index)
+static void set_key(char *key, int index)
 {
     uint64_t *buf64 = (uint64_t *) &saved_key[index];
     uint8_t  *buf8  = (uint8_t * ) buf64;
@@ -366,7 +349,7 @@ static void set_key (char *key, int index)
 }
 
 
-static char *get_key (int index)
+static char *get_key(int index)
 {
     uint64_t *buf64 = (uint64_t *) &saved_key[index];
     uint8_t  *buf8  = (uint8_t * ) buf64;
@@ -383,50 +366,44 @@ static char *get_key (int index)
 }
 
 
-#if FMT_MAIN_VERSION > 10
-static int crypt_all (int *pcount, struct db_salt *salt)
-#else
-static void crypt_all (int count)
-#endif
+static int crypt_all(int *pcount, struct db_salt *salt)
 {
-#if FMT_MAIN_VERSION > 10
     int count = *pcount;
-#endif
     int index = 0;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-    for (index = 0; index < count; index += 2)
+    for (index = 0; index < count; index += VWIDTH)
 #endif
     {
         int i;
 
-        __m128i a, b, c, d, e, f, g, h;
-        __m128i w[80], tmp1, tmp2;
+        vtype a, b, c, d, e, f, g, h;
+        vtype w[80], tmp1, tmp2;
 
 
         for (i = 0; i < 14; i += 2) {
-            GATHER (tmp1, saved_key, i);
-            GATHER (tmp2, saved_key, i + 1);
-            SWAP_ENDIAN (tmp1);
-            SWAP_ENDIAN (tmp2);
+            GATHER(tmp1, saved_key, i);
+            GATHER(tmp2, saved_key, i + 1);
+            SWAP_ENDIAN(tmp1);
+            SWAP_ENDIAN(tmp2);
             w[i] = tmp1;
             w[i + 1] = tmp2;
         }
-        GATHER (tmp1, saved_key, 14);
-        SWAP_ENDIAN (tmp1);
+        GATHER(tmp1, saved_key, 14);
+        SWAP_ENDIAN(tmp1);
         w[14] = tmp1;
-        GATHER (w[15], saved_key, 15);
+        GATHER(w[15], saved_key, 15);
         for (i = 16; i < 80; i++) R(i);
 
-        a = _mm_set1_epi64x (0x6a09e667f3bcc908ULL);
-        b = _mm_set1_epi64x (0xbb67ae8584caa73bULL);
-        c = _mm_set1_epi64x (0x3c6ef372fe94f82bULL);
-        d = _mm_set1_epi64x (0xa54ff53a5f1d36f1ULL);
-        e = _mm_set1_epi64x (0x510e527fade682d1ULL);
-        f = _mm_set1_epi64x (0x9b05688c2b3e6c1fULL);
-        g = _mm_set1_epi64x (0x1f83d9abfb41bd6bULL);
-        h = _mm_set1_epi64x (0x5be0cd19137e2179ULL);
+        a = vset1_epi64x(0x6a09e667f3bcc908ULL);
+        b = vset1_epi64x(0xbb67ae8584caa73bULL);
+        c = vset1_epi64x(0x3c6ef372fe94f82bULL);
+        d = vset1_epi64x(0xa54ff53a5f1d36f1ULL);
+        e = vset1_epi64x(0x510e527fade682d1ULL);
+        f = vset1_epi64x(0x9b05688c2b3e6c1fULL);
+        g = vset1_epi64x(0x1f83d9abfb41bd6bULL);
+        h = vset1_epi64x(0x5be0cd19137e2179ULL);
 
         SHA512_STEP(a, b, c, d, e, f, g, h,  0, 0x428a2f98d728ae22ULL);
         SHA512_STEP(h, a, b, c, d, e, f, g,  1, 0x7137449123ef65cdULL);
@@ -513,30 +490,28 @@ static void crypt_all (int count)
         SHA512_STEP(c, d, e, f, g, h, a, b, 78, 0x5fcb6fab3ad6faecULL);
         SHA512_STEP(b, c, d, e, f, g, h, a, 79, 0x6c44198c4a475817ULL);
 
-        _mm_store_si128 ((__m128i *) &crypt_key[0][index], a);
-        _mm_store_si128 ((__m128i *) &crypt_key[1][index], b);
-        _mm_store_si128 ((__m128i *) &crypt_key[2][index], c);
-        _mm_store_si128 ((__m128i *) &crypt_key[3][index], d);
-        _mm_store_si128 ((__m128i *) &crypt_key[4][index], e);
-        _mm_store_si128 ((__m128i *) &crypt_key[5][index], f);
-        _mm_store_si128 ((__m128i *) &crypt_key[6][index], g);
-        _mm_store_si128 ((__m128i *) &crypt_key[7][index], h);
+        vstore((vtype*) &crypt_key[0][index], a);
+        vstore((vtype*) &crypt_key[1][index], b);
+        vstore((vtype*) &crypt_key[2][index], c);
+        vstore((vtype*) &crypt_key[3][index], d);
+        vstore((vtype*) &crypt_key[4][index], e);
+        vstore((vtype*) &crypt_key[5][index], f);
+        vstore((vtype*) &crypt_key[6][index], g);
+        vstore((vtype*) &crypt_key[7][index], h);
     }
 
-#if FMT_MAIN_VERSION > 10
     return count;
-#endif
 }
 
 
-static int cmp_all (void *binary, int count)
+static int cmp_all(void *binary, int count)
 {
     int i;
 
 #ifdef _OPENMP
     for (i=0; i < count; i++)
 #else
-    for (i=0; i < 2; i++)
+    for (i=0; i < VWIDTH; i++)
 #endif
         if (((uint64_t *) binary)[0] == crypt_key[0][i])
             return 1;
@@ -545,18 +520,18 @@ static int cmp_all (void *binary, int count)
 }
 
 
-static int cmp_one (void *binary, int index)
+static int cmp_one(void *binary, int index)
 {
     return (((uint64_t *) binary)[0] == crypt_key[0][index]);
 }
 
 
-static int cmp_exact (char *source, int index)
+static int cmp_exact(char *source, int index)
 {
     int i;
     uint64_t *bin;
 
-    bin = (uint64_t *) get_binary (source);
+    bin = (uint64_t *) get_binary(source);
 
     for (i=1; i < 8; i++)
         if (((uint64_t *) bin)[i] != crypt_key[i][index])
@@ -575,38 +550,30 @@ struct fmt_main fmt_rawSHA512_ng = {
         BENCHMARK_LENGTH,
         0,
         MAXLEN,
-        BINARY_SIZE,
-#if FMT_MAIN_VERSION > 9
+        SHORT_BINARY_SIZE,
         BINARY_ALIGN,
-#endif
         SALT_SIZE,
-#if FMT_MAIN_VERSION > 9
         SALT_ALIGN,
-#endif
         MIN_KEYS_PER_CRYPT,
         MAX_KEYS_PER_CRYPT,
         FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
-        tests
+        sha512_common_tests
     }, {
         init,
-#if FMT_MAIN_VERSION > 10
         done,
         fmt_default_reset,
-#endif
         fmt_default_prepare,
         valid,
         split,
         get_binary,
         fmt_default_salt,
-#if FMT_MAIN_VERSION > 9
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
         fmt_default_source,
-#endif
         {
 		fmt_default_binary_hash_0,
 		fmt_default_binary_hash_1,
