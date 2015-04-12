@@ -75,7 +75,9 @@ void *MEMDBG_libc_alloc(size_t size) {
 }
 
 void *MEMDBG_libc_calloc(size_t count, size_t size) {
-	return calloc(count, size);
+	void *mem = malloc(count*size);
+	memset(mem, 0, count*size);
+	return mem;
 }
 
 #if defined (MEMDBG_ON)
