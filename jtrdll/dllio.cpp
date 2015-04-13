@@ -6,8 +6,15 @@
 
 extern "C"
 {
+
+#define private _private // hack to work around poorly chosen keyword
+
 #include"os.h"
 #include"signals.h"
+#include"charset.h"
+
+#undef private
+
 }
 
 #include"jtrdll.h"
@@ -197,6 +204,29 @@ JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
 JTRDLL_IMPEXP void jtrdll_abort(void)
 {
 	sig_handle_abort(SIGINT);
+}
+
+JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min, unsigned char *max, unsigned char *len, unsigned char *count)
+{
+	struct charset_header header;
+	FILE *csf = fopen(path, "rb");
+	if (!csf)
+	{
+		return -1;
+	}
+	if (charset_read_header(csf, &header) == -1)
+	{
+		fclose(csf);
+		return -1;
+	}
+	fclose(csf);
+
+	*min = header.min;
+	*max = header.max;
+	*len = header.length;
+	*count = header.count;
+
+	return 0;
 }
 
 }

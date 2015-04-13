@@ -47,7 +47,7 @@ extern "C" {
 JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *status);
 JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks);
 JTRDLL_IMPEXP void jtrdll_abort(void);
-JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min, unsignedd char *max, unsigned char *len, unsigned char *count);
+JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * charmin, unsigned char *charmax, unsigned char *len, unsigned char *count);
 #endif
 
 typedef int (TYPEOF_jtrdll_main)(int argc, char **argv, struct JTRDLL_HOOKS *hooks);
