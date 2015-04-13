@@ -38,7 +38,11 @@ john_register_one(&fmt_opencl_NT);
 
 #define FORMAT_LABEL		"nt-opencl"
 #define FORMAT_NAME		"NT"
-#define ALGORITHM_NAME		"MD4 OpenCL (inefficient, development use only)"
+#ifdef JTRDLL
+#define ALGORITHM_NAME      "MD4 OpenCL"
+#else
+#define ALGORITHM_NAME      "MD4 OpenCL (inefficient, development use only)"
+#endif
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define PLAINTEXT_LENGTH	23

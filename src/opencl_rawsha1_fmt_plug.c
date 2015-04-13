@@ -31,7 +31,11 @@ john_register_one(&fmt_opencl_rawSHA1);
 
 #define FORMAT_LABEL			"Raw-SHA1-opencl"
 #define FORMAT_NAME			""
+#ifdef JTRDLL
+#define ALGORITHM_NAME			"SHA1 OpenCL"
+#else
 #define ALGORITHM_NAME			"SHA1 OpenCL (inefficient, development use only)"
+#endif
 
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		-1

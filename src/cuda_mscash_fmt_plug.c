@@ -26,7 +26,13 @@ john_register_one(&fmt_cuda_mscash);
 
 #define FORMAT_LABEL		"mscash-cuda"
 #define FORMAT_NAME		"MS Cache Hash (DCC)"
-#define ALGORITHM_NAME		"MD4 CUDA (inefficient, development use only)"
+
+#ifdef JTRDLL
+#define ALGORITHM_NAME      "MD4 CUDA"
+#else
+#define ALGORITHM_NAME      "MD4 CUDA (inefficient, development use only)"
+#endif
+
 #define MAX_CIPHERTEXT_LENGTH	(2 + 19*3 + 1 + 32)
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	0

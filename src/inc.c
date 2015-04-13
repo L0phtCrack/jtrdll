@@ -462,7 +462,14 @@ void do_incremental_crack(struct db_main *db, char *mode)
 				fprintf(stderr, "Unable to open character set file: %s\n", charset);
 			error();
 		}
-		fread(&header, sizeof(header), 1, csf);
+		if (charset_read_header(csf, &header) == -1)
+		{
+			fclose(csf);
+			log_event("! Unable to read charset header: %s", charset);
+			if (john_main_process)
+				fprintf(stderr, "Unable to read charset header: %s\n", charset);
+			error();
+		}
 		fclose(csf);
 
 		max_count = header.count;

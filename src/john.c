@@ -1438,26 +1438,29 @@ static void john_run(void)
 
 		tty_done();
 
+#ifndef JTRDLL
 		if (options.verbosity > 1)
-		if (john_main_process && database.password_count < remaining) {
-			char *might = "Warning: passwords printed above might";
-			char *partial = " be partial";
-			char *not_all = " not be all those cracked";
-			switch (database.options->flags &
-			    (DB_SPLIT | DB_NODUP)) {
-			case DB_SPLIT:
-				fprintf(stderr, "%s%s\n", might, partial);
-				break;
-			case DB_NODUP:
-				fprintf(stderr, "%s%s\n", might, not_all);
-				break;
-			case (DB_SPLIT | DB_NODUP):
-				fprintf(stderr, "%s%s and%s\n",
-				    might, partial, not_all);
+		{
+			if (john_main_process && database.password_count < remaining) {
+				char *might = "Warning: passwords printed above might";
+				char *partial = " be partial";
+				char *not_all = " not be all those cracked";
+				switch (database.options->flags &
+					(DB_SPLIT | DB_NODUP)) {
+				case DB_SPLIT:
+					fprintf(stderr, "%s%s\n", might, partial);
+					break;
+				case DB_NODUP:
+					fprintf(stderr, "%s%s\n", might, not_all);
+					break;
+				case (DB_SPLIT | DB_NODUP) :
+					fprintf(stderr, "%s%s and%s\n", might, partial, not_all);
+				}
+				fputs("Use the \"--show\" option to display all of "
+					"the cracked passwords reliably\n", stderr);
 			}
-			fputs("Use the \"--show\" option to display all of "
-			    "the cracked passwords reliably\n", stderr);
 		}
+#endif
 	}
 }
 

@@ -30,7 +30,12 @@ john_register_one(&fmt_opencl_mysqlsha1);
 
 #define FORMAT_LABEL            "mysql-sha1-opencl"
 #define FORMAT_NAME             "MySQL 4.1+"
-#define ALGORITHM_NAME          "SHA1 OpenCL (inefficient, development use only)"
+
+#ifdef JTRDLL
+#define ALGORITHM_NAME      "SHA1 OpenCL"
+#else
+#define ALGORITHM_NAME      "SHA1 OpenCL (inefficient, development use only)"
+#endif
 
 #define BENCHMARK_COMMENT       ""
 #define BENCHMARK_LENGTH        -1

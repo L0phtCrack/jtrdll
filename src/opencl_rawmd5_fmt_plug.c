@@ -31,7 +31,13 @@ john_register_one(&fmt_opencl_rawMD5);
 #define BUFSIZE             ((PLAINTEXT_LENGTH+3)/4*4)
 #define FORMAT_LABEL        "Raw-MD5-opencl"
 #define FORMAT_NAME         ""
+
+#ifdef JTRDLL
+#define ALGORITHM_NAME      "MD5 OpenCL"
+#else
 #define ALGORITHM_NAME      "MD5 OpenCL (inefficient, development use only)"
+#endif
+
 #define BENCHMARK_COMMENT   ""
 #define BENCHMARK_LENGTH    -1
 #define CIPHERTEXT_LENGTH   32
