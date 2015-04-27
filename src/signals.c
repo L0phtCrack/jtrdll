@@ -60,6 +60,7 @@
 #include "john.h"
 #include "status.h"
 #include "signals.h"
+#include "path.h"
 #ifdef HAVE_MPI
 #include "john-mpi.h"
 #endif
@@ -81,6 +82,64 @@ volatile int aborted_by_timer = 0;
 #if !defined (__MINGW32__) && !defined (_MSC_VER)
 #include <sys/times.h>
 #endif
+
+
+
+#ifdef _WIN32
+
+HANDLE hPotWatch = NULL;
+
+void check_potwatch()
+{
+	if (!hPotWatch)
+	{
+		return;
+	}
+
+	DWORD got = WaitForSingleObject(hPotWatch, 0);
+	if (got == WAIT_OBJECT_0)
+	{
+		// like SIGHUP
+		event_reload = event_save = event_pending = 1;
+		FindNextChangeNotification(hPotWatch);
+	}
+}
+
+void install_potwatch()
+{
+	char *lastslash;
+	char *pot;
+	char potdir[MAX_PATH + 1];
+
+	if (hPotWatch)
+	{
+		return;
+	}
+
+	strncpy(potdir, path_expand(pers_opts.activepot), MAX_PATH);
+	potdir[MAX_PATH] = 0;
+	lastslash = strrchr(potdir, '\\');
+	if (!lastslash)
+	{
+		return;
+	}
+	*lastslash = '\0';
+
+	hPotWatch = FindFirstChangeNotificationA(potdir, FALSE, FILE_NOTIFY_CHANGE_SIZE);
+}
+
+void remove_potwatch()
+{
+	if (hPotWatch)
+	{
+		FindCloseChangeNotification(hPotWatch);
+		hPotWatch = NULL;
+	}
+}
+
+#endif
+
+
 
 static clock_t timer_emu_interval = 0;
 static unsigned int timer_emu_count = 0, timer_emu_max = 0;
@@ -302,6 +361,10 @@ static void sig_handle_timer(int signum)
 #else /* no OS_TIMER */
 	time = status_get_time();
 
+#ifdef _WIN32
+	check_potwatch();
+#endif
+
 	/* Some stuff only done every few seconds */
 	if ((time & 3) == 3) {
 #ifdef HAVE_MPI
@@ -469,6 +532,7 @@ static void sig_handle_reload(int signum)
 #endif
 #endif
 
+
 static void sig_done(void);
 
 void sig_preinit(void)
@@ -507,6 +571,9 @@ void sig_init(void)
 	sig_install(sig_handle_update, SIGHUP);
 	sig_install_abort();
 	sig_install_timer();
+#ifdef _WIN32
+	install_potwatch();
+#endif
 }
 
 void sig_init_child(void)
@@ -524,6 +591,9 @@ void sig_init_child(void)
 
 static void sig_done(void)
 {
+#ifdef _WIN32
+	remove_potwatch();
+#endif
 	sig_remove_update();
 	sig_remove_abort();
 	sig_remove_timer();

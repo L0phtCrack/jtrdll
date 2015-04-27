@@ -396,11 +396,19 @@ void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *
 	}
 
 /* Try to keep the two files in sync */
+#ifdef JTRDLL
+	/* In DLL mode we prefer seeing the cracked stuff in the potfile immediately */
+	log_file_write(&pot);
+	log_file_write(&log);
+	log_file_flush(&pot);
+	log_file_flush(&log);
+#else
 	if (log_file_write(&pot))
 		log_file_flush(&log);
 	else
 	if (log_file_write(&log))
 		log_file_flush(&pot);
+#endif
 
 	in_logger = 0;
 
