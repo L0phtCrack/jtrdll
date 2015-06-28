@@ -231,8 +231,10 @@ void check_abort(int be_async_signal_safe)
 			if (aborted_by_timer)
 				write_loop(2, "Session stopped (max run-time"
 				           " reached)\n", 39);
+#ifndef JTRDLL
 			else
 				write_loop(2, "Session aborted\n", 16);
+#endif
 		}
 		_exit(1);
 	}

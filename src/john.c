@@ -1474,7 +1474,11 @@ static void john_done(void)
 		if (event_abort) {
 			log_event((aborted_by_timer) ?
 			          "Session stopped (max run-time reached)" :
-			          "Session aborted");
+#ifdef JTRDLL
+			          "");
+#else
+					  "Session aborted");
+#endif
 			/* We have already printed to stderr from signals.c */
 		} else if (children_ok) {
 			log_event("Session completed");

@@ -918,7 +918,7 @@ char *crk_get_key1(void)
 	if (options.secure)
 		return "";
 	else
-	if (crk_db->loaded)
+	if (crk_db && crk_db->loaded)
 		return crk_methods.get_key(0);
 	else
 		return crk_stdout_key;
