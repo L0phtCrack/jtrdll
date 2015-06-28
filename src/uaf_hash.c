@@ -16,7 +16,7 @@
  */
 #ifndef _uaf_hash_
 #define _uaf_hash_
-#include "uaf_encode_plug.c"
+#include "uaf_encode.c"
 
 #ifdef VMS
 #	include <ssdef.h>
@@ -255,7 +255,7 @@ static int hash_password (
 
 
     /* Collapse the username into the quadword */
-    r3 = username;		/* Point r3 to the valid username desriptor */
+    r3 = username;		/* Point r3 to the valid username descriptor */
     COLLAPSE_R2 (r3, r4, r7);
 
     /* U (qword) contains the 8 character output buffer in quadword format */

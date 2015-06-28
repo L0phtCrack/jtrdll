@@ -86,8 +86,14 @@ case "${host_cpu}_${CFLAGS}" in
          JTR_LIST_ADD(CFLAGS, [-DUSING_ICC_S_FILE])
          [CC_ASM_OBJS="x86-64.o sse-intrinsics-64.o"]
       else
+         case "${CPPFLAGS}_${CFLAGS}" in
+           *-mno-sse2*) ;;
+           *-mno-mmx*) ;;
+           *)
          AS_IF([test "y$CPU_STR" != "yx86_64"],
             [CC_ASM_OBJS="x86-64.o sse-intrinsics.o"])
+         ;;
+         esac
       fi
    ;;
    i?86_*)
@@ -102,6 +108,9 @@ case "${host_cpu}_${CFLAGS}" in
         [CC_ASM_OBJS="x86.o x86-sse.o sse-intrinsics.o"]
       fi
    ;;
+   mic*)
+      [CC_ASM_OBJS="sse-intrinsics.o"]
+      ;;
    alpha*dec*)
       [CC_ASM_OBJS="digipaq-alpha.o"]
       ;;

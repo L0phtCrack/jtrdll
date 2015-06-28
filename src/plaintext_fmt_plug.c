@@ -21,6 +21,7 @@
  *
  */
 
+#undef FMT_STRUCT
 #define FMT_STRUCT	fmt_plaintext
 
 #if FMT_EXTERNS_H

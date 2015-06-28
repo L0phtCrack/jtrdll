@@ -67,7 +67,9 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1
+#endif
 #endif
 
 #include "memdbg.h"
@@ -75,10 +77,9 @@ static int omp_t = 1;
 #define PAD_SIZE                128
 #define PLAINTEXT_LENGTH        125
 
-#define MIN(a,b)                (((a)<(b))?(a):(b))
-#define MAX(a,b)                (((a)>(b))?(a):(b))
-
 static struct fmt_tests tests[] = {
+	{"$pbkdf2-hmac-sha512$1000.6b635263736c70346869307a304b5276.80cf814855f2299103a6084366e41d7e14f9894b05ed77fa19881d28f06cde18da9ab44972cd00496843371ce922c70e64f3862b036b59b581fe32fc4408fe49", "magnum"},
+	{"$pbkdf2-hmac-sha512$1000.55636d4344326e537236437677674a46.e7a60f0cf216c40b31cc6fc34d6a0093c978bbb49d6934dbca286b63fe28473bd3683917807173aef122e5a6bc5c7b4178ed6225f414c994df46013754a52177", "Ripper"},
 	/* OS X 10.8 Mountain Lion hashes, "dave" format */
 	{"$ml$23923$c3fa2e153466f7619286024fe7d812d0a8ae836295f84b9133ccc65456519fc3$ccb903ee691ade6d5dee9b3c6931ebed6ddbb1348f1b26c21add8ba0d45f27e61e97c0b80d9a18020944bb78f1ebda6fdd79c5cf08a12c80522caf987c287b6d", "openwall"},
 	{"$ml$37174$ef768765ba15907760b71789fe62436e3584dfadbbf1eb8bf98673b60ff4e12b$294d42f6e0c3a93d598340bfb256efd630b53f32173c2b0d278eafab3753c10ec57b7d66e0fa79be3b80b3693e515cdd06e9e9d26d665b830159dcae152ad156", "m\xC3\xBCller"},
@@ -280,8 +281,6 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
-#endif
 	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 	{
 #ifdef SSE_GROUP_SZ_SHA512
@@ -309,9 +308,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 static int cmp_all(void *binary, int count)
 {
 	int index = 0;
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (; index < count; index++)
-#endif
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;

@@ -17,13 +17,18 @@ john_register_one(&fmt_keyring);
 #include <errno.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE               32
+#else
 #define OMP_SCALE               64
-#endif
+#endif // __MIC__
+#endif // OMP_SCALE
+#endif // _OPENMP
 
 #include "arch.h"
 
 //#undef _OPENMP
-//#undef SIMD_COEF_32
 //#undef SIMD_COEF_32
 
 #include "misc.h"
@@ -48,11 +53,12 @@ john_register_one(&fmt_keyring);
 #define SALT_SIZE		sizeof(*cur_salt)
 #define BINARY_ALIGN		1
 #define SALT_ALIGN			sizeof(int)
-#define MIN_KEYS_PER_CRYPT	1
 #ifdef SIMD_COEF_32
-#define MAX_KEYS_PER_CRYPT SIMD_COEF_32
-#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA256_BUF_SIZ*SIMD_COEF_32*4 )
+#define MIN_KEYS_PER_CRYPT (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define MAX_KEYS_PER_CRYPT (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
 #else
+#define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 #endif
 
@@ -207,16 +213,16 @@ static void symkey_generate_simple(int index, unsigned char *salt, int n_salt, i
 								   unsigned char iv[MAX_KEYS_PER_CRYPT][32])
 {
 	SHA256_CTX ctx;
-	unsigned char digest[32], _IBuf[64*SIMD_COEF_32+16], *keys;
+	unsigned char digest[32], _IBuf[64*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD], *keys;
 	uint32_t *keys32;
-	int i, j;
+	unsigned int i, j;
 
-	keys = (unsigned char*)mem_align(_IBuf, 16);
-	memset(keys, 0, 64*SIMD_COEF_32);
+	keys = (unsigned char*)mem_align(_IBuf, MEM_ALIGN_SIMD);
+	memset(keys, 0, 64*MAX_KEYS_PER_CRYPT);
 	keys32 = (uint32_t*)keys;
 
 	// use oSSL to do first crypt, and marshal into SIMD buffers.
-	for (i = 0; i < SIMD_COEF_32; ++i) {
+	for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 		SHA256_Init(&ctx);
 		SHA256_Update(&ctx, saved_key[index+i], strlen(saved_key[index+i]));
 		SHA256_Update(&ctx, salt, n_salt);
@@ -282,7 +288,7 @@ static void decrypt_buffer(unsigned char buffers[MAX_KEYS_PER_CRYPT][sizeof(cur_
 		if (AES_set_decrypt_key(key[i], 128, &akey) < 0) {
 			fprintf(stderr, "AES_set_decrypt_key failed!\n");
 		}
-		AES_cbc_encrypt(buffers[i], buffers[i], len, &akey, iv[i], AES_DECRYPT);
+		AES_cbc_encrypt(cur_salt->ct, buffers[i], len, &akey, iv[i], AES_DECRYPT);
 	}
 }
 
@@ -312,10 +318,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT)
 	{
 		int i;
-		unsigned char buffers[MAX_KEYS_PER_CRYPT][sizeof(cur_salt->ct)];
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
-			memcpy(buffers[i], cur_salt->ct, cur_salt->crypto_size);
+		unsigned char (*buffers)[sizeof(cur_salt->ct)];
+
+		// This is too big to be on stack. See #1292.
+		buffers = mem_alloc(MAX_KEYS_PER_CRYPT * sizeof(*buffers));
+
 		decrypt_buffer(buffers, index);
+
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			if (verify_decrypted_buffer(buffers[i], cur_salt->crypto_size)) {
 				cracked[index+i] = 1;
@@ -325,6 +334,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 			any_cracked |= 1;
 		}
+		MEM_FREE(buffers);
 	}
 	return count;
 }

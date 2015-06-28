@@ -33,7 +33,7 @@ static int use_yield = 0;
 #include <windows.h>
 #endif
 
-#ifdef __CYGWIN32__
+#ifdef __CYGWIN__
 extern int nice(int);
 #endif
 
@@ -60,6 +60,14 @@ int idle_requested(struct fmt_main *format)
 
 #ifdef _OPENMP
 	if ((format->params.flags & FMT_OMP) && omp_get_max_threads() > 1)
+		return 0;
+#endif
+#ifdef HAVE_OPENCL
+	if (strstr(format->params.label, "-opencl"))
+		return 0;
+#endif
+#ifdef HAVE_CUDA
+	if (strstr(format->params.label, "-cuda"))
 		return 0;
 #endif
 

@@ -17,7 +17,9 @@ john_register_one(&fmt_odf);
 #include <errno.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 
 #include "arch.h"
@@ -37,9 +39,9 @@ john_register_one(&fmt_odf);
 #define FORMAT_LABEL		"ODF"
 #define FORMAT_NAME		""
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"SHA1 BF / SHA256 AES " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME		"SHA1/SHA256 " SHA1_ALGORITHM_NAME " BF/AES"
 #else
-#define ALGORITHM_NAME		"SHA1 BF / SHA256 AES 32/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME		"SHA1/SHA256 BF/AES 32/" ARCH_BITS_STR " " SHA2_LIB
 #endif
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
@@ -375,7 +377,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

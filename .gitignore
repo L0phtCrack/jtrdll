@@ -24,7 +24,6 @@ run/keepass2john
 run/kernels/
 run/keychain2john
 run/keyring2john
-run/keystore2john
 run/kwallet2john
 run/luks2john
 run/mkvcalcproba
@@ -68,5 +67,7 @@ src/memdbg_defines.h
 src/para-bench
 src/stamp-h1
 src/Unicode
+src/version.h
+src/version.h.new
 
 test/

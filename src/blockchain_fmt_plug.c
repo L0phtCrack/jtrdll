@@ -32,7 +32,9 @@ john_register_one(&fmt_blockchain);
 #ifdef _OPENMP
 #include <omp.h>
 //#define OMP_SCALE               1 // tuned on core i7
+#ifndef OMP_SCALE
 #define OMP_SCALE               64 // tuned on AMD K8 dual-HT (XOP)
+#endif
 #endif
 #include "memdbg.h"
 
@@ -42,7 +44,7 @@ john_register_one(&fmt_blockchain);
 #define TAG_LENGTH		12
 
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA1 AES " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME		"PBKDF2-SHA1 AES " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 AES 32/" ARCH_BITS_STR
 #endif

@@ -49,6 +49,7 @@
 #endif
 
 #define _BSD_SOURCE 1
+#define _DEFAULT_SOURCE 1
 #define _GNU_SOURCE 1
 #include <stdbool.h>
 #include <stdio.h>
@@ -153,7 +154,7 @@ _Bool Packet_Reader_kick(struct Packet_Reader* self)
 		size_t payload_len;
 		char buf[512];
 
-		if (header.len < sizeof(struct ether_header))
+		if (header.caplen < sizeof(struct ether_header))
 			continue;
 
 		eptr = (void*) packet;
@@ -161,7 +162,7 @@ _Bool Packet_Reader_kick(struct Packet_Reader* self)
 		if (ntohs(eptr->ether_type) != ETHERTYPE_IP)
 			continue;
 
-		if (header.len < sizeof(struct ether_header) + sizeof(struct ip))
+		if (header.caplen < sizeof(struct ether_header) + sizeof(struct ip))
 			continue;
 
 		ip_header = (void*)(packet + sizeof(struct ether_header));
@@ -170,7 +171,7 @@ _Bool Packet_Reader_kick(struct Packet_Reader* self)
 		if (size_ip < 20)
 			continue;	// bogus IP header
 
-		if (header.len < sizeof(struct ether_header) + size_ip + sizeof(struct tcp_hdr))
+		if (header.caplen < sizeof(struct ether_header) + size_ip + sizeof(struct tcp_hdr))
 			continue;
 
 		tcp = (void*) (packet + sizeof(struct ether_header) + size_ip);
@@ -183,7 +184,7 @@ _Bool Packet_Reader_kick(struct Packet_Reader* self)
 		payload_buf =
 		    packet + sizeof(struct ether_header) + size_ip + size_tcp;
 		payload_len =
-		    header.len - (sizeof(struct ether_header) + size_ip + size_tcp);
+		    header.caplen - (sizeof(struct ether_header) + size_ip + size_tcp);
 
 		self->payload_str = malloc(payload_len);
 		if (self->payload_str == NULL) {
@@ -199,7 +200,7 @@ _Bool Packet_Reader_kick(struct Packet_Reader* self)
 		snprintf(buf, sizeof buf, "%s-%d", inet_ntoa(ip_header->ip_dst), ntohs(tcp->th_dport));
 		self->dest_addr_str = strdup(buf);
 
-		return true;	// sucessfully got a TCP packet of some kind (yay)
+		return true;	// successfully got a TCP packet of some kind (yay)
 	}
 
 	return false;		// all out of bits

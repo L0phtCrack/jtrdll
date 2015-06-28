@@ -24,7 +24,7 @@ extern unsigned rhash_gost_sbox_cryptpro[4][256];
  * Initialize algorithm context before calculaing hash
  * with test parameters set.
  *
- * @param ctx context to initalize
+ * @param ctx context to initialize
  */
 void john_gost_init(gost_ctx *ctx)
 {
@@ -34,7 +34,7 @@ void john_gost_init(gost_ctx *ctx)
 /**
  * Initialize GOST algorithm context with CryptoPro parameter set.
  *
- * @param ctx context to initalize
+ * @param ctx context to initialize
  */
 void john_gost_cryptopro_init(gost_ctx *ctx)
 {
@@ -438,13 +438,13 @@ static void rhash_gost_fill_sbox(unsigned out[4][256], const unsigned char src[8
 /**
  * Initialize the GOST lookup tables for both parameters sets.
  * Two lookup tables contain 8 KiB in total, so calculating
- * them at rine-time can save a little space in the exutable file
+ * them at run-time can save a little space in the executable file
  * in trade of consuming some time at pogram start.
  */
 void gost_init_table(void)
 {
 	/* Test parameters set. Eight 4-bit S-Boxes defined by GOST R 34.10-94
-	 * standart for testing the hash function.
+	 * standard for testing the hash function.
 	 * Also given by RFC 4357 section 11.2 */
 	static const unsigned char sbox[8][16] = {
 		{  4, 10,  9,  2, 13,  8,  0, 14,  6, 11,  1, 12,  7, 15,  5,  3 },
@@ -478,6 +478,73 @@ void gost_init_table(void)
 
 	rhash_gost_fill_sbox(rhash_gost_sbox, sbox);
 	rhash_gost_fill_sbox(rhash_gost_sbox_cryptpro, sbox_cryptpro);
+}
+
+/*
+ * gost HMAC context setup
+ */
+void john_gost_hmac_starts( gost_hmac_ctx *ctx, const unsigned char *key, size_t keylen )
+{
+	size_t i;
+	unsigned char sum[32];
+
+	if( keylen > 32 )
+	{
+		john_gost_init( &ctx->ctx );
+		john_gost_update( &ctx->ctx, key, keylen );
+		john_gost_final( &ctx->ctx, sum );
+		keylen = 32;
+		key = sum;
+	}
+
+	memset( ctx->ipad, 0x36, 32 );
+	memset( ctx->opad, 0x5C, 32 );
+
+	for( i = 0; i < keylen; i++ )
+	{
+		ctx->ipad[i] = (unsigned char)( ctx->ipad[i] ^ key[i] );
+		ctx->opad[i] = (unsigned char)( ctx->opad[i] ^ key[i] );
+	}
+
+	john_gost_init( &ctx->ctx );
+	john_gost_update( &ctx->ctx, ctx->ipad, 32 );
+}
+
+/*
+ * gost HMAC process buffer
+ */
+void john_gost_hmac_update( gost_hmac_ctx *ctx, const unsigned char *input, size_t ilen )
+{
+	john_gost_update( &ctx->ctx, input, ilen );
+}
+
+/*
+ * gost HMAC final digest
+ */
+void john_gost_hmac_finish( gost_hmac_ctx *ctx, unsigned char *output )
+{
+	unsigned char tmpbuf[32];
+
+	john_gost_final( &ctx->ctx, tmpbuf );
+	john_gost_init( &ctx->ctx );
+	john_gost_update( &ctx->ctx, ctx->opad, 32 );
+	john_gost_update( &ctx->ctx, tmpbuf, 32 );
+	john_gost_final( &ctx->ctx, output );
+}
+
+/*
+ * output = HMAC-gost( hmac key, input buffer )
+ *
+ * key == "password" and input == "" should produce output ==
+ * "4463230a0698ba7525ebc40383d7c0834d1559e738472b8af305b65965d83a6d"
+ */
+void john_gost_hmac( const unsigned char *key, size_t keylen, const unsigned char *input, size_t ilen, unsigned char *output )
+{
+	gost_hmac_ctx ctx;
+
+	john_gost_hmac_starts( &ctx, key, keylen );
+	john_gost_hmac_update( &ctx, input, ilen );
+	john_gost_hmac_finish( &ctx, output );
 }
 
 #ifdef TEST

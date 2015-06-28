@@ -31,6 +31,7 @@ john_register_one(&fmt_opencl_encfs);
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
+#include "stdint.h"
 #include "encfs_common.h"
 #include "options.h"
 #include "misc.h"
@@ -52,13 +53,6 @@ john_register_one(&fmt_opencl_encfs);
 #define SALT_SIZE		sizeof(*cur_salt)
 #define BINARY_ALIGN		MEM_ALIGN_WORD
 #define SALT_ALIGN			MEM_ALIGN_WORD
-
-//#define uint8_t			unsigned char
-//#define uint16_t		unsigned short
-//#define uint32_t		unsigned int
-
-#define MIN(a, b)		(((a) > (b)) ? (b) : (a))
-#define MAX(a, b)		(((a) > (b)) ? (a) : (b))
 
 /* This handles all widths */
 #define GETPOS(i, index)	(((index) % v_width) * 4 + ((i) & ~3U) * v_width + (((i) & 3) ^ 3) + ((index) / v_width) * 64 * v_width)
@@ -177,14 +171,16 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+	if (cracked) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
-	MEM_FREE(inbuffer);
-	MEM_FREE(output);
-	MEM_FREE(cracked);
+		MEM_FREE(inbuffer);
+		MEM_FREE(output);
+		MEM_FREE(cracked);
+	}
 }
 
 static void done(void)
@@ -366,7 +362,7 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 	scalar_gws = global_work_size * v_width;
 
 #if 0
-	fprintf(stderr, "%s(%d) lws %zu gws %zu sgws %zu kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
+	fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
 #endif
 
 	/// Copy data to gpu

@@ -19,7 +19,9 @@ john_register_one(&fmt_cryptsha1);
 
 #include <string.h>
 #ifdef _OPENMP
-#define OMP_SCALE                   16 // untested
+#ifndef OMP_SCALE
+#define OMP_SCALE                   32 // tuned on core i7 w/ HT
+#endif
 #include <omp.h>
 #endif
 
@@ -43,7 +45,7 @@ john_register_one(&fmt_cryptsha1);
 #define BENCHMARK_LENGTH            -1001
 
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME          "PBKDF1-SHA1 " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME          "PBKDF1-SHA1 " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "PBKDF1-SHA1 " ARCH_BITS_STR "/" ARCH_BITS_STR
 #endif
@@ -55,7 +57,7 @@ john_register_one(&fmt_cryptsha1);
 #define SALT_ALIGN                  4
 
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT      SIMD_COEF_32
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -193,7 +195,7 @@ static int cmp_all(void *binary, int count)
 #if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

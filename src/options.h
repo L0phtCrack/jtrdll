@@ -250,11 +250,6 @@ struct options_main {
  * --regen_lost_salts=#   */
 	int regen_lost_salts;
 
-#ifdef HAVE_LIBDL
-/* List of dll files to load for additional formats */
-	struct list_main *fmt_dlls;
-#endif
-
 /* Requested max_keys_per_crypt (for testing purposes) */
 	int force_maxkeys;
 
@@ -311,7 +306,7 @@ struct options_main {
 
 extern struct options_main options;
 
-/* "Persistant" options. Unlike the options struct above, this one is not
+/* "Persistent" options. Unlike the options struct above, this one is not
    reset by the children upon resuming a session. That behavior gave me
    gray hairs. */
 

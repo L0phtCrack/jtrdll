@@ -31,7 +31,9 @@ john_register_one(&fmt_oldoffice);
 #include "unicode.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               256
+#endif
 #endif
 #include "memdbg.h"
 
@@ -154,7 +156,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto error;
 	if (!(ptr = strtokm(NULL, "*"))) /* verifier hash */
 		goto error;
-	if (strlen(ptr) != 32 && strlen(ptr) != 40)
+	if (res < 3 && strlen(ptr) != 32)
+		goto error;
+	if (res >= 3 && strlen(ptr) != 40)
 		goto error;
 	if (!ishex(ptr))
 		goto error;

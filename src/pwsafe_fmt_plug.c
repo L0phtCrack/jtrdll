@@ -24,7 +24,6 @@ john_register_one(&fmt_pwsafe);
 #include "arch.h"
 
 //#undef SIMD_COEF_32
-//#undef SIMD_COEF_32
 
 #include "sha2.h"
 #include "misc.h"
@@ -38,13 +37,15 @@ john_register_one(&fmt_pwsafe);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1 // tuned on core i7
+#endif
 #endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"pwsafe"
 #define FORMAT_NAME		"Password Safe"
-#define ALGORITHM_NAME		SHA256_ALGORITHM_NAME
+#define ALGORITHM_NAME		"SHA256 " SHA256_ALGORITHM_NAME
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define PLAINTEXT_LENGTH	125
@@ -53,12 +54,12 @@ static int omp_t = 1;
 #define BINARY_ALIGN	sizeof(ARCH_WORD_32)
 #define SALT_ALIGN		sizeof(int)
 
-#define MIN_KEYS_PER_CRYPT	1
 #ifdef SIMD_COEF_32
-#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA256_BUF_SIZ*SIMD_COEF_32*4 )
-#define MIN_KEYS_PER_CRYPT  1
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
+#define MIN_KEYS_PER_CRYPT  (SIMD_COEF_32*SIMD_PARA_SHA256)
 #define MAX_KEYS_PER_CRYPT	(SIMD_COEF_32*SIMD_PARA_SHA256)
 #else
+#define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 #endif
 
@@ -524,11 +525,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	{
 		SHA256_CTX ctx;
 #ifdef SIMD_COEF_32
-		int i;
-		unsigned char _IBuf[64*MAX_KEYS_PER_CRYPT+16], *keys, tmpBuf[32];
+		unsigned int i;
+		unsigned char _IBuf[64*MAX_KEYS_PER_CRYPT+MEM_ALIGN_CACHE], *keys, tmpBuf[32];
 		uint32_t *keys32, j;
 
-		keys = (unsigned char*)mem_align(_IBuf, 16);
+		keys = (unsigned char*)mem_align(_IBuf, MEM_ALIGN_CACHE);
 		keys32 = (uint32_t*)keys;
 		memset(keys, 0, 64*MAX_KEYS_PER_CRYPT);
 
@@ -543,16 +544,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			// 32 bytes of crypt data (0x100 bits).
 			keys[GETPOS(62, i)] = 0x01;
 		}
-		for (i = 0; i <= cur_salt->iterations; i++) {
+		for (i = 0; i < cur_salt->iterations; i++) {
 			SSESHA256body(keys, keys32, NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT);
 		}
-		// now marshal into crypt_out;
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
-			uint32_t *Optr32 = (uint32_t*)(crypt_out[index+i]);
-			uint32_t *Iptr32 = &keys32[(i/SIMD_COEF_32)*SIMD_COEF_32*16 + (i%SIMD_COEF_32)];
-			for (j = 0; j < 8; ++j)
-				Optr32[j] = JOHNSWAP(Iptr32[j*SIMD_COEF_32]);
-		}
+		// Last one with FLAT_OUT
+		SSESHA256body(keys, crypt_out[index], NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT|SSEi_FLAT_OUT);
 #else
 		SHA256_Init(&ctx);
 		SHA256_Update(&ctx, saved_key[index], strlen(saved_key[index]));
@@ -589,7 +585,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

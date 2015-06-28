@@ -73,7 +73,9 @@ john_register_one(&fmt_mscash2);
 
 #if defined (_OPENMP)
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE			8	// Tuned on Corei7 Quad-HT
+#endif
 #endif
 
 #include "memdbg.h"
@@ -122,10 +124,10 @@ static struct fmt_tests tests[] = {
 #define ALGORITHM_NAME			"PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 
 #ifdef SIMD_COEF_32
-#define MS_NUM_KEYS			(SIMD_COEF_32*SHA1_SSE_PARA)
+#define MS_NUM_KEYS			(SIMD_COEF_32*SIMD_PARA_SHA1)
 // Ok, now we have our MMX/SSE2/intr buffer.
 // this version works properly for MMX, SSE2 (.S) and SSE2 intrinsic.
-#define GETPOS(i, index)	( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*SIMD_COEF_32*4 ) //for endianity conversion
+#define GETPOS(i, index)	( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 ) //for endianity conversion
 static unsigned char (*sse_hash1);
 static unsigned char (*sse_crypt1);
 static unsigned char (*sse_crypt2);
@@ -134,7 +136,7 @@ static unsigned char (*sse_crypt2);
 # define MS_NUM_KEYS			1
 #endif
 
-#define MIN_KEYS_PER_CRYPT		1
+#define MIN_KEYS_PER_CRYPT		MS_NUM_KEYS
 #define MAX_KEYS_PER_CRYPT		MS_NUM_KEYS
 
 #define U16_KEY_LEN			(2*PLAINTEXT_LENGTH)
@@ -178,7 +180,7 @@ static void init(struct fmt_main *self)
 			// set the length of all hash1 SSE buffer to 64+20 * 8 bits
 			// The 64 is for the ipad/opad, the 20 is for the length of the SHA1 buffer that also gets into each crypt
 			// this works for SSEi
-			((unsigned int *)sse_hash1)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*SIMD_COEF_32] = (84<<3); // all encrypts are 64+20 bytes.
+			((unsigned int *)sse_hash1)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] = (84<<3); // all encrypts are 64+20 bytes.
 			sse_hash1[GETPOS(20,index)] = 0x80;
 		}
 	}
@@ -303,6 +305,7 @@ char *mscash2_prepare(char *split_fields[10], struct fmt_main *self)
 			MEM_FREE(cp);
 			return cipher;
 		}
+		MEM_FREE(cp);
 		return split_fields[1];
 	}
 	if (!split_fields[0])
@@ -618,9 +621,9 @@ static void pbkdf2_sse2(int t)
 		SSESHA1body((unsigned int*)t_sse_hash1, (unsigned int*)t_sse_hash1, (unsigned int*)t_sse_crypt2, SSEi_MIXED_IN|SSEi_RELOAD|SSEi_OUTPUT_AS_INP_FMT);
 		// only xor first 16 bytes, since that is ALL this format uses
 		for (k = 0; k < MS_NUM_KEYS; k++) {
-			unsigned *p = &((unsigned int*)t_sse_hash1)[(((k>>2)*SHA_BUF_SIZ)<<2) + (k&(SIMD_COEF_32-1))];
+			unsigned *p = &((unsigned int*)t_sse_hash1)[k/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32 + (k&(SIMD_COEF_32-1))];
 			for(j = 0; j < 4; j++)
-				t_crypt[(k<<2)+j] ^= p[(j<<SIMD_COEF32_BITS)];
+				t_crypt[k*4+j] ^= p[(j*SIMD_COEF_32)];
 		}
 	}
 }

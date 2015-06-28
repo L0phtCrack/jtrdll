@@ -17,7 +17,15 @@ john_register_one(&fmt_rsvp);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifdef __MIC__
+#ifndef OMP_SCALE
+#define OMP_SCALE 4096
+#endif
+#else
+#ifndef OMP_SCALE
 #define OMP_SCALE 8192
+#endif
+#endif // __MIC__
 #endif
 
 #include "arch.h"

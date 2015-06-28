@@ -38,8 +38,14 @@ static int omp_t = 1;
 // 2k  - 14607k  11980k  ** this level chosen
 // 4k  - 14828k  10871k
 // 8k  - 14639k  10794k
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE  64
+#else
 #define OMP_SCALE  2048
-#endif
+#endif // __MIC__
+#endif // OMP_SCALE
+#endif // _OPENMP
 #include "memdbg.h"
 
 #define FORMAT_TAG		"$ripemd$"
@@ -79,10 +85,12 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_key));
-	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*crypt_out));
+	if (!saved_key) {
+		saved_key = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*saved_key));
+		crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*crypt_out));
+	}
 }
 
 static void done(void)

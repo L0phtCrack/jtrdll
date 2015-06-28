@@ -35,7 +35,9 @@ john_register_one(&fmt_whirlpool);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               256
+#endif
 #endif
 #include "memdbg.h"
 
@@ -232,7 +234,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }
@@ -351,7 +353,7 @@ struct fmt_main fmt_whirlpool_1 = {
 		whirlpool_1_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
@@ -416,7 +418,7 @@ struct fmt_main fmt_whirlpool = {
 		whirlpool_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,

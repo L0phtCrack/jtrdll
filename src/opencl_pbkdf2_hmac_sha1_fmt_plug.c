@@ -8,9 +8,9 @@
 #ifdef HAVE_OPENCL
 
 #if FMT_EXTERNS_H
-extern struct fmt_main fmt_ocl_pbkdf1_sha1;
+extern struct fmt_main fmt_ocl_pbkdf2_sha1;
 #elif FMT_REGISTERS_H
-john_register_one(&fmt_ocl_pbkdf1_sha1);
+john_register_one(&fmt_ocl_pbkdf2_sha1);
 #else
 
 #include <ctype.h>
@@ -20,6 +20,7 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
+#include "stdint.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "base64_convert.h"
@@ -27,7 +28,7 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 #include "options.h"
 #define OUTLEN 20
 #include "opencl_pbkdf2_hmac_sha1.h"
-#undef SIMD_COEF_32
+#define OPENCL_FORMAT
 #define PBKDF2_HMAC_SHA1_ALSO_INCLUDE_CTX 1
 #include "pbkdf2_hmac_sha1.h"
 
@@ -55,13 +56,6 @@ john_register_one(&fmt_ocl_pbkdf1_sha1);
 #define PKCS5S2_TAG             "{PKCS5S2}"
 #define PK5K2_TAG               "$p5k2$"
 #define TAG_LEN                 (sizeof(FORMAT_TAG) - 1)
-
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		unsigned int
-
-#define MIN(a, b)		(((a) > (b)) ? (b) : (a))
-#define MAX(a, b)		(((a) > (b)) ? (a) : (b))
 
 /* This handles all widths */
 #define GETPOS(i, index)	(((index) % v_width) * 4 + ((i) & ~3U) * v_width + (((i) & 3) ^ 3) + ((index) / v_width) * PLAINTEXT_LENGTH * v_width)
@@ -176,13 +170,15 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
-	HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+	if (inbuffer) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
 
-	MEM_FREE(output);
-	MEM_FREE(inbuffer);
+		MEM_FREE(output);
+		MEM_FREE(inbuffer);
+	}
 }
 
 static void done(void)
@@ -253,7 +249,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 	if (strncmp(fields[1], PKCS5S2_TAG, 9) != 0 && strncmp(fields[1], PK5K2_TAG, 6))
 		return fields[1];
 	if (!strncmp(fields[1], PKCS5S2_TAG, 9)) {
-		char tmp[120];
+		char tmp[120+4];
 		if (strlen(fields[1]) > 75) return fields[1];
 		//{"{PKCS5S2}DQIXJU038u4P7FdsuFTY/+35bm41kfjZa57UrdxHp2Mu3qF2uy+ooD+jF5t1tb8J", "password"},
 		//{"$pbkdf2-hmac-sha1$10000.0d0217254d37f2ee0fec576cb854d8ff.edf96e6e3591f8d96b9ed4addc47a7632edea176bb2fa8a03fa3179b75b5bf09", "password"},
@@ -262,7 +258,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		return Buf;
 	}
 	if (!strncmp(fields[1], PK5K2_TAG, 6)) {
-		char tmps[140], tmph[70], *cp, *cp2;
+		char tmps[140+4], tmph[70+4], *cp, *cp2;
 		unsigned iter=0;
 		// salt was listed as 1024 bytes max. But our max salt size is 64 bytes (~90 base64 bytes).
 		if (strlen(fields[1]) > 128) return fields[1];
@@ -479,7 +475,7 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 	scalar_gws = global_work_size * v_width;
 
 #if 0
-	fprintf(stderr, "%s(%d) lws %zu gws %zu sgws %zu kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
+	fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
 #endif
 
 	/// Copy data to gpu
@@ -603,7 +599,7 @@ static unsigned int iteration_count(void *salt)
 }
 #endif
 
-struct fmt_main fmt_ocl_pbkdf1_sha1 = {
+struct fmt_main fmt_ocl_pbkdf2_sha1 = {
 	{
 		FORMAT_LABEL,
 		FORMAT_NAME,

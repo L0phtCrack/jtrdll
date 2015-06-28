@@ -33,7 +33,9 @@ john_register_one(&fmt_aixssha512);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               8 // Tuned on i7 w/HT for SHA-256
+#endif
 #endif
 #include "pbkdf2_hmac_sha1.h"
 #include "pbkdf2_hmac_sha256.h"
@@ -47,7 +49,7 @@ static int omp_t = 1;
 #define FORMAT_NAME_SHA256	"AIX LPA {ssha256}"
 #define FORMAT_NAME_SHA512	"AIX LPA {ssha512}"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME_SHA1	"PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -71,23 +73,8 @@ static int omp_t = 1;
 #define MAX_SALT_SIZE		24
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define SALT_ALIGN		4
-#ifdef SIMD_COEF_32
-// since we have a 'common' crypt_all() function, find 'max' of sha1/sha256/sha512, and that is the block size
-// crypt_all handles looping 'within' each OMP thread (or within the single thread if non OMP).
-#if SSE_GROUP_SZ_SHA1 > SSE_GROUP_SZ_SHA256 && SSE_GROUP_SZ_SHA1 > SSE_GROUP_SZ_SHA512
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
-#elif SSE_GROUP_SZ_SHA512 > SSE_GROUP_SZ_SHA256
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA512
-#else
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
-#endif
-#else
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
-#endif
 #define BASE64_ALPHABET	  \
 	"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -141,7 +128,7 @@ static void init(struct fmt_main *self)
 	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) *
-	                self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
 #ifndef INLINE 
@@ -296,15 +283,33 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int inc=1, index = 0;
+
+	switch(cur_salt->type) {
+	case 1:
+#ifdef SSE_GROUP_SZ_SHA1
+		inc = SSE_GROUP_SZ_SHA1;
+#endif
+		break;
+	case 256:
+#ifdef SSE_GROUP_SZ_SHA256
+		inc = SSE_GROUP_SZ_SHA256;
+#endif
+		break;
+	default:
+#ifdef SSE_GROUP_SZ_SHA512
+		inc = SSE_GROUP_SZ_SHA512;
+#endif
+		break;
+	}
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
+	for (index = 0; index < count; index += inc)
 	{
 		int j = index;
-		while (j < index + MAX_KEYS_PER_CRYPT) {
+		while (j < index + inc) {
 			if (cur_salt->type == 1) {
 #ifdef SSE_GROUP_SZ_SHA1
 				int lens[SSE_GROUP_SZ_SHA1], i;
@@ -436,8 +441,13 @@ struct fmt_main fmt_aixssha1 = {
 		BINARY_ALIGN,
 		SALT_SIZE,
 		SALT_ALIGN,
+#ifdef SIMD_COEF_32
+		SSE_GROUP_SZ_SHA1,
+		SSE_GROUP_SZ_SHA1,
+#else
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
+#endif
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{
@@ -504,8 +514,13 @@ struct fmt_main fmt_aixssha256 = {
 		BINARY_ALIGN,
 		SALT_SIZE,
 		SALT_ALIGN,
+#ifdef SIMD_COEF_32
+		SSE_GROUP_SZ_SHA256,
+		SSE_GROUP_SZ_SHA256,
+#else
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
+#endif
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{
@@ -572,8 +587,13 @@ struct fmt_main fmt_aixssha512 = {
 		BINARY_ALIGN,
 		SALT_SIZE,
 		SALT_ALIGN,
+#ifdef SIMD_COEF_64
+		SSE_GROUP_SZ_SHA512,
+		SSE_GROUP_SZ_SHA512,
+#else
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
+#endif
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{

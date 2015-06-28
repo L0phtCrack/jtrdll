@@ -30,7 +30,9 @@ john_register_one(&fmt_pfx);
 #include "options.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               2 // tuned on core i7
+#endif
 //#define OMP_SCALE              32 // tuned on K8-dual HT  (20% faster)
 #endif
 #include <string.h>
@@ -78,6 +80,12 @@ static struct fmt_tests pfx_tests[] = {
 	{NULL}
 };
 
+struct pkcs12_list {
+	struct pkcs12_list *next;
+	PKCS12 *p12;
+};
+static struct pkcs12_list *pList;
+
 struct fmt_main fmt_pfx;
 
 static void init(struct fmt_main *self)
@@ -117,6 +125,12 @@ static void done(void)
 {
 	MEM_FREE(cracked);
 	MEM_FREE(saved_key);
+	while (pList) {
+		struct pkcs12_list *p = pList;
+		PKCS12_free(pList->p12);
+		pList = pList->next;
+		MEM_FREE(p);
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -132,9 +146,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 6;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* length */
 		goto err;
-	len = atoi(p);
 	if (!isdec(p))
 		goto err;
+	len = atoi(p);
 	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
 		goto err;
 	if (!ishex(p))
@@ -152,7 +166,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	BIO_write(bp, decoded, len);
 	if(!(p12 = d2i_PKCS12_bio(bp, NULL)))
 		goto err;
-
+	PKCS12_free(p12);
 	if (bp)	BIO_free(bp);
 	MEM_FREE(decoded);
 	MEM_FREE(keeptr);
@@ -203,6 +217,19 @@ static void *get_salt(char *ciphertext)
 	}
 	/* save custom_salt information */
 	memcpy(&(psalt->pfx), p12, sizeof(PKCS12));
+
+	/* we can NOT release memory here, or the function will not work */
+	//PKCS12_free(p12);
+	if (!pList) {
+		pList = mem_calloc(sizeof(*pList), sizeof(pList));
+		pList->p12 = p12;
+	} else {
+		struct pkcs12_list *p = mem_calloc(sizeof(*pList), sizeof(pList));
+		p->next = pList;
+		pList = p;
+		pList->p12 = p12;
+	}
+
 	BIO_free(bp);
 	MEM_FREE(decoded_data);
 	MEM_FREE(keeptr);

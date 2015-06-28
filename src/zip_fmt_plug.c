@@ -60,7 +60,9 @@ john_register_one(&fmt_zip);
 #include "dyna_salt.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1	// Tuned on core i7
+#endif
 static int omp_t = 1;
 #endif
 #include "gladman_hmac.h"
@@ -92,7 +94,7 @@ typedef struct my_salt_t {
 #define FORMAT_CLOSE_TAG	"$/zip2$"
 #define TAG_LENGTH			6
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif

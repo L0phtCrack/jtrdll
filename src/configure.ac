@@ -23,7 +23,7 @@ dnl creation macro is the one that gets set first.
 m4_include([m4/jtr_specific_configure_help_message.m4])
 
 AC_PREREQ([2.69])
-AC_INIT([john], [1.8.0.2-jumbo-1-bleeding],[john-users mailing list at openwall.com])
+AC_INIT([john], [jumbo],[john-users mailing list at openwall.com])
 ##  AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_SRCDIR([john.c])
 AC_CONFIG_HEADERS([autoconfig.h])
@@ -48,6 +48,7 @@ m4_include([m4/jtr_local_conf.m4])
 AC_ARG_VAR([CFLAGS_EXTRA], [additional CFLAGS for -Woptions and other things, not used during ./configure but put in resulting Makefile])
 AC_ARG_VAR([YASM], [full pathname of yasm (for optional AES-NI support)])
 AC_ARG_VAR([AS], [full pathname of assembler to use])
+AC_ARG_VAR([AR], [full pathname of "ar" to use])
 AC_ARG_VAR([LD], [full pathname of linker to use])
 
 # Define Packages.
@@ -70,7 +71,7 @@ AC_ARG_ENABLE([plugin-dependencies], [AS_HELP_STRING([--disable-plugin-dependenc
 # Define Features. OpenMP and OpenCL are defined in their respective macros.
 # We define "--disable-FEATURE" when default is "auto".
 # MPI is not "auto" because its network usage might scare people:
-AC_ARG_ENABLE([openmp-for-fast-formats], [AC_HELP_STRING([--disable-openmp-for-fast-formats], [Disable OpenMP for fast formats])], [ompfast=$enableval], [ompfast=yes])
+AC_ARG_ENABLE([openmp-for-fast-formats], [AC_HELP_STRING([--enable-openmp-for-fast-formats], [Enable OpenMP for fast formats (usually a bad idea - use fork instead)])], [ompfast=$enableval], [ompfast=no])
 AC_ARG_ENABLE([mpi], [AC_HELP_STRING([--enable-mpi], [Use OpenMPI])], [enable_mpi=$enableval], [enable_mpi=no])
 AC_ARG_ENABLE([rexgen], [AC_HELP_STRING([--enable-rexgen], [Use rexgen library if present])], [enable_rexgen=$enableval], [enable_rexgen=auto])
 AC_ARG_ENABLE([cuda], [AC_HELP_STRING([--disable-cuda], [Do not use CUDA])], [enable_cuda=$enableval], [enable_cuda=auto])
@@ -81,6 +82,7 @@ AC_ARG_ENABLE([ln-s], [AS_HELP_STRING([--enable-ln-s],[Use ln -s vs symlink.c wr
 AC_ARG_ENABLE([pkg-config], [AS_HELP_STRING([--disable-pkg-config],[do not use pkg-config for any probing tests])], [enable_pkg_config=$enableval], [enable_pkg_config=auto])
 AC_ARG_ENABLE([nt-full-unicode], [AS_HELP_STRING([--enable-nt-full-unicode],[support 4-byte UTF-8 for MS formats])], [enable_nt_unicode=$enableval], [enable_nt_unicode=no])
 AC_ARG_ENABLE([int128], [AC_HELP_STRING([--disable-int128], [Do not use int128])], [enable_int128=$enableval], [enable_int128=auto])
+AC_ARG_ENABLE([experimental-code], [AC_HELP_STRING([--enable-experimental-code], [Use experimental code])], [experimental=$enableval], [experimental=no])
 
 ####### Actual tests start here #######
 
@@ -219,6 +221,8 @@ fi
    AS_IF([test "x$JTR_FLAG_Q_CHECK_WORKS" = xyes], [JTR_FLAG_CHECK([-Qunused-arguments],1)])
    # Justified and Ancient (see #1093)
    JTR_FLAG_CHECK([-std=gnu89], 1)
+   # We like reproducible builds
+   JTR_FLAG_CHECK([-Wdate-time], 1)
    JTR_LIST_ADD(CFLAGS_EXTRA, ["$CFLAGS_EX"])
 ],[dnl
    AC_MSG_NOTICE([Unable to validate $CC command line arguments. CFLAGS may need to be passed to ./configure for proper build])
@@ -236,11 +240,12 @@ AC_PROG_CPP
 AC_PROG_MKDIR_P
 AC_CACHE_SAVE
 AC_PATH_PROG([SORT], [sort])
-AC_PATH_PROG([AR], [ar])
 AC_PATH_PROG([FIND], [find])
 AC_PATH_PROG([PERL], [perl])
 AS_IF([test -z "$AS"], [AS="$CC"])
 AS_IF([test -z "$LD"], [LD="$CC"])
+AS_IF([test -z "$AR"], [AC_PATH_PROG([AR], [ar])])
+AS_IF([test -z "$STRIP"], [AC_PATH_PROG([STRIP], [strip])])
 
 # Check if we have this at all
 PKG_PROG_PKG_CONFIG
@@ -392,21 +397,28 @@ AS_IF([test "x$with_openssl" != xno],
 	    AC_MSG_FAILURE([JtR requires OpenSSL and OpenSSL-devel being installed. Install if not installed.
 Try using --disable-pkg-config and possibly helping configure find oSSL by providing hints in CFLAGS and LDFLAGS],1))
 else
-   AS_IF([test "x${OPENSSL_CFLAGS}${OPENSSL_LIBS}" != "x"],
+   AS_IF([test "x${OPENSSL_CFLAGS}${OPENSSL_LIBS}" != "x" -o "x$cross_compiling" = "xyes" -o "x$enable_native_tests" = xno -o "x$PKG_CONFIG" = xno],
       [AC_MSG_CHECKING([supplied paths for OpenSSL])]
       [JTR_LIST_ADD(CFLAGS, [$OPENSSL_CFLAGS])]
-      [AC_MSG_RESULT([$OPENSSL_CFLAGS $OPENSSL_LIBS])],
-      [test "x$cross_compiling" = xno],
-      [JTR_SET_NORMAL_SSL_INCLUDES([/usr/local/ssl])]
+      [if test "x$cross_compiling" = "xyes" -a "x$OPENSSL_LIBS" = "x"; then
+        OPENSSL_LIBS="-lssl -lcrypto"
+        fi]
+      LIBS_ORIG="$LIBS"
+      LIBS="$LIBS $OPENSSL_LIBS"
+      [AC_MSG_RESULT([$OPENSSL_CFLAGS $OPENSSL_LIBS])]
+      [if test "x$cross_compiling" = xno; then
+         JTR_SET_NORMAL_SSL_INCLUDES([/usr/local/ssl])
+	   fi]
       [AC_CHECK_HEADER([openssl/opensslv.h],
-	 [AC_CHECK_LIB([ssl],[SSL_library_init],
+	   [AC_CHECK_LIB([ssl],[SSL_library_init],
 	    [AC_CHECK_LIB([crypto],[MD5_Update],
 	       [AC_DEFINE(HAVE_LIBSSL,1,[Define to 1 if you have the `ssl' library (-lssl).])]
 	       [AC_DEFINE(HAVE_LIBCRYPTO,1,[Define to 1 if you have the `crypto' library (-lcrypto).])]
 		  [OPENSSL_LIBS="-lssl -lcrypto"],
 	       [AC_MSG_FAILURE(JtR requires libssl/libcrypto being installed,1)])],
 	    [AC_MSG_FAILURE(JtR requires libssl being installed,1)]
-	 )],
+	   )
+	  LIBS="$LIBS_ORIG"],
 	 [AC_MSG_FAILURE(JtR requires OpenSSL headers being installed,1)]
       )]
    )
@@ -417,7 +429,7 @@ else
 # libz is found in pkg-config --switch zlib
 #################
 AC_CHECK_LIB([m],[sqrt],[AC_DEFINE(HAVE_LIBM,1,[Define to 1 if you have the `m' library (-lm).])] [AC_SUBST(M_LIBS, [-lm])],[AC_MSG_FAILURE(JtR requires libm being installed,1)])
-AC_CHECK_LIB([z],[deflate],[AC_DEFINE(HAVE_LIBZ,1,[Define to 1 if you have the `z' library (-lz).])] [AC_SUBST(Z_LIBS, [-lz])],[AC_MSG_FAILURE(JtR requires libz being installed,1)])
+AC_CHECK_LIB([z],[deflate],[AC_DEFINE(HAVE_LIBZ,1,[Define to 1 if you have the `z' library (-lz).])] [AC_SUBST(Z_LIBS, [-lz])])
 BACKUP_LIBS="$LIBS"
 LIBS=""
 AC_SEARCH_LIBS([crypt],[crypt],[AC_DEFINE(HAVE_CRYPT,1,[Define to 1 if you have the `crypt' library (-lcrypt).])])
@@ -436,6 +448,8 @@ AC_CHECK_HEADER([bzlib.h], [AC_CHECK_LIB([bz2],[main],
                           AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have bz2 library and headers]) [AC_SUBST(BZ2_LIBS, [-lbz2])])])
 AC_CHECK_LIB([kernel32],[main])
 AC_CHECK_LIB([dl],[dlopen],[AC_DEFINE(HAVE_LIBDL,1,[Define to 1 if you have the `dl' library (-ldl).])] [AC_SUBST(DL_LIBS, [-ldl])])
+
+AC_CHECK_HEADERS([intrin.h], break)
 
 BACKUP_LIBS="$LIBS"
 
@@ -595,7 +609,6 @@ AS_IF([test $CPU_BIT_STR -ge 64], [AS_IF([test "x$enable_int128" != xno], [AC_CH
 
 # Checks for library functions.
 AC_FUNC_ERROR_AT_LINE
-AC_FUNC_MMAP
 
 # JtR's usage of fork may not work on minwin, even though the AC_FUNC_FORK says it should
 case "$host_os" in
@@ -625,11 +638,11 @@ dnl   setenv/putenv  fseek/ftell set,   memmem  sleep
 dnl   stri*cmp/strcasecmp strlwr/strupr/strrev
 dnl --------------------------------------------------------------------
 AC_CHECK_FUNCS([fseek64 fseeko fseeko64 _fseeki64 lseek64 lseek ftell64 ftello \
-               ftello64 _ftelli64 fopen64 _fopen64 memmem sleep \
+               ftello64 _ftelli64 fopen64 _fopen64 memmem mmap sleep \
                setenv putenv strcasecmp strncasecmp \
                stricmp strcmpi _stricmp _strcmpi strnicmp strncmpi _strnicmp \
                _strncmpi strnlen strlwr strupr strrev \
-               atoll _atoi64 snprintf sprintf_s])
+               atoll _atoi64 snprintf sprintf_s strcasestr])
 dnl AC_CHECK_FUNCS([memchr memmove memset munmap pow \
 dnl                 select setlocale socket strchr \
 dnl                 strdup strerror strstr
@@ -760,6 +773,9 @@ AC_CONFIG_LINKS([arch.h:$ARCH_LINK])
 # which corresponds to full UCS-2 or Unicode BMP.
 AS_IF([test "x$enable_nt_unicode" != xno], [AC_DEFINE([NT_FULL_UNICODE],1,[Define to 1 if you want support for 4-byte UTF-8 in fast MS formats.])])
 
+# Use features that may not yet be stable
+AS_IF([test "x$experimental" != xno], [AC_DEFINE([USE_EXPERIMENTAL],1,[Define to 1 if you want to include experimental code.])])
+
 # code to create M4_INCLUDES (all ./m4/*.m4 )
 AC_SUBST([M4_INCLUDES],[`echo m4/*.m4`])
 
@@ -774,16 +790,25 @@ if test x$with_flock != xno; then
    CFLAGS="$CFLAGS -DPREFER_FLOCK"
 fi
 
+#if test ${CPU_STR} = "AVX2" || test ${host_cpu} = "k1om"; then
+#   if test x$experimental = xno; then
+#      AC_DEFINE([DYNAMIC_DISABLED], 1, [Disables Dynamic format completely])
+#   fi
+#fi
+
 ####################################################
 # Code  to create @PLUGFORMATS_OBJS@ and
 # john_buildrule.h moved from Makefile.in to here.
 ####################################################
 echo "configure: creating *_plug.c object rules"
-AC_SUBST([PLUGFORMATS_OBJS],[`echo *_plug.c | sed "s/\.c/.o/g"`])
-if test "x$plug_deps" = xyes -a "x$PERL" != x ; then
-   echo "configure: creating Makefile dependencies"
-   AC_SUBST([PLUGFORMATS_DEPS],[`$PERL ./plugin_deps.pl *_plug.c`])
+if test "`echo *_plug.c`" != "*_plug.c"; then
+   AC_SUBST([PLUGFORMATS_OBJS],[`echo *_plug.c | sed "s/\.c/.o/g"`])
+   if test "x$plug_deps" = xyes -a "x$PERL" != x ; then
+      echo "configure: creating Makefile dependencies"
+      AC_SUBST([PLUGFORMATS_DEPS],[`$PERL ./plugin_deps.pl *_plug.c`])
+   fi
 fi
+
 echo "configure: creating ./john_build_rule.h"
 echo "#define JOHN_BLD \"${host_os} ${CPU_BIT_STR}-bit${using_x32} ${CPU_STR}-autoconf\"" > john_build_rule.h
 
@@ -801,11 +826,21 @@ AC_OUTPUT(,echo "timestamp from configure.in" > autoconfig-stamp-h)
 # AC_OUTPUT
 ##########################################################
 echo "configure: creating ./fmt_externs.h"
-$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
+echo >fmt_externs.h
+if test "`echo *_fmt_plug.c`" != "*_fmt_plug.c"; then
+   $CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENMP_CFLAGS $OPENSSL_CFLAGS -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $GREP "extern struct fmt_main" | LC_ALL=C $SORT -f > fmt_externs.h
+fi
 echo "configure: creating ./fmt_registers.h"
-$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
-$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
-$CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+echo > fmt_registers.h
+if test "`echo *_plug.c`" != "*_plug.c"; then
+   $CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $CFLAGS_EXTRA $OPENMP_CFLAGS $OPENSSL_CFLAGS -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f > fmt_registers.h
+fi
+if test "`echo opencl_*_fmt_plug.c`" != "opencl_*_fmt_plug.c"; then
+   $CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENMP_CFLAGS $OPENSSL_CFLAGS -DFMT_REGISTERS_H opencl_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+fi
+if test "`echo cuda_*_fmt_plug.c`" != "cuda_*_fmt_plug.c"; then
+   $CPP -P -DAC_BUILT $CPPFLAGS $CPU_BEST_FLAGS $CFLAGS $HAVE_OPENCL $HAVE_CUDA $CFLAGS_EXTRA $OPENMP_CFLAGS $OPENSSL_CFLAGS -DFMT_REGISTERS_H cuda_*_fmt_plug.c | LC_ALL=C $GREP "john_register_one" | LC_ALL=C $SORT -f >> fmt_registers.h
+fi
 
 ########################################################
 # Creates ./run/john.local.conf but ONLY if it does not
@@ -838,10 +873,22 @@ else
    using_crypt=no
 fi
 
+if test "x$ac_cv_lib_z_deflate" != xno; then
+   using_zlib=yes
+else
+   using_zlib=no
+fi
+
 if test "x$ac_cv_lib_bz2_main" != xno; then
    using_bz2=yes
 else
    using_bz2=no
+fi
+
+if test "x$ac_cv_func_mmap" != xno; then
+   using_mmap=yes
+else
+   using_mmap=no
 fi
 
 if test "x$host_cpu" != "x$CPU_STR" ; then
@@ -911,19 +958,22 @@ AES-NI support .............................. ${using_aesni}
 Target OS ................................... ${host_os}
 Cross compiling ............................. ${cross_compiling}
 Legacy arch header .......................... ${ARCH_LINK}
+
+Optional libraries/features found:
+Experimental code ........................... ${experimental}
 OpenMPI support (default disabled) .......... ${using_mpi}
 Fork support ................................ ${ac_cv_func_fork_works}
 OpenMP support .............................. ${using_omp}
 OpenCL support .............................. ${using_cl}
 CUDA support ................................ ${using_cuda}
 Generic crypt(3) format ..................... ${using_crypt}
-
-Optional libraries/features found:
 Rexgen (extra cracking mode) ................ ${using_rexgen}
 GMP (PRINCE mode and faster SRP formats) .... ${ac_cv_lib_gmp___gmpz_init}
-128-bit integer (faster PRINCE mode) ........ ${have_int128}
 PCAP (vncpcap2john and SIPdump) ............. ${using_pcap}
+Z (pkzip format, gpg2john) .................. ${using_zlib}
 BZ2 (gpg2john extra decompression logic) .... ${using_bz2}
+128-bit integer (faster PRINCE mode) ........ ${have_int128}
+Memory map (share/page large files) ......... ${using_mmap}
 
 Development options (these may hurt performance when enabled):
 Memdbg memory debugging settings ............ ${memdbg_settings}

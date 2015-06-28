@@ -8,7 +8,7 @@
  */
 
 #include "arch.h"
-#if __SSE2__ || __MIC__
+#if SIMD_COEF_32
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_rawSHA512_ng;
@@ -16,20 +16,25 @@ extern struct fmt_main fmt_rawSHA512_ng;
 john_register_one(&fmt_rawSHA512_ng);
 #else
 
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#elif _OPENMP
+#if _OPENMP
 #include <omp.h>
 #if __XOP__
+#ifndef OMP_SCALE
 #define OMP_SCALE                 768 /* AMD */
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE                 2048 /* Intel */
 #endif
 #endif
+#endif
 
+#include "misc.h"
+#if !defined(DEBUG) && !defined(WITH_ASAN)
 // These compilers claim to be __GNUC__ but warn on gcc pragmas.
 #if __GNUC__ && !__INTEL_COMPILER && !__clang__ && !__llvm__ && !_MSC_VER
 #pragma GCC optimize 3
+#endif
 #endif
 
 #include "john_stdint.h"
@@ -43,7 +48,7 @@ john_register_one(&fmt_rawSHA512_ng);
 
 #if __MIC__
 #define SIMD_TYPE                 "512/512 MIC 8x"
-#elif __AVX512__
+#elif __AVX512F__
 #define SIMD_TYPE                 "512/512 AVX512 8x"
 #elif __AVX2__
 #define SIMD_TYPE                 "256/256 AVX2 4x"
@@ -93,47 +98,9 @@ _inline __m128i _mm_set1_epi64x(uint64_t a) {
 }
 #endif
 
-#if __AVX512__
-#define SWAP_ENDIAN(n)                                                    \
-{                                                                         \
-    n = vshuffle_epi8(n,                                                  \
-            vset_epi64x(0x38393a3b3c3d3e3f, 0x3031323334353637,           \
-                        0x28292a2b2c2d2e2f, 0x2021222324252627,           \
-                        0x18191a1b1c1d1e1f, 0x1011121314151617,           \
-                        0x08090a0b0c0d0e0f, 0x0001020304050607)           \
-        );                                                                \
-}
-#elif __MIC__
-#define SWAP_ENDIAN(n)                                                    \
-{                                                                         \
-    n = vshuffle_epi32(n, 0xb1);                                          \
-    vswap32(n);                                                           \
-}
-#elif __AVX2__
-#define SWAP_ENDIAN(n)                                                    \
-{                                                                         \
-    n = vshuffle_epi8(n,                                                  \
-            vset_epi64x(0x18191a1b1c1d1e1f, 0x1011121314151617,           \
-                        0x08090a0b0c0d0e0f, 0x0001020304050607)           \
-        );                                                                \
-}
-#elif __SSSE3__
-#define SWAP_ENDIAN(n)                                                    \
-{                                                                         \
-    n = vshuffle_epi8(n,                                                  \
-            vset_epi64x(0x08090a0b0c0d0e0f, 0x0001020304050607)           \
-        );                                                                \
-}
-#else
-#define SWAP_ENDIAN(n)                                                    \
-{                                                                         \
-    n = vshufflehi_epi16(vshufflelo_epi16(n, 0xb1), 0xb1);                \
-    n = vxor(vslli_epi16(n, 8), vsrli_epi16(n, 8));                       \
-    n = vshuffle_epi32(n, 0xb1);                                          \
-}
-#endif
+#undef GATHER /* This one is not like the shared ones in pseudo_intrinsics.h */
 
-#if __AVX512__ || __MIC__
+#if __AVX512F__ || __MIC__
 #define GATHER(x,y,z)                                                     \
 {                                                                         \
     x = vset_epi64x(y[index + 7][z], y[index + 6][z],                     \
@@ -254,7 +221,7 @@ static void done(void)
 }
 
 
-static inline void alter_endianity_64(uint64_t *x, unsigned int size)
+static void alter_endianity_64(uint64_t *x, unsigned int size)
 {
     int i;
 
@@ -381,17 +348,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
         vtype a, b, c, d, e, f, g, h;
         vtype w[80], tmp1, tmp2;
 
-
         for (i = 0; i < 14; i += 2) {
             GATHER(tmp1, saved_key, i);
             GATHER(tmp2, saved_key, i + 1);
-            SWAP_ENDIAN(tmp1);
-            SWAP_ENDIAN(tmp2);
+            vswap64(tmp1);
+            vswap64(tmp2);
             w[i] = tmp1;
             w[i + 1] = tmp2;
         }
         GATHER(tmp1, saved_key, 14);
-        SWAP_ENDIAN(tmp1);
+        vswap64(tmp1);
         w[14] = tmp1;
         GATHER(w[15], saved_key, 15);
         for (i = 16; i < 80; i++) R(i);
@@ -607,4 +573,4 @@ struct fmt_main fmt_rawSHA512_ng = {
 
 #endif /* plugin stanza */
 
-#endif /* __SSE2__ */
+#endif /* SIMD_COEF_32 */

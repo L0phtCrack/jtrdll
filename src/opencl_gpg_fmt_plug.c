@@ -90,14 +90,14 @@ enum {
 
 
 enum {
-	PKA_UNKOWN = 0,
+	PKA_UNKNOWN = 0,
 	PKA_RSA_ENCSIGN = 1,
 	PKA_DSA = 17,
 	PKA_EG = 20
 };
 
 enum {
-	CIPHER_UNKOWN = -1,
+	CIPHER_UNKNOWN = -1,
 	CIPHER_CAST5 = 3,
 	CIPHER_BLOWFISH = 4,
 	CIPHER_AES128 = 7,
@@ -108,7 +108,7 @@ enum {
 };
 
 enum {
-	HASH_UNKOWN = -1,
+	HASH_UNKNOWN = -1,
 	HASH_MD5 = 1,
 	HASH_SHA1 = 2,
 	HASH_RIPEMD160 = 3,
@@ -191,9 +191,6 @@ static struct fmt_main *self;
 
 size_t insize, outsize, settingsize, cracked_size;
 
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
-#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
-
 #define STEP			0
 #define SEED			256
 
@@ -260,13 +257,15 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+	if (cracked) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
-	MEM_FREE(inbuffer);
-	MEM_FREE(outbuffer);
-	MEM_FREE(cracked);
+		MEM_FREE(inbuffer);
+		MEM_FREE(outbuffer);
+		MEM_FREE(cracked);
+	}
 }
 
 // Returns the block size (in bytes) of a given cipher
@@ -463,7 +462,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!ishex(p))
 		goto err;
 	/* handle "SPEC_SIMPLE" correctly */
-	if (spec == 0) {
+	if ((spec != 0 || usage == 255))
+		;
+	else if (spec == 0) {
 		MEM_FREE(keeptr);
 		return 1;
 	}
@@ -1076,17 +1077,26 @@ static int cmp_exact(char *source, int index)
 
 #if FMT_MAIN_VERSION > 11
 /*
- * Report iteration count as 1st tunable cost,
+ * Report gpg --s2k-count n as 1st tunable cost,
  * hash algorithm as 2nd tunable cost,
  * cipher algorithm as 3rd tunable cost.
  */
 
-static unsigned int gpg_iteration_count(void *salt)
+static unsigned int gpg_s2k_count(void *salt)
 {
 	struct custom_salt *my_salt;
 
 	my_salt = salt;
-	return (unsigned int) my_salt->count;
+	if (my_salt->spec == 3)
+		/*
+		 * gpg --s2k-count is only meaningful
+		 * if --s2k-mode is 3, see man gpg
+		 */
+		return (unsigned int) my_salt->count;
+	else if (my_salt->spec == 1)
+		return 1; /* --s2k-mode 1 */
+	else
+		return 0; /* --s2k-mode 0 */
 }
 static unsigned int gpg_hash_algorithm(void *salt)
 {
@@ -1122,7 +1132,7 @@ struct fmt_main fmt_opencl_gpg = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 #if FMT_MAIN_VERSION > 11
 		{
-			"iteration count",
+			"s2k-count", /* only for gpg --s2k-mode 3, see man gpg, option --s2k-count n */
 			"hash algorithm [1:MD5 2:SHA1 3:RIPEMD160 8:SHA256 9:SHA384 10:SHA512 11:SHA224]",
 			"cipher algorithm [1:IDEA 2:3DES 3:CAST5 4:Blowfish 7:AES128 8:AES192 9:AES256]",
 		},
@@ -1140,7 +1150,7 @@ struct fmt_main fmt_opencl_gpg = {
 		get_salt,
 #if FMT_MAIN_VERSION > 11
 		{
-			gpg_iteration_count,
+			gpg_s2k_count,
 			gpg_hash_algorithm,
 			gpg_cipher_algorithm,
 		},

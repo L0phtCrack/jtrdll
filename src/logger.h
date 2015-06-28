@@ -26,7 +26,8 @@ extern void log_init(char *log_name, char *pot_name, char *session);
  * Prints a guessed password to stdout and logs it to john.pot (unless
  * ciphertext is NULL) and other related information to the log file.
  */
-extern void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *store_plain, char field_sep);
+extern void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain,
+                      char *store_plain, char field_sep, int index);
 
 /*
  * Logs an arbitrary event.
@@ -34,12 +35,13 @@ extern void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain,
  * The caller must make sure that any conversion specifiers in the
  * format string expand to no more than 500 characters.
  */
-extern void log_event(const char *format, ...)
-#ifdef __GNUC__
-	__attribute__ ((format (printf, 1, 2)));
-#else
-	;
+extern
+#if __clang__
+	__attribute__ ((format (printf, 1, 2)))
+#elif __GNUC__
+	__attribute__ ((format (gnu_printf, 1, 2)))
 #endif
+void log_event(const char *format, ...);
 
 /*
  * Discards any buffered log data.

@@ -34,7 +34,9 @@ static int omp_t = 1;
 // 128 - 1474k   1902k *** this was chosen
 // 256 - 1508k   1511k
 // 512 - 1649k   1564k
+#ifndef OMP_SCALE
 #define OMP_SCALE  128
+#endif
 #endif
 
 #include "memdbg.h"
@@ -79,10 +81,12 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_key));
-	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*crypt_out));
+	if (!saved_key) {
+		saved_key = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*saved_key));
+		crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*crypt_out));
+	}
 }
 
 static void done(void)
@@ -346,7 +350,7 @@ struct fmt_main fmt_snefru_128 = {
 		snefru_128_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		prepare,
 		valid128,

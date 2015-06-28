@@ -28,9 +28,13 @@ john_register_one(&fmt_rawSHA1);
 
 #ifdef _OPENMP
 #ifdef SIMD_COEF_32
+#ifndef OMP_SCALE
 #define OMP_SCALE               1024
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE				2048
+#endif
 #endif
 #include <omp.h>
 #endif
@@ -42,8 +46,7 @@ john_register_one(&fmt_rawSHA1);
 #define ALGORITHM_NAME			"SHA1 " SHA1_ALGORITHM_NAME
 
 #ifdef SIMD_COEF_32
-#  define NBKEYS				(SIMD_COEF_32 * SHA1_SSE_PARA)
-#  define DO_MMX_SHA1(in,out,n)	SSESHA1body(in, out, NULL, n)
+#define NBKEYS				(SIMD_COEF_32 * SIMD_PARA_SHA1)
 #endif
 
 #define BENCHMARK_COMMENT		""
@@ -79,7 +82,7 @@ static struct fmt_tests tests[] = {
 #define PLAINTEXT_LENGTH		55
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianity conversion
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianity conversion
 #else
 #define PLAINTEXT_LENGTH		125
 #define MIN_KEYS_PER_CRYPT		1
@@ -160,7 +163,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 }
 
 #ifdef SIMD_COEF_32
-#define HASH_OFFSET	(index&(SIMD_COEF_32-1))+((index%NBKEYS)/SIMD_COEF_32)*SIMD_COEF_32*5
+#define HASH_OFFSET	(index&(SIMD_COEF_32-1))+(((unsigned int)index%NBKEYS)/SIMD_COEF_32)*SIMD_COEF_32*5
 static int get_hash_0(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & 0xf; }
 static int get_hash_1(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & 0xff; }
 static int get_hash_2(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & 0xfff; }
@@ -182,7 +185,7 @@ static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
 static void set_key(char *key, int index)
 {
 	const ARCH_WORD_32 *wkey = (ARCH_WORD_32*)key;
-	ARCH_WORD_32 *keybuffer = &((ARCH_WORD_32*)saved_key)[(index&(SIMD_COEF_32-1)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*SIMD_COEF_32];
+	ARCH_WORD_32 *keybuffer = &((ARCH_WORD_32*)saved_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32];
 	ARCH_WORD_32 *keybuf_word = keybuffer;
 	unsigned int len;
 	ARCH_WORD_32 temp;
@@ -233,7 +236,7 @@ static char *get_key(int index)
 {
 	static char out[PLAINTEXT_LENGTH + 1];
 	unsigned int i;
-	ARCH_WORD_32 len = ((ARCH_WORD_32*)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (index>>SIMD_COEF32_BITS)*SHA_BUF_SIZ*SIMD_COEF_32] >> 3;
+	ARCH_WORD_32 len = ((ARCH_WORD_32*)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] >> 3;
 
 	for(i=0;i<len;i++)
 		out[i] = ((char*)saved_key)[GETPOS(i, index)];
@@ -279,7 +282,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 	{
 #if SIMD_COEF_32
-		DO_MMX_SHA1(saved_key[index], crypt_key[index], SSEi_MIXED_IN);
+		SSESHA1body(saved_key[index], crypt_key[index], NULL, SSEi_MIXED_IN);
 #else
 		SHA_CTX ctx;
 		SHA1_Init( &ctx );
@@ -294,7 +297,7 @@ static int cmp_all(void *binary, int count) {
 	int index;
 	for (index = 0; index < count; index++)
 #ifdef SIMD_COEF_32
-        if (((ARCH_WORD_32 *) binary)[0] == ((ARCH_WORD_32*)crypt_key)[(index&(SIMD_COEF_32-1)) + (index>>SIMD_COEF32_BITS)*5*SIMD_COEF_32])
+        if (((ARCH_WORD_32 *) binary)[0] == ((ARCH_WORD_32*)crypt_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32])
 #else
 		if ( ((ARCH_WORD_32*)binary)[0] == crypt_key[index][0] )
 #endif
@@ -307,7 +310,7 @@ static int cmp_one(void *binary, int index)
 #ifdef SIMD_COEF_32
     int i;
 	for (i = 0; i < BINARY_SIZE/sizeof(ARCH_WORD_32); i++)
-        if (((ARCH_WORD_32 *) binary)[i] != ((ARCH_WORD_32*)crypt_key)[(index&(SIMD_COEF_32-1)) + (index>>SIMD_COEF32_BITS)*5*SIMD_COEF_32+i*SIMD_COEF_32])
+        if (((ARCH_WORD_32 *) binary)[i] != ((ARCH_WORD_32*)crypt_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32+i*SIMD_COEF_32])
             return 0;
 	return 1;
 #else

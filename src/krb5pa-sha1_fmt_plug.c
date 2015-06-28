@@ -45,7 +45,9 @@ john_register_one(&fmt_krb5pa);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 #include "arch.h"
 #include "misc.h"
@@ -63,9 +65,9 @@ static int omp_t = 1;
 #define FORMAT_LABEL       "krb5pa-sha1"
 #define FORMAT_NAME        "Kerberos 5 AS-REQ Pre-Auth etype 17/18" /* aes-cts-hmac-sha1-96 */
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME      SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME     "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME     "32/" ARCH_BITS_STR
+#define ALGORITHM_NAME     "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT  ""
 #define BENCHMARK_LENGTH   -1
@@ -297,6 +299,7 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += 8;
 	p = strtokm(ctcopy, "$");
 	cs.etype = atoi(p);
@@ -598,7 +601,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

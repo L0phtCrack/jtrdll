@@ -90,9 +90,6 @@
 /* "Enable if GetFileSizeEx function is available" */
 #undef HAVE_GETFILESIZEEX
 
-/* Define to 1 if you have the `getpagesize' function. */
-#undef HAVE_GETPAGESIZE
-
 /* Define to 1 if you have the <gmp/gmp.h> header file. */
 #undef HAVE_GMP_GMP_H
 
@@ -101,6 +98,9 @@
 
 /* Define to 1 if the system has the type `int128'. */
 #undef HAVE_INT128
+
+/* Define to 1 if you have the <intrin.h> header file. */
+#undef HAVE_INTRIN_H
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -174,7 +174,7 @@
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
 
-/* Define to 1 if you have a working `mmap' system call. */
+/* Define to 1 if you have the `mmap' function. */
 #undef HAVE_MMAP
 
 /* Define to 1 if you have the <netdb.h> header file. */
@@ -254,6 +254,9 @@
 
 /* Define to 1 if you have the `strcasecmp' function. */
 #undef HAVE_STRCASECMP
+
+/* Define to 1 if you have the `strcasestr' function. */
+#undef HAVE_STRCASESTR
 
 /* Define to 1 if you have the `strcmpi' function. */
 #undef HAVE_STRCMPI
@@ -438,6 +441,9 @@
 
 /* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
 #undef TIME_WITH_SYS_TIME
+
+/* Define to 1 if you want to include experimental code. */
+#undef USE_EXPERIMENTAL
 
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */

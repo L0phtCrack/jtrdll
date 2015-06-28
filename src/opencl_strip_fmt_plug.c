@@ -26,6 +26,7 @@ john_register_one(&fmt_opencl_strip);
 #include "formats.h"
 #include "options.h"
 #include "common.h"
+#include "stdint.h"
 #include "misc.h"
 #include "common-opencl.h"
 
@@ -41,11 +42,6 @@ john_register_one(&fmt_opencl_strip);
 #define SALT_SIZE		sizeof(struct custom_salt)
 #define BINARY_ALIGN		1
 #define SALT_ALIGN			MEM_ALIGN_WORD
-
-
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		ARCH_WORD_32
 
 #define ITERATIONS		4000
 #define FILE_HEADER_SZ 16
@@ -94,9 +90,6 @@ static cl_mem mem_in, mem_out, mem_setting;
 static struct fmt_main *self;
 
 static size_t insize, outsize, settingsize, cracked_size;
-
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
-#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
 #define STEP			0
 #define SEED			256
@@ -164,13 +157,15 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+	if (inbuffer) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
-	MEM_FREE(inbuffer);
-	MEM_FREE(outbuffer);
-	MEM_FREE(cracked);
+		MEM_FREE(inbuffer);
+		MEM_FREE(outbuffer);
+		MEM_FREE(cracked);
+	}
 }
 
 static void done(void)

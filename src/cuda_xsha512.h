@@ -10,7 +10,6 @@
 
 #include"john_stdint.h"
 
-
 #define BLOCKS 4096
 #define THREADS 128
 #define KEYS_PER_CRYPT (BLOCKS*THREADS)

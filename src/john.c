@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2004,2006,2009-2013 by Solar Designer
+ * Copyright (c) 1996-2004,2006,2009-2013,2015 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JimF and magnum (and various others?)
  *
@@ -17,9 +17,9 @@
  */
 
 #if AC_BUILT
-/* need to know if HAVE_LIBDL is set, for autoconfig build */
 #include "autoconfig.h"
 #else
+#define _GNU_SOURCE 1 /* for strcasestr */
 #ifdef __SIZEOF_INT128__
 #define HAVE___INT128 1
 #endif
@@ -93,16 +93,18 @@ static int john_omp_threads_new;
 #include "external.h"
 #include "batch.h"
 #include "dynamic.h"
+#include "dynamic_compiler.h"
 #include "fake_salts.h"
 #include "listconf.h"
+#include "crc32.h"
 #if HAVE_MPI
 #include "john-mpi.h"
 #endif
 #include "regex.h"
 
 #include "unicode.h"
-#include "plugin.h"
 #if HAVE_OPENCL
+#undef __SSE2__
 #include "common-opencl.h"
 #endif
 #if HAVE_CUDA
@@ -141,6 +143,7 @@ extern struct fmt_main fmt_crypt;
 #endif
 extern struct fmt_main fmt_trip;
 extern struct fmt_main fmt_dummy;
+extern struct fmt_main fmt_NT;
 
 #include "fmt_externs.h"
 
@@ -169,8 +172,6 @@ extern int racf2john(int argc, char **argv);
 extern int pwsafe2john(int argc, char **argv);
 extern int dmg2john(int argc, char **argv);
 extern int putty2john(int argc, char **argv);
-extern int keystore2john(int argc, char **argv);
-extern int truecrypt_volume2john(int argc, char **argv);
 
 int john_main_process = 1;
 #if OS_FORK
@@ -217,6 +218,27 @@ static void john_register_one(struct fmt_main *format)
 		else if (!strcasecmp(options.format, "dynamic")) {
 			if ( (format->params.flags & FMT_DYNAMIC) == 0) return;
 		}
+		else if (!strcasecmp(options.format, "avx")) {
+			if (!strstr(format->params.algorithm_name, "AVX")) return;
+		}
+		else if (!strcasecmp(options.format, "avx2")) {
+			if (!strstr(format->params.algorithm_name, "AVX2")) return;
+		}
+		else if (!strcasecmp(options.format, "sha2")) {
+			if (strstr(format->params.label, "-opencl") ||
+			    strstr(format->params.label, "-cuda") ||
+			    (!strcasestr(format->params.algorithm_name, "sha2") &&
+			    !strcasestr(format->params.algorithm_name, "sha38") &&
+			    !strcasestr(format->params.algorithm_name, "sha5") &&
+			    !strcasestr(format->params.algorithm_name, "sha-2") &&
+			    !strcasestr(format->params.algorithm_name, "sha-38") &&
+			     !strcasestr(format->params.algorithm_name, "sha-5")))
+				return;
+		}
+		else if (!strcasecmp(options.format, "avx512")) {
+			if (!strstr(format->params.algorithm_name, "AVX512")
+			    && (!strstr(format->params.algorithm_name, "MIC"))) return;
+		}
 		else if (!strcasecmp(options.format, "cpu")) {
 			if (strstr(format->params.label, "-opencl") ||
 			    strstr(format->params.label, "-cuda")) return;
@@ -252,8 +274,16 @@ static void john_register_one(struct fmt_main *format)
 			if ( (format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) return;
 		}
 #endif
-		else if (strcasecmp(options.format, format->params.label))
-			return;
+		else if (strcasecmp(options.format, format->params.label)) {
+			if (!strncasecmp(options.format, "@dynamic=", 9) && !strcasecmp(format->params.label, "@dynamic=")) {
+				DC_HANDLE H;
+				if (!dynamic_compile(options.format, &H))
+					dynamic_assign_script_to_format(H);
+				else
+					return;
+			} else
+				return;
+		}
 	}
 
 	fmt_register(format);
@@ -261,16 +291,12 @@ static void john_register_one(struct fmt_main *format)
 
 static void john_register_all(void)
 {
+#ifndef DYNAMIC_DISABLED
 	int i, cnt;
 	struct fmt_main *selfs;
+#endif
 
 	if (options.format) strlwr(options.format);
-
-	// NOTE, this MUST happen, before ANY format that links a 'thin' format
-	// to dynamic.
-	// Since gen(27) and gen(28) are MD5 and MD5a formats, we build the
-	// generic format first
-	cnt = dynamic_Register_formats(&selfs);
 
 	john_register_one(&fmt_DES);
 	john_register_one(&fmt_BSDI);
@@ -282,10 +308,21 @@ static void john_register_all(void)
 	john_register_one(&fmt_trip);
 	john_register_one(&fmt_dummy);
 
+#ifndef DYNAMIC_DISABLED
+	// NOTE, this MUST happen, before ANY format that links a 'thin' format
+	// to dynamic.
+	// Since gen(27) and gen(28) are MD5 and MD5a formats, we build the
+	// generic format first
+	cnt = dynamic_Register_formats(&selfs);
+
 	for (i = 0; i < cnt; ++i)
 		john_register_one(&(selfs[i]));
+#endif
 
 #include "fmt_registers.h"
+
+	// This format is deprecated so now registers after plug-in NT format.
+	john_register_one(&fmt_NT);
 
 #if HAVE_CUDA
 	john_register_one(&fmt_cuda_rawsha224);
@@ -294,13 +331,6 @@ static void john_register_all(void)
 
 #if HAVE_CRYPT
 	john_register_one(&fmt_crypt);
-#endif
-
-#if HAVE_LIBDL
-	if (options.fmt_dlls)
-	register_dlls ( options.fmt_dlls,
-		cfg_get_param(SECTION_OPTIONS, NULL, "plugin"),
-		john_register_one );
 #endif
 
 	if (!fmt_list) {
@@ -352,8 +382,8 @@ static void john_omp_init(void)
 }
 
 #if OMP_FALLBACK
-#if defined(__DJGPP__) || defined(__CYGWIN32__)
-#error OMP_FALLBACK is incompatible with the current DOS and Win32 code
+#if defined(__DJGPP__) || defined(__CYGWIN__)
+#error OMP_FALLBACK is incompatible with the current DOS and Windows code
 #endif
 #define HAVE_JOHN_OMP_FALLBACK
 static void john_omp_fallback(char **argv) {
@@ -612,6 +642,7 @@ static void john_wait(void)
 
 	log_event("Waiting for %d child%s to terminate",
 	    waiting_for, waiting_for == 1 ? "" : "ren");
+	log_flush();
 	fprintf(stderr, "Waiting for %d child%s to terminate\n",
 	    waiting_for, waiting_for == 1 ? "" : "ren");
 
@@ -845,7 +876,7 @@ static void john_load_conf_db(void)
 		if (john_main_process)
 			fprintf(stderr, "Target encoding can only be specified"
 			        " if input encoding is UTF-8\n");
-		exit(0);
+		error();
 	}
 
 	if (john_main_process)
@@ -873,6 +904,20 @@ static void john_load_conf_db(void)
 			fprintf(stderr, "Rules/masks using %s\n",
 			        cp_id2name(pers_opts.internal_enc));
 	}
+}
+
+static void db_main_free(struct db_main *db)
+{
+	if (db->format &&
+		(db->format->params.flags & FMT_DYNA_SALT) == FMT_DYNA_SALT) {
+		struct db_salt *psalt = db->salts;
+		while (psalt) {
+			dyna_salt_remove(psalt->salt);
+			psalt = psalt->next;
+		}
+	}
+	MEM_FREE(db->salt_hash);
+	MEM_FREE(db->cracked_hash);
 }
 
 static void john_load(void)
@@ -943,13 +988,15 @@ static void john_load(void)
 				ldr_show_pw_file(&database, current->data);
 			} while ((current = current->next));
 
-			if (john_main_process)
+			if (john_main_process && !options.loader.showtypes)
 			printf("%s%d password hash%s cracked, %d left\n",
 				database.guess_count ? "\n" : "",
 				database.guess_count,
 				database.guess_count != 1 ? "es" : "",
 				database.password_count -
 				database.guess_count);
+
+			fmt_all_done();
 
 			return;
 		}
@@ -1090,6 +1137,7 @@ static void john_load(void)
 		options.loader.flags &= ~DB_CRACKED;
 		pers_opts.activepot = save_pot;
 		fmt_list = save_list;
+		db_main_free(&loop_db);
 	}
 
 #ifdef _OPENMP
@@ -1127,7 +1175,7 @@ static void john_load(void)
 		if (options.fork)
 		{
 			/*
-			 * flush before forking, to avoid multple log entries
+			 * flush before forking, to avoid multiple log entries
 			 */
 			log_flush();
 			john_fork();
@@ -1146,8 +1194,8 @@ static void CPU_detect_or_fallback(char **argv, int make_check)
 	if (!CPU_detect()) {
 #if CPU_REQ
 #if CPU_FALLBACK
-#if defined(__DJGPP__) || defined(__CYGWIN32__)
-#error CPU_FALLBACK is incompatible with the current DOS and Win32 code
+#if defined(__DJGPP__) || defined(__CYGWIN__)
+#error CPU_FALLBACK is incompatible with the current DOS and Windows code
 #endif
 		if (!make_check) {
 #define CPU_FALLBACK_PATHNAME JOHN_SYSTEMWIDE_EXEC "/" CPU_FALLBACK_BINARY
@@ -1207,7 +1255,7 @@ static void john_init(char *name, int argc, char **argv)
 		if (options.config)
 		{
 			path_init_ex(options.config);
-			cfg_init(options.config, 1);
+			cfg_init(options.config, 0);
 			cfg_init(CFG_FULL_NAME, 1);
 			cfg_init(CFG_ALT_NAME, 0);
 		}
@@ -1239,6 +1287,17 @@ static void john_init(char *name, int argc, char **argv)
 	common_init();
 	sig_init();
 
+	if (!make_check && !(options.flags & (FLG_SHOW_CHK | FLG_STDOUT))) {
+		fflush(stdout);
+#ifdef _MSC_VER
+		/* VC allows 2<=len<=INT_MAX and be a power of 2. A debug build will
+		 * assert if len=0. Release fails setvbuf, but execution continues */
+		setvbuf(stdout, NULL, _IOLBF, 256);
+#else
+		setvbuf(stdout, NULL, _IOLBF, 0);
+#endif
+	}
+
 	john_load();
 
 	/* Init the Unicode system */
@@ -1248,7 +1307,7 @@ static void john_init(char *name, int argc, char **argv)
 			if (john_main_process)
 			fprintf(stderr, "Internal encoding can only be "
 			        "specified if input encoding is UTF-8\n");
-			exit(0);
+			error();
 		}
 	}
 
@@ -1353,7 +1412,7 @@ static void john_run(void)
 		}
 		tty_init(options.flags & FLG_STDIN_CHK);
 
-		if (database.format->params.flags & FMT_NOT_EXACT)
+		if (john_main_process && database.format->params.flags & FMT_NOT_EXACT)
 			fprintf(stderr, "Note: This format may emit false "
 			        "positives, so it will keep trying even "
 			        "after\nfinding a possible candidate.\n");
@@ -1509,17 +1568,11 @@ static void john_done(void)
 
 	path_done();
 
-	/* this may not be the correct place to free this, it likely can be freed much earlier, but it works here */
-	if (database.format && (database.format->params.flags &  FMT_DYNA_SALT) == FMT_DYNA_SALT) {
-		struct db_salt *psalt = database.salts;
-		while (psalt) {
-			dyna_salt_remove(psalt->salt);
-			psalt = psalt->next;
-		}
-	}
-	MEM_FREE(database.salt_hash);
-	MEM_FREE(database.cracked_hash);
-
+/*
+ * This may not be the correct place to free this, it likely
+ * can be freed much earlier, but it works here
+ */
+	db_main_free(&database);
 	check_abort(0);
 	cleanup_tiny_memory();
 }
@@ -1532,6 +1585,21 @@ int main(int argc, char **argv)
 {
 	char *name;
 	unsigned int time;
+
+#ifdef TEST_MEMDBG_LOGIC
+	int i,j;
+	char *cp[260];
+	for (i = 1; i < 257; ++i) {
+		cp[i] = mem_alloc_align(43,i);
+		for (j = 0; j < 43; ++j)
+			cp[i][j] = 'x';
+		printf ("%03d offset %x  %x %x\n", i, cp[i], (unsigned)(cp[i])%i, (((unsigned)(cp[i]))/i)%i);
+	}
+	for (i = 1; i < 257; ++i)
+		MEM_FREE(cp[i]);
+	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
+	exit(0);
+#endif
 
 	sig_preinit(); // Mitigate race conditions
 #ifdef __DJGPP__
@@ -1558,7 +1626,7 @@ int main(int argc, char **argv)
 
 #ifndef JTRDLL
 
-#if defined(__CYGWIN32__) || defined (__MINGW32__) || defined (_MSC_VER)
+#if defined(__CYGWIN__) || defined (__MINGW32__) || defined (_MSC_VER)
 	strlwr(name);
 	if (strlen(name) > 4 && !strcmp(name + strlen(name) - 4, ".exe"))
 		name[strlen(name) - 4] = 0;
@@ -1580,6 +1648,9 @@ int main(int argc, char **argv)
 		--argc;
 	}
 #endif
+
+	/* put the crc table init here, so that tables are fully setup for any ancillary program */
+	CRC32_Init_tab();
 
 	if (!strcmp(name, "unshadow")) {
 		CPU_detect_or_fallback(argv, 0);
@@ -1651,15 +1722,6 @@ int main(int argc, char **argv)
 		return pwsafe2john(argc, argv);
 	}
 
-	if (!strcmp(name, "keystore2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return keystore2john(argc, argv);
-	}
-
-	if (!strcmp(name, "truecrypt_volume2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return truecrypt_volume2john(argc, argv);
-	}
 	if (!strcmp(name, "gpg2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return gpg2john(argc, argv);

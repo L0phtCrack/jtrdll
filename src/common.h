@@ -15,8 +15,19 @@
 #ifndef _JOHN_COMMON_H
 #define _JOHN_COMMON_H
 
+#if !defined(_OPENCL_COMPILER)
 #include "arch.h"
 #include "memory.h"
+#endif
+
+#ifndef MAX
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#endif
+#ifndef MIN
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#endif
+
+#if !defined(_OPENCL_COMPILER)
 
 #if ARCH_INT_GT_32
 typedef unsigned short ARCH_WORD_32;
@@ -31,7 +42,9 @@ typedef unsigned long long ARCH_WORD_64;
 #define is_aligned(PTR, CNT) ((((ARCH_WORD)(const void *)(PTR))&(CNT-1))==0)
 
 #ifdef __GNUC__
-#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) || defined(__INTEL_COMPILER)
+#if __GNUC__ >= 5
+#define MAYBE_INLINE __attribute__((gnu_inline)) inline
+#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) || defined(__INTEL_COMPILER)
 #define MAYBE_INLINE __attribute__((always_inline)) inline
 #elif __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
 #define MAYBE_INLINE __attribute__((always_inline))
@@ -93,5 +106,7 @@ int isdec(char *q);
 int isdec_negok(char *q);
 /* is this a valid string for atou()?  atou() func == sprintf("%x",&val) */
 int isdecu(char *q);
+
+#endif
 
 #endif

@@ -30,7 +30,9 @@ john_register_one(&fmt_kwallet);
 #include "sha.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 #include "memdbg.h"
 
@@ -133,7 +135,6 @@ static void *get_salt(char *ciphertext)
 	return (void *)cur_salt;
 }
 
-#define MIN(x,y) ((x) < (y) ? (x) : (y))
 static void password2hash(const char *password, unsigned char *hash, int *key_size)
 {
 	SHA_CTX ctx;

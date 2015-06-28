@@ -20,6 +20,7 @@
  */
 
 #include "stdint.h"
+#include "int128.h"
 #include <stdio.h>
 #if !AC_BUILT
 # include <string.h>
@@ -38,24 +39,6 @@
 #endif
 #include <stdlib.h>
 #include "jumbo.h"
-
-#undef int128_t
-#define int128_t our_int128_t
-#undef uint128_t
-#define uint128_t our_uint128_t
-
-#if HAVE___INT128
-typedef __int128                int128_t;
-typedef unsigned __int128       uint128_t;
-#elif HAVE_INT128
-typedef int128                  int128_t;
-typedef unsigned int128         uint128_t;
-#else
-typedef __int128_t              int128_t;
-typedef __uint128_t             uint128_t;
-#endif
-
-#define UINT128_MAX             ((uint128_t)-1)
 
 typedef uint128_t               mpz_t;
 
@@ -210,6 +193,7 @@ extern double __ntod(__uint128_t);
 #else
 #define mpf_set_z(x, y) x = y
 #endif // __MIC__
+#define mpf_sgn(F) ((F) < (double)0.0 ? -1 : (F) > (double)0.0)
 #define mpf_div(q, n, d) q = n / d
 #define mpf_clear(x) x = 0
 #define mpf_get_d(x) x

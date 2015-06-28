@@ -37,8 +37,14 @@ static int omp_t = 1;
 // 1k  10307k  8569k  ** set to this value
 // 2k  10081k  8427k
 // 4k  10551k  8893k
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE  64
+#else
 #define OMP_SCALE  1024
-#endif
+#endif // __MIC__
+#endif // OMP_SCALE
+#endif // _OPENMP
 #include "memdbg.h"
 
 #define FORMAT_TAG		"$haval$"
@@ -80,10 +86,12 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_key));
-	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*crypt_out));
+	if (!saved_key) {
+		saved_key = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*saved_key));
+		crypt_out = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*crypt_out));
+	}
 }
 
 static void done(void)
@@ -109,7 +117,7 @@ static int valid(char *ciphertext, struct fmt_main *self, int len)
 	return 1;
 }
 
-/* we need independant valids, since the $haval$ signature is the same */
+/* we need independent valids, since the $haval$ signature is the same */
 /* otherwise, if we have input with a mix of both types, then ALL of them */
 /* will validate, even though  only the ones of the proper type will actually */
 /* be tested.  If we had a singleton crypt function (which both 128-4 and */
@@ -359,7 +367,7 @@ struct fmt_main fmt_haval_128_4 = {
 		haval_128_4_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid4,

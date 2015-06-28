@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2000,2003,2005,2010-2012 by Solar Designer
+ * Copyright (c) 1996-2000,2003,2005,2010-2012,2015 by Solar Designer
  *
  * ...with heavy changes in the jumbo patch, by magnum and various authors
  */
@@ -339,8 +339,17 @@ static int ldr_split_line(char **login, char **ciphertext,
 /* Check for NIS stuff */
 	if ((!strcmp(*login, "+") || !strncmp(*login, "+@", 2)) &&
 	    strlen(*ciphertext) < 10 && strncmp(*ciphertext, "$dummy$", 7)
-	    && strncmp(*ciphertext, "$0$", 3))
+	    && strncmp(*ciphertext, "$0$", 3)) {
+		if (db_opts->showtypes) {
+			int fs = db_opts->field_sep_char;
+			printf("%s%c%s%c2%c\n",
+			       *login,
+			       fs, *ciphertext,
+			       fs, /* 2, */
+			       fs);
+		}
 		return 0;
+	}
 
 	if (!**ciphertext && !line) {
 /* Possible hash on a line on its own (no colons) */
@@ -363,8 +372,17 @@ static int ldr_split_line(char **login, char **ciphertext,
 				(*ciphertext)--;
 			if (p - *ciphertext == 12 && *ciphertext - *login == 1)
 				(*ciphertext)--;
-			if (p - *ciphertext < 13)
+			if (p - *ciphertext < 13) {
+				if (db_opts->showtypes) {
+					int fs = db_opts->field_sep_char;
+					printf("%c%s%c3%c\n",
+					       /* empty, */
+					       fs, *ciphertext,
+					       fs, /* 3, */
+					       fs);
+				}
 				return 0;
+			}
 		}
 		*p = 0;
 		fields[0] = *login = no_username;
@@ -445,6 +463,136 @@ static int ldr_split_line(char **login, char **ciphertext,
 	if (ldr_check_list(db_opts->users, *login, *uid)) return 0;
 	if (ldr_check_list(db_opts->groups, gid, gid)) return 0;
 	if (ldr_check_shells(db_opts->shells, shell)) return 0;
+
+	if (db_opts->showtypes) {
+		int fs = db_opts->field_sep_char;
+		/* Flag: the format is not the first valid format. The
+		 * first format should not print the first field
+		 * separator. */
+		int not_first_format = 0;
+		/* \0 and \n are not possible in any field. */
+		/* field_sep_char should not be possible in any field too.
+		 * But it is possible with --field-separator-char=/ due to
+		 * default value "/" for home field. Also ? may come from
+		 * empty login. */
+		/* Flag: no fields contain \n or field separator. */
+		int bad_char = 0;
+		int bare_always_valid = 0;
+		if ((options.dynamic_bare_hashes_always_valid == 'Y')
+		    || (options.dynamic_bare_hashes_always_valid != 'N'
+			&& cfg_get_bool(SECTION_OPTIONS, NULL, "DynamicAlwaysUseBareHashes", 1)))
+			bare_always_valid = 1;
+		/* We output 1 or 0, so 0 and 1 are bad field separators. */
+		if (fs == '0' || fs == '1')
+			bad_char = 1;
+#define check_field_separator(str) bad_char |= strchr((str), fs) || strchr((str), '\n')
+		/* To suppress warnings, particularly from
+		 * generic crypt's valid() (c3_fmt.c). */
+		ldr_in_pot = 1;
+		/* The format:
+		 * Once for each hash even if it can't be loaded (7 fields):
+		 *   login,
+		 *   ciphertext,
+		 *   uid,
+		 *   gid,
+		 *   gecos,
+		 *   home,
+		 *   shell.
+		 * For each valid format (may be nothing):
+		 *   label,
+		 *   is format disabled? (1/0),
+		 *   is format dynamic? (1/0),
+		 *   does format use the ciphertext field as is? (1/0),
+		 *   canonical hash or hashes (if there are several parts).
+		 * All fields above are separated by field_sep_char.
+		 * Formats are separated by empty field.
+		 * Additionally on the end:
+		 *   separator,
+		 *   line consistency mark (0/1/2/3):
+		 *     0 - the line is consistent and can be parsed easily,
+		 *     1 - field separator char occurs in fields, line can't
+		 *         be parsed easily,
+		 *     2 - the line was skipped as bad NIS stuff, only login
+		 *         and ciphertext are shown,
+		 *     3 - the line was skipped parsing descrypt with
+		 *         invalid salt, only ciphertext is shown (together
+		 *         with empty login); empty lines fall here,
+		 *   separator.
+		 * The additional field_sep_char at the end of line does not
+		 * break numeration of fields but allows parser to get
+		 * field_sep_char from the line.
+		 * A parser have to check the last 3 chars.
+		 * If the format does not use the ciphertext field as is,
+		 * then a parser have to match input line with output line
+		 * by number of line.
+		 */
+		printf("%s%c%s%c%s%c%s%c%s%c%s%c%s",
+		       *login,
+		       fs, *ciphertext,
+		       fs, *uid,
+		       fs, gid,
+		       fs, *gecos,
+		       fs, *home,
+		       fs, shell);
+		check_field_separator(*login);
+		check_field_separator(*ciphertext);
+		check_field_separator(*uid);
+		check_field_separator(gid);
+		check_field_separator(*gecos);
+		check_field_separator(*home);
+		check_field_separator(shell);
+		/* Fields above may be empty. */
+		/* Empty fields are separators after this point. */
+		alt = fmt_list;
+		do {
+			char *prepared;
+			int disabled = 0;
+			int prepared_eq_ciphertext;
+			int valid;
+			int part;
+			int is_dynamic = ((alt->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC);
+/* We enforce DynamicAlwaysUseBareHashes for each format. By default
+ * dynamics do that only if a bare hash occurs on the first line. */
+			if (bare_always_valid)
+				dynamic_allow_rawhash_fixup = 1;
+			/* We don't skip generic crypt. */
+			/* Format disabled in john.conf */
+			if (cfg_get_bool(SECTION_DISABLED, SUBSECTION_FORMATS,
+			                 alt->params.label, 0)) {
+				disabled = 1;
+			}
+			/* prepared is not equal to *ciphertext for nt in pwdump format */
+			prepared = alt->methods.prepare(fields, alt);
+			if (!prepared)
+				continue;
+			prepared_eq_ciphertext = (*ciphertext == prepared || !strcmp(*ciphertext, prepared));
+			valid = alt->methods.valid(prepared, alt);
+			if (!valid)
+				continue;
+			ldr_set_encoding(alt);
+			/* Empty field between valid formats */
+			if (not_first_format) {
+				printf("%c", fs);
+			}
+			not_first_format = 1;
+			printf("%c%s%c%d%c%d%c%d",
+			       fs, alt->params.label,
+			       fs, disabled,
+			       fs, is_dynamic,
+			       fs, prepared_eq_ciphertext);
+			check_field_separator(alt->params.label);
+			/* Canonical hash or hashes (like halves of LM) */
+			for (part = 0; part < valid; part++) {
+				char *split = alt->methods.split(prepared, part, alt);
+				printf("%c%s", fs, split);
+				check_field_separator(split);
+			}
+		} while ((alt = alt->next));
+		printf("%c%d%c\n", fs, bad_char, fs);
+		return 0;
+#undef check_field_separator
+	}
+
 
 	if (*format) {
 		char *prepared;
@@ -1085,10 +1233,12 @@ static void ldr_show_left(struct db_main *db, struct db_password *pw)
 	char *uid_out = "";
 	char *pw_source = db->format->methods.source(pw->source, pw->binary);
 
+#ifndef DYNAMIC_DISABLED
 	/* Note for salted dynamic, we 'may' need to fix up the salts to
 	 * make them properly usable. */
 	if (!strncmp(pw_source, "$dynamic_", 9))
 		pw_source = dynamic_FIX_SALT_TO_HEX(pw_source);
+#endif
 	if (options.show_uid_on_crack && pw->uid && *pw->uid) {
 		uid_sep[0] = db->options->field_sep_char;
 		uid_out = pw->uid;
@@ -1428,7 +1578,9 @@ static void ldr_show_pot_line(struct db_main *db, char *line)
 		strnzcpy(new, ciphertext, 12 + 41);
 		memset(new + 12, '0', 5);
 		ciphertext = new;
-	} else
+	}
+#ifndef DYNAMIC_DISABLED
+	else
 	if (!strncmp(ciphertext, "$dynamic_", 9) && strstr(ciphertext, "$HEX$"))
 	{
 		char Tmp[512], *cp=Tmp;
@@ -1438,30 +1590,12 @@ static void ldr_show_pot_line(struct db_main *db, char *line)
 			alloced = 1;
 		}
 		RemoveHEX(Tmp, ciphertext);
-#if 0
-		// I am pretty sure that this removed hex should be used all the time, even if
-		// there are ':' or \n chars. I believe this logic was from an older version of
-		// dynamic, and simply was not changed here. I am leaving the code (commented out)
-		// for now, just in case there are issue, and it can be reverted back. This bug was
-		// found digging into https://github.com/magnumripper/JohnTheRipper/issues/930
-
-		// We only remove hex if the end result is 'safe'. IF there are any line feeds, or
-		// ':' chars, then it is not safe to remove.  NULL is also dangrous, BUT the
-		// RemoveHEX itself bails if there are nulls, putting original ciphertext into Tmp.
-		if (strchr(Tmp, ':') || strchr(Tmp, '\n')
-#if (AC_BUILT && HAVE_WINDOWS_H) || (!AC_BUILT && (_MSC_VER || __CYGWIN__ || __MINGW__))
-			|| strchr(Tmp, '\r') || strchr(Tmp, 0x1A)
-#endif
-		)
-			; // do nothing.
-		else
-#endif
 			// tmp will always be 'shorter' or equal length to ciphertext
 			strcpy(ciphertext, Tmp);
 		if (alloced)
 			MEM_FREE(cp);
 	}
-
+#endif
 	if (line) {
 /* If just one format was forced on the command line, insist on it */
 		if (!fmt_list->next &&
@@ -1526,6 +1660,7 @@ static void ldr_show_pw_line(struct db_main *db, char *line)
 /* If just one format was forced on the command line, insist on it */
 	if (!fmt_list->next && !format) return;
 
+/* DB_PLAINTEXTS is set when we --make-charset rather than --show */
 	show = !(db->options->flags & DB_PLAINTEXTS);
 
 	if ((loop = (options.flags & FLG_LOOPBACK_CHK) ? 1 : 0))

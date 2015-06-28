@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2003,2006,2010,2013 by Solar Designer
+ * Copyright (c) 1996-2003,2006,2010,2013,2015 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JimF and magnum.
  *
@@ -15,11 +15,6 @@
 #define _XOPEN_SOURCE 500 /* for setitimer(2) and siginterrupt(3) */
 #endif
 
-#ifdef __ultrix__
-#define __POSIX
-#define _POSIX_SOURCE
-#endif
-
 #define NEED_OS_TIMER
 #define NEED_OS_FORK
 #include "os.h"
@@ -31,9 +26,6 @@
 #include <windows.h>
 #endif
 
-#ifdef _SCO_C_DIALECT
-#include <limits.h>
-#endif
 #include <stdio.h>
 #if !AC_BUILT || HAVE_SYS_TIME_H
 #include <sys/time.h>
@@ -185,6 +177,16 @@ void sig_timer_emu_tick(void)
 
 #endif
 
+#if OS_FORK
+static void signal_children(int signum)
+{
+	int i;
+	for (i = 0; i < john_child_count; i++)
+		if (john_child_pids[i])
+			kill(john_child_pids[i], signum);
+}
+#endif
+
 static void sig_install(void *handler, int signum)
 {
 #ifdef SA_RESTART
@@ -251,6 +253,38 @@ void sig_handle_abort(int signum)
 {
 	int saved_errno = errno;
 
+#if OS_FORK
+	if (john_main_process) {
+/*
+ * We assume that our children are running on the same tty with us, so if we
+ * receive a SIGINT they probably do as well without us needing to forward the
+ * signal to them.  If we forwarded the signal anyway, this could result in
+ * them receiving the signal twice for a single Ctrl-C keypress and proceeding
+ * with immediate abort without updating the files, which is behavior that we
+ * reserve for (presumably intentional) repeated Ctrl-C keypress.
+ *
+ * We forward the signal as SIGINT even though ours was different (typically a
+ * SIGTERM) in order not to trigger a repeated same signal for children if the
+ * user does e.g. "killall john", which would send SIGTERM directly to children
+ * and also have us forward a signal.
+ */
+		if (signum != SIGINT)
+			signal_children(SIGINT);
+	} else {
+		static int prev_signum;
+/*
+ * If it's not the same signal twice in a row, don't proceed with immediate
+ * abort since these two signals could have been triggered by the same killall
+ * (perhaps a SIGTERM from killall directly and a SIGINT as forwarded by our
+ * parent).  event_abort would be set back to 1 just below the check_abort()
+ * call.  We only reset it to 0 temporarily to skip the immediate abort here.
+ */
+		if (prev_signum && signum != prev_signum)
+			event_abort = 0;
+		prev_signum = signum;
+	}
+#endif
+
 	check_abort(1);
 
 	event_abort = event_pending = 1;
@@ -263,7 +297,7 @@ void sig_handle_abort(int signum)
 }
 
 #ifdef WIN32_SIGNAL_HANDLER
-#ifdef __CYGWIN32__
+#ifdef __CYGWIN__
 static CALLBACK BOOL sig_handle_abort_ctrl(DWORD ctrltype)
 #else
 static BOOL WINAPI sig_handle_abort_ctrl(DWORD ctrltype)
@@ -279,6 +313,13 @@ static void sig_install_abort(void)
 #ifdef __DJGPP__
 	setcbrk(1);
 #elif defined(WIN32_SIGNAL_HANDLER)
+/*
+ * "If the HandlerRoutine parameter is NULL, [...] a FALSE value restores
+ * normal processing of CTRL+C input.  This attribute of ignoring or processing
+ * CTRL+C is inherited by child processes."  So restore normal processing here
+ * in case our parent (such as Johnny the GUI) had disabled it.
+ */
+	SetConsoleCtrlHandler(NULL, FALSE);
 	SetConsoleCtrlHandler(sig_handle_abort_ctrl, TRUE);
 #endif
 
@@ -307,16 +348,6 @@ static void sig_remove_abort(void)
 	signal(SIGXFSZ, SIG_DFL);
 #endif
 }
-
-#if OS_FORK
-static void signal_children(int signum)
-{
-	int i;
-	for (i = 0; i < john_child_count; i++)
-		if (john_child_pids[i])
-			kill(john_child_pids[i], signum);
-}
-#endif
 
 static void sig_install_timer(void);
 #ifndef BENCH_BUILD
@@ -490,6 +521,7 @@ static void sig_remove_timer(void)
 	signal(SIGALRM, SIG_DFL);
 }
 
+#ifdef SIGUSR1
 static void sig_handle_status(int signum)
 {
 	/* We currently disable --fork for Cygwin in os.h due to problems
@@ -512,6 +544,7 @@ static void sig_handle_status(int signum)
 	sig_install(sig_handle_status, signum);
 #endif
 }
+#endif
 
 #ifndef BENCH_BUILD
 #ifdef SIGUSR2

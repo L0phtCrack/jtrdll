@@ -52,12 +52,23 @@ void fmt_register(struct fmt_main *format)
 void fmt_init(struct fmt_main *format)
 {
 	if (!format->private.initialized) {
+#ifndef BENCH_BUILD
 		if (options.flags & FLG_LOOPTEST) {
 			orig_min = format->params.min_keys_per_crypt;
 			orig_max = format->params.max_keys_per_crypt;
 			orig_len = format->params.plaintext_length;
 		}
+#endif
 		format->methods.init(format);
+#ifndef BENCH_BUILD
+		/* NOTE, we have to grab these values (the first time), from after
+		   the format has been initialized for thin dynamic formats */
+		if (options.flags & FLG_LOOPTEST && orig_len == 0 && format->params.plaintext_length) {
+			orig_min = format->params.min_keys_per_crypt;
+			orig_max = format->params.max_keys_per_crypt;
+			orig_len = format->params.plaintext_length;
+		}
+#endif
 		format->private.initialized = 1;
 	}
 #ifndef BENCH_BUILD
@@ -94,13 +105,31 @@ void fmt_done(struct fmt_main *format)
 #ifdef HAVE_OPENCL
 		opencl_done();
 #endif
+#ifndef BENCH_BUILD
 		if (options.flags & FLG_LOOPTEST) {
 			format->params.min_keys_per_crypt = orig_min;
 			format->params.max_keys_per_crypt = orig_max;
 			format->params.plaintext_length = orig_len;
 		}
+#endif
 
 	}
+}
+
+void fmt_all_done(void)
+{
+	struct fmt_main *format = fmt_list;
+
+	while (format) {
+		if (format->private.initialized) {
+			format->methods.done();
+			format->private.initialized = 0;
+		}
+		format = format->next;
+	}
+#ifdef HAVE_OPENCL
+	opencl_done();
+#endif
 }
 
 static int is_poweroftwo(size_t align)
@@ -131,7 +160,12 @@ static char *longcand(struct fmt_main *format, int index, int ml)
 
 	memset(out, 'A' + (index % 23), ml);
 	if (!(format->params.flags & FMT_8_BIT) ||
-	    !(format->params.flags & FMT_CASE) || pers_opts.target_enc == UTF_8)
+#ifndef BENCH_BUILD
+	    !(format->params.flags & FMT_CASE) || pers_opts.target_enc == UTF_8
+#else
+	    !(format->params.flags & FMT_CASE)
+#endif
+	   )
 		memcpy(out, MAXLABEL, strlen(MAXLABEL));
 	else
 		memcpy(out, MAXLABEL_SIMD, strlen(MAXLABEL_SIMD));
@@ -397,7 +431,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		}
 
 		/* validate that salt dupe checks will work */
-		if (!salt_dupe_warned) {
+		if (!salt_dupe_warned && format->params.salt_size) {
 			char *copy = mem_alloc(format->params.salt_size);
 
 			memcpy(copy, salt, format->params.salt_size);
@@ -504,6 +538,9 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			for (i = 0; i < max; i++) {
 				char *getkey = format->methods.get_key(i);
 				char *setkey = longcand(format, i, ml);
+
+				if (!getkey)
+					return "get_key() returned NULL";
 
 				if (strncmp(getkey, setkey, ml + 1)) {
 					if (strnlen(getkey, ml + 1) > ml)

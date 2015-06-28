@@ -23,7 +23,9 @@ john_register_one(&fmt_lotus_85);
 
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64  // XXX tune me!
+#endif
 static int omp_t = 1;
 #endif
 
@@ -479,7 +481,7 @@ struct fmt_main fmt_lotus_85 =
 		lotus85_set_key,          /*  Set plaintext password  */
 		lotus85_get_key,          /*  Get plaintext password  */
 		fmt_default_clear_keys,
-		lotus85_crypt_all,        /*  Main hash funcion       */
+		lotus85_crypt_all,        /*  Main hash function       */
 		{
 			fmt_default_get_hash
 		},

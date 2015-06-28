@@ -35,14 +35,16 @@ john_register_one(&fmt_cloud_keychain);
 #include "pbkdf2_hmac_sha512.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1
+#endif
 #endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"cloudkeychain"
 #define FORMAT_NAME		"1Password Cloud Keychain"
 #ifdef SIMD_COEF_64
-#define ALGORITHM_NAME		"PBKDF2-SHA512  " SHA512_ALGORITHM_NAME
+#define ALGORITHM_NAME		"PBKDF2-SHA512 " SHA512_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA512 32/" ARCH_BITS_STR
 #endif

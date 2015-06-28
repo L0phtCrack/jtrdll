@@ -8,7 +8,7 @@
  */
 
 #include "arch.h"
-#if __SSE2__ || __MIC__ || _MSC_VER
+#if SIMD_COEF_32
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_rawSHA256_ng;
@@ -16,23 +16,26 @@ extern struct fmt_main fmt_rawSHA256_ng;
 john_register_one(&fmt_rawSHA256_ng);
 #else
 
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#elif _OPENMP
+#if _OPENMP
 #include <omp.h>
 #if __XOP__
+#ifndef OMP_SCALE
 #define OMP_SCALE                 512 /* AMD */
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE                 512 /* Intel */
 #endif
 #endif
+#endif
 
+#include "misc.h"
+#if !defined(DEBUG) && !defined(WITH_ASAN)
 // These compilers claim to be __GNUC__ but warn on gcc pragmas.
 #if __GNUC__ && !__INTEL_COMPILER && !__clang__ && !__llvm__ && !_MSC_VER
 #pragma GCC optimize 3
 #endif
-
-//#define DEBUG
+#endif
 
 #include <string.h>
 #include "john_stdint.h"
@@ -44,7 +47,7 @@ john_register_one(&fmt_rawSHA256_ng);
 
 #if __MIC__
 #define SIMD_TYPE                 "512/512 MIC 16x"
-#elif __AVX512__
+#elif __AVX512F__
 #define SIMD_TYPE                 "512/512 AVX512 16x"
 #elif __AVX2__
 #define SIMD_TYPE                 "256/256 AVX2 8x"
@@ -78,81 +81,82 @@ john_register_one(&fmt_rawSHA256_ng);
 #define MAX_KEYS_PER_CRYPT        VWIDTH
 
 #if __SSE4_1__ && !__AVX2__
-#define GATHER(x, y, z)                                                   \
-{                                                                         \
-    x = _mm_cvtsi32_si128(   y[index][z]   );                             \
-    x = _mm_insert_epi32(x, y[index + 1][z], 1);                          \
-    x = _mm_insert_epi32(x, y[index + 2][z], 2);                          \
-    x = _mm_insert_epi32(x, y[index + 3][z], 3);                          \
-}
+#undef GATHER
+#define GATHER(x, y, z)                                 \
+    {                                                   \
+        x = _mm_cvtsi32_si128(   y[index][z]   );       \
+        x = _mm_insert_epi32(x, y[index + 1][z], 1);    \
+        x = _mm_insert_epi32(x, y[index + 2][z], 2);    \
+        x = _mm_insert_epi32(x, y[index + 3][z], 3);    \
+    }
 #endif
 
-#define S0(x)                                                             \
-(                                                                         \
-    vxor(                                                       \
-        vroti_epi32(x, -22),                                          \
-        vxor(                                                   \
-            vroti_epi32(x,  -2),                                      \
-            vroti_epi32(x, -13)                                       \
-        )                                                                 \
-    )                                                                     \
-)
+#define S0(x)                                   \
+    (                                           \
+        vxor(                                   \
+            vroti_epi32(x, -22),                \
+            vxor(                               \
+                vroti_epi32(x,  -2),            \
+                vroti_epi32(x, -13)             \
+                )                               \
+            )                                   \
+        )
 
-#define S1(x)                                                             \
-(                                                                         \
-    vxor(                                                       \
-        vroti_epi32(x, -25),                                          \
-        vxor(                                                   \
-            vroti_epi32(x,  -6),                                      \
-            vroti_epi32(x, -11)                                       \
-        )                                                                 \
-    )                                                                     \
-)
+#define S1(x)                                   \
+    (                                           \
+        vxor(                                   \
+            vroti_epi32(x, -25),                \
+            vxor(                               \
+                vroti_epi32(x,  -6),            \
+                vroti_epi32(x, -11)             \
+                )                               \
+            )                                   \
+        )
 
-#define s0(x)                                                             \
-(                                                                         \
-    vxor(                                                       \
-        vsrli_epi32(x, 3),                                            \
-        vxor(                                                   \
-            vroti_epi32(x,  -7),                                      \
-            vroti_epi32(x, -18)                                       \
-        )                                                                 \
-    )                                                                     \
-)
+#define s0(x)                                   \
+    (                                           \
+        vxor(                                   \
+            vsrli_epi32(x, 3),                  \
+            vxor(                               \
+                vroti_epi32(x,  -7),            \
+                vroti_epi32(x, -18)             \
+                )                               \
+            )                                   \
+        )
 
-#define s1(x)                                                             \
-(                                                                         \
-    vxor(                                                       \
-        vsrli_epi32(x, 10),                                           \
-        vxor(                                                   \
-            vroti_epi32(x, -17),                                      \
-            vroti_epi32(x, -19)                                       \
-        )                                                                 \
-    )                                                                     \
-)
+#define s1(x)                                   \
+    (                                           \
+        vxor(                                   \
+            vsrli_epi32(x, 10),                 \
+            vxor(                               \
+                vroti_epi32(x, -17),            \
+                vroti_epi32(x, -19)             \
+                )                               \
+            )                                   \
+        )
 
 #define Maj(x,y,z) vcmov(x, y, vxor(z, y))
 
 #define Ch(x,y,z) vcmov(y, z, x)
 
-#define R(t)                                                              \
-{                                                                         \
-    w[t] = vadd_epi32(s1(w[t -  2]), w[t - 7]);                       \
-    w[t] = vadd_epi32(s0(w[t - 15]), w[t]);                           \
-    w[t] = vadd_epi32(   w[t - 16],  w[t]);                           \
-}
+#define R(t)                                        \
+    {                                               \
+        w[t] = vadd_epi32(s1(w[t -  2]), w[t - 7]); \
+        w[t] = vadd_epi32(s0(w[t - 15]), w[t]);     \
+        w[t] = vadd_epi32(   w[t - 16],  w[t]);     \
+    }
 
-#define SHA256_STEP(a,b,c,d,e,f,g,h,x,K)                                  \
-{                                                                         \
-    if (x > 15) R(x);                                                     \
-    tmp1 = vadd_epi32(h,    S1(e));                                   \
-    tmp1 = vadd_epi32(tmp1, Ch(e,f,g));                               \
-    tmp1 = vadd_epi32(tmp1, vset1_epi32(K));                       \
-    tmp1 = vadd_epi32(tmp1, w[x]);                                    \
-    tmp2 = vadd_epi32(S0(a),Maj(a,b,c));                              \
-    d    = vadd_epi32(tmp1, d);                                       \
-    h    = vadd_epi32(tmp1, tmp2);                                    \
-}
+#define SHA256_STEP(a,b,c,d,e,f,g,h,x,K)            \
+    {                                               \
+        if (x > 15) R(x);                           \
+        tmp1 = vadd_epi32(h,    S1(e));             \
+        tmp1 = vadd_epi32(tmp1, Ch(e,f,g));         \
+        tmp1 = vadd_epi32(tmp1, vset1_epi32(K));    \
+        tmp1 = vadd_epi32(tmp1, w[x]);              \
+        tmp2 = vadd_epi32(S0(a),Maj(a,b,c));        \
+        d    = vadd_epi32(tmp1, d);                 \
+        h    = vadd_epi32(tmp1, tmp2);              \
+    }
 
 static uint32_t (*saved_key)[64];
 static uint32_t *crypt_key[ 8];
@@ -461,4 +465,4 @@ struct fmt_main fmt_rawSHA256_ng = {
 
 #endif /* plugin stanza */
 
-#endif /* __SSE2__ */
+#endif /* SIMD_COEF_32 */

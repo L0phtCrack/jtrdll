@@ -5,8 +5,8 @@
 */
 #ifndef _PHPASS_H
 #define _PHPASS_H
-#include "common.h"
 
+#include"common.h"
 #include"john_stdint.h"
 
 #define ROTATE_LEFT(x, s) 		((x << s) | (x >> (32 - s)))

@@ -34,8 +34,7 @@ john_register_one(&fmt_sapB);
 #define FORMAT_NAME			"SAP CODVN B (BCODE)"
 
 #ifdef SIMD_COEF_32
-#define NBKEYS				(SIMD_COEF_32 * MD5_SSE_PARA)
-#define DO_MMX_MD5(in, out)		SSEmd5body(in, (unsigned int*)out, NULL, SSEi_MIXED_IN)
+#define NBKEYS				(SIMD_COEF_32 * SIMD_PARA_MD5)
 #endif
 #include "sse-intrinsics.h"
 #define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME
@@ -44,9 +43,13 @@ john_register_one(&fmt_sapB);
 #include <omp.h>
 static unsigned int omp_t = 1;
 #ifdef SIMD_COEF_32
+#ifndef OMP_SCALE
 #define OMP_SCALE			512	// tuned on K8-dual HT.
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE			2048
+#endif
 #endif
 #endif
 
@@ -68,8 +71,8 @@ static unsigned int omp_t = 1;
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*16*SIMD_COEF_32*4 )
-#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*16*SIMD_COEF_32)
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32*4 )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32)
 #else
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
@@ -281,9 +284,9 @@ static int cmp_all(void *binary, int count) {
 	unsigned int x,y=0;
 
 #ifdef _OPENMP
-	for(;y<MD5_SSE_PARA*omp_t;y++)
+	for(;y<SIMD_PARA_MD5*omp_t;y++)
 #else
-	for(;y<MD5_SSE_PARA;y++)
+	for(;y<SIMD_PARA_MD5;y++)
 #endif
 		for(x = 0; x < SIMD_COEF_32; x++)
 		{
@@ -310,7 +313,7 @@ static int cmp_one(void * binary, int index)
 #ifdef SIMD_COEF_32
 	unsigned int i,x,y;
 	x = index&(SIMD_COEF_32-1);
-	y = index/SIMD_COEF_32;
+	y = (unsigned int)index/SIMD_COEF_32;
 	for(i=0;i<(BINARY_SIZE/4);i++)
 		if ( ((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[y*SIMD_COEF_32*4+i*SIMD_COEF_32+x] )
 			return 0;
@@ -506,7 +509,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 					cur_salt->s[i];
 
 			saved_key[GETPOS((len + i), ti)] = 0x80;
-			((unsigned int *)saved_key)[14*SIMD_COEF_32 + (ti&3) + (ti>>2)*16*SIMD_COEF_32] = (len + i) << 3;
+			((unsigned int *)saved_key)[14*SIMD_COEF_32 + (ti&(SIMD_COEF_32-1)) + (unsigned int)ti/SIMD_COEF_32*16*SIMD_COEF_32] = (len + i) << 3;
 
 			// Clean rest of buffer
 			for (i = i + len + 1; i <= clean_pos[ti]; i++)
@@ -514,9 +517,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			clean_pos[ti] = len + cur_salt->l;
 		}
 
-		DO_MMX_MD5(&saved_key[t*NBKEYS*64], &crypt_key[t*NBKEYS*16]);
+		SSEmd5body(&saved_key[t*NBKEYS*64],
+		           (unsigned int*)&crypt_key[t*NBKEYS*16], NULL, SSEi_MIXED_IN);
 
-		for (i = 0; i < MD5_SSE_PARA; i++)
+		for (i = 0; i < SIMD_PARA_MD5; i++)
 			memset(&interm_key[t*64*NBKEYS+i*64*SIMD_COEF_32+32*SIMD_COEF_32], 0, 32*SIMD_COEF_32);
 
 		for (index = 0; index < NBKEYS; index++) {
@@ -540,10 +544,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			for (i = 0;i <= sum20; i += 4, dw += SIMD_COEF_32)
 				*dw = destArray[i >> 2];
 
-			((unsigned int *)interm_key)[14*SIMD_COEF_32 + (ti&3) + (ti>>2)*16*SIMD_COEF_32] = sum20 << 3;
+			((unsigned int *)interm_key)[14*SIMD_COEF_32 + (ti&(SIMD_COEF_32-1)) + (unsigned int)ti/SIMD_COEF_32*16*SIMD_COEF_32] = sum20 << 3;
 		}
 
-		DO_MMX_MD5(&interm_key[t*NBKEYS*64], &crypt_key[t*NBKEYS*16]);
+		SSEmd5body(&interm_key[t*NBKEYS*64],
+		           (unsigned int*)&crypt_key[t*NBKEYS*16], NULL, SSEi_MIXED_IN);
 
 		for (index = 0; index < NBKEYS; index++) {
 			*(ARCH_WORD_32*)&crypt_key[GETOUTPOS(0, ti)] ^= *(ARCH_WORD_32*)&crypt_key[GETOUTPOS(8, ti)];
@@ -664,7 +669,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 }
 
 #ifdef SIMD_COEF_32
-#define HASH_OFFSET (index&(SIMD_COEF_32-1))+(index/SIMD_COEF_32)*SIMD_COEF_32*4
+#define HASH_OFFSET (index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*4
 static int get_hash_0(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xf; }
 static int get_hash_1(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xff; }
 static int get_hash_2(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xfff; }

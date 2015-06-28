@@ -279,7 +279,8 @@ static void set_key(char *key, int index)
 		ptr -= 8;
 		for (word = 0; word < 2; word++)
 		for (pos = 0; pos < 4; pos++)
-			block[word] ^= (ARCH_WORD)*ptr++ << (1 + (pos << 3));
+			block[word] ^= (unsigned ARCH_WORD)(unsigned char)
+			    *ptr++ << (1 + (pos << 3));
 
 #if !DES_BS
 		if (current_salt)
@@ -394,6 +395,14 @@ static int cmp_exact(char *source, int index)
 
 #endif
 
+
+#if FMT_MAIN_VERSION > 11
+static unsigned int iteration_count(void *salt)
+{
+	return (unsigned int) ((ARCH_WORD *)salt)[1];
+}
+#endif
+
 struct fmt_main fmt_BSDI = {
 	{
 		FORMAT_LABEL,
@@ -418,7 +427,9 @@ struct fmt_main fmt_BSDI = {
 		FMT_CASE,
 #endif
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			"iteration count",
+		},
 #endif
 		tests
 	}, {
@@ -436,7 +447,9 @@ struct fmt_main fmt_BSDI = {
 #endif
 		salt,
 #if FMT_MAIN_VERSION > 11
-		{ NULL },
+		{
+			iteration_count,
+		},
 #endif
 		fmt_default_source,
 		{

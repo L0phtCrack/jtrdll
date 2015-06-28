@@ -14,6 +14,11 @@
  * within dynamic.  This is the FIRST format that is hybrid fat-thin.
  */
 
+#if AC_BUILT
+#include "autoconfig.h"
+#endif
+#ifndef DYNAMIC_DISABLED
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_netmd5;
 #elif FMT_REGISTERS_H
@@ -23,10 +28,11 @@ john_register_one(&fmt_netmd5);
 #include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE 2048 // XXX
 #endif
+#endif
 
-#include "arch.h"
 #include "formats.h"
 #include "dynamic.h"
 #include "md5.h"
@@ -159,7 +165,7 @@ static void *get_salt(char *ciphertext)
 
 	if (len < 230) {
 		// return our memset buffer (putting the dyna salt pointer into it).
-		// This keeps teh 'pre-cleaned salt() warning from hitting this format)
+		// This keeps the 'pre-cleaned salt() warning from hitting this format)
 		//return pDynamicFmt->methods.salt(Convert(Conv_Buf, orig_ct));
 		memcpy((char*)cs, pDynamicFmt->methods.salt(Convert(Conv_Buf, orig_ct)), pDynamicFmt->params.salt_size);
 		dyna_salt_seen=1;
@@ -386,3 +392,5 @@ static void done(void)
 }
 
 #endif /* plugin stanza */
+
+#endif /* DYNAMIC_DISABLED */

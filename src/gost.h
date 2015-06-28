@@ -136,8 +136,7 @@ static inline uint64_t _JtR_Swap_64(uint64_t x) {
 #define gost_hash_length 32
 
 /* algorithm context */
-typedef struct gost_ctx
-{
+typedef struct gost_ctx {
 	unsigned hash[8];  /* algorithm 256-bit state */
 	unsigned sum[8];   /* sum of processed message blocks */
 	unsigned char message[gost_block_size]; /* 256-bit buffer for leftovers */
@@ -145,12 +144,23 @@ typedef struct gost_ctx
 	unsigned cryptpro; /* boolean flag, the type of sbox to use */
 } gost_ctx;
 
+typedef struct gost_hmac_ctx {
+	unsigned char ipad[32];
+	unsigned char opad[32];
+	gost_ctx ctx;
+} gost_hmac_ctx;
+
 /* hash functions */
 
 void john_gost_init(gost_ctx *ctx);
 void john_gost_cryptopro_init(gost_ctx *ctx);
 void john_gost_update(gost_ctx *ctx, const unsigned char* msg, size_t size);
 void john_gost_final(gost_ctx *ctx, unsigned char result[32]);
+
+void john_gost_hmac_starts( gost_hmac_ctx *ctx, const unsigned char *key, size_t keylen );
+void john_gost_hmac_update( gost_hmac_ctx *ctx, const unsigned char *input, size_t ilen );
+void john_gost_hmac_finish( gost_hmac_ctx *ctx, unsigned char *output );
+void john_gost_hmac( const unsigned char *key, size_t keylen, const unsigned char *input, size_t ilen, unsigned char *output );
 
 void gost_init_table(void); /* initialize algorithm static data */
 

@@ -32,8 +32,14 @@ static int omp_t = 1;
 // 256 - 2204k *** set to this level
 // 512 - 2203k
 // 1k  - 2124k 
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE  8
+#else
 #define OMP_SCALE  256
-#endif
+#endif // __MIC__
+#endif // OMP_SCALE
+#endif // _OPENMP
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"Panama"
@@ -148,7 +154,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

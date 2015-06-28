@@ -32,7 +32,9 @@ john_register_one(&fmt_sybaseprop);
 
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE           2048 // xxx
+#endif
 static int omp_t = 1;
 #endif
 
@@ -168,7 +170,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index++)
 #endif
 	{
-		int g_seed = 0x3f;
+		unsigned int g_seed = 0x3f;
 		struct JtR_FEAL8_CTX ctx;
 		generate_hash((unsigned char*)saved_key[index], saved_salt,
 				(unsigned char*)crypt_out[index], &g_seed, &ctx);
@@ -180,7 +182,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

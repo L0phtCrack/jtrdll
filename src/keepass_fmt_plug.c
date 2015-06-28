@@ -35,7 +35,9 @@ john_register_one(&fmt_KeePass);
 #include "twofish.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1
+#endif
 #endif
 #include "memdbg.h"
 
@@ -44,12 +46,17 @@ john_register_one(&fmt_KeePass);
 #define ALGORITHM_NAME		"SHA256 AES 32/" ARCH_BITS_STR " " SHA2_LIB
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	32
+#define PLAINTEXT_LENGTH	125
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		MEM_ALIGN_NONE
 #define SALT_SIZE		sizeof(struct custom_salt)
-// salt align of 4 was crashing on sparc.  Probably due to the long long value.
+#if ARCH_ALLOWS_UNALIGNED
+// Avoid a compiler bug, see #1284
+#define SALT_ALIGN		1
+#else
+// salt align of 4 was crashing on sparc due to the long long value.
 #define SALT_ALIGN		sizeof(long long)
+#endif
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 
@@ -70,8 +77,8 @@ static int any_cracked, *cracked;
 static size_t cracked_size;
 
 static struct custom_salt {
-	int version;
 	long long offset;
+	int version;
 	int isinline;
 	int keyfilesize;
 	int have_keyfile;
@@ -252,16 +259,21 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			fprintf(stderr, "See https://github.com/magnumripper/JohnTheRipper/issues/1026\n");
 			error();
 		}
-		if ((p = strtokm(NULL, "*")) == NULL)	/* content size */
-			goto err;
-		contentsize = atoi(p);
-		if ((p = strtokm(NULL, "*")) == NULL)	/* content */
-			goto err;
-		res = strlen(p);
-		if (res != contentsize * 2)
-			goto err;
-		if (!ishex(p))
-			goto err;
+		if (res == 1) {
+			if ((p = strtokm(NULL, "*")) == NULL)	/* content size */
+				goto err;
+			contentsize = atoi(p);
+			if ((p = strtokm(NULL, "*")) == NULL)	/* content */
+				goto err;
+			res = strlen(p);
+			if (res != contentsize * 2)
+				goto err;
+			if (!ishex(p))
+				goto err;
+			p = strtokm(NULL, "*");
+			if (p)
+				goto err;
+		}
 		p = strtokm(NULL, "*");
 		if (p) {
 			// keyfile handling

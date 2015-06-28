@@ -18,7 +18,9 @@ john_register_one(&fmt_hmacSHA1);
 
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE 2048 // tuned for i7 using SSE2 and w/o HT
+#endif
 #endif
 
 #include "misc.h"
@@ -33,7 +35,7 @@ john_register_one(&fmt_hmacSHA1);
 #define FORMAT_NAME             ""
 
 #ifdef SIMD_COEF_32
-#define SHA1_N                  (SHA1_SSE_PARA * SIMD_COEF_32)
+#define SHA1_N                  (SIMD_PARA_SHA1 * SIMD_COEF_32)
 #endif
 
 #define ALGORITHM_NAME          "password is key, SHA1 " SHA1_ALGORITHM_NAME
@@ -55,7 +57,7 @@ john_register_one(&fmt_hmacSHA1);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      SHA1_N
 #define MAX_KEYS_PER_CRYPT      SHA1_N
-#define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32 + (3 - ((i) & 3)) + (index >> (SIMD_COEF_32 >> 1)) * SHA_BUF_SIZ * 4 * SIMD_COEF_32)
+#define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32 + (3 - ((i) & 3)) + index/SIMD_COEF_32 * SHA_BUF_SIZ * 4 * SIMD_COEF_32)
 
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -75,7 +77,7 @@ static struct fmt_tests tests[] = {
 static unsigned char *crypt_key;
 static unsigned char *ipad, *prep_ipad;
 static unsigned char *opad, *prep_opad;
-JTR_ALIGN(16) unsigned char cur_salt[SHA_BUF_SIZ * 4 * SHA1_N];
+JTR_ALIGN(MEM_ALIGN_SIMD) unsigned char cur_salt[SHA_BUF_SIZ * 4 * SHA1_N];
 static int bufsize;
 #else
 static unsigned char cur_salt[SALT_LENGTH];
@@ -124,7 +126,7 @@ static void init(struct fmt_main *self)
 	                             sizeof(*prep_opad), MEM_ALIGN_SIMD);
 	for (i = 0; i < self->params.max_keys_per_crypt; ++i) {
 		crypt_key[GETPOS(BINARY_SIZE, i)] = 0x80;
-		((unsigned int*)crypt_key)[15 * SIMD_COEF_32 + (i & 3) + (i >> 2) * SHA_BUF_SIZ * SIMD_COEF_32] = (BINARY_SIZE + 64) << 3;
+		((unsigned int*)crypt_key)[15 * SIMD_COEF_32 + (i&(SIMD_COEF_32-1)) + i/SIMD_COEF_32 * SHA_BUF_SIZ * SIMD_COEF_32] = (BINARY_SIZE + 64) << 3;
 	}
 	clear_keys();
 #else
@@ -289,7 +291,7 @@ static int cmp_all(void *binary, int count)
 #ifdef SIMD_COEF_32
 	unsigned int x, y = 0;
 
-	for(; y < (count + SIMD_COEF_32 - 1) / SIMD_COEF_32; y++)
+	for(; y < (unsigned int)(count + SIMD_COEF_32 - 1) / SIMD_COEF_32; y++)
 		for(x = 0; x < SIMD_COEF_32; x++)
 		{
 			// NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_32)
@@ -315,7 +317,7 @@ static int cmp_one(void *binary, int index)
 	int i;
 	for(i = 0; i < (BINARY_SIZE/4); i++)
 		// NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_32)
-		if (((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[i * SIMD_COEF_32 + (index & 3) + (index >> 2) * SHA_BUF_SIZ * SIMD_COEF_32])
+		if (((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + index/SIMD_COEF_32 * SHA_BUF_SIZ * SIMD_COEF_32])
 			return 0;
 	return 1;
 #else
@@ -426,7 +428,7 @@ static void *get_salt(char *ciphertext)
 		for (i = 0; i < SHA1_N; ++i)
 			cur_salt[GETPOS(j, i)] = 0;
 	for (i = 0; i < SHA1_N; ++i)
-		((unsigned int*)cur_salt)[15 * SIMD_COEF_32 + (i & 3) + (i >> 2) * SHA_BUF_SIZ * SIMD_COEF_32] = (total_len + 64) << 3;
+		((unsigned int*)cur_salt)[15 * SIMD_COEF_32 + (i&(SIMD_COEF_32-1)) + i/SIMD_COEF_32 * SHA_BUF_SIZ * SIMD_COEF_32] = (total_len + 64) << 3;
 	return cur_salt;
 #else
 	return salt;
@@ -435,7 +437,7 @@ static void *get_salt(char *ciphertext)
 
 #ifdef SIMD_COEF_32
 // NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_32)
-#define HASH_OFFSET (index & (SIMD_COEF_32 - 1)) + (index / SIMD_COEF_32) * SIMD_COEF_32 * SHA_BUF_SIZ
+#define HASH_OFFSET (index & (SIMD_COEF_32 - 1)) + ((unsigned int)index / SIMD_COEF_32) * SIMD_COEF_32 * SHA_BUF_SIZ
 static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xf; }
 static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xff; }
 static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xfff; }

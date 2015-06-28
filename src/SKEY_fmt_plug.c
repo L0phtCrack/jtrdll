@@ -98,38 +98,40 @@ static void *skey_salt(char *ciphertext);
 static int
 skey_valid(char *ciphertext, struct fmt_main *self)
 {
-	char *p, *q, buf[24];
+	char *p, buf[128];
 
 	if (*ciphertext == '#')
-		return (0);
+		return 0;
 
 	strnzcpy(buf, ciphertext, sizeof(buf));
 
-	if ((p = strchr(buf, ' ')) == NULL)
-		return (0);
-	*p++ = '\0';
+	if ((p = strtok(buf, " \t")) == NULL)
+		return 0;
 
-	if (isalpha((unsigned char)(*buf))) {
-		if (skey_set_algorithm(buf) == NULL ||
-		    (q = strchr(p, ' ')) == NULL)
-			return (0);
-		*q = '\0';
+	if (isalpha((unsigned char)(*p))) {
+		if (skey_set_algorithm(p) == NULL)
+			return 0;
+		if ((p = strtok(NULL, " \t")) == NULL)
+			return 0;
 	}
-	else p = buf;
 
 	for ( ; *p; p++) {
 		if (!isdigit( ((unsigned char)(*p))))
-			return (0);
+			return 0;
 	}
-
-	p = strrchr(ciphertext, ' ');
-	if (hexlen(++p) != (2 * SKEY_BINKEY_SIZE))
+	if ((p = strtok(NULL, " \t")) == NULL)
+		return 0;
+	if (strlen(p) > SKEY_MAX_SEED_LEN)
+		return 0;
+	if ((p = strtok(NULL, " \t")) == NULL)
+		return 0;
+	if (hexlen(p) != (2 * SKEY_BINKEY_SIZE))
 		return 0;
 
 	if (!skey_salt(ciphertext))
 		return 0;
 
-	return (1);
+	return 1;
 }
 
 static int
@@ -159,7 +161,7 @@ hex_decode(char *src, unsigned char *dst, int outsize)
 }
 
 // Since our test strings have 1 space as first delim, and 2 spaces as 2nd
-// delim, then it is NOT equivelant to use strtokm() vs strtok.
+// delim, then it is NOT equivalent to use strtokm() vs strtok.
 static void *
 skey_salt(char *ciphertext)
 {
@@ -191,24 +193,26 @@ skey_salt(char *ciphertext)
 }
 
 // Since our test strings have 1 space as first delim, and 2 spaces as 2nd
-// delim, then it is NOT equivelant to use strtokm() vs strtok.
+// delim, then it is NOT equivalent to use strtokm() vs strtok.
 static void *get_binary(char *ciphertext)
 {
 	static unsigned char *realcipher;
-	char buf[128], *p;
+	char *ctcopy, *p;
 
 	if (!realcipher)
 		realcipher = mem_alloc_tiny(SKEY_BINKEY_SIZE, MEM_ALIGN_WORD);
-	strnzcpy(buf, ciphertext, sizeof(buf));
+	ctcopy = strdup(ciphertext);
+	p = strtok(ctcopy, " \t");
 
-	p = strtok(buf, " \t");
 	if (isalpha((unsigned char)(*p)))
 		strtok(NULL, " \t");
 	strtok(NULL, " \t");
 	p = strtok(NULL, " \t");
+
 	memset(realcipher, 0, SKEY_BINKEY_SIZE);
 	hex_decode(p, realcipher,SKEY_BINKEY_SIZE);
 
+	MEM_FREE(ctcopy);
 	return realcipher;
 }
 

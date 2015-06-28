@@ -49,7 +49,9 @@ john_register_one(&fmt_django);
 #include "pbkdf2_hmac_sha256.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               4 // tuned on core i7
+#endif
 static int omp_t = 1;
 #endif
 #include "memdbg.h"
@@ -133,7 +135,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (strlen(p)  > SALT_SIZE)
+	if (strlen(p)  > sizeof(cur_salt->salt)-1)
 		goto err;
 	if ((p = strtokm(NULL, "")) == NULL)	/* hash */
 		goto err;
@@ -159,9 +161,7 @@ static void *get_salt(char *ciphertext)
 	ctcopy += 9;	/* skip over "$django$*" */
 	p = strtokm(ctcopy, "*");
 	cs.type = atoi(p);
-	p = strtokm(NULL, "*");
-	/* break up 'p' */
-	strtokm(p, "$");
+	strtokm(NULL, "$");
 	t = strtokm(NULL, "$");
 	cs.iterations = atoi(t);
 	t = strtokm(NULL, "$");
@@ -241,7 +241,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

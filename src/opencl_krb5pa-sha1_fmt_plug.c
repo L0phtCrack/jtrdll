@@ -78,9 +78,6 @@ john_register_one(&fmt_opencl_krb5pa_sha1);
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 
-#define MIN(a, b)		(((a) > (b)) ? (b) : (a))
-#define MAX(a, b)		(((a) > (b)) ? (a) : (b))
-
 /* This handles all sizes */
 #define GETPOS(i, index)	(((index) % v_width) * 4 + ((i) & ~3U) * v_width + (((i) & 3) ^ 3) + ((index) / v_width) * 64 * v_width)
 /* This is faster but can't handle size 3 */
@@ -212,18 +209,20 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clEnqueueUnmapMemObject(queue[gpu_id], pinned_in, inbuffer, 0, NULL, NULL), "Error Unmapping mem in");
-	HANDLE_CLERROR(clEnqueueUnmapMemObject(queue[gpu_id], pinned_out, output, 0, NULL, NULL), "Error Unmapping mem in");
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error releasing memory mappings");
+	if (crypt_out) {
+		HANDLE_CLERROR(clEnqueueUnmapMemObject(queue[gpu_id], pinned_in, inbuffer, 0, NULL, NULL), "Error Unmapping mem in");
+		HANDLE_CLERROR(clEnqueueUnmapMemObject(queue[gpu_id], pinned_out, output, 0, NULL, NULL), "Error Unmapping mem in");
+		HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error releasing memory mappings");
 
-	HANDLE_CLERROR(clReleaseMemObject(pinned_in), "Release pinned_in");
-	HANDLE_CLERROR(clReleaseMemObject(pinned_out), "Release pinned_out");
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release pinned_in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem_out");
-	HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem_salt");
-	HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
+		HANDLE_CLERROR(clReleaseMemObject(pinned_in), "Release pinned_in");
+		HANDLE_CLERROR(clReleaseMemObject(pinned_out), "Release pinned_out");
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release pinned_in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem_out");
+		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem_salt");
+		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
 
-	MEM_FREE(crypt_out);
+		MEM_FREE(crypt_out);
+	}
 }
 
 static void done(void)
@@ -462,6 +461,7 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += 8;
 	p = strtokm(ctcopy, "$");
 	cs.etype = atoi(p);
@@ -782,7 +782,7 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
 	scalar_gws = global_work_size * v_width;
 
 #if 0
-	fprintf(stderr, "%s(%d) lws %zu gws %zu sgws %zu kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
+	fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kpc %d/%d\n", __FUNCTION__, *pcount, local_work_size, global_work_size, scalar_gws, me->params.min_keys_per_crypt, me->params.max_keys_per_crypt);
 #endif
 
 	/// Copy data to gpu
@@ -806,7 +806,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

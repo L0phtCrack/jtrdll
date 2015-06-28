@@ -29,14 +29,16 @@ john_register_one(&fmt_keychain);
 #include <openssl/des.h>
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"keychain"
 #define FORMAT_NAME		"Mac OS X Keychain"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME		"PBKDF2-SHA1 3DES 32/" ARCH_BITS_STR
 #endif

@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2001,2003,2004,2006,2008-2012 by Solar Designer
+ * Copyright (c) 1996-2001,2003,2004,2006,2008-2012,2015 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JimF and magnum
  *
@@ -11,22 +11,15 @@
  */
 
 #define _BSD_SOURCE /* for setenv() */
+#define _DEFAULT_SOURCE 1 /* for setenv() */
 
 #if defined (__MINGW32__) || defined (_MSC_VER)
 #define SIGALRM SIGFPE
 #endif
 
-#ifdef __ultrix__
-#define __POSIX
-#define _POSIX_SOURCE
-#endif
-
 #define NEED_OS_TIMER
 #include "os.h"
 
-#ifdef _SCO_C_DIALECT
-#include <limits.h>
-#endif
 #include <stdio.h>
 #if (!AC_BUILT || HAVE_UNISTD_H) && !_MSC_VER
 #include <unistd.h>
@@ -34,6 +27,7 @@
 #include <string.h>
 #include <signal.h>
 #include <time.h>
+#include <assert.h>
 #if HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -71,8 +65,10 @@
 #endif /* _OPENMP */
 #include "memdbg.h"
 
+#ifndef BENCH_BUILD
 #if FMT_MAIN_VERSION > 11
 static char cost_msg[128 * FMT_TUNABLE_COSTS];
+#endif
 #endif
 
 long clk_tck = 0;
@@ -144,7 +140,7 @@ static void bench_set_keys(struct fmt_main *format,
 		format->methods.set_key(plaintext, index);
 	}
 }
-
+#ifndef BENCH_BUILD
 #if FMT_MAIN_VERSION > 11
 static unsigned int get_cost(struct fmt_main *format, int index, int cost_idx)
 {
@@ -163,6 +159,7 @@ static unsigned int get_cost(struct fmt_main *format, int index, int cost_idx)
 	dyna_salt_remove(salt);
 	return value;
 }
+#endif
 #endif
 
 char *benchmark_format(struct fmt_main *format, int salts,
@@ -188,15 +185,19 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	char *ciphertext;
 	void *salt, *two_salts[2];
 	int index, max, i;
+#ifndef BENCH_BUILD
 #if FMT_MAIN_VERSION > 11
 	unsigned int t_cost[2][FMT_TUNABLE_COSTS];
 	int ntests, pruned;
 #endif
+#endif
 	clk_tck_init();
 
-	if (!(current = format->params.tests)) return "FAILED (no data)";
+	if (!(current = format->params.tests) || !current->ciphertext)
+		return "FAILED (no data)";
 
 #if FMT_MAIN_VERSION > 11
+#ifndef BENCH_BUILD
 	dyna_salt_init(format);
 
 	pruned = 0;
@@ -236,7 +237,9 @@ char *benchmark_format(struct fmt_main *format, int salts,
 		return s_error;
 	}
 #endif
-	if (!(current = format->params.tests)) return "FAILED (no data)";
+	if (!(current = format->params.tests) || !current->ciphertext)
+		return "FAILED (no data)";
+#endif
 	if ((where = fmt_self_test(format))) {
 		sprintf(s_error, "FAILED (%s)\n", where);
 		return s_error;
@@ -263,19 +266,28 @@ char *benchmark_format(struct fmt_main *format, int salts,
 			    format->methods.prepare(fields, format), 0, format);
 			salt = format->methods.salt(ciphertext);
 			dyna_salt_create(salt);
-		} else
+		} else {
+			assert(index > 0);
+/* If we have exactly one test vector, reuse its salt in two_salts[1] */
 			salt = two_salts[0];
+		}
 
-		memcpy(two_salts[index], salt, format->params.salt_size);
+/* mem_alloc()'ed two_salts[index] may be NULL if salt_size is 0 */
+		if (format->params.salt_size)
+			memcpy(two_salts[index], salt,
+			    format->params.salt_size);
+#ifndef BENCH_BUILD
 #if FMT_MAIN_VERSION > 11
 		for (i = 0; i < FMT_TUNABLE_COSTS &&
 		     format->methods.tunable_cost_value[i] != NULL; i++)
 			t_cost[index][i] =
 				format->methods.tunable_cost_value[i](salt);
 #endif
+#endif
 	}
 	format->methods.set_salt(two_salts[0]);
 
+#ifndef BENCH_BUILD
 #if FMT_MAIN_VERSION > 11
 	*cost_msg = 0;
 	for (i = 0; i < FMT_TUNABLE_COSTS &&
@@ -297,6 +309,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 			strcat(cost_msg, ", ");
 		strcat(cost_msg, msg);
 	}
+#endif
 #endif
 
 /* Smashed passwords: -1001 turns into -1 and -1000 turns into 0, and
@@ -437,20 +450,20 @@ void benchmark_cps(int64 *crypts, clock_t time, char *buffer)
 	cps /= time;
 
 	if (cps >= 1000000000000ULL)
-		sprintf(buffer, "%lluG", cps / 1000000000ULL);
+		sprintf(buffer, ""LLu"G", cps / 1000000000ULL);
 	if (cps >= 1000000000)
-		sprintf(buffer, "%lluM", cps / 1000000);
+		sprintf(buffer, ""LLu"M", cps / 1000000);
 	else
 	if (cps >= 1000000)
-		sprintf(buffer, "%lluK", cps / 1000);
+		sprintf(buffer, ""LLu"K", cps / 1000);
 	else
 	if (cps >= 100)
-		sprintf(buffer, "%llu", cps);
+		sprintf(buffer, ""LLu"", cps);
 	else {
 		cps = ((unsigned long long)crypts->hi << 32) + crypts->lo;
 		cps *= clk_tck * 10;
 		cps /= time;
-		sprintf(buffer, "%llu.%llu", cps / 10, cps % 10);
+		sprintf(buffer, ""LLu"."LLu"", cps / 10, cps % 10);
 	}
 }
 
@@ -697,9 +710,11 @@ AGAIN:
 #endif
 
 #if FMT_MAIN_VERSION > 11
+#ifndef BENCH_BUILD
 		if (john_main_process && benchmark_time &&
 		    *cost_msg && options.verbosity >= 3)
 			puts(cost_msg);
+#endif
 #endif
 #ifdef HAVE_MPI
 		if (mpi_p > 1) {

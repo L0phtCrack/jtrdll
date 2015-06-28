@@ -30,6 +30,11 @@
  *
  */
 
+#if AC_BUILT
+#include "autoconfig.h"
+#endif
+#ifndef DYNAMIC_DISABLED
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_PHPS;
 #elif FMT_REGISTERS_H
@@ -141,7 +146,11 @@ static int phps_valid(char *ciphertext, struct fmt_main *self)
 	i = strlen(ciphertext);
 
 	if (i != CIPHERTEXT_LENGTH) {
-		return pDynamic_6->methods.valid(ciphertext, pDynamic_6);
+		int val = pDynamic_6->methods.valid(ciphertext, pDynamic_6);
+		char *cp;
+		if (!val) return 0;
+		cp = strrchr(ciphertext, '$');
+		return cp && strlen(cp)==3;
 	}
 
 	if (strncmp(ciphertext, "$PHPS$", 6) != 0)
@@ -230,3 +239,5 @@ static void get_ptr() {
  */
 
 #endif /* plugin stanza */
+
+#endif /* DYNAMIC_DISABLED */

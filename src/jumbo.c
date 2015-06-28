@@ -212,7 +212,7 @@ int fseeko64 (FILE* fp, int64_t offset, int whence) {
 		/* I could find no _filelengthi64, _filelength64, etc. */
 		GetFileSizeEx((HANDLE)_get_osfhandle(fileno(fp)), (PLARGE_INTEGER)&size);
 		pos = (fpos_t) (size + offset);
-		//fprintf(stderr, "size = %lld\n", size);
+		//fprintf(stderr, "size = "LLd"\n", size);
 	}
 	else if (whence == SEEK_SET)
 		pos = (fpos_t) offset;
@@ -318,7 +318,7 @@ char *strupr(char *s)
 #if NEED_ATOLL_NATIVE
 long long atoll(const char *s) {
 	long long l;
-	sscanf(s, "%lld", &l);
+	sscanf(s, LLd, &l);
 	return l;
 }
 #endif
@@ -365,5 +365,43 @@ size_t strnlen(const char *s, size_t max) {
 	while(*p && max--)
 		++p;
 	return(p - s);
+}
+#endif
+
+#if AC_BUILT && !HAVE_STRCASESTR
+/* not optimal, but good enough for how we use it */
+char *strcasestr(const char *haystack, const char *needle) {
+	const char *H = haystack;
+	const char *N = needle;
+	const char *fnd = 0;
+	while (*N && *H) {
+		if (*N == *H) {
+			if (!fnd) fnd = H;
+			++N;
+			++H;
+			continue;
+		}
+		if (islower(*N)) {
+			if (*N == tolower(*H)) {
+				if (!fnd) fnd = H;
+				++N;
+				++H;
+				continue;
+			}
+		} else if (isupper(*N)) {
+			if (*N == toupper(*H)) {
+				if (!fnd) fnd = H;
+				++N;
+				++H;
+				continue;
+			}
+		}
+		N = needle;
+		++H;
+		fnd = 0;
+	}
+	if (*N)
+		fnd = 0;
+	return (char*)fnd;
 }
 #endif

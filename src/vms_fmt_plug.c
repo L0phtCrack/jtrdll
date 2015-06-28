@@ -12,6 +12,11 @@
  *    Redistribution and use in source and binary forms, with or without
  *    modifications, are permitted. */
 
+#if !AC_BUILT
+#if __GNUC__ && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define ARCH_LITTLE_ENDIAN 1
+#endif
+#endif
 #if FMT_EXTERNS_H
 #if ARCH_LITTLE_ENDIAN
 extern struct fmt_main fmt_VMS;
@@ -32,7 +37,9 @@ john_register_one(&fmt_VMS);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1024 // Tuned on K8-Dual HT
+#endif
 #endif
 #include "memdbg.h"
 #ifndef UAI$M_PWDMIX
@@ -147,7 +154,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }
@@ -242,7 +249,7 @@ struct fmt_main fmt_VMS = {
 		BENCHMARK_COMMENT,		/* .benchmark_comment */
 		BENCHMARK_LENGTH,		/* .benchmark_length (pwd break len) */
 		0,
-		PLAINTEXT_LENGTH,		/* .plaintext_lenght (max) */
+		PLAINTEXT_LENGTH,		/* .plaintext_length (max) */
 		BINARY_SIZE,			/* .binary_size (quadword) */
 		BINARY_ALIGN,
 		SALT_SIZE,			/* .salt_size (word) */

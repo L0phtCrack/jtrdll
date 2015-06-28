@@ -1,5 +1,11 @@
 #if !defined (__Dynamic_Types__H__)
 #define __Dynamic_Types__H__
+
+//#if AC_BUILT
+//#include "autoconfig.h"
+//#endif
+
+#ifndef DYNAMIC_DISABLED
 /*
  * This software was written by Jim Fougeron jfoug AT cox dot net
  * in 2013. No copyright is claimed, and the software is hereby
@@ -98,8 +104,10 @@ typedef struct private_subformat_data
 	int store_keys_normal_but_precompute_md5_to_output2;
 	int store_keys_normal_but_precompute_md5_to_output2_base16_to_input1;
 	int store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32;
+	int store_keys_normal_but_precompute_md5_to_output2_base16_type;
 	int using_flat_buffers_sse2_ok;
 	int dynamic_salt_as_hex;
+	int dynamic_salt_as_hex_format_type;  // 00 is md5, 01 is md4, 02 is sha1, etc. See the flags in dynamic_types.h
 	int force_md5_ctx;
 
 	// This array is for the 2nd salt in the hash.  I know of no hashes with double salts,
@@ -140,204 +148,155 @@ typedef struct private_subformat_data
 #endif
 } private_subformat_data;
 
+#ifndef OMP_SCALE
 #define OMP_SCALE 1
+#endif
+
+// we use 13440 and 1680 for the counts. This should give
+// us proper inter-hash work for all para from 1 to 7,
+// we were at 128 and 6144. These values did not give us
+// equal division for mixes where 3, 5, 6 or 7 (for 128)
+// and 5 or 7 for the 6144 value, if we tried to intermix
+// 2 'types'.  The new values are divisible by 5 and 7
+// we should also test the speed of using 6720
+// That value still gets us all para from 1 to 7
+#define OMP_MAX       13440
+#define NON_OMP_MAX   1680
 
 #ifdef SIMD_COEF_32
-# define MIN_KEYS_PER_CRYPT	1
+# define MIN_KEYS_PER_CRYPT	SIMD_COEF_32
 # ifdef _OPENMP
-// in openMP mode, we multiply everything by 24
-// in openMP mode, we multiply everything by 48
-// Now, we mult by 192x with OMP_SCALE=4
-#  if SIMD_COEF_32 == 4
-#   define BLOCK_LOOPS		(1536*OMP_SCALE)
-#   if !defined MD5_SSE_PARA || MD5_SSE_PARA==1
-#    define BY_X			(1536*OMP_SCALE)
-#   elif MD5_SSE_PARA==2
-#    define BY_X			(768*OMP_SCALE)
-#   elif MD5_SSE_PARA==3
-#    define BY_X			(480*OMP_SCALE)
-#   elif MD5_SSE_PARA==4
-#    define BY_X			(384*OMP_SCALE)
-#   elif MD5_SSE_PARA==5
-#    define BY_X			(288*OMP_SCALE)
-#   elif MD5_SSE_PARA==6
-#    define BY_X			(240*OMP_SCALE)
-#   endif
+#  if SIMD_COEF_32 >= 4
+#   define BLOCK_LOOPS		(OMP_MAX/SIMD_COEF_32*OMP_SCALE)
 #  endif
-#else
-#  if SIMD_COEF_32 == 4
-#   define BLOCK_LOOPS		32
-#   if !defined MD5_SSE_PARA || MD5_SSE_PARA==1
-#    define BY_X			32
-#   elif MD5_SSE_PARA==2
-#    define BY_X			16
-#   elif MD5_SSE_PARA==3
-#    define BY_X			10
-#   elif MD5_SSE_PARA==4
-#    define BY_X			8
-#   elif MD5_SSE_PARA==5
-#    define BY_X			6
-#   elif MD5_SSE_PARA==6
-#    define BY_X			5
-#   endif
-# endif
+# else
+#  if SIMD_COEF_32 >= 4
+#   define BLOCK_LOOPS		(NON_OMP_MAX/SIMD_COEF_32)
+#  endif
 # endif
 # define LOOP_STR
-# if SIMD_COEF_32 == 4
-#  ifdef MD5_SSE_PARA
-#   define ALGORITHM_NAME		"128/128 " MD5_SSE_type  " " STRINGIZE(BY_X) "x4x" STRINGIZE(MD5_SSE_PARA)
-#   define BSD_BLKS (MD5_SSE_PARA)
+# if SIMD_COEF_32 >= 4
+#  if SIMD_COEF_32 == 16
+#   define BITS				"512/512"
+#  elif SIMD_COEF_32 == 8
+#   define BITS				"256/256"
+#  elif SIMD_COEF_32 == 4
+#   define BITS				"128/128"
+#  elif SIMD_COEF_32 == 2
+#   define BITS				"64/64"
+# endif
+#  ifdef SIMD_PARA_MD5
+#   define ALGORITHM_NAME		BITS " " SIMD_TYPE  " " STRINGIZE(SIMD_COEF_32) "x" STRINGIZE(SIMD_PARA_MD5)
+#   define BSD_BLKS (SIMD_PARA_MD5)
 #  else
-#   define ALGORITHM_NAME		"128/128 " MD5_SSE_type  " " STRINGIZE(BY_X) "x4"
+#   define ALGORITHM_NAME		BITS " " SIMD_TYPE  " " STRINGIZE(SIMD_COEF_32)
 #   define BSD_BLKS 1
 #  endif
-#  ifdef SHA1_SSE_PARA
-#   define ALGORITHM_NAME_S		"128/128 " SHA1_SSE_type " " STRINGIZE(BY_X) "x4x" STRINGIZE(SHA1_SSE_PARA)
+#  ifdef SIMD_PARA_SHA1
+#   define ALGORITHM_NAME_S		BITS " " SIMD_TYPE " " STRINGIZE(SIMD_COEF_32) "x" STRINGIZE(SIMD_PARA_SHA1)
 #  else
-#   define ALGORITHM_NAME_S		"128/128 " SHA1_SSE_type " " STRINGIZE(BY_X) "x4"
+#   define ALGORITHM_NAME_S		BITS " " SIMD_TYPE " " STRINGIZE(SIMD_COEF_32)
 #  endif
-#  ifdef MD4_SSE_PARA
-#   define ALGORITHM_NAME_4		"128/128 " MD4_SSE_type  " " STRINGIZE(BY_X) "x4x" STRINGIZE(MD4_SSE_PARA)
+#  ifdef SIMD_PARA_MD4
+#   define ALGORITHM_NAME_4		BITS " " SIMD_TYPE  " " STRINGIZE(SIMD_COEF_32) "x" STRINGIZE(SIMD_PARA_MD4)
 #  else
-#   define ALGORITHM_NAME_4		"128/128 " MD4_SSE_type  " " STRINGIZE(BY_X) "x4"
+#   define ALGORITHM_NAME_4		BITS " " SIMD_TYPE  " " STRINGIZE(SIMD_COEF_32)
 #  endif
 #  define PLAINTEXT_LENGTH	(27*3+1) // for worst-case UTF-8
-#  ifdef MD5_SSE_PARA
+#  ifdef SIMD_PARA_MD5
 // gives us 16 'loops' for para=2 and 10 loops for para==3 (or max of 128 for 2 and 120 for 3)
-#   define MAX_KEYS_PER_CRYPT	(((SIMD_COEF_32*BLOCK_LOOPS)/(MD5_SSE_PARA*4))*(MD5_SSE_PARA*4))
+#   define MAX_KEYS_PER_CRYPT	(((SIMD_COEF_32*BLOCK_LOOPS)/(SIMD_PARA_MD5*4))*(SIMD_PARA_MD5*4))
 #  else
 #   define MAX_KEYS_PER_CRYPT	SIMD_COEF_32*BLOCK_LOOPS
 #  endif
 # endif
 #else // !SIMD_COEF_32
 # ifdef _OPENMP
-#  define BLOCK_LOOPS			(6144*OMP_SCALE)
+#  define BLOCK_LOOPS			(OMP_MAX*OMP_SCALE)
 # else
-#  define BLOCK_LOOPS			128
+#  define BLOCK_LOOPS			NON_OMP_MAX
 # endif
-# define ALGORITHM_NAME			"32/" ARCH_BITS_STR " " STRINGIZE(BLOCK_LOOPS) "x1"
-# define ALGORITHM_NAME_S		"32/" ARCH_BITS_STR " " STRINGIZE(BLOCK_LOOPS) "x1"
-# define ALGORITHM_NAME_4		"32/" ARCH_BITS_STR " " STRINGIZE(BLOCK_LOOPS) "x1"
+# define ALGORITHM_NAME			"32/" ARCH_BITS_STR
+# define ALGORITHM_NAME_S		"32/" ARCH_BITS_STR
+# define ALGORITHM_NAME_4		"32/" ARCH_BITS_STR
 #endif
 
 #ifdef _OPENMP
-# define X86_BLOCK_LOOPS			(6144*OMP_SCALE)
-# define X86_BLOCK_LOOPSx2			(3072*OMP_SCALE)
+# define X86_BLOCK_LOOPS			(OMP_MAX*OMP_SCALE)
+# define X86_BLOCK_LOOPSx2			((OMP_MAX/2)*OMP_SCALE)
 #else
-# define X86_BLOCK_LOOPS			128
-# define X86_BLOCK_LOOPSx2			64
+# define X86_BLOCK_LOOPS			NON_OMP_MAX
+# define X86_BLOCK_LOOPSx2			(NON_OMP_MAX/2)
 #endif
 
-#define ALGORITHM_NAME_X86_S	ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1"
-#define ALGORITHM_NAME_X86_4	ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1"
+#define ALGORITHM_NAME_X86_S	ARCH_BITS_STR"/"ARCH_BITS_STR
+#define ALGORITHM_NAME_X86_4	ARCH_BITS_STR"/"ARCH_BITS_STR
 
-#define ALGORITHM_NAME_S2_256		"128/128 "CPU_NAME" 4x"
-#define ALGORITHM_NAME_S2_512		"128/128 "CPU_NAME" 2x"
+#define ALGORITHM_NAME_S2_256		BITS " " SIMD_TYPE " " SHA256_N_STR
+#define ALGORITHM_NAME_S2_512		BITS " " SIMD_TYPE " " SHA512_N_STR
+
 #if defined (COMMON_DIGEST_FOR_OPENSSL)
-#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 CommonCrypto"
-#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 "STRINGIZE(X86_BLOCK_LOOPS) "x1 CommonCrypto"
+#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR "CommonCrypto"
+#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 CommonCrypto"
 #elif defined (GENERIC_SHA2)
-#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sha2-generic"
-#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 "STRINGIZE(X86_BLOCK_LOOPS) "x1 sha2-generic"
+#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR "sha2-generic"
+#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 sha2-generic"
 #else
-#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sha2-OpenSSL"
-#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 "STRINGIZE(X86_BLOCK_LOOPS) "x1 sha2-OpenSSL"
+#define ALGORITHM_NAME_X86_S2_256	ARCH_BITS_STR"/"ARCH_BITS_STR "sha2-OpenSSL"
+#define ALGORITHM_NAME_X86_S2_512	ARCH_BITS_STR"/64 sha2-OpenSSL"
 #endif
 
 #if OPENSSL_VERSION_NUMBER >= 0x10000000
-#define ALGORITHM_NAME_WP2      ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 OpenSSL"
-#define ALGORITHM_NAME_X86_WP2  ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 OpenSSL"
+#define ALGORITHM_NAME_WP2      ARCH_BITS_STR"/"ARCH_BITS_STR " OpenSSL"
+#define ALGORITHM_NAME_X86_WP2  ARCH_BITS_STR"/"ARCH_BITS_STR " OpenSSL"
 #else
-#define ALGORITHM_NAME_WP2      ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 SPH_WP"
-#define ALGORITHM_NAME_X86_WP2  ARCH_BITS_STR"/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 SPH_WP"
+#define ALGORITHM_NAME_WP2      ARCH_BITS_STR"/"ARCH_BITS_STR " SPH_WP"
+#define ALGORITHM_NAME_X86_WP2  ARCH_BITS_STR"/"ARCH_BITS_STR " SPH_WP"
 #endif
 
 #if !defined(USE_GCC_ASM_IA32) && defined(USE_GCC_ASM_X64)
-#define ALGORITHM_NAME_GST2     "64/64 "STRINGIZE(X86_BLOCK_LOOPS) "x1"
-#define ALGORITHM_NAME_X86_GST2 "64/64 "STRINGIZE(X86_BLOCK_LOOPS) "x1"
+#define ALGORITHM_NAME_GST2     "64/64"
+#define ALGORITHM_NAME_X86_GST2 "64/64"
 #else
-#define ALGORITHM_NAME_GST2     "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1"
-#define ALGORITHM_NAME_X86_GST2 "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1"
+#define ALGORITHM_NAME_GST2     "32/"ARCH_BITS_STR
+#define ALGORITHM_NAME_X86_GST2 "32/"ARCH_BITS_STR
 #endif
 
-#define ALGORITHM_NAME_TGR     "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sph_tiger"
-#define ALGORITHM_NAME_X86_TGR "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sph_tiger"
+#define ALGORITHM_NAME_TGR     "32/"ARCH_BITS_STR " sph_tiger"
+#define ALGORITHM_NAME_X86_TGR "32/"ARCH_BITS_STR " sph_tiger"
 
-#define ALGORITHM_NAME_RIPEMD     "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sph_ripmd"
-#define ALGORITHM_NAME_X86_RIPEMD "32/"ARCH_BITS_STR" "STRINGIZE(X86_BLOCK_LOOPS) "x1 sph_ripmd"
+#define ALGORITHM_NAME_RIPEMD     "32/"ARCH_BITS_STR " sph_ripmd"
+#define ALGORITHM_NAME_X86_RIPEMD "32/"ARCH_BITS_STR " sph_ripmd"
 
-#ifdef USE_MD5_Go
-#define MIN_KEYS_PER_CRYPT_X86	1
-#define MAX_KEYS_PER_CRYPT_X86	X86_BLOCK_LOOPS
-extern void MD5_Go2 (unsigned char *data, unsigned int len, unsigned char *result);
-#if MD5_X2 && (!MD5_ASM)
-#if defined(_OPENMP)
-#define MD5_body(x0, x1, out0, out1) MD5_body_for_thread(0, x0, x1, out0, out1)
-extern void MD5_body_for_thread(int t, MD5_word x[15], MD5_word x2[15], MD5_word out[4], MD5_word out2[4]);
-#else
-extern void MD5_body(MD5_word x[15], MD5_word x2[15], MD5_word out[4], MD5_word out2[4]);
-#endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " " STRINGIZE(X86_BLOCK_LOOPSx2) "x2 (MD5_Body)"
-#define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L[0])<55&&(L[1])<55) {A.x1.b[L[0]]=0x80;A.x2.b2[L[1]]=0x80;A.x1.w[14]=(L[0]<<3);A.x2.w2[14]=(L[1]<<3);MD5_swap(A.x1.w,A.x1.w,(L[0]+4)>>2);MD5_swap(A.x2.w2,A.x2.w2,(L[1]+4)>>2);MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);MD5_swap2(C.x1.w,C.x2.w2,C.x1.w,C.x2.w2,4);} else {MD5_Go2(A.x1.B,L[0],C.x1.B); MD5_Go2(A.x2.B2,L[1],C.x2.B2);} }while(0)
-#define DoMD5o(A,L,C) do{if((L[0])<55&&(L[1])<55) {MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);} else {MD5_Go2(A.x1.B,L[0],C.x1.B); MD5_Go2(A.x2.B2,L[1],C.x2.B2);} }while(0)
-#if ARCH_LITTLE_ENDIAN
-#define DoMD5a(A,L,C) MD5_body(A->x1.w,A->x2.w2,C->x1.w,C->x2.w2)
-//#define DoMD5a2(A,L,C,D) MD5_body(A->x1.w,A->x2.w2, (ARCH_WORD_32*)D[0], (ARCH_WORD_32*)D[1])
-#else
-//static MD5_OUT tmpOut;
-#define DoMD5a(A,L,C) do{MD5_body(A->x1.w,A->x2.w2,C->x1.w,C->x2.w2);MD5_swap2(C->x1.w,C->x2.w2,C->x1.w,C->x2.w2,4);}while(0)
-//#define DoMD5a2(A,L,C,D) do{MD5_body(A->x1.w,A->x2.w2,tmpOut.x1.w,tmpOut.x2.w2);MD5_swap2(tmpOut.x1.w,tmpOut.x2.w2,tmpOut.x1.w,tmpOut.x2.w2,4);memcpy(&(C->x1.b[D[0]]),tmpOut.x1.b,16);memcpy(&(C->x2.b2[D[1]]),tmpOut.x2.b2,16);}while(0)
-#endif
-#else
-#if defined(_OPENMP) && !MD5_ASM
-#define MD5_body(x, out) MD5_body_for_thread(0, x, out)
-extern void MD5_body_for_thread(int t, ARCH_WORD_32 x[15], ARCH_WORD_32 out[4]);
-#else
-extern void MD5_body(ARCH_WORD_32 x[15], ARCH_WORD_32 out[4]);
-#endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " " STRINGIZE(X86_BLOCK_LOOPS) "x1 (MD5_Body)"
-#define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L)<55) {A.x1.b[L]=0x80;A.x1.w[14]=(L<<3);MD5_swap(A.x1.w,A.x1.w,((L+4)>>2));MD5_body(A.x1.w,C.x1.w);MD5_swap(C.x1.w,C.x1.w,4);} else MD5_Go2(A.x1.B,L,C.x1.B); }while(0)
-#define DoMD5o(A,L,C) do{if((L)<55) {MD5_body(A.x1.w,C.x1.w);} else MD5_Go2(A.x1.B,L,C.x1.B); }while(0)
-#if ARCH_LITTLE_ENDIAN
-#define DoMD5a(A,L,C) MD5_body(A->x1.w,C->x1.w)
-//#define DoMD5a2(A,L,C,D) MD5_body(A->x1.w,(ARCH_WORD_32*)D)
-#else
-//static MD5_OUT tmpOut;
-#define DoMD5a(A,L,C) do{MD5_body(A->x1.w,C->x1.w);MD5_swap(C->x1.w,C->x1.w,4);}while(0)
-//#define DoMD5a2(A,L,C,D) do{MD5_body(A->x1.w,tmpOut.x1.w);MD5_swap(tmpOut.x1.w,tmpOut.x1.w,4);memcpy(&(C->x1.b[D[0]]),tmpOut.x1.b,16);}while(0)
-#endif
-#endif
-#else // !USE_MD5_Go
 #ifndef SIMD_COEF_32
 //static MD5_OUT tmpOut;
 #endif
 #define MIN_KEYS_PER_CRYPT_X86	1
 #define MAX_KEYS_PER_CRYPT_X86	X86_BLOCK_LOOPS
 #if MD5_X2 && (!MD5_ASM)
-#if defined(_OPENMP)
+#if defined(_OPENMP) || defined (FORCE_THREAD_MD5_body)
 #define MD5_body(x0, x1, out0, out1) MD5_body_for_thread(0, x0, x1, out0, out1)
 extern void MD5_body_for_thread(int t, ARCH_WORD_32 x1[15], ARCH_WORD_32 x2[15], ARCH_WORD_32 out1[4], ARCH_WORD_32 out2[4]);
 #else
 extern void MD5_body(ARCH_WORD_32 x1[15], ARCH_WORD_32 x2[15], ARCH_WORD_32 out1[4], ARCH_WORD_32 out2[4]);
 #endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " " STRINGIZE(X86_BLOCK_LOOPSx2) "x2 (MD5_body)"
+#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " x2 (MD5_body)"
 #define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L[0])<55&&(L[1])<55) {A.x1.b[L[0]]=0x80;A.x2.b2[L[1]]=0x80;A.x1.w[14]=(L[0]<<3);A.x2.w2[14]=(L[1]<<3);MD5_swap(A.x1.w,A.x1.w,(L[0]+4)>>2);MD5_swap(A.x2.w2,A.x2.w2,(L[1]+4)>>2);MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);MD5_swap2(C.x1.w,C.x2.w2,C.x1.w,C.x2.w2,4);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L[0]); MD5_Final((unsigned char *)(C.x1.b),&ctx); MD5_Init(&ctx); MD5_Update(&ctx,A.x2.b2,L[1]); MD5_Final((unsigned char *)(C.x2.b2),&ctx);} }while(0)
 #define DoMD5o(A,L,C) do{if((L[0])<55&&(L[1])<55) {MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L[0]); MD5_Final((unsigned char *)(C.x1.b),&ctx); MD5_Init(&ctx); MD5_Update(&ctx,A.x2.b2,L[1]); MD5_Final((unsigned char *)(C.x2.b2),&ctx);} }while(0)
 #define DoMD5a(A,L,C) do{MD5_body(A->x1.w,A->x2.w2,C->x1.w,C->x2.w2);}while(0)
 //#define DoMD5a2(A,L,C,D) do{MD5_body(A->x1.w,A->x2.w2,tmpOut.x1.w,tmpOut.x2.w2);MD5_swap(C->x1.w,C->x1.w,(D[0]+21)>>2);MD5_swap(C->x2.w2,C->x2.w2,(D[1]+21)>>2);MD5_swap(tmpOut.x1.w,tmpOut.x1.w,4);MD5_swap(tmpOut.x2.w2,tmpOut.x2.w2,4);memcpy(&(C->x1.b[D[0]]),tmpOut.x1.b,16);memcpy(&(C->x2.b2[D[1]]),tmpOut.x2.b2,16);MD5_swap(C->x1.w,C->x1.w,(D[0]+21)>>2);MD5_swap(C->x2.w2,C->x2.w2,(D[1]+21)>>2);}while(0)
 #else
-#if defined(_OPENMP) && !MD5_ASM
+#if (defined(_OPENMP) || defined (FORCE_THREAD_MD5_body)) && !MD5_ASM
 #define MD5_body(x, out) MD5_body_for_thread(0, x, out)
 extern void MD5_body_for_thread(int t, MD5_word x[15],MD5_word out[4]);
 #else
 extern void MD5_body(MD5_word x[15],MD5_word out[4]);
 #endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " " STRINGIZE(X86_BLOCK_LOOPS) "x1 (MD5_body)"
+#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " (MD5_body)"
 #define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L)<55) {A.x1.b[L]=0x80;A.x1.w[14]=(L<<3);MD5_swap(A.x1.w,A.x1.w,((L+4)>>2));MD5_body(A.x1.w,C.x1.w);MD5_swap(C.x1.w,C.x1.w,4);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L); MD5_Final((unsigned char *)(C.x1.b),&ctx); } }while(0)
 #define DoMD5o(A,L,C) do{if((L)<55) {MD5_body(A.x1.w,C.x1.w);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L); MD5_Final((unsigned char *)(C.x1.b),&ctx); } }while(0)
 #define DoMD5a(A,L,C) do{MD5_body(A->x1.w,C->x1.w);}while(0)
 //#define DoMD5a2(A,L,C,D)  do{MD5_body(A->x1.w,tmpOut.x1.w); MD5_swap(C->x1.w,C->x1.w,(D[0]+21)>>2);memcpy(&(C->x1.b[D[0]]),tmpOut.x1.b,16); MD5_swap(C->x1.w,C->x1.w,(D[0]+21)>>2);}while(0)
-#endif
 #endif
 
 // simple macro for now.  We can and will improve upon this later.
@@ -353,5 +312,6 @@ int large_hash_output_no_null(unsigned char *cpi, unsigned char *cpo, int in_byt
 
 typedef enum { eUNK=0, eBase16=1, eBase16u=2, eBase64=3, eBase64_nte=4, eBaseRaw=5} eLargeOut_t;
 
+#endif /* DYNAMIC_DISABLED */
 
 #endif  // __Dynamic_Types__H__

@@ -40,4 +40,5 @@ extern void hmac_md5_init_K16(const unsigned char*, HMACMD5Context*);
 extern void hmac_md5_update(const unsigned char*, int, HMACMD5Context*);
 extern void hmac_md5_final(unsigned char*, HMACMD5Context*);
 extern void hmac_md5(const unsigned char *key, const unsigned char *data, int data_len, unsigned char *digest);
+
 #endif /* _HMAC_MD5_H */

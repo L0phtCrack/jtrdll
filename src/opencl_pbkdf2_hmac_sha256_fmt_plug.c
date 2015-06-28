@@ -19,6 +19,7 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #include "arch.h"
 #include "base64_convert.h"
 #include "common.h"
+#include "stdint.h"
 #include "formats.h"
 #include "options.h"
 #include "common-opencl.h"
@@ -33,9 +34,6 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #define BINARY_ALIGN		4
 #define SALT_ALIGN		1
 
-#define uint8_t			unsigned char
-#define uint32_t		unsigned int
-
 #define PLAINTEXT_LENGTH	55
 #define SALT_LENGTH		50
 #define BINARY_SIZE		32
@@ -46,8 +44,6 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #define KERNEL_NAME		"pbkdf2_sha256_kernel"
 #define SPLIT_KERNEL_NAME	"pbkdf2_sha256_loop"
 
-#define MIN(a, b)		(((a) < (b)) ? (a) : (b))
-#define MAX(a, b)		(((a) > (b)) ? (a) : (b))
 #define HASH_LOOPS		(13*71) // factors 13, 13, 71
 #define ITERATIONS		12000
 
@@ -191,14 +187,16 @@ static size_t get_default_workgroup()
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem salt");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
-	HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
+	if (host_crack) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem salt");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
 
-	MEM_FREE(host_pass);
-	MEM_FREE(host_salt);
-	MEM_FREE(host_crack);
+		MEM_FREE(host_pass);
+		MEM_FREE(host_salt);
+		MEM_FREE(host_crack);
+	}
 }
 
 static void init(struct fmt_main *_self)

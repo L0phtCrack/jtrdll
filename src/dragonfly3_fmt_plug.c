@@ -29,7 +29,9 @@ john_register_one(&fmt_dragonfly3_64);
 #include "formats.h"
 
 #ifdef _OPENMP
+#ifndef OMP_SCALE
 #define OMP_SCALE			4096  // tuned on K8-dual HT
+#endif
 #include <omp.h>
 #endif
 #include "memdbg.h"
@@ -254,7 +256,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

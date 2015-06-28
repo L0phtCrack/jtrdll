@@ -47,6 +47,40 @@ dnl
 #############################################################################
 dnl
 CFLAGS="$CFLAGS -O0"
+
+  AS_CASE([$host_os], [darwin*],
+    [CC="$CC_BACKUP -mavx"
+    AC_MSG_CHECKING([whether OS X 'as' needs -q option])
+    AC_LINK_IFELSE(
+      [
+      AC_LANG_SOURCE(
+        [[#include <immintrin.h>
+          #include <stdio.h>
+          extern void exit(int);
+          int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+      )]
+      ,[AC_MSG_RESULT([no])]
+      ,[OSX_AS_CLANG="-Wa,-q"]
+       [CC="$CC_BACKUP -mavx $OSX_AS_CLANG"][
+       AC_LINK_IFELSE(
+         [
+         AC_LANG_SOURCE(
+           [[#include <immintrin.h>
+             #include <stdio.h>
+             extern void exit(int);
+             int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+         )]
+         ,[AC_MSG_RESULT([yes])]
+         ,[AC_MSG_RESULT([no])]
+      )]
+    )
+    AS_IF([test x$OSX_AS_CLANG != x],
+      [CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"]
+      [AS="$AS $OSX_AS_CLANG"]
+    )
+    [CC="$CC_BACKUP"]]
+  )
+
 if test "x$enable_native_tests" != xno; then
   CPU_NOTFOUND=0
   AC_MSG_NOTICE([Testing build host's native CPU features])
@@ -130,39 +164,6 @@ if test "x$enable_native_tests" != xno; then
   ]
   )
 
-  AS_CASE([$host_os], [darwin*], [AS_IF([test "x$CPU_NOTFOUND" = x0],
-    [CC="$CC_BACKUP -mavx"
-    AC_MSG_CHECKING([whether OS X 'as' needs -q option])
-    AC_LINK_IFELSE(
-      [
-      AC_LANG_SOURCE(
-        [[#include <immintrin.h>
-          #include <stdio.h>
-          extern void exit(int);
-          int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
-      )]
-      ,[AC_MSG_RESULT([no])]
-      ,[OSX_AS_CLANG="-Wa,-q"]
-       [CC="$CC_BACKUP -mavx $OSX_AS_CLANG"][
-       AC_LINK_IFELSE(
-         [
-         AC_LANG_SOURCE(
-           [[#include <immintrin.h>
-             #include <stdio.h>
-             extern void exit(int);
-             int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
-         )]
-         ,[AC_MSG_RESULT([yes])]
-         ,[AC_MSG_RESULT([no])]
-      )]
-    )
-    AS_IF([test x$OSX_AS_CLANG != x],
-      [CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"]
-      [AS_IF([test "x$AS" = xgcc], [AS="$AS $OSX_AS_CLANG"])]
-     ,[CC="$CC_BACKUP"])
-    ])]
-  )
-
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
   CC="$CC_BACKUP -mavx"
@@ -186,25 +187,6 @@ if test "x$enable_native_tests" != xno; then
 
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  CC="$CC_BACKUP -mavx2"
-  AC_MSG_CHECKING([for AVX2])
-  AC_RUN_IFELSE(
-    [
-    AC_LANG_SOURCE(
-      [[#include <immintrin.h>
-        #include <stdio.h>
-        extern void exit(int);
-        int main(){__m256i t, t1;*((long long*)&t)=1;t1=t;t=_mm256_mul_epi32(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
-    )]
-    ,[CPU_BEST_FLAGS="-mavx2"]dnl
-     [CPU_STR="AVX2"]
-     [AC_MSG_RESULT([yes])]
-    ,[AC_MSG_RESULT([no])]
-    )
-  ]
-  )
-  AS_IF([test "x$CPU_NOTFOUND" = x0],
-  [
   CC="$CC_BACKUP -mxop"
   AC_MSG_CHECKING([for XOP])
   AC_RUN_IFELSE(
@@ -222,6 +204,69 @@ if test "x$enable_native_tests" != xno; then
     )
   ]
   )
+
+  AS_IF([test "x$CPU_NOTFOUND" = x0],
+  [
+  CC="$CC_BACKUP -mavx2"
+  AC_MSG_CHECKING([for AVX2])
+  AC_RUN_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <immintrin.h>
+        #include <stdio.h>
+        extern void exit(int);
+        int main(){__m256i t, t1;*((long long*)&t)=1;t1=t;t=_mm256_mul_epi32(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+    )]
+    ,[CPU_BEST_FLAGS="-mavx2"]dnl
+     [CPU_STR="AVX2"]
+     [AC_MSG_RESULT([yes])]
+    ,[CPU_NOTFOUND=1]
+     [AC_MSG_RESULT([no])]
+    )
+  ]
+  )
+
+  AS_IF([test "x$CPU_NOTFOUND" = x0],
+  [
+  CC="$CC_BACKUP -mavx512f"
+  AC_MSG_CHECKING([for AVX512F])
+  AC_RUN_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <immintrin.h>
+        #include <stdio.h>
+        extern void exit(int);
+        int main(){__m512i t, t1;*((long long*)&t)=1;t1=t;t=_mm512_mul_epi32(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+    )]
+    ,[CPU_BEST_FLAGS="-mavx512f"]dnl
+     [CPU_STR="AVX512F"]
+     [AC_MSG_RESULT([yes])]
+    ,[CPU_NOTFOUND=1]
+     [AC_MSG_RESULT([no])]
+    )
+  ]
+  )
+
+  AS_IF([test "x$CPU_NOTFOUND" = x0],
+  [
+  CC="$CC_BACKUP -mavx512bw"
+  AC_MSG_CHECKING([for AVX512BW])
+  AC_RUN_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <immintrin.h>
+        #include <stdio.h>
+        extern void exit(int);
+        int main(){__m512i t, t1;*((long long*)&t)=1;t1=t;t=_mm512_slli_epi16(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+    )]
+    ,[CPU_BEST_FLAGS="-mavx512bw"]dnl
+     [CPU_STR="AVX512BW"]
+     [AC_MSG_RESULT([yes])]
+    ,[AC_MSG_RESULT([no])]
+    )
+  ]
+  )
+
 else
   ##########################################
   # cross-compile versions of the same tests
@@ -304,39 +349,6 @@ else
   ]
   )
 
-  AS_CASE([$host_os], [darwin*], [AS_IF([test "x$CPU_NOTFOUND" = x0],
-    [CC="$CC_BACKUP -mavx"
-    AC_MSG_CHECKING([whether OS X 'as' needs -q option])
-    AC_LINK_IFELSE(
-      [
-      AC_LANG_SOURCE(
-        [[#include <immintrin.h>
-          #include <stdio.h>
-          extern void exit(int);
-          int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
-      )]
-      ,[AC_MSG_RESULT([no])]
-      ,[OSX_AS_CLANG="-Wa,-q"]
-       [CC="$CC_BACKUP -mavx $OSX_AS_CLANG"][
-       AC_LINK_IFELSE(
-         [
-         AC_LANG_SOURCE(
-           [[#include <immintrin.h>
-             #include <stdio.h>
-             extern void exit(int);
-             int main(){__m256d t;*((long long*)&t)=1;t=_mm256_movedup_pd(t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
-         )]
-         ,[AC_MSG_RESULT([yes])]
-         ,[AC_MSG_RESULT([no])]
-      )]
-    )
-    AS_IF([test x$OSX_AS_CLANG != x],
-      [CC_BACKUP="$CC_BACKUP $OSX_AS_CLANG"]
-      [AS_IF([test "x$AS" = xgcc], [AS="$AS $OSX_AS_CLANG"])]
-     ,[CC="$CC_BACKUP"])
-    ])]
-  )
-
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
   AC_MSG_CHECKING([for AVX])
@@ -359,6 +371,25 @@ else
 
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
+  AC_MSG_CHECKING([for XOP])
+  AC_LINK_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <x86intrin.h>
+        #include <stdio.h>
+        extern void exit(int);
+        int main(){__m128i t;*((long long*)&t)=1;t=_mm_roti_epi32(t,5);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+    )]
+    ,[CPU_BEST_FLAGS="-mxop"]dnl
+     [CPU_STR="XOP"]
+     [AC_MSG_RESULT([yes])]
+    ,[AC_MSG_RESULT([no])]
+    )
+  ]
+  )
+
+  AS_IF([test "x$CPU_NOTFOUND" = x0],
+  [
   AC_MSG_CHECKING([for AVX2])
   AC_LINK_IFELSE(
     [
@@ -371,23 +402,45 @@ else
     ,[CPU_BEST_FLAGS="-mavx2"]dnl
      [CPU_STR="AVX2"]
      [AC_MSG_RESULT([yes])]
-    ,[AC_MSG_RESULT([no])]
+    ,[CPU_NOTFOUND=1]
+     [AC_MSG_RESULT([no])]
     )
   ]
   )
+
   AS_IF([test "x$CPU_NOTFOUND" = x0],
   [
-  AC_MSG_CHECKING([for XOP])
+  AC_MSG_CHECKING([for AVX512F])
   AC_LINK_IFELSE(
     [
     AC_LANG_SOURCE(
-      [[#include <x86intrin.h>
+      [[#include <immintrin.h>
         #include <stdio.h>
         extern void exit(int);
-        int main(){__m128i t;*((long long*)&t)=1;t=_mm_roti_epi32(t,5);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+        int main(){__m512i t, t1;*((long long*)&t)=1;t1=t;t=_mm512_mul_epi32(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
     )]
-    ,[CPU_BEST_FLAGS="-mxop"]dnl
-     [CPU_STR="XOP"]
+    ,[CPU_BEST_FLAGS="-mavx512f"]dnl
+     [CPU_STR="AVX512F"]
+     [AC_MSG_RESULT([yes])]
+    ,[CPU_NOTFOUND=1]
+     [AC_MSG_RESULT([no])]
+    )
+  ]
+  )
+
+  AS_IF([test "x$CPU_NOTFOUND" = x0],
+  [
+  AC_MSG_CHECKING([for AVX512BW])
+  AC_LINK_IFELSE(
+    [
+    AC_LANG_SOURCE(
+      [[#include <immintrin.h>
+        #include <stdio.h>
+        extern void exit(int);
+        int main(){__m512i t, t1;*((long long*)&t)=1;t1=t;t=_mm512_slli_epi16(t1,t);if((*(long long*)&t)==88)printf(".");exit(0);}]]
+    )]
+    ,[CPU_BEST_FLAGS="-mavx512bw"]dnl
+     [CPU_STR="AVX512BW"]
      [AC_MSG_RESULT([yes])]
     ,[AC_MSG_RESULT([no])]
     )

@@ -56,8 +56,14 @@ john_register_one(&fmt_truecrypt_whirlpool);
 #include "pbkdf2_hmac_whirlpool.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE               4
+#else
 #define OMP_SCALE               1
-#endif
+#endif // __MIC__
+#endif // OMP_SCALE
+#endif // _OPENMP
 #include "memdbg.h"
 
 /* 64 is the actual maximum used by Truecrypt software as of version 7.1a */
@@ -84,6 +90,17 @@ static unsigned char (*first_block_dec)[16];
 #define IS_RIPEMD160 2
 #define IS_WHIRLPOOL 3
 
+// borrowed from https://github.com/bwalex/tc-play
+#define MAX_PASSSZ              64
+#define PASS_BUFSZ              256
+#define KPOOL_SZ                64
+#define MAX_KFILE_SZ            1048576 /* 1 MB */
+#define MAX_KEYFILES            256
+
+// keyfile(s) data
+unsigned char (*keyfiles_data)[MAX_KFILE_SZ];
+int (*keyfiles_length);
+
 struct cust_salt {
 	unsigned char salt[64];
 	// I 'thought' that bin[] could be removed, so that only salt[] was used
@@ -102,6 +119,7 @@ struct cust_salt {
 	int loop_inc;
 	int num_iterations;
 	int hash_type;
+	int nkeyfiles;
 } *psalt;
 
 static struct fmt_tests tests_ripemd160[] = {
@@ -113,6 +131,7 @@ static struct fmt_tests tests_sha512[] = {
 {"truecrypt_SHA_512$aa582afe64197a3cfd4faf7697673e5e14414369da3f716400414f63f75447da7d3abdc65a25ea511b1772d67370d6c349d8000de66d65861403093fecfb85719e1d46158d24324e5a2c0ee598214b1b2e7eac761dbde8cb85bcb33f293df7f30c9e44a3fa97bf1c70e9986677855873fa2435d9154ccaed8f28d68f16b10adcce7032d7c1742d322739d02c05457859abdaa176faa95c674d2a1092c30832dd2afd9a319599b4d1db92ffe6e48b3b29e566d5c51af091839699f5ad1715730fef24e94e39a6f40770b8320e30bf972d810b588af88ce3450337adbec0a10255b20230bcfca93aa5a0a6592cd6038312181c0792c59ec9e5d95a6216497d39ae28131869b89368e82371718970bf9750a7114c83d87b1b0cd16b6e8d41c4925d15ec26107e92847ec1bb73363ca10f3ad62afa8b0f95ff13cdbe217a1e8a74508ef439ed2140b26d5538b8d011a0d1e469f2a6962e56964adc75b90d9c6a16e88ad0adb59a337f8abb3f9d76f7f9acad22853e9dbbce13a4f686c6a802243b0901972af3c6928511609ac7b957b352452c4347acd563a72faa86a46522942fdc57f32d48c5148a2bb0bc2c3dbc9851385f816f2ece958957082c0a8fe69f647be675d87fcb8244912abc277a3242ee17e1d522f85598417559cb3a9f60b755e5b613069cb54c05a4c5d2fbd3ca6ba793320aeb0e109f8b21852daf2d9ed74dd9", "password"},
 {"truecrypt_SHA_512$73f6b08614dc4ffbd77d27a0815b0700d6b612f573ccd6c8937e8d154321e3c1c1c67dd348d4d3bc8304e94a3a6ec0c672de8396a9a6b26b12393195b7daa4225a9d3a134229be011f8179791bb00c31b5c132c8dbad5a6f8738487477c409b3c32d90b07be8d7a3a9faa95d37ab6faccc459d47f029e25adcea48cee83eaa35b7acc3f849717000421d92ac46e6f16ec3dccacd3ffae76a48280977d2a6727027d9d6ff9c4c98405359ee382f6dd1eca0d7007cbe804b81485c1085e74b58d3eb1e3c7ebdc1e1ab1384e4440ab6ca7beed7e0ef7d1e0da5ffc3cd89f7b6ac8a9257ee369d397ac1e112f75382ddbe6f7317ec20c46cb7b2111d0d91570e90b4c01a0b8205fcdf4d0cadcf4a067b8f285a541f1d649894fb3ade29a2ee0575524455d489c299dde215bea3254f7d43aa4e4011a39bdb6e7473bc29f588e659fdbf065cc4a336ba42f2b6c07479cf3e544978150fb013da7db22afcb4f8384e39e2edfa30a4cbe5e84a07c54ba66663bb9284836cc5a8ba7489d3f7f92aec6d9f4e264c90c2af6181082bd273197bc42c325cb1de31006dd55425e3f210d2ddd7973978eec865d3226bb1e30a9897146d90d79a73070e87f0182981ea85f15f948ae1958af7704fabecd6f07e20be70be9f9c38a5c5e5c8b17be648f011b2c40f62d6ac51de932add5bdb47bb428fd510b004a7aa79321b03ed7aa202be439fbf", "password" },
 {"truecrypt_SHA_512$cfd9e5757da139b32d117cd60f86f649400615dc218981106dfadd44598599a7ec0ace42de61506fe8d81b5c885861cdb26e0c38cb9adfcff27ba88872220ccd0914d4fa44bab5a708fe6864e0f665ac71d87e7e97b3724d610cf1f6ec09fa99da40126f63868654fed3381eaa8176f689e8e292c3cb68e43601d5804bc2e19d86722c21d42204e158b26b720e7b8f7580edce15469195dd7ed711b0fcb6c8abc253d0fd93cc784d5279de527fbdcfb357780635a5c363b773b55957d7efb472f6e6012489a9f0d225573446e5251cfb277a1365eed787e0da52f02d835667d74cc41fa4002cc35ad1ce276fbf9d73d6553ac0f8ab6961901d292a66df814a2cbda1b41f29aeec88ed15e7d37fe84ac5306b5a1b8d2e1f2c132e5c7d40ca7bb76d4ff87980ca4d75eaac5066b3ed50b53259554b9f922f7cee8e91847359d06e448da02cbeeecc78ca9bee2899a33dfa04a478ca131d33c64d6de5f81b219f11bed6ff3c0d56f26b3a27c79e7c55b6f76567a612166ce71028e3d3ae7e5abd25faec5e2e9dc30719baa2c138e26d6f8e3799a72b5e7b1c2a07c12cea452073b72f6e429bb17dd23fe3934c9e406bb4060083f92aa100c2e82ca40664f65c02cbc800c5696659f8df84db17edb92de5d4f1ca9e5fe71844e1e8c4f8b19ce7362fb3ca5467bf65122067c53f011648a6663894b315e6c5c635bec5bd39da028041", "123" },
+	/* test vector with single keyfile, with data "1234567" */
 	{NULL}
 };
 static struct fmt_tests tests_whirlpool[] = {
@@ -140,23 +159,44 @@ static void init(struct fmt_main *self)
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
 	key_buffer = mem_calloc(self->params.max_keys_per_crypt,
-	                        sizeof(*key_buffer));
+			sizeof(*key_buffer));
 	first_block_dec = mem_calloc(self->params.max_keys_per_crypt,
-	                             sizeof(*first_block_dec));
+			sizeof(*first_block_dec));
+	keyfiles_data = mem_calloc(MAX_KEYFILES,
+			sizeof(*keyfiles_data));
+	keyfiles_length = mem_calloc(MAX_KEYFILES,
+			sizeof(int));
 }
 
 static void done(void)
 {
 	MEM_FREE(first_block_dec);
 	MEM_FREE(key_buffer);
+	MEM_FREE(keyfiles_data);
+	MEM_FREE(keyfiles_length);
 }
 
 static int valid(char* ciphertext, int pos)
 {
 	unsigned int i;
-	// Very small
-	if(pos + 512*2 != strlen(ciphertext))
-		return 0;
+	char *p, *q;
+	int nkeyfiles = -1;
+
+	p = ciphertext + pos;
+	q = strchr(p, '$');
+
+	if (!q) { /* no keyfiles */
+		if(pos + 512*2 != strlen(ciphertext))
+			return 0;
+	} else {
+		if (q - p != 512 * 2)
+			return 0;
+		/* check keyfile(s) */
+		p = q + 1;
+		nkeyfiles = atoi(p);
+		if (nkeyfiles > MAX_KEYFILES || nkeyfiles < 1)
+			return 0;
+	}
 
 	// Not hexadecimal characters
 	for (i = 0; i < 512*2; i++)
@@ -205,6 +245,13 @@ static void* get_salt(char *ciphertext)
 	static char buf[sizeof(struct cust_salt)+4];
 	struct cust_salt *s = (struct cust_salt *)mem_align(buf, 4);
 	unsigned int i;
+	char tpath[PATH_BUFFER_SIZE] = {0};
+	char *p, *q;
+	int idx;
+	FILE *fp;
+	size_t sz;
+
+	memset(s, 0, sizeof(struct cust_salt));
 
 	s->num_iterations = 1000;
 	s->loop_inc = 1;
@@ -233,6 +280,46 @@ static void* get_salt(char *ciphertext)
 	for(; i < 512; i++)
 		s->bin[i-64] = (atoi16[ARCH_INDEX(ciphertext[2*i])] << 4) | atoi16[ARCH_INDEX(ciphertext[2*i+1])];
 
+	p = ciphertext;
+	q = strchr(p, '$');
+	if (!q) /* no keyfiles */
+		return s;
+
+	// process keyfile(s)
+	p = q + 1;
+	s->nkeyfiles = atoi(p);
+
+	for (idx = 0; idx < s->nkeyfiles; idx++) {
+		p = strchr(p, '$') + 1; // at first filename
+		q = strchr(p, '$');
+
+		if (!q) { // last file
+			memset(tpath, 0, sizeof(tpath) - 1);
+			strncpy(tpath, p, sizeof(tpath));
+		} else {
+			memset(tpath, 0, sizeof(tpath) - 1);
+			strncpy(tpath, p, q-p);
+		}
+		/* read this into keyfiles_data[idx] */
+		fp = fopen(tpath, "rb");
+		if (!fp)
+			pexit("fopen %s", p);
+
+		if (fseek(fp, 0L, SEEK_END) == -1)
+			pexit("fseek");
+
+		sz = ftell(fp);
+
+		if (fseek(fp, 0L, SEEK_SET) == -1)
+			pexit("fseek");
+
+		if (fread(keyfiles_data[idx], 1, sz, fp) != sz)
+			pexit("fread");
+
+		keyfiles_length[idx] = sz;
+		fclose(fp);
+	}
+
 	return s;
 }
 
@@ -246,7 +333,7 @@ static void* get_salt(char *ciphertext)
  * This code has NOT been optimized. It was based on simple reference code that
  * I could get my hands on.  However, 'mostly' we do a single limb AES-XTS which
  * is just 2 AES, and the buffers xored (before and after). There is no mulmod
- * GF(2) logic done in that case.   NOTE, there was NO noticable change in
+ * GF(2) logic done in that case.   NOTE, there was NO noticeable change in
  * speed, from using original oSSL EVP_AES_256_XTS vs this code, so this code
  * is deemed 'good enough' for usage in this location.
  *****************************************************************************/
@@ -288,6 +375,55 @@ static void AES_256_XTS_first_sector(const unsigned char *double_key,
 		out += 16;
 	}
 }
+
+int apply_keyfiles(unsigned char *pass, size_t pass_memsz, int nkeyfiles)
+{
+	int pl, k;
+	unsigned char *kpool;
+	unsigned char *kdata;
+	int kpool_idx;
+	size_t i, kdata_sz;
+	uint32_t crc;
+
+	if (pass_memsz < MAX_PASSSZ) {
+		error();
+	}
+
+	pl = strlen((char *)pass);
+	memset(pass+pl, 0, MAX_PASSSZ-pl);
+
+	if ((kpool = mem_calloc(1, KPOOL_SZ)) == NULL) {
+		error();
+	}
+
+	for (k = 0; k < nkeyfiles; k++) {
+		kpool_idx = 0;
+		kdata_sz = keyfiles_length[k];
+		kdata = keyfiles_data[k];
+		crc = ~0U;
+
+		for (i = 0; i < kdata_sz; i++) {
+			crc = jtr_crc32(crc, kdata[i]);
+			kpool[kpool_idx++] += (unsigned char)(crc >> 24);
+			kpool[kpool_idx++] += (unsigned char)(crc >> 16);
+			kpool[kpool_idx++] += (unsigned char)(crc >> 8);
+			kpool[kpool_idx++] += (unsigned char)(crc);
+
+			/* Wrap around */
+			if (kpool_idx == KPOOL_SZ)
+				kpool_idx = 0;
+		}
+	}
+
+	/* Apply keyfile pool to passphrase */
+	for (i = 0; i < KPOOL_SZ; i++)
+		pass[i] += kpool[i];
+
+	MEM_FREE(kpool);
+
+	return 0;
+}
+
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int i;
@@ -299,10 +435,26 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for(i = 0; i < count; i+=psalt->loop_inc)
 	{
 		unsigned char key[64];
-		int j;
-
 #if SSE_GROUP_SZ_SHA512
 		unsigned char Keys[SSE_GROUP_SZ_SHA512][64];
+#endif
+		int j;
+		int ksz = strlen((char *)key_buffer[i]);
+
+#if SSE_GROUP_SZ_SHA512
+		if (psalt->hash_type != IS_SHA512)
+#endif
+		{
+			strncpy((char*)key, (char*)key_buffer[i], 64);
+
+			/* process keyfile(s) */
+			if (psalt->nkeyfiles) {
+				apply_keyfiles(key, 64, psalt->nkeyfiles);
+				ksz = 64;
+			}
+		}
+
+#if SSE_GROUP_SZ_SHA512
 		if (psalt->hash_type == IS_SHA512) {
 			int lens[SSE_GROUP_SZ_SHA512];
 			unsigned char *pin[SSE_GROUP_SZ_SHA512];
@@ -312,19 +464,29 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			} x;
 			for (j = 0; j < SSE_GROUP_SZ_SHA512; ++j) {
 				lens[j] = strlen((char*)(key_buffer[i+j]));
+
+				strncpy((char*)Keys[j], (char*)key_buffer[i+j], 64);
+
+				/* process keyfile(s) */
+				if (psalt->nkeyfiles) {
+					apply_keyfiles(Keys[j], 64, psalt->nkeyfiles);
+					lens[j] = 64;
+				}
+
 				pin[j] = key_buffer[i+j];
 				x.pout[j] = Keys[j];
 			}
 			pbkdf2_sha512_sse((const unsigned char **)pin, lens, psalt->salt, 64, psalt->num_iterations, &(x.poutc), sizeof(key), 0);
 		}
 #else
-		if (psalt->hash_type == IS_SHA512)
-			pbkdf2_sha512((const unsigned char*)key_buffer[i], strlen((char*)key_buffer[i]), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+		if (psalt->hash_type == IS_SHA512) {
+			pbkdf2_sha512((const unsigned char*)key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+		}
 #endif
 		else if (psalt->hash_type == IS_RIPEMD160)
-			pbkdf2_ripemd160(key_buffer[i], strlen((char*)(key_buffer[i])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+			pbkdf2_ripemd160((const unsigned char*)key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 		else
-			pbkdf2_whirlpool(key_buffer[i], strlen((char*)(key_buffer[i])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+			pbkdf2_whirlpool((const unsigned char*)key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 #if ARCH_LITTLE_ENDIAN==0
 		if (psalt->hash_type == IS_SHA512) {
 			uint64_t *p64 = (uint64_t *)key;
@@ -373,9 +535,9 @@ static int cmp_one(void* binary, int index)
 // this function is not really speed critical.
 static int cmp_crc32s(unsigned char *given_crc32, CRC32_t comp_crc32) {
 	return given_crc32[0] == ((comp_crc32>>24)&0xFF) &&
-		   given_crc32[1] == ((comp_crc32>>16)&0xFF) &&
-		   given_crc32[2] == ((comp_crc32>> 8)&0xFF) &&
-		   given_crc32[3] == ((comp_crc32>> 0)&0xFF);
+		given_crc32[1] == ((comp_crc32>>16)&0xFF) &&
+		given_crc32[2] == ((comp_crc32>> 8)&0xFF) &&
+		given_crc32[3] == ((comp_crc32>> 0)&0xFF);
 }
 
 static int cmp_exact(char *source, int idx)
@@ -389,16 +551,24 @@ static int cmp_exact(char *source, int idx)
 	CRC32_t check_sum;
 #if DEBUG
 	static int cnt;
-	char fname[20];
+	char fname[64];
 	FILE *fp;
 #endif
+	int ksz = strlen((char *)key_buffer[idx]);
+	strncpy((char*)key, (char*)key_buffer[idx], 64);
+
+	/* process keyfile(s) */
+	if (psalt->nkeyfiles) {
+		apply_keyfiles(key, 64, psalt->nkeyfiles);
+		ksz = 64;
+	}
 
 	if (psalt->hash_type == IS_SHA512)
-		pbkdf2_sha512((const unsigned char*)key_buffer[idx], strlen((char*)(key_buffer[idx])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+		pbkdf2_sha512(key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 	else if (psalt->hash_type == IS_RIPEMD160)
-		pbkdf2_ripemd160((const unsigned char*)key_buffer[idx], strlen((char*)(key_buffer[idx])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+		pbkdf2_ripemd160(key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 	else
-		pbkdf2_whirlpool((const unsigned char*)key_buffer[idx], strlen((char*)(key_buffer[idx])), psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
+		pbkdf2_whirlpool(key, ksz, psalt->salt, 64, psalt->num_iterations, key, sizeof(key), 0);
 #if ARCH_LITTLE_ENDIAN==0
 	if (psalt->hash_type == IS_SHA512) {
 		int j;
@@ -443,7 +613,7 @@ static int cmp_exact(char *source, int idx)
 	if (!cmp_crc32s(&decr_header[256-64-4], ~check_sum))
 		return 0;
 #if DEBUG
-	sprintf(fname, "tc_decr_header-%04d.dat", cnt++);
+	snprintf(fname, sizeof(fname), "tc_decr_header-%04d.dat", cnt++);
 	fp = fopen(fname, "wb");
 	fwrite(decr_header, 1, 512-64, fp);
 	fclose(fp);
@@ -486,14 +656,14 @@ static unsigned int tc_hash_algorithm(void *salt)
 struct fmt_main fmt_truecrypt = {
 	{
 		"tc_aes_xts",                     // FORMAT_LABEL
-		"TrueCrypt (RIPEMD160/SHA512/WHIRLPOOL) AES256_XTS", // FORMAT_NAME
+		"TrueCrypt AES256_XTS", // FORMAT_NAME
 #if SSE_GROUP_SZ_SHA512
-		SHA512_ALGORITHM_NAME,            // ALGORITHM_NAME,
+		"SHA512 " SHA512_ALGORITHM_NAME " /RIPEMD160/WHIRLPOOL",
 #else
 #if ARCH_BITS >= 64
-		"64/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"SHA512 64/" ARCH_BITS_STR " /RIPEMD160/WHIRLPOOL",
 #else
-		"32/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"SHA512 32/" ARCH_BITS_STR " /RIPEMD160/WHIRLPOOL",
 #endif
 #endif
 		"",                               // BENCHMARK_COMMENT
@@ -555,8 +725,8 @@ struct fmt_main fmt_truecrypt = {
 struct fmt_main fmt_truecrypt_ripemd160 = {
 	{
 		"tc_ripemd160",                   // FORMAT_LABEL
-		"TrueCrypt RIPEMD160 AES256_XTS", // FORMAT_NAME
-		"32/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"TrueCrypt AES256_XTS", // FORMAT_NAME
+		"RIPEMD160 32/" ARCH_BITS_STR,    // ALGORITHM_NAME,
 		"",                               // BENCHMARK_COMMENT
 		-1,                               // BENCHMARK_LENGTH
 		0,
@@ -574,7 +744,7 @@ struct fmt_main fmt_truecrypt_ripemd160 = {
 		tests_ripemd160
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid_ripemd160,
@@ -607,14 +777,14 @@ struct fmt_main fmt_truecrypt_ripemd160 = {
 struct fmt_main fmt_truecrypt_sha512 = {
 	{
 		"tc_sha512",                      // FORMAT_LABEL
-		"TrueCrypt SHA512 AES256_XTS",    // FORMAT_NAME
+		"TrueCrypt AES256_XTS",    // FORMAT_NAME
 #if SSE_GROUP_SZ_SHA512
-		SHA512_ALGORITHM_NAME,            // ALGORITHM_NAME,
+		"SHA512 " SHA512_ALGORITHM_NAME,            // ALGORITHM_NAME,
 #else
 #if ARCH_BITS >= 64
-		"64/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"SHA512 64/" ARCH_BITS_STR,
 #else
-		"32/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"SHA512 32/" ARCH_BITS_STR,
 #endif
 #endif
 		"",                               // BENCHMARK_COMMENT
@@ -639,7 +809,7 @@ struct fmt_main fmt_truecrypt_sha512 = {
 		tests_sha512
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid_sha512,
@@ -672,11 +842,11 @@ struct fmt_main fmt_truecrypt_sha512 = {
 struct fmt_main fmt_truecrypt_whirlpool = {
 	{
 		"tc_whirlpool",                   // FORMAT_LABEL
-		"TrueCrypt WHIRLPOOL AES256_XTS", // FORMAT_NAME
+		"TrueCrypt AES256_XTS", // FORMAT_NAME
 #if ARCH_BITS >= 64
-		"64/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"WHIRLPOOL 64/" ARCH_BITS_STR,    // ALGORITHM_NAME,
 #else
-		"32/" ARCH_BITS_STR,              // ALGORITHM_NAME,
+		"WHIRLPOOL 32/" ARCH_BITS_STR,    // ALGORITHM_NAME,
 #endif
 		"",                               // BENCHMARK_COMMENT
 		-1,                               // BENCHMARK_LENGTH
@@ -695,7 +865,7 @@ struct fmt_main fmt_truecrypt_whirlpool = {
 		tests_whirlpool
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid_whirlpool,

@@ -26,7 +26,9 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 #include "pbkdf2_hmac_sha1.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 #include "memdbg.h"
 
@@ -39,7 +41,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 #define TAG_LEN                 (sizeof(FORMAT_TAG) - 1)
 
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
@@ -56,7 +58,7 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 #define BENCHMARK_LENGTH        -1
 
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT      SIMD_COEF_32
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -65,9 +67,6 @@ john_register_one(&fmt_pbkdf2_hmac_sha1);
 
 #define PAD_SIZE                64
 #define PLAINTEXT_LENGTH        125
-
-#define MIN(a,b)                (((a)<(b))?(a):(b))
-#define MAX(a,b)                (((a)>(b))?(a):(b))
 
 static struct fmt_tests tests[] = {
 	{"$pbkdf2-hmac-sha1$1000.fd11cde0.27de197171e6d49fc5f55c9ef06c0d8751cd7250", "3956"},
@@ -121,7 +120,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 	if (strncmp(fields[1], PKCS5S2_TAG, 9) != 0 && strncmp(fields[1], PK5K2_TAG, 6))
 		return fields[1];
 	if (!strncmp(fields[1], PKCS5S2_TAG, 9)) {
-		char tmp[120];
+		char tmp[120+4];
 		if (strlen(fields[1]) > 75) return fields[1];
 		//{"{PKCS5S2}DQIXJU038u4P7FdsuFTY/+35bm41kfjZa57UrdxHp2Mu3qF2uy+ooD+jF5t1tb8J", "password"},
 		//{"$pbkdf2-hmac-sha1$10000.0d0217254d37f2ee0fec576cb854d8ff.edf96e6e3591f8d96b9ed4addc47a7632edea176bb2fa8a03fa3179b75b5bf09", "password"},
@@ -130,7 +129,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		return Buf;
 	}
 	if (!strncmp(fields[1], PK5K2_TAG, 6)) {
-		char tmps[140], tmph[70], *cp, *cp2;
+		char tmps[140+4], tmph[70+4], *cp, *cp2;
 		unsigned iter=0;
 		// salt was listed as 1024 bytes max. But our max salt size is 64 bytes (~90 base64 bytes).
 		if (strlen(fields[1]) > 128) return fields[1];

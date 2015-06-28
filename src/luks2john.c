@@ -47,7 +47,6 @@
 #include "params.h"
 #include <openssl/bio.h>
 #include <openssl/evp.h>
-#include "memdbg.h"
 
 #define LUKS_MAGIC_L        6
 #define LUKS_CIPHERNAME_L   32
@@ -114,6 +113,11 @@ static int hash_plugin_parse_hash(char *filename)
 
 	myfile = jtr_fopen(filename, "rb");
 
+	if (!myfile) {
+		fprintf(stderr, "\n%s : %s!\n", filename, strerror(errno));
+		return -1;
+	}
+
 	if (fread(&myphdr, sizeof(struct luks_phdr), 1, myfile) < 1) {
 		fprintf(stderr, "%s : file opening problem!\n", filename);
 		fclose(myfile);
@@ -168,7 +172,7 @@ static int hash_plugin_parse_hash(char *filename)
 	if (afsize < inline_thr) {
 		BIO *bio, *b64;
 		fprintf(stderr, "Generating inlined hash!\n");
-		printf("$luks$1$%zu$", sizeof(myphdr));
+		printf("$luks$1$"Zu"$", sizeof(myphdr));
 		print_hex((unsigned char *)&myphdr, sizeof(myphdr));
 		printf("$%d$", afsize);
 		/* base-64 encode cipherbuf */
@@ -192,7 +196,7 @@ static int hash_plugin_parse_hash(char *filename)
 	else {
 		FILE *fp = jtr_fopen("dump", "wb");  // XXX make me unpredictable!
 		fprintf(stderr, "Generating inlined hash with attached dump!\n");
-		printf("$luks$0$%zu$", sizeof(myphdr));
+		printf("$luks$0$"Zu"$", sizeof(myphdr));
 		print_hex((unsigned char *)&myphdr, sizeof(myphdr));
 		printf("$%d$", afsize);
 

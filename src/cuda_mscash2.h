@@ -7,6 +7,7 @@
 #ifndef _MSCASH2_H
 #define _MSCASH2_H
 
+#include "common.h"
 #include"john_stdint.h"
 
 #define THREADS			128//set at least 256 on fermi
@@ -20,8 +21,6 @@
 #define MIN_KEYS_PER_CRYPT	THREADS
 #define MAX_KEYS_PER_CRYPT	KEYS_PER_CRYPT
 
-#define MAX(x,y)		((x) > (y) ? (x) : (y))
-#define MIN(x,y)		((x) < (y) ? (x) : (y))
 # define SWAP(n) \
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 

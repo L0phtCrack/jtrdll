@@ -30,9 +30,13 @@ john_register_one(&fmt_IPB2);
 #include <omp.h>
 static unsigned int omp_t = 1;
 #ifdef SIMD_COEF_32
+#ifndef OMP_SCALE
 #define OMP_SCALE			512  // Tuned K8-dual HT
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE			256
+#endif
 #endif
 #else
 #define omp_t				1
@@ -60,11 +64,11 @@ static unsigned int omp_t = 1;
 #define CIPHERTEXT_LENGTH		(1 + 4 + 1 + SALT_LENGTH * 2 + 1 + MD5_HEX_SIZE)
 
 #ifdef SIMD_COEF_32
-#define NBKEYS					(SIMD_COEF_32 * MD5_SSE_PARA)
+#define NBKEYS					(SIMD_COEF_32 * SIMD_PARA_MD5)
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*64*SIMD_COEF_32 )
-#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&12)*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*16*SIMD_COEF_32 )
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&12)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
 #else
 #define NBKEYS                  1
 #define MIN_KEYS_PER_CRYPT		1
@@ -137,7 +141,7 @@ static ARCH_WORD_32 (*crypt_key)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
 static void init(struct fmt_main *self)
 {
 #if SIMD_COEF_32
-	int i;
+	unsigned int i;
 #endif
 #if defined (_OPENMP)
 	omp_t = omp_get_max_threads();
@@ -156,7 +160,7 @@ static void init(struct fmt_main *self)
 	                             sizeof(empty_key), MEM_ALIGN_SIMD);
 	for (i = 0; i < NBKEYS; ++i) {
 		empty_key[GETPOS(0, i)] = 0x80;
-		((unsigned int*)empty_key)[14*SIMD_COEF_32 + (i&3) + (i>>2)*16*SIMD_COEF_32] = (2 * MD5_HEX_SIZE)<<3;
+		((unsigned int*)empty_key)[14*SIMD_COEF_32 + (i&(SIMD_COEF_32-1)) + i/SIMD_COEF_32*16*SIMD_COEF_32] = (2 * MD5_HEX_SIZE)<<3;
 	}
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             BINARY_SIZE, MEM_ALIGN_SIMD);
@@ -205,7 +209,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 static void *get_binary(char *ciphertext)
 {
-	static unsigned char binary_cipher[BINARY_SIZE];
+	static ARCH_WORD_32 out[BINARY_SIZE/4];
+	unsigned char *binary_cipher = (unsigned char*)out;
 	int i;
 
 	ciphertext += 17;
@@ -214,7 +219,7 @@ static void *get_binary(char *ciphertext)
 			(atoi16[ARCH_INDEX(ciphertext[i*2])] << 4)
 			+ atoi16[ARCH_INDEX(ciphertext[i*2+1])];
 
-	return (void *)binary_cipher;
+	return (void*)out;
 }
 
 static void *get_salt(char *ciphertext)
@@ -407,9 +412,9 @@ static int cmp_all(void *binary, int count) {
 #ifdef SIMD_COEF_32
 	unsigned int x,y=0;
 #ifdef _OPENMP
-	for(;y<MD5_SSE_PARA*omp_t;y++)
+	for(;y<SIMD_PARA_MD5*omp_t;y++)
 #else
-	for(;y<MD5_SSE_PARA;y++)
+	for(;y<SIMD_PARA_MD5;y++)
 #endif
 		for(x = 0; x < SIMD_COEF_32; x++)
 		{
@@ -436,7 +441,7 @@ static int cmp_one(void * binary, int index)
 #ifdef SIMD_COEF_32
 	unsigned int i,x,y;
 	x = index&(SIMD_COEF_32-1);
-	y = index/SIMD_COEF_32;
+	y = (unsigned int)index/SIMD_COEF_32;
 	for(i=0;i<(BINARY_SIZE/4);i++)
 		if ( ((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[y*SIMD_COEF_32*4+i*SIMD_COEF_32+x] )
 			return 0;
@@ -447,7 +452,7 @@ static int cmp_one(void * binary, int index)
 }
 
 #ifdef SIMD_COEF_32
-#define HASH_OFFSET (index&(SIMD_COEF_32-1))+(index/SIMD_COEF_32)*SIMD_COEF_32*4
+#define HASH_OFFSET (index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*4
 static int get_hash_0(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xf; }
 static int get_hash_1(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xff; }
 static int get_hash_2(int index) { return ((ARCH_WORD_32 *)crypt_key)[HASH_OFFSET] & 0xfff; }

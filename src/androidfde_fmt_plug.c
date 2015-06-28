@@ -53,7 +53,9 @@ john_register_one(&fmt_fde);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE           1
+#endif
 #endif
 #include "memdbg.h"
 
@@ -62,7 +64,7 @@ static int omp_t = 1;
 #define FORMAT_LABEL        "fde"
 #define FORMAT_NAME         "Android FDE"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME      "PBKDF2-SHA1 SHA256/AES " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME " SHA256/AES"
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 SHA256/AES 32/" ARCH_BITS_STR
 #endif

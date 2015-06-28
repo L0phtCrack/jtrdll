@@ -30,6 +30,7 @@ john_register_one(&fmt_opencl_blockchain);
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
+#include "stdint.h"
 #include "jumbo.h"
 #include "common-opencl.h"
 #include "options.h"
@@ -51,7 +52,6 @@ john_register_one(&fmt_opencl_blockchain);
 #define BIG_ENOUGH 		(8192 * 32)
 // increase me (in multiples of 16) to increase the decrypted and search area
 #define SAFETY_FACTOR 		160
-
 
 typedef struct {
 	uint32_t length;
@@ -96,9 +96,6 @@ static cl_mem mem_in, mem_out, mem_setting;
 static struct fmt_main *self;
 
 size_t insize, outsize, settingsize, cracked_size;
-
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
-#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
 #define STEP			0
 #define SEED			256
@@ -166,13 +163,15 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+	if (cracked) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
-	MEM_FREE(inbuffer);
-	MEM_FREE(outbuffer);
-	MEM_FREE(cracked);
+		MEM_FREE(inbuffer);
+		MEM_FREE(outbuffer);
+		MEM_FREE(cracked);
+	}
 }
 
 static void done(void)

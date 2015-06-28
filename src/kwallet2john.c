@@ -8,12 +8,18 @@
  * Output Format: $kwallet$encrypted_size$encrypted_data
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 
+<<<<<<< HEAD
 #include "john_stdint.h"
+=======
+#include "stdint.h"
+#include "common.h"
+>>>>>>> ca858b37ab7a5b535c385b5cc4ba05ccc5eab1d9
 #include "jumbo.h"
 #include "memdbg.h"
 
@@ -29,12 +35,22 @@
 #define KWALLET_HASH_SHA1               0
 #define KWALLET_HASH_MD5                1	/* unsupported */
 #define N 				128
-#define MIN(x,y) ((x) < (y) ? (x) : (y))
 
-static int count;
 static unsigned char encrypted[0x10000];
 static long encrypted_size;
 
+static void warn_exit(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (fmt != NULL)
+		vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "\n");
+
+	exit(EXIT_FAILURE);
+}
 
 /* helper functions for byte order conversions, header values are stored
  * in big-endian byte order
@@ -76,14 +92,20 @@ static void process_file(const char *fname)
 	size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
-	count = fread(buf, KWMAGIC_LEN, 1, fp);
+	if (fread(buf, KWMAGIC_LEN, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", fname,
+			strerror(errno));
+
 	if (memcmp(buf, KWMAGIC, KWMAGIC_LEN) != 0) {
 		fprintf(stderr, "%s : Not a KDE KWallet file!\n", fname);
 		exit(1);
 	}
 
 	offset += KWMAGIC_LEN;
-	count = fread(buf, 4, 1, fp);
+	if (fread(buf, 4, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", fname,
+			strerror(errno));
+
 	offset += 4;
 
 	/* First byte is major version, second byte is minor version */
@@ -117,20 +139,25 @@ static void process_file(const char *fname)
 	for (i = 0; i < n; ++i) {
 		uint32_t fsz;
 
-		count = fread(buf, 16, 1, fp);
+		if (fread(buf, 16, 1, fp) != 1)
+			warn_exit("%s: Error: read failed: %s.", fname,
+				strerror(errno));
 		offset += 16;
 		fsz = fget32_(fp);
 		offset += 4;
 		for (j = 0; j < fsz; ++j) {
-			count = fread(buf, 16, 1, fp);
+			if (fread(buf, 16, 1, fp) != 1)
+				warn_exit("%s: Error: read failed: %s.",
+					fname, strerror(errno));
 			offset += 16;
-
 		}
 	}
 
 	/* Read in the rest of the file. */
 	encrypted_size = size - offset;
-	count = fread(encrypted, encrypted_size, 1, fp);
+	if (fread(encrypted, encrypted_size, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.",
+			fname, strerror(errno));
 
 	if ((encrypted_size % 8) != 0) {
 		fprintf(stderr, "%s : invalid file structure!\n", fname);
@@ -156,6 +183,7 @@ int kwallet2john(int argc, char **argv)
 		exit(-1);
 	}
 
+	errno = 0;
 	for (i = 1; i < argc; i++)
 		process_file(argv[i]);
 

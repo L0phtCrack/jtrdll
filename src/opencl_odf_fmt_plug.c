@@ -24,6 +24,7 @@ john_register_one(&fmt_opencl_odf);
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
+#include "stdint.h"
 #include "misc.h"
 #include "options.h"
 #include "common.h"
@@ -42,11 +43,6 @@ john_register_one(&fmt_opencl_odf);
 #define SALT_SIZE		sizeof(odf_cpu_salt)
 #define BINARY_ALIGN		MEM_ALIGN_WORD
 #define SALT_ALIGN		MEM_ALIGN_WORD
-
-
-#define uint8_t			unsigned char
-#define uint16_t		unsigned short
-#define uint32_t		unsigned int
 
 typedef struct {
 	uint32_t length;
@@ -98,9 +94,6 @@ static cl_mem mem_in, mem_out, mem_setting;
 static struct fmt_main *self;
 
 size_t insize, outsize, settingsize, cracked_size;
-
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
-#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
 #define STEP			0
 #define SEED			256
@@ -170,14 +163,16 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
-	HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
-	HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+	if (crypt_out) {
+		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
+		HANDLE_CLERROR(clReleaseMemObject(mem_setting), "Release mem setting");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
-	MEM_FREE(inbuffer);
-	MEM_FREE(outbuffer);
-	MEM_FREE(saved_key);
-	MEM_FREE(crypt_out);
+		MEM_FREE(inbuffer);
+		MEM_FREE(outbuffer);
+		MEM_FREE(saved_key);
+		MEM_FREE(crypt_out);
+	}
 }
 
 static void done(void)
@@ -457,7 +452,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

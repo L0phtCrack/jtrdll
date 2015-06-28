@@ -17,10 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _MSC_VER
-#include "strcasestr.h"
-#endif
-
 #include "arch.h"
 #include "misc.h"
 #include "params.h"
@@ -37,46 +33,25 @@
 #include "dynamic.h"
 #include "unicode.h"
 #include "fake_salts.h"
+#include "path.h"
 #include "regex.h"
 #ifdef HAVE_MPI
 #include "john-mpi.h"
-#ifdef _OPENMP
-#define _MP_VERSION "_mpi+omp"
-#else
-#define _MP_VERSION "_mpi"
-#endif
 #define _PER_NODE "per node "
 #else
-#ifdef _OPENMP
-#define _MP_VERSION "_omp"
-#else
-#define _MP_VERSION ""
-#endif
 #define _PER_NODE ""
 #endif
-#ifdef DEBUG
-#define DEBUG_STRING "_dbg"
-#else
-#define DEBUG_STRING ""
-#endif
-#ifdef WITH_ASAN
-#define ASAN_STRING "_asan"
-#else
-#define ASAN_STRING ""
-#endif
-#if defined(MEMDBG_ON) && defined(MEMDBG_EXTRA_CHECKS)
-#define MEMDBG_STRING "_memdbg-ex"
-#elif defined(MEMDBG_ON)
-#define MEMDBG_STRING "_memdbg"
-#else
-#define MEMDBG_STRING ""
-#endif
 #ifdef HAVE_OPENCL
+#undef __SSE2__
 #include "common-opencl.h"
+#undef _GNU_SOURCE
+#define _GNU_SOURCE 1 /* for strcasestr in legacy opencl builds */
 #endif
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 #include "prince.h"
 #endif
+#include "version.h"
+#include "listconf.h" /* must be included after version.h */
 #include "memdbg.h"
 
 struct options_main options;
@@ -219,14 +194,10 @@ static struct opt_entry opt_list[] = {
 		OPT_FMT_STR_ALLOC, &options.subformat},
 	{"list", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &options.listconf},
-#ifdef HAVE_LIBDL
-	{"plugin", FLG_DYNFMT, 0, 0, OPT_REQ_PARAM,
-		OPT_FMT_ADD_LIST_MULTI,	&options.fmt_dlls},
-#endif
 	{"mem-file-size", FLG_ZERO, 0,
 		FLG_WORDLIST_CHK, (FLG_DUPESUPP | FLG_SAVEMEM |
 		FLG_STDIN_CHK | FLG_PIPE_CHK | OPT_REQ_PARAM),
-		"%zu", &options.max_wordfile_memory},
+		Zu, &options.max_wordfile_memory},
 	{"dupe-suppression", FLG_DUPESUPP, FLG_DUPESUPP, 0,
 		FLG_SAVEMEM | FLG_STDIN_CHK | FLG_PIPE_CHK},
 	{"fix-state-delay", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
@@ -312,7 +283,7 @@ static struct opt_entry opt_list[] = {
 #endif
 
 #define JOHN_USAGE	  \
-"John the Ripper password cracker, version " JOHN_VERSION _MP_VERSION DEBUG_STRING MEMDBG_STRING ASAN_STRING " [" JOHN_BLD "]\n" \
+"John the Ripper " JTR_GIT_VERSION _MP_VERSION DEBUG_STRING MEMDBG_STRING ASAN_STRING " [" JOHN_BLD "]\n" \
 "Copyright (c) 1996-2015 by " JOHN_COPYRIGHT "\n" \
 "Homepage: http://www.openwall.com/john/\n" \
 "\n" \
@@ -336,7 +307,7 @@ JOHN_USAGE_REGEX \
 "--session=NAME            give a new session the NAME\n" \
 "--status[=NAME]           print status of a session [called NAME]\n" \
 "--make-charset=FILE       make a charset file. It will be overwritten\n" \
-"--show[=LEFT]             show cracked passwords [if =LEFT, then uncracked]\n" \
+"--show[=left]             show cracked passwords [if =left, then uncracked]\n" \
 "--test[=TIME]             run tests and benchmarks for TIME seconds each\n" \
 "--users=[-]LOGIN|UID[,..] [do not] load this (these) user(s) only\n" \
 "--groups=[-]GID[,..]      load users [not] of this (these) group(s) only\n" \
@@ -419,14 +390,12 @@ void opt_print_hidden_usage(void)
 	puts("--mkv-stats=FILE          \"Markov\" stats file (see doc/MARKOV)");
 	puts("--reject-printable        reject printable binaries");
 	puts("--verbosity=N             change verbosity (1-5, default 3)");
+	puts("--show=types              show some information about hashes in file (machine readable)");
 	puts("--skip-self-tests         skip self tests");
 	puts("--stress-test[=TIME]      loop self tests forever");
 	puts("--input-encoding=NAME     input encoding (alias for --encoding)");
 	puts("--internal-encoding=NAME  encoding used in rules/masks (see doc/ENCODING)");
 	puts("--target-encoding=NAME    output encoding (used by format, see doc/ENCODING)");
-#ifdef HAVE_LIBDL
-	puts("--plugin=NAME[,..]        load this (these) dynamic plugin(s)");
-#endif
 #ifdef HAVE_OPENCL
 	puts("--force-scalar            (OpenCL) force scalar mode");
 	puts("--force-vector-width=N    (OpenCL) force vector width N");
@@ -473,9 +442,6 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	list_init(&options.loader.users);
 	list_init(&options.loader.groups);
 	list_init(&options.loader.shells);
-#ifdef HAVE_LIBDL
-	list_init(&options.fmt_dlls);
-#endif
 #if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
 	list_init(&options.gpu_devices);
 #endif
@@ -531,6 +497,24 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	}
 
 	if (options.session) {
+#if OS_FORK
+		char *p = strrchr(options.session, '.');
+		int bad = 0;
+		if (p) {
+			while (*++p) {
+				if (*p < '0' || *p > '9') {
+					bad = 0;
+					break;
+				}
+				bad = 1;
+			}
+		}
+		if (bad) {
+			fprintf(stderr,
+			    "Invalid session name: all-digits suffix\n");
+			error();
+		}
+#endif
 		rec_name = options.session;
 		rec_name_completed = 0;
 	}
@@ -605,6 +589,9 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			}
 		}
 #endif
+		path_done();
+		cleanup_tiny_memory();
+		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		exit(0);
 	}
 #if FMT_MAIN_VERSION > 11
@@ -910,8 +897,11 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			// instead of normal loading if we are in 'normal' show mode)
 			options.flags &= ~FLG_SHOW_CHK;
 		}
+		else if (!strcasecmp(show_uncracked_str, "types")) {
+			options.loader.showtypes = 1;
+		}
 		else {
-			fprintf(stderr, "Invalid option in --show switch.\nOnly --show or --show=left are valid\n");
+			fprintf(stderr, "Invalid option in --show switch.\nOnly --show , --show=left or --show=types are valid\n");
 			error();
 		}
 	}
@@ -941,11 +931,19 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 				if (john_main_process)
 					fprintf (stderr, "trying to use an "
 					         "invalid field separator char:"
-					         "  %s\n",
+					         " %s\n",
 					         field_sep_char_str);
 				error();
 			}
 			options.loader.field_sep_char = (char)xTmp;
+		} else {
+				if (john_main_process)
+					fprintf (stderr, "trying to use an "
+					         "invalid field separator char:"
+					         " %s (must be single byte "
+					         "character)\n",
+					         field_sep_char_str);
+				error();
 		}
 
 		if (options.loader.field_sep_char != ':')

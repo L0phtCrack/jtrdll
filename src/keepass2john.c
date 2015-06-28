@@ -26,6 +26,7 @@
 #include "autoconfig.h"
 #endif
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -34,7 +35,6 @@
 #include "missing_getopt.h"
 #endif
 #include <errno.h>
-#include <assert.h>
 // needs to be above sys/types.h and sys/stat.h for mingw, if -std=c99 used.
 #include "jumbo.h"
 #include <sys/stat.h>
@@ -104,16 +104,13 @@ static void print_hex(unsigned char *str, int len)
 		printf("%02x", str[i]);
 }
 
-static uint64_t BytesToUInt64(unsigned char * s)
+static uint64_t BytesToUInt64(unsigned char * s, const int s_size)
 {
-	uint64_t v = s[0];
-	v |= (uint64_t)s[1] << 8;
-	v |= (uint64_t)s[2] << 16;
-	v |= (uint64_t)s[3] << 24;
-	v |= (uint64_t)s[4] << 32;
-	v |= (uint64_t)s[5] << 40;
-	v |= (uint64_t)s[6] << 48;
-	v |= (uint64_t)s[7] << 56;
+	int i;
+	uint64_t v = 0;
+
+	for (i = 0; i < 8 && i < s_size; i++)
+		v |= (uint64_t)s[i] << 8 * i;
 	return v;
 }
 
@@ -133,6 +130,19 @@ static uint16_t fget16(FILE * fp)
 	return v;
 }
 
+static void warn_exit(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (fmt != NULL)
+		vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "\n");
+
+	exit(EXIT_FAILURE);
+}
+
 /* process KeePass 1.x databases */
 static void process_old_database(FILE *fp, char* encryptedDatabase)
 {
@@ -146,26 +156,34 @@ static void process_old_database(FILE *fp, char* encryptedDatabase)
 	uint32_t num_entries;
 	uint32_t key_transf_rounds;
 	unsigned char buffer[LINE_BUFFER_SIZE];
-	int count;
 	long long filesize = 0;
 	long long datasize;
 	int algorithm = -1;
 	char *dbname;
 	FILE *kfp = NULL;
+
 	enc_flag = fget32(fp);
 	version = fget32(fp);
-	count = fread(final_randomseed, 16, 1, fp);
-	assert(count == 1);
-	count = fread(enc_iv, 16, 1, fp);
-	assert(count == 1);
+
+	if (fread(final_randomseed, 16, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", encryptedDatabase,
+			strerror(errno));
+	if (fread(enc_iv, 16, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", encryptedDatabase,
+			strerror(errno));
+
 	num_groups = fget32(fp);
 	num_entries = fget32(fp);
 	(void)num_groups;
 	(void)num_entries;
-	count = fread(contents_hash, 32, 1, fp);
-	assert(count == 1);
-	count = fread(transf_randomseed, 32, 1, fp);
-	assert(count == 1);
+
+	if (fread(contents_hash, 32, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", encryptedDatabase,
+			strerror(errno));
+	if (fread(transf_randomseed, 32, 1, fp) != 1)
+		warn_exit("%s: Error: read failed: %s.", encryptedDatabase,
+			strerror(errno));
+
 	key_transf_rounds = fget32(fp);
 	/* Check if the database is supported */
 	if((version & 0xFFFFFF00) != (0x00030002 & 0xFFFFFF00)) {
@@ -206,13 +224,15 @@ static void process_old_database(FILE *fp, char* encryptedDatabase)
 	print_hex(contents_hash, 32);
 	filesize = (long long)get_file_size(encryptedDatabase);
 	datasize = filesize - 124;
-	if((filesize + datasize) < inline_thr) {
+	if((filesize + datasize) < inline_thr && sizeof(buffer) > datasize) {
 		/* we can inline the content with the hash */
 		fprintf(stderr, "Inlining %s\n", encryptedDatabase);
-		printf("*1*%lld*", datasize);
+		printf("*1*"LLd"*", datasize);
 		fseek(fp, 124, SEEK_SET);
-		count = fread(buffer, datasize, 1, fp);
-		assert(count == 1);
+		if (fread(buffer, datasize, 1, fp) != 1)
+			warn_exit("%s: Error: read failed: %s.",
+				encryptedDatabase, strerror(errno));
+
 		print_hex(buffer, datasize);
 	}
 	else {
@@ -221,9 +241,12 @@ static void process_old_database(FILE *fp, char* encryptedDatabase)
 
 		printf("*0*%s", dbname); /* data is not inline */
 	}
-	if (keyfile) {
-		printf("*1*%lld*", filesize); /* inline keyfile content */
-		count = fread(buffer, filesize, 1, kfp);
+	if (keyfile && sizeof(buffer) > filesize) {
+		printf("*1*"LLd"*", filesize); /* inline keyfile content */
+		if (fread(buffer, filesize, 1, kfp) != 1)
+			warn_exit("%s: Error: read failed: %s.",
+				encryptedDatabase, strerror(errno));
+
 		print_hex(buffer, filesize);
 	}
 	printf("\n");
@@ -320,7 +343,7 @@ static void process_database(char* encryptedDatabase)
 					goto bailout;
 				}
 				else {
-					transformRounds = BytesToUInt64(pbData);
+					transformRounds = BytesToUInt64(pbData, uSize);
 					MEM_FREE(pbData);
 				}
 				break;
@@ -397,6 +420,7 @@ int keepass2john(int argc, char **argv)
 {
 	int c;
 
+	errno = 0;
 	/* Parse command line */
 	while ((c = getopt(argc, argv, "i:k:")) != -1) {
 		switch (c) {

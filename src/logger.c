@@ -307,7 +307,8 @@ static char *components(char *string, int len)
 	return out;
 }
 
-void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *store_plain, char field_sep)
+void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain,
+               char *store_plain, char field_sep, int index)
 {
 	int count1, count2;
 	int len;
@@ -347,8 +348,10 @@ void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *
 	in_logger = 1;
 
 	if (pot.fd >= 0 && ciphertext ) {
+#ifndef DYNAMIC_DISABLED
 		if (!strncmp(ciphertext, "$dynamic_", 9))
 			ciphertext = dynamic_FIX_SALT_TO_HEX(ciphertext);
+#endif
 		if (strlen(ciphertext) + strlen(store_plain) <= LINE_BUFFER_SIZE - 3) {
 			if (options.secure) {
 				secret = components(store_plain, len);
@@ -382,10 +385,10 @@ void log_guess(char *login, char *uid, char *ciphertext, char *rep_plain, char *
 				                       ": %s", rep_plain);
 			if (cfg_showcand)
 				count2 += (int)sprintf(log.ptr + count2,
-				                       " as candidate #%llu",
+				                       " as candidate #"LLu"",
 				                       ((unsigned long long)
 				                       status.cands.hi << 32) +
-				                       status.cands.lo);
+				                       status.cands.lo + index + 1);
 			count2 += (int)sprintf(log.ptr + count2, "\n");
 
 			if (count2 > 0)

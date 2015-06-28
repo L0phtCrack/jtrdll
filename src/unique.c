@@ -27,9 +27,10 @@
 
 #if AC_BUILT
 #include "autoconfig.h"
+#else
+#define _POSIX_SOURCE /* for fdopen(3) */
 #endif
 
-#define _POSIX_SOURCE /* for fdopen(3) */
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -355,11 +356,7 @@ static void unique_run(void)
 		write_buffer();
 
 		if (verbose)
-#ifdef __MINGW32__
-			printf ("\rTotal lines read %I64u Unique lines written %I64u\r", totLines, written_lines);
-#else
-			printf ("\rTotal lines read %llu Unique lines written %llu\r", totLines, written_lines);
-#endif
+			printf ("\rTotal lines read "LLu" Unique lines written "LLu"\r", totLines, written_lines);
 	}
 }
 
@@ -475,11 +472,7 @@ int unique(int argc, char **argv)
 	unique_init(argv[1]);
 	unique_run();
 	unique_done();
-#ifdef __MINGW32__
-    printf ("Total lines read %I64u Unique lines written %I64u\n", totLines, written_lines);
-#else
-    printf ("Total lines read %llu Unique lines written %llu\n", totLines, written_lines);
-#endif
+    printf ("Total lines read "LLu" Unique lines written "LLu"\n", totLines, written_lines);
 
 	return 0;
 }

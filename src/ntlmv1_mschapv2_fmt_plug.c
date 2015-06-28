@@ -82,10 +82,12 @@ john_register_one(&fmt_NETNTLM_new);
 #include "arch.h"
 #include "sse-intrinsics.h"
 #ifdef SIMD_COEF_32
-#define NBKEYS                  (SIMD_COEF_32 * MD4_SSE_PARA)
+#define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_MD4)
 #else
 #ifdef _OPENMP
+#ifndef OMP_SCALE
 #define OMP_SCALE               4
+#endif
 #include <omp.h>
 #endif
 #endif
@@ -107,7 +109,6 @@ extern volatile int bench_running;
 #ifndef uchar
 #define uchar unsigned char
 #endif
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
 
 #define CHAP_FORMAT_LABEL       "MSCHAPv2"
 #define CHAP_FORMAT_NAME        "C/R"
@@ -139,8 +140,8 @@ extern volatile int bench_running;
 #endif
 #define MIN_KEYS_PER_CRYPT      (NBKEYS * BLOCK_LOOPS)
 #define MAX_KEYS_PER_CRYPT      (NBKEYS * BLOCK_LOOPS)
-#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*16*SIMD_COEF_32*4 )
-#define GETOUTPOS(i, index)     ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (index>>SIMD_COEF32_BITS)*4*SIMD_COEF_32*4 )
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32*4 )
+#define GETOUTPOS(i, index)     ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*4*SIMD_COEF_32*4 )
 #else
 #define PLAINTEXT_LENGTH        64
 #define MIN_KEYS_PER_CRYPT      1
@@ -741,8 +742,8 @@ key_cleaning:
 		*keybuf_word = 0;
 		keybuf_word += SIMD_COEF_32;
 	}
-	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&3) +
-	                           (index>>2)*16*SIMD_COEF_32] = len << 4;
+	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) +
+	                           (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32] = len << 4;
 #else
 #if ARCH_LITTLE_ENDIAN
 	UTF8 *s = (UTF8*)_key;
@@ -799,8 +800,8 @@ key_cleaning_enc:
 		*keybuf_word = 0;
 		keybuf_word += SIMD_COEF_32;
 	}
-	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&3) +
-	                           (index>>2)*16*SIMD_COEF_32] = len << 4;
+	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) +
+	                           (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32] = len << 4;
 #else
 	saved_len[index] = enc_to_utf16(saved_key[index],
 	                                       PLAINTEXT_LENGTH + 1,
@@ -936,8 +937,8 @@ bailout:
 		*keybuf_word = 0;
 		keybuf_word += SIMD_COEF_32;
 	}
-	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&3) +
-	                           (index>>2)*16*SIMD_COEF_32] = len << 4;
+	((unsigned int*)saved_key)[14*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) +
+	                           (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32] = len << 4;
 #else
 	saved_len[index] = utf8_to_utf16(saved_key[index],
 	                                        PLAINTEXT_LENGTH + 1,
@@ -966,21 +967,23 @@ static void init(struct fmt_main *self)
 		    pers_opts.target_enc != ISO_8859_1)
 			self->methods.set_key = set_key_CP;
 	}
+	if (!saved_key) {
 #if SIMD_COEF_32
-	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
-	                             sizeof(*saved_key) * 64, MEM_ALIGN_SIMD);
-	nthash    = mem_calloc_align(self->params.max_keys_per_crypt,
-	                             sizeof(*nthash) * 16, MEM_ALIGN_SIMD);
+		saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
+		                             sizeof(*saved_key) * 64, MEM_ALIGN_SIMD);
+		nthash    = mem_calloc_align(self->params.max_keys_per_crypt,
+		                             sizeof(*nthash) * 16, MEM_ALIGN_SIMD);
 #else
-	saved_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_key));
-	nthash    = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*nthash) * 16);
-	saved_len = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_len));
+		saved_key = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*saved_key));
+		nthash    = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*nthash) * 16);
+		saved_len = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(*saved_len));
 #endif
-	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(unsigned short));
+		crypt_key = mem_calloc(self->params.max_keys_per_crypt,
+		                       sizeof(unsigned short));
+	}
 	if (bitmap == NULL)
 		bitmap = mem_calloc_tiny(0x10000 / 8, MEM_ALIGN_CACHE);
 	else
@@ -1382,7 +1385,7 @@ struct fmt_main fmt_NETNTLM_new = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-#if !defined(SIMD_COEF_32) || (defined(MD4_SSE_PARA) && defined(SSE_OMP))
+#if !defined(SIMD_COEF_32) || (defined(SIMD_PARA_MD4) && defined(SSE_OMP))
 		FMT_OMP |
 #endif
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,

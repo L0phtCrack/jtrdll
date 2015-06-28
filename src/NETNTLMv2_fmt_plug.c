@@ -54,6 +54,7 @@ john_register_one(&fmt_NETNTLMv2);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
+#include "stdint.h"
 
 #include "md5.h"
 #include "hmacmd5.h"
@@ -87,7 +88,9 @@ john_register_one(&fmt_NETNTLMv2);
 // these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
+#ifndef OMP_SCALE
 #define OMP_SCALE		3072
+#endif
 
 static struct fmt_tests tests[] = {
   {"", "password",                  {"USER1",                 "", "Domain",        "1122334455667788","5E4AB1BF243DCA304A00ADEF78DC38DF","0101000000000000BB50305495AACA01338BC7B090A62856000000000200120057004F0052004B00470052004F00550050000000000000000000"} },
@@ -114,22 +117,6 @@ static uchar (*output)[BINARY_SIZE];
 static HMACMD5Context (*saved_ctx);
 static uchar *challenge;
 static int keys_prepared;
-
-#if !defined(uint16) && !defined(HAVE_UINT16_FROM_RPC_RPC_H)
-#if (SIZEOF_SHORT == 4)
-#define uint16 __ERROR___CANNOT_DETERMINE_TYPE_FOR_INT16;
-#else /* SIZEOF_SHORT != 4 */
-#define uint16 unsigned short
-#endif /* SIZEOF_SHORT != 4 */
-#endif
-
-#if !defined(int16) && !defined(HAVE_INT16_FROM_RPC_RPC_H)
-#if (SIZEOF_SHORT == 4)
-#define int16 __ERROR___CANNOT_DETERMINE_TYPE_FOR_INT16;
-#else /* SIZEOF_SHORT != 4 */
-#define int16 short
-#endif /* SIZEOF_SHORT != 4 */
-#endif
 
 static void init(struct fmt_main *self)
 {
@@ -219,7 +206,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 
 	/* DOMAIN\USER: -or- USER::DOMAIN: */
 	if ((tmp = strstr(login, "\\")) != NULL) {
-		identity = (char *) mem_alloc(strlen(login));
+		identity = (char *) mem_alloc(strlen(login)*2 + 1);
 		strcpy(identity, tmp + 1);
 
 		/* Upper-Case Username - Not Domain */
@@ -228,7 +215,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 		strncat(identity, login, tmp - login);
 	}
 	else {
-		identity = (char *) mem_alloc(strlen(login) + strlen(uid) + 1);
+		identity = (char *) mem_alloc(strlen(login)*2 + strlen(uid) + 1);
 		strcpy(identity, login);
 
 		enc_strupper((char *)identity);
@@ -407,14 +394,14 @@ static void *get_salt(char *ciphertext)
 
   /* Convert identity (username + domain) string to NT unicode */
 #if !ARCH_ALLOWS_UNALIGNED
-  identity_length = enc_to_utf16((uint16 *)bs2, 2 * (USERNAME_LENGTH + DOMAIN_LENGTH), (uchar *)ciphertext + 11, pos - (ciphertext + 11)) * sizeof(int16);
+  identity_length = enc_to_utf16((uint16_t *)bs2, 2 * (USERNAME_LENGTH + DOMAIN_LENGTH), (uchar *)ciphertext + 11, pos - (ciphertext + 11)) * sizeof(int16_t);
   if (identity_length < 0) // Truncated at Unicode conversion.
-	  identity_length = strlen16((UTF16 *)bs2) * sizeof(int16);
+	  identity_length = strlen16((UTF16 *)bs2) * sizeof(int16_t);
   memcpy(&binary_salt[1], bs2, identity_length);
 #else
-  identity_length = enc_to_utf16((uint16 *)&binary_salt[1], 2 * (USERNAME_LENGTH + DOMAIN_LENGTH), (uchar *)ciphertext + 11, pos - (ciphertext + 11)) * sizeof(int16);
+  identity_length = enc_to_utf16((uint16_t *)&binary_salt[1], 2 * (USERNAME_LENGTH + DOMAIN_LENGTH), (uchar *)ciphertext + 11, pos - (ciphertext + 11)) * sizeof(int16_t);
   if (identity_length < 0) // Truncated at Unicode conversion.
-	  identity_length = strlen16((UTF16 *)&binary_salt[1]) * sizeof(int16);
+	  identity_length = strlen16((UTF16 *)&binary_salt[1]) * sizeof(int16_t);
 #endif
 
   /* Set server and client challenge size */

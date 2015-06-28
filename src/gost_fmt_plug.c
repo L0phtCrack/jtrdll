@@ -32,7 +32,9 @@ john_register_one(&fmt_gost);
 #include "gost.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               512 // tuned K8-dual HT
+#endif
 #endif
 #include "memdbg.h"
 
@@ -52,7 +54,7 @@ john_register_one(&fmt_gost);
 
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	64
+#define PLAINTEXT_LENGTH	125
 #define CIPHERTEXT_LENGTH	64
 #define BINARY_SIZE		32
 #define SALT_SIZE		1

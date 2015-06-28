@@ -21,7 +21,9 @@ john_register_one(&fmt_rawBLAKE2);
 #include <string.h>
 
 #ifdef _OPENMP
+#ifndef OMP_SCALE
 #define OMP_SCALE			2048
+#endif
 #include <omp.h>
 #endif
 #include "memdbg.h"
@@ -29,15 +31,15 @@ john_register_one(&fmt_rawBLAKE2);
 #define FORMAT_LABEL			"Raw-Blake2"
 #define FORMAT_NAME			""
 #if defined(__AVX__)
-#define ALGORITHM_NAME			"AVX"
+#define ALGORITHM_NAME			"128/128 AVX"
 #elif defined(__XOP__)
-#define ALGORITHM_NAME			"XOP"
+#define ALGORITHM_NAME			"128/128 XOP"
 #elif defined(__SSE4_1__)
-#define ALGORITHM_NAME			"SSE4.1"
+#define ALGORITHM_NAME			"128/128 SSE4.1"
 #elif defined(__SSSE3__)
-#define ALGORITHM_NAME			"SSSE3"
+#define ALGORITHM_NAME			"128/128 SSSE3"
 #elif defined(__SSE2__)
-#define ALGORITHM_NAME			"SSE2"
+#define ALGORITHM_NAME			"128/128 SSE2"
 #else
 #define ALGORITHM_NAME			"32/" ARCH_BITS_STR
 #endif
@@ -215,7 +217,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

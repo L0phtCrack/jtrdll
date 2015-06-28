@@ -26,6 +26,7 @@ john_register_one(&fmt_opencl_rakp);
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
+#include "stdint.h"
 #include "formats.h"
 #include "sha.h"
 #include "johnswap.h"
@@ -69,10 +70,6 @@ static const char * warn[] = {
         "pass xfer: ",  ", index xfer: ",  ", crypt: ",  ", result xfer: "
 };
 
-#ifndef uint32_t
-#define uint32_t unsigned int
-#endif
-
 static unsigned char salt_storage[SALT_STORAGE_SIZE];
 
 static cl_mem salt_buffer, keys_buffer, idx_buffer, digest_buffer;
@@ -84,9 +81,6 @@ static unsigned int key_idx = 0;
 static unsigned int v_width = 1;	/* Vector width of kernel */
 static int partial_output;
 static struct fmt_main *self;
-
-#define MIN(a, b)               (((a) > (b)) ? (b) : (a))
-#define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 
 static int crypt_all(int *pcount, struct db_salt *_salt);
 
@@ -201,14 +195,16 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 static void release_clobj(void)
 {
-	MEM_FREE(keys);
-	MEM_FREE(idx);
-	MEM_FREE(digest);
+	if (keys) {
+		HANDLE_CLERROR(clReleaseMemObject(digest_buffer), "Error releasing digest_buffer");
+		HANDLE_CLERROR(clReleaseMemObject(idx_buffer), "Error releasing idx_buffer");
+		HANDLE_CLERROR(clReleaseMemObject(keys_buffer), "Error releasing keys_buffer");
+		HANDLE_CLERROR(clReleaseMemObject(salt_buffer), "Error releasing salt_buffer");
 
-	HANDLE_CLERROR(clReleaseMemObject(salt_buffer), "Error releasing salt_buffer");
-	HANDLE_CLERROR(clReleaseMemObject(keys_buffer), "Error releasing keys_buffer");
-	HANDLE_CLERROR(clReleaseMemObject(idx_buffer), "Error releasing idx_buffer");
-	HANDLE_CLERROR(clReleaseMemObject(digest_buffer), "Error releasing digest_buffer");
+		MEM_FREE(digest);
+		MEM_FREE(idx);
+		MEM_FREE(keys);
+	}
 }
 
 static void done(void)
@@ -405,7 +401,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	global_work_size = local_work_size ? ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size : count / v_width;
 	scalar_gws = global_work_size * v_width;
 
-	//fprintf(stderr, "%s(%d) lws %zu gws %zu sgws %zu kidx %u\n", __FUNCTION__, count, local_work_size, global_work_size, scalar_gws, key_idx);
+	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kidx %u\n", __FUNCTION__, count, local_work_size, global_work_size, scalar_gws, key_idx);
 
 	if (key_idx)
 		HANDLE_CLERROR(

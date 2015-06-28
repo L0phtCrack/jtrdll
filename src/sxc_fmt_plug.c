@@ -27,14 +27,16 @@ john_register_one(&fmt_sxc);
 #include "pbkdf2_hmac_sha1.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               2 // tuned on core i7
+#endif
 #endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"sxc"
 #define FORMAT_NAME		"StarOffice .sxc"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"SHA1 Blowfish " SHA1_N_STR SIMD_TYPE_STR
+#define ALGORITHM_NAME		"SHA1 " SHA1_ALGORITHM_NAME " Blowfish"
 #else
 #define ALGORITHM_NAME		"SHA1 Blowfish 32/" ARCH_BITS_STR
 #endif
@@ -335,7 +337,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

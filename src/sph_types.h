@@ -47,7 +47,9 @@
 #ifndef SPH_TYPES_H__
 #define SPH_TYPES_H__
 
+#if AC_BUILT
 #include "autoconfig.h"
+#endif
 
 #if !AC_BUILT || HAVE_LIMITS_H
 #include <limits.h>
@@ -166,7 +168,7 @@
  * computations may be performed in parallel, provided that they do not
  * operate on the same context. Moreover, a running computation can be
  * cloned by copying the context (with a simple <code>memcpy()</code>):
- * the context and its clone are then independant and may be updated
+ * the context and its clone are then independent and may be updated
  * with new data and/or closed without interfering with each other.
  * Similarly, a context structure can be moved in memory at will:
  * context structures contain no pointer, in particular no pointer to

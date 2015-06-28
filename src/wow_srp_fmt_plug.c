@@ -24,7 +24,7 @@
  * v is the 'verifier' value (256 bit value).
  *
  * Added OMP.  Added 'default' oSSL BigNum exponentiation.
- * GMP exponentation (faster) is optional, and controled with HAVE_LIBGMP in autoconfig.h
+ * GMP exponentation (faster) is optional, and controlled with HAVE_LIBGMP in autoconfig.h
  *
  * NOTE, big fix required. The incoming binary may be 64 bytes OR LESS.  It
  * can also be 64 bytes (or less), and have left padded 0's.  We have to adjust
@@ -75,7 +75,9 @@ john_register_one(&fmt_blizzard);
 #include "johnswap.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               64
+#endif
 #endif
 #include "memdbg.h"
 
@@ -131,7 +133,7 @@ static unsigned char saved_salt[SALT_SIZE];
 static unsigned char user_id[USERNAMELEN];
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static ARCH_WORD_32 (*crypt_out)[8];
-
+static int max_keys_per_crypt;
 
 static void init(struct fmt_main *self)
 {
@@ -149,13 +151,14 @@ static void init(struct fmt_main *self)
 	pSRP_CTX  = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*pSRP_CTX));
 
-	for (i = 0; i < self->params.max_keys_per_crypt; ++i) {
+	max_keys_per_crypt = self->params.max_keys_per_crypt;
+	for (i = 0; i < max_keys_per_crypt; ++i) {
 #ifdef HAVE_LIBGMP
 		mpz_init_set_str(pSRP_CTX[i].z_mod, "112624315653284427036559548610503669920632123929604336254260115573677366691719", 10);
 		mpz_init_set_str(pSRP_CTX[i].z_base, "47", 10);
 		mpz_init_set_str(pSRP_CTX[i].z_exp, "1", 10);
 		mpz_init(pSRP_CTX[i].z_rop);
-		// Now, properly initialzed mpz_exp, so it is 'large enough' to hold any SHA1 value
+		// Now, properly initialized mpz_exp, so it is 'large enough' to hold any SHA1 value
 		// we need to put into it. Then we simply need to copy in the data, and possibly set
 		// the limb count size.
 		mpz_mul_2exp(pSRP_CTX[i].z_exp, pSRP_CTX[i].z_exp, 159);
@@ -173,6 +176,15 @@ static void init(struct fmt_main *self)
 
 static void done(void)
 {
+#ifdef HAVE_LIBGMP
+	int i;
+	for (i = 0; i < max_keys_per_crypt; ++i) {
+		mpz_clear(pSRP_CTX[i].z_mod);
+		mpz_clear(pSRP_CTX[i].z_base);
+		mpz_clear(pSRP_CTX[i].z_exp);
+		mpz_clear(pSRP_CTX[i].z_rop);
+	}
+#endif
 	MEM_FREE(pSRP_CTX);
 	MEM_FREE(crypt_out);
 	MEM_FREE(saved_key);
@@ -209,14 +221,20 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return 1;
 }
 
-static void StripZeros(const char *ct, char *ct2) {
+/*
+ * Copy as much as ct2_size to ct2 to avoid buffer overflow
+ */
+static void StripZeros(const char *ct, char *ct2, const int ct2_size) {
 	int i;
-	for (i = 0; i < WOWSIGLEN; ++i)
+
+	for (i = 0; i < WOWSIGLEN && i < (ct2_size - 1); ++i)
 		*ct2++ = *ct++;
 	while (*ct == '0')
 		++ct;
-	while (*ct)
+	while (*ct && i < (ct2_size - 1)) {
 		*ct2++ = *ct++;
+		i++;
+	}
 	*ct2 = 0;
 }
 
@@ -230,7 +248,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt) {
 	cp = strchr(split_fields[1], '*');
 	if (cp) {
 		if (split_fields[1][WOWSIGLEN] == '0') {
-			StripZeros(split_fields[1], ct);
+			StripZeros(split_fields[1], ct, sizeof(ct));
 			return ct;
 		}
 		return split_fields[1];
@@ -244,7 +262,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt) {
 	// Ok, if there are leading 0's for that binary resultant value, then remove them.
 	if (ct[WOWSIGLEN] == '0') {
 		char ct2[128+32+1];
-		StripZeros(ct, ct2);
+		StripZeros(ct, ct2, sizeof(ct2));
 		strcpy(ct, ct2);
 	}
 	return ct;
@@ -261,7 +279,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt) {
 	if (cp) *cp = '*';
 	if (ct[WOWSIGLEN] == '0') {
 		char ct2[128+32+1];
-		StripZeros(ct, ct2);
+		StripZeros(ct, ct2, sizeof(ct2));
 		strcpy(ct, ct2);
 	}
 	return ct;

@@ -32,7 +32,9 @@ john_register_one(&fmt_ssh);
 #include "options.h"
 #ifdef _OPENMP
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE           64
+#endif
 #endif
 #include <string.h>
 #include "arch.h"
@@ -85,13 +87,21 @@ static struct fmt_tests ssh_tests[] = {
 
 struct fmt_main fmt_ssh;
 
+static void ssl_init() {
+	static int init=0;
+
+	/* OpenSSL init, cleanup part is left to OS */
+	if (!init) {
+		init = 1;
+		SSL_load_error_strings();
+		SSL_library_init();
+		OpenSSL_add_all_algorithms();
+	}
+}
+
 static void init(struct fmt_main *self)
 {
-	/* OpenSSL init, cleanup part is left to OS */
-	SSL_load_error_strings();
-	SSL_library_init();
-	OpenSSL_add_all_algorithms();
-
+	ssl_init();
 #if defined(_OPENMP) && OPENSSL_VERSION_NUMBER >= 0x10000000
 	if (SSLeay() < 0x10000000) {
 		fprintf(stderr, "Warning: compiled against OpenSSL 1.0+, "
@@ -114,43 +124,6 @@ static void init(struct fmt_main *self)
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
 	cracked = mem_calloc_tiny(cracked_size, MEM_ALIGN_WORD);
-}
-
-static int valid(char *ciphertext, struct fmt_main *self)
-{
-	char *ctcopy;
-	char *keeptr;
-	char *p;
-	int res;
-	int length;
-	if (strncmp(ciphertext, "$ssh2$", 6))
-		return 0;
-	ctcopy = strdup(ciphertext);
-	keeptr = ctcopy;
-	ctcopy += 6;
-	if ((p = strtokm(ctcopy, "*")) == NULL)	/* data */
-		goto err;
-	if (!ishex(p))
-		goto err;
-	length = strlen(p);
-
-	if ((p = strtokm(NULL, "*")) == NULL)	/* length */
-		goto err;
-	if (!ishex(p))
-		goto err;
-	res = atoi(p);
-
-	if(length != res * 2)
-		goto err;
-
-	p = strtokm(NULL, "*"); // type (optional)
-
-	MEM_FREE(keeptr);
-	return 1;
-
-err:
-	MEM_FREE(keeptr);
-	return 0;
 }
 
 #define M_do_cipher(ctx, out, in, inl) ctx->cipher->do_cipher(ctx, out, in, inl)
@@ -265,6 +238,8 @@ static void *get_salt(char *ciphertext)
 
 	psalt = (struct custom_salt*)mem_calloc(1, sizeof(struct custom_salt));
 	memset(psalt, 0, sizeof(struct custom_salt));
+	pk.type = 0;
+	pk.save_type = 0;
 
 	if (!ptr) ptr = mem_alloc_tiny(sizeof(struct custom_salt*),sizeof(struct custom_salt*));
 	if (!copy || !encoded_data) {
@@ -302,6 +277,7 @@ static void *get_salt(char *ciphertext)
 					ERR_print_errors_fp(stderr);
 					error();
 				}
+				return NULL;
 			}
 			/* PEM encoded DSA and RSA private keys are supported. */
 			if (!strcmp(nm, PEM_STRING_DSA)) {
@@ -317,17 +293,19 @@ static void *get_salt(char *ciphertext)
 			OPENSSL_free(nm);
 			OPENSSL_free(header);
 			OPENSSL_free(data);
-			OPENSSL_free(psalt->bp);
 		}
 	}
+	OPENSSL_free(nm);
 
 	if (psalt->type == 0 && !PEM_get_EVP_CIPHER_INFO(header, &cipher)) {
 		ERR_print_errors_fp(stderr);
 		error();
+		return NULL;
 	}
 #ifdef SSH_FMT_DEBUG
 	printf("Header Information:\n%s\n", header);
 #endif
+	OPENSSL_free(header);
 
 	/* save custom_salt information */
 	memcpy(&(psalt->cipher), &cipher, sizeof(cipher));
@@ -338,6 +316,7 @@ static void *get_salt(char *ciphertext)
 	} else {
 		memcpy(psalt->data, data, len);
 		psalt->len = len;
+		OPENSSL_free(data);
 	}
 
 	psalt->dsalt.salt_alloc_needs_free = 1;  // we used mem_calloc, so JtR CAN free our pointer when done with them.
@@ -347,14 +326,53 @@ static void *get_salt(char *ciphertext)
 	psalt->dsalt.salt_cmp_offset = SALT_CMP_OFF(struct custom_salt, len);
 	psalt->dsalt.salt_cmp_size = SALT_CMP_SIZE(struct custom_salt, len, cipher, 0);
 
-	OPENSSL_free(nm);
-	OPENSSL_free(header);
-	OPENSSL_free(data);
+	BIO_free(psalt->bp);
 	MEM_FREE(copy);
 	MEM_FREE(decoded_data);
 
 	memcpy(ptr, &psalt, sizeof(struct custom_salt*));
 	return (void*)ptr;
+}
+
+static int valid(char *ciphertext, struct fmt_main *self)
+{
+	char *ctcopy;
+	char *keeptr;
+	char *p;
+	char *dummy_salt;
+	int res;
+	int length;
+	if (strncmp(ciphertext, "$ssh2$", 6))
+		return 0;
+	ctcopy = strdup(ciphertext);
+	keeptr = ctcopy;
+	ctcopy += 6;
+	if ((p = strtokm(ctcopy, "*")) == NULL)	/* data */
+		goto err;
+	if (!ishex(p))
+		goto err;
+	length = strlen(p);
+
+	if ((p = strtokm(NULL, "*")) == NULL)	/* length */
+		goto err;
+	if (!ishex(p))
+		goto err;
+	res = atoi(p);
+
+	if(length != res * 2)
+		goto err;
+
+	p = strtokm(NULL, "*"); // type (optional)
+
+	ssl_init();
+	if (!(dummy_salt = (get_salt(ciphertext))))
+		goto err;
+	dyna_salt_remove(dummy_salt);
+	MEM_FREE(keeptr);
+	return 1;
+err:
+	MEM_FREE(keeptr);
+	return 0;
 }
 
 static void set_salt(void *salt)

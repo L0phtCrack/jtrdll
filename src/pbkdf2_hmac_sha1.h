@@ -136,9 +136,9 @@ static void pbkdf2_sha1(const unsigned char *K, int KL, const unsigned char *S, 
 
 #endif
 
-#ifdef SIMD_COEF_32
+#if defined(SIMD_COEF_32) && !defined(OPENCL_FORMAT)
 
-#define SSE_GROUP_SZ_SHA1 (SIMD_COEF_32*SHA1_SSE_PARA)
+#define SSE_GROUP_SZ_SHA1 (SIMD_COEF_32*SIMD_PARA_SHA1)
 
 
 static void _pbkdf2_sha1_sse_load_hmac(const unsigned char *K[SSE_GROUP_SZ_SHA1], int KL[SSE_GROUP_SZ_SHA1], SHA_CTX pIpad[SSE_GROUP_SZ_SHA1], SHA_CTX pOpad[SSE_GROUP_SZ_SHA1])
@@ -175,16 +175,16 @@ static void pbkdf2_sha1_sse(const unsigned char *K[SSE_GROUP_SZ_SHA1], int KL[SS
 {
 	unsigned char tmp_hash[SHA_DIGEST_LENGTH];
 	ARCH_WORD_32 *i1, *i2, *o1, *ptmp;
-	int i,j;
+	unsigned int i, j;
 	ARCH_WORD_32 dgst[SSE_GROUP_SZ_SHA1][SHA_DIGEST_LENGTH/sizeof(ARCH_WORD_32)];
 	int loops, accum=0;
 	unsigned char loop;
 	SHA_CTX ipad[SSE_GROUP_SZ_SHA1], opad[SSE_GROUP_SZ_SHA1], ctx;
 
 	// sse_hash1 would need to be 'adjusted' for SHA1_PARA
-	JTR_ALIGN(16) unsigned char sse_hash1[SHA_BUF_SIZ*sizeof(ARCH_WORD_32)*SSE_GROUP_SZ_SHA1];
-	JTR_ALIGN(16) unsigned char sse_crypt1[SHA_DIGEST_LENGTH*SSE_GROUP_SZ_SHA1];
-	JTR_ALIGN(16) unsigned char sse_crypt2[SHA_DIGEST_LENGTH*SSE_GROUP_SZ_SHA1];
+	JTR_ALIGN(MEM_ALIGN_SIMD) unsigned char sse_hash1[SHA_BUF_SIZ*sizeof(ARCH_WORD_32)*SSE_GROUP_SZ_SHA1];
+	JTR_ALIGN(MEM_ALIGN_SIMD) unsigned char sse_crypt1[SHA_DIGEST_LENGTH*SSE_GROUP_SZ_SHA1];
+	JTR_ALIGN(MEM_ALIGN_SIMD) unsigned char sse_crypt2[SHA_DIGEST_LENGTH*SSE_GROUP_SZ_SHA1];
 	i1 = (ARCH_WORD_32*)sse_crypt1;
 	i2 = (ARCH_WORD_32*)sse_crypt2;
 	o1 = (ARCH_WORD_32*)sse_hash1;
@@ -226,7 +226,7 @@ static void pbkdf2_sha1_sse(const unsigned char *K[SSE_GROUP_SZ_SHA1], int KL[SS
 	loops = (skip_bytes + outlen + (SHA_DIGEST_LENGTH-1)) / SHA_DIGEST_LENGTH;
 	loop = skip_bytes / SHA_DIGEST_LENGTH + 1;
 	while (loop <= loops) {
-		int k;
+		unsigned int k;
 		for (j = 0; j < SSE_GROUP_SZ_SHA1; ++j) {
 			memcpy(&ctx, &ipad[j], sizeof(ctx));
 			SHA1_Update(&ctx, S, SL);
@@ -265,9 +265,9 @@ static void pbkdf2_sha1_sse(const unsigned char *K[SSE_GROUP_SZ_SHA1], int KL[SS
 			for (k = 0; k < SSE_GROUP_SZ_SHA1; k++) {
 				unsigned *p = &o1[(k/SIMD_COEF_32)*SIMD_COEF_32*SHA_BUF_SIZ + (k&(SIMD_COEF_32-1))];
 				for(j = 0; j < (SHA_DIGEST_LENGTH/sizeof(ARCH_WORD_32)); j++) {
-					dgst[k][j] ^= p[(j<<SIMD_COEF32_BITS)];
+					dgst[k][j] ^= p[(j*SIMD_COEF_32)];
 #if defined (EFS_CRAP_LOGIC)
-					p[(j<<SIMD_COEF32_BITS)] = dgst[k][j];
+					p[(j*SIMD_COEF_32)] = dgst[k][j];
 #endif
 				}
 			}
@@ -278,7 +278,7 @@ static void pbkdf2_sha1_sse(const unsigned char *K[SSE_GROUP_SZ_SHA1], int KL[SS
 		for (k = 0; k < SSE_GROUP_SZ_SHA1; k++) {
 			unsigned *p = &o1[(k/SIMD_COEF_32)*SIMD_COEF_32*SHA_BUF_SIZ + (k&(SIMD_COEF_32-1))];
 			for(j = 0; j < (SHA_DIGEST_LENGTH/sizeof(ARCH_WORD_32)); j++)
-				dgst[k][j] = p[(j<<SIMD_COEF32_BITS)];
+				dgst[k][j] = p[(j*SIMD_COEF_32)];
 		}
 #endif
 

@@ -22,11 +22,12 @@ john_register_one(&fmt_rawKeccak_256);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "KeccakF-1600-interface.h"
-#include "KeccakNISTInterface.h"
+#include "KeccakHash.h"
 
 #ifdef _OPENMP
+#ifndef OMP_SCALE
 #define OMP_SCALE			2048
+#endif
 #include <omp.h>
 #endif
 
@@ -38,15 +39,15 @@ john_register_one(&fmt_rawKeccak_256);
 #define FORMAT_LABEL		"Raw-Keccak-256"
 #define FORMAT_NAME		""
 #if defined(__AVX__)
-#define ALGORITHM_NAME			"AVX"
+#define ALGORITHM_NAME			"128/128 AVX"
 #elif defined(__XOP__)
-#define ALGORITHM_NAME			"XOP"
+#define ALGORITHM_NAME			"128/128 XOP"
 #elif defined(__SSE4_1__)
-#define ALGORITHM_NAME			"SSE4.1"
+#define ALGORITHM_NAME			"128/128 SSE4.1"
 #elif defined(__SSSE3__)
-#define ALGORITHM_NAME			"SSSE3"
+#define ALGORITHM_NAME			"128/128 SSSE3"
 #elif defined(__SSE2__)
-#define ALGORITHM_NAME			"SSE2"
+#define ALGORITHM_NAME			"128/128 SSE2"
 #else
 #define ALGORITHM_NAME			"32/" ARCH_BITS_STR
 #endif
@@ -88,12 +89,11 @@ static void init(struct fmt_main *self)
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_len));
+			sizeof(*saved_len));
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_key));
+			sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*crypt_out));
-	KeccakInitialize();
+			sizeof(*crypt_out));
 }
 
 static void done(void)
@@ -140,9 +140,7 @@ static void *get_binary(char *ciphertext)
 
 	p = ciphertext + TAG_LENGTH;
 	for (i = 0; i < BINARY_SIZE; i++) {
-		out[i] =
-		    (atoi16[ARCH_INDEX(*p)] << 4) |
-		    atoi16[ARCH_INDEX(p[1])];
+		out[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
 		p += 2;
 	}
 
@@ -208,7 +206,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 	for (index = 0; index < count; index++)
 	{
-		Hash(256, (BitSequence *)saved_key[index], saved_len[index] * 8, (BitSequence *)crypt_out[index]);
+		Keccak_HashInstance hash;
+		Keccak_HashInitialize(&hash, 1088, 512, 256, 0x01);
+		Keccak_HashUpdate(&hash, (unsigned char*)saved_key[index], saved_len[index] * 8);
+		Keccak_HashFinal(&hash, (unsigned char*)crypt_out[index]);
 	}
 	return count;
 }
@@ -217,7 +218,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index = 0;
 	for (; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }

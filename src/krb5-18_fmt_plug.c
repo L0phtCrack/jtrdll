@@ -16,7 +16,7 @@
  *
  * Format rewritten Dec, 2014, without use of -lkrb5, by JimF.  Now we use 'native' JtR
  * pbkdf2-hmac-sha1() and simple call to 2 AES limb encrypt for entire process. Very
- * simple, and 10x faster, and no obsure -lkrb5 dependancy
+ * simple, and 10x faster, and no obsure -lkrb5 dependency
  */
 
 #if AC_BUILT
@@ -45,27 +45,27 @@ john_register_one(&fmt_krb5_18);
 #ifdef _OPENMP
 #include <omp.h>
 #ifdef SIMD_COEF_32
+#ifndef OMP_SCALE
 #define OMP_SCALE               8
+#endif
 #else
+#ifndef OMP_SCALE
 #define OMP_SCALE               32
+#endif
 #endif
 #endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"krb5-18"
-#define FORMAT_NAME		"Kerberos 5 db etype 18 aes256-cts-hmac-sha1-96"
+#define FORMAT_NAME		"Kerberos 5 db etype 18"
 
 #define FORMAT_TAG		"$krb18$"
 #define TAG_LENGTH		7
 
 #if SIMD_COEF_32
-#define ALGORITHM_NAME    SHA1_ALGORITHM_NAME
+#define ALGORITHM_NAME    "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME " AES"
 #else
-#if ARCH_BITS >= 64
-#define ALGORITHM_NAME     "64/" ARCH_BITS_STR
-#else
-#define ALGORITHM_NAME      "32/" ARCH_BITS_STR
-#endif
+#define ALGORITHM_NAME    "PBKDF2-SHA1 32/" ARCH_BITS_STR " AES"
 #endif
 
 #define BENCHMARK_COMMENT	""
@@ -77,7 +77,7 @@ john_register_one(&fmt_krb5_18);
 #define SALT_SIZE		CIPHERTEXT_LENGTH
 #define SALT_ALIGN		1
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT      SIMD_COEF_32
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT      1

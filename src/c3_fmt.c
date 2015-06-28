@@ -244,18 +244,18 @@ static void init(struct fmt_main *self)
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-	int length, count_base64, id, pw_length;
+	int length, count_base64, count_base64_2, id, pw_length;
 	char pw[PLAINTEXT_LENGTH + 1], *new_ciphertext;
 /* We assume that these are zero-initialized */
 	static char sup_length[BINARY_SIZE], sup_id[0x80];
-	static int len_13_warned = 0;
-	int show_warn = 1;
 
-	length = count_base64 = 0;
+	length = count_base64 = count_base64_2 = 0;
 	while (ciphertext[length]) {
-		if (atoi64[ARCH_INDEX(ciphertext[length])] != 0x7F &&
-		    (ciphertext[0] == '_' || length >= 2))
+		if (atoi64[ARCH_INDEX(ciphertext[length])] != 0x7F) {
 			count_base64++;
+			if (length >= 2)
+				count_base64_2++;
+		}
 		length++;
 	}
 
@@ -263,16 +263,19 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 0;
 
 	id = 0;
-	if (length == 13 && count_base64 == 11)
+	if (length == 13 && count_base64 == 13) /* valid salt */
 		id = 1;
 	else
-	if (length >= 13 &&
-	    count_base64 >= length - 2 && /* allow for invalid salt */
-	    (length - 2) % 11 == 0)
+	if (length == 13 && count_base64_2 == 11) /* invalid salt */
 		id = 2;
 	else
-	if (length == 20 && count_base64 == 19 && ciphertext[0] == '_')
+	if (length >= 13 &&
+	    count_base64_2 >= length - 2 && /* allow for invalid salt */
+	    (length - 2) % 11 == 0)
 		id = 3;
+	else
+	if (length == 20 && count_base64 == 19 && ciphertext[0] == '_')
+		id = 4;
 	else
 	if (ciphertext[0] == '$') {
 		id = (unsigned char)ciphertext[1];
@@ -287,12 +290,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 1;
 
 /* Previously detected as unsupported */
-/*
- * NOTE, we never set length-13 hashes as invalid. Our ST hashes are of this
- * type, and if we invalidate this type, the ST will fail. So for len 13, we
- * always run the hash through the engine, to validate if it is OK or not.
- */
-	if (length > 13 && sup_length[length] < 0 && sup_id[id] < 0)
+	if (sup_length[length] < 0 && sup_id[id] < 0)
 		return 0;
 
 	pw_length = ((length - 2) / 11) << 3;
@@ -332,13 +330,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 1;
 	}
 
-	if (length == 13) {
-		if (len_13_warned)
-			show_warn = 0;
-		len_13_warned = 1;
-	}
 	if (id != 10 && !ldr_in_pot)
-	if (john_main_process && show_warn)
+	if (john_main_process)
 		fprintf(stderr, "Warning: "
 		    "hash encoding string length %d, type id %c%c\n"
 		    "appears to be unsupported on this system; "

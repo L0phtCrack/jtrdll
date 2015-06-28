@@ -26,7 +26,9 @@ john_register_one(&fmt_django_scrypt);
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
+#ifndef OMP_SCALE
 #define OMP_SCALE               1 // So slow a format, a multiplier is NOT needed
+#endif
 #endif
 #include "memdbg.h"
 
@@ -194,11 +196,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index++)
 #endif
 	{
-		crypto_scrypt((unsigned char*)saved_key[index], strlen((char*)saved_key[index]),
+		if (crypto_scrypt((unsigned char*)saved_key[index], strlen((char*)saved_key[index]),
 				cur_salt->salt, strlen((char*)cur_salt->salt),
 				(1ULL) << cur_salt->N, cur_salt->r,
 				cur_salt->p, (unsigned char*)crypt_out[index],
-				BINARY_SIZE);
+				BINARY_SIZE) == -1)
+		{
+			memset(crypt_out[index], 0, sizeof(crypt_out[index]));
+		}
 	}
 	return count;
 }
@@ -209,7 +214,7 @@ static int cmp_all(void *binary, int count)
 #ifdef _OPENMP
 	for (; index < count; index++)
 #endif
-		if (!memcmp(binary, crypt_out[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
 }
