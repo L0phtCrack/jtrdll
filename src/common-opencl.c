@@ -64,6 +64,10 @@ static int kernel_loaded;
 static size_t program_size;
 static int opencl_initialized;
 
+#ifdef JTRDLL
+extern char appdatadir[_MAX_PATH];
+#endif
+
 extern volatile int bench_running;
 static void opencl_get_dev_info(int sequential_id);
 static void find_valid_opencl_device(int *dev_id, int *platform_id);
@@ -1927,6 +1931,19 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 				*p = '_';
 			p++;
 		}
+
+#ifdef JTRDLL
+		// Replace $JOHN with app data directory
+		if (appdatadir[0] != 0 && !strncmp(bin_name, "$JOHN/", 6))
+		{
+			char buf[512];
+			strncpy(buf, appdatadir, _MAX_PATH);
+			buf[_MAX_PATH - 1] = 0;
+			strncat(buf, bin_name + 5, 512 - strlen(buf));
+			buf[511] = 0;	
+			memcpy(bin_name, buf, 512);
+		}
+#endif
 
 		// Select the kernel to run.
 		if (!stat(path_expand(bin_name), &bin_stat) &&

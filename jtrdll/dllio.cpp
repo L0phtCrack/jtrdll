@@ -22,14 +22,15 @@ extern "C"
 
 extern "C" int jtrdll_entrypoint(int argc, char **argv);
 
-void *hook_ctx=NULL;
-void (*stdout_hook)(void *ctx, const char *str)=NULL;
-void (*stderr_hook)(void *ctx, const char *str)=NULL;
-int dllexitcode=0;
-int dllexited=0;
-
 extern "C" 
 {
+
+	void *hook_ctx = NULL;
+	char appdatadir[_MAX_PATH]="";
+	void(*stdout_hook)(void *ctx, const char *str) = NULL;
+	void(*stderr_hook)(void *ctx, const char *str) = NULL;
+	int dllexitcode = 0;
+	int dllexited = 0;
 
 int strprintf(char **psz, const char *szFmt, va_list args)
 {
@@ -190,6 +191,10 @@ JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
 		if(hooks)
 		{
 			hook_ctx=hooks->ctx;
+			
+			strncpy(appdatadir, hooks->appdatadir, _MAX_PATH);
+			appdatadir[_MAX_PATH - 1] = 0;
+
 			stdout_hook=hooks->stdout_hook;
 			stderr_hook=hooks->stderr_hook;
 		}

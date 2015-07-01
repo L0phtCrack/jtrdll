@@ -1,6 +1,8 @@
 #ifndef __INC_JTRDLL_H
 #define __INC_JTRDLL_H
 
+#include<stdlib.h>
+
 #ifdef JTRDLL_EXPORTS
 #ifdef _MSC_VER
 #define JTRDLL_IMPEXP __declspec(dllexport) 
@@ -33,6 +35,7 @@ struct JTRDLL_STATUS
 
 struct JTRDLL_HOOKS 
 {
+	char appdatadir[_MAX_PATH];
 	void *ctx;
 	void (*stdout_hook)(void *ctx, const char *str);
 	void (*stderr_hook)(void *ctx, const char *str);
