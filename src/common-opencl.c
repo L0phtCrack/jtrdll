@@ -374,6 +374,23 @@ static void start_opencl_environment()
 
 	/* Find OpenCL enabled devices. We ignore error here, in case
 	 * there is no platform and we'd like to run a non-OpenCL format. */
+
+#ifdef JTRDLL
+#ifdef _WIN32
+	{
+		void *opencldll = (void *)LoadLibraryA("OpenCL.DLL");
+		if (!opencldll)
+		{
+			// Set NULL to the final buffer position.
+			platforms[0].platform = NULL;
+			devices[device_pos] = NULL;
+			return;
+		}
+		FreeLibrary(opencldll);
+	}
+#endif
+#endif
+
 	clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
 
 	for (i = 0; i < num_platforms; i++) {
