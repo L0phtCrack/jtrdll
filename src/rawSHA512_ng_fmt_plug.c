@@ -65,6 +65,7 @@ john_register_one(&fmt_rawSHA512_ng);
 #define ALGORITHM_NAME            "SHA512 " SIMD_TYPE
 
 #define VWIDTH                    SIMD_COEF_64
+#define VWIDTHx4                    SIMD_COEF_64x4
 
 // max length is not 119, but 8 less than this, or 111.  111 actually make sense.
 // For SHA512 there are 14 'usable' 8 byte ints, minus 1 byte (for the 0x80).

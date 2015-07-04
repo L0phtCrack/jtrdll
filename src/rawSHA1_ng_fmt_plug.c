@@ -67,6 +67,7 @@ john_register_one(&fmt_sha1_ng);
 #include "memdbg.h"
 
 #define VWIDTH SIMD_COEF_32
+#define VWIDTHx4 SIMD_COEF_32x4
 
 #define SHA1_BLOCK_SIZE         64
 #define SHA1_BLOCK_WORDS        16

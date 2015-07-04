@@ -34,6 +34,10 @@
 #include "stdint.h"
 #include "common.h" /* for is_aligned() */
 
+#ifdef _MSC_VER
+#include"intrin.h"
+#endif
+
 /*************************** AVX512 and MIC ***************************/
 #if __AVX512F__ || __MIC__
 #include <immintrin.h>
@@ -294,13 +298,9 @@ static inline int vtestz_epi32(vtype __X)
 #elif __SSE2__
 
 #if __XOP__
-
 #if !defined(_MSC_VER)
 #include <x86intrin.h>
-#else
-#include <intrin.h>
 #endif
-
 #elif __AVX__
 #include <immintrin.h>
 #elif __SSE4_1__

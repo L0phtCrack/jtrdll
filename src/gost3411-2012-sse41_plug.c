@@ -329,7 +329,9 @@ void GOST34112012Update(void* ctx, const unsigned char* data, size_t len)
 		}
 	}
 
+#if !defined(__SSE2__) || __SSE2__==0
 	_mm_empty();
+#endif
 }
 
 void GOST34112012Final(void* ctx, unsigned char* digest)
@@ -365,7 +367,9 @@ void GOST34112012Final(void* ctx, unsigned char* digest)
 	}
 
 	memset(CTX, 0, sizeof(GOST34112012Context));
+#if !defined(__SSE2__) || __SSE2__==0
 	_mm_empty();
+#endif
 }
 
 #endif /* __SSE4_1__ */

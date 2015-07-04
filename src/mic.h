@@ -56,7 +56,9 @@
 #define BF_X2				1
 
 #define SIMD_COEF_32		16
+#define SIMD_COEF_32x4		64
 #define SIMD_COEF_64		8
+#define SIMD_COEF_64x4		32
 
 #ifndef SIMD_PARA_MD4
 #define SIMD_PARA_MD4		1

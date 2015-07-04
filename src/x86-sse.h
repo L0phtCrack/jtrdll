@@ -176,16 +176,24 @@
 
 #if __AVX512__
 #define SIMD_COEF_32 16
+#define SIMD_COEF_32x4 64
 #define SIMD_COEF_64 8
+#define SIMD_COEF_64x4 32
 #elif __AVX2__
 #define SIMD_COEF_32 8
+#define SIMD_COEF_32x4 32
 #define SIMD_COEF_64 4
+#define SIMD_COEF_64x4 16
 #elif __SSE2__
 #define SIMD_COEF_32 4
+#define SIMD_COEF_32x4 16
 #define SIMD_COEF_64 2
+#define SIMD_COEF_64x4 8
 #elif __MMX__
 #define SIMD_COEF_32 2
+#define SIMD_COEF_32x4 8
 #define SIMD_COEF_64 1
+#define SIMD_COEF_64x4 4
 #endif
 
 #ifndef SIMD_PARA_MD4

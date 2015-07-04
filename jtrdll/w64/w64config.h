@@ -1,11 +1,11 @@
 #ifndef __INC_W64CONFIG_H
 #define __INC_W64CONFIG_H
 
-#define __SSE2__ 1
-#define __SSSE3__ 1
-#define __SSE4_1__ 1
-#define __XOP__ 1
-#define __AVX__ 1
+//#define __SSE2__ 1
+//#define __SSSE3__ 1
+//#define __SSE4_1__ 1
+//#define __AVX__ 1
+//#define __XOP__ 1
 #define DES_BS_ASM 1
 
 #define uint unsigned __int32

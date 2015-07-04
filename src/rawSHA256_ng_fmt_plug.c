@@ -66,6 +66,7 @@ john_register_one(&fmt_rawSHA256_ng);
 #define ALGORITHM_NAME            "SHA256 " SIMD_TYPE
 
 #define VWIDTH                    SIMD_COEF_32
+#define VWIDTHx4                    SIMD_COEF_32x4
 
 #define MAXLEN                    55
 #define PLAINTEXT_LENGTH	  MAXLEN
@@ -244,7 +245,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
         for (i=0; i < 16; i++) GATHER(w[i], saved_key, i);
         for (i=0; i < 15; i++) vswap32(w[i]);
 #else
-        JTR_ALIGN(VWIDTH * 4) uint32_t __w[16][VWIDTH];
+        JTR_ALIGN(VWIDTHx4) uint32_t __w[16][VWIDTH];
         int j;
 
         for (i=0; i < VWIDTH; i++)
