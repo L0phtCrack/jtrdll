@@ -147,9 +147,11 @@ extern struct fmt_main fmt_NT;
 
 #include "fmt_externs.h"
 
+#ifndef JTRDLL
 #if HAVE_CUDA
 extern struct fmt_main fmt_cuda_rawsha224;
 extern struct fmt_main fmt_cuda_rawsha256;
+#endif
 #endif
 
 extern int unshadow(int argc, char **argv);
@@ -324,9 +326,11 @@ static void john_register_all(void)
 	// This format is deprecated so now registers after plug-in NT format.
 	john_register_one(&fmt_NT);
 
+#ifndef JTRDLL
 #if HAVE_CUDA
 	john_register_one(&fmt_cuda_rawsha224);
 	john_register_one(&fmt_cuda_rawsha256);
+#endif
 #endif
 
 #if HAVE_CRYPT

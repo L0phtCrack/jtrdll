@@ -56,6 +56,7 @@ JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * char
 typedef int (TYPEOF_jtrdll_main)(int argc, char **argv, struct JTRDLL_HOOKS *hooks);
 typedef void (TYPEOF_jtrdll_abort)(void);
 typedef void (TYPEOF_jtrdll_get_status)(struct JTRDLL_STATUS *jtrdllstatus);
+typedef int (TYPEOF_jtrdll_get_charset_info)(const char *path, unsigned char * charmin, unsigned char *charmax, unsigned char *len, unsigned char *count);
 
 #ifdef __cplusplus
 }
