@@ -22,7 +22,6 @@
 #if _MSC_VER || __MINGW32__ || __MINGW64__ || HAVE_WINDOWS_H
 #define WIN32_SIGNAL_HANDLER
 #define SIGALRM SIGFPE
-#define SIGHUP SIGILL
 #include <windows.h>
 #endif
 
@@ -67,6 +66,8 @@ volatile int timer_abort = 0, timer_status = 0;
 static int timer_save_interval, timer_save_value;
 static clock_t timer_ticksafety_interval, timer_ticksafety_value;
 volatile int aborted_by_timer = 0;
+
+volatile int illegal_instruction = 0;
 
 #if !OS_TIMER
 
@@ -212,7 +213,9 @@ static void sig_handle_update(int signum)
 
 static void sig_remove_update(void)
 {
+#ifndef _MSC_VER
 	signal(SIGHUP, SIG_IGN);
+#endif
 }
 
 #ifdef SIGUSR2
@@ -246,6 +249,7 @@ void check_abort(int be_async_signal_safe)
 		        "stopped (max run-time reached)" : "aborted");
 	error();
 }
+
 
 static void sig_install_abort(void);
 
@@ -325,6 +329,7 @@ static void sig_install_abort(void)
 
 	signal(SIGINT, sig_handle_abort);
 	signal(SIGTERM, sig_handle_abort);
+
 #ifdef SIGXCPU
 	signal(SIGXCPU, sig_handle_abort);
 #endif
@@ -603,7 +608,9 @@ void sig_init(void)
 
 	atexit(sig_done);
 
+#ifndef _MSC_VER
 	sig_install(sig_handle_update, SIGHUP);
+#endif
 	sig_install_abort();
 	sig_install_timer();
 #ifdef _WIN32

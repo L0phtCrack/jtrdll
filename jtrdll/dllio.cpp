@@ -3,6 +3,7 @@
 #include<signal.h>
 #include<string.h>
 #include<memory.h>
+#include<exception>
 
 extern "C"
 {
@@ -183,9 +184,22 @@ void dll_exit(int exitcode)
 	dllexit(exitcode);	
 }
 
+class __sigill:public std::exception
+{
+	
+};
+
+void sigill_handler(int signal)
+{
+	throw __sigill();
+}
+
+typedef void (*SIGPTR)(int);
 
 JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
 {
+	SIGPTR oldhandler = signal(SIGILL, sigill_handler);
+
 	try
 	{
 		if(hooks)
@@ -198,10 +212,26 @@ JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
 			stdout_hook=hooks->stdout_hook;
 			stderr_hook=hooks->stderr_hook;
 		}
-		return jtrdll_entrypoint(argc,argv);
+
+		int ret = jtrdll_entrypoint(argc,argv);
+
+		signal(SIGILL, oldhandler);
+		return ret;
+	}
+	catch (__sigill __sig)
+	{
+		if (hooks)
+		{
+			hooks->caught_sigill = 1;
+		}
+
+		signal(SIGILL, oldhandler);
+		return -1;
 	}
 	catch(...)
 	{
+
+		signal(SIGILL, oldhandler);
 		return dllexitcode;
 	}
 }

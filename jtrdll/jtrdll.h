@@ -36,6 +36,7 @@ struct JTRDLL_STATUS
 struct JTRDLL_HOOKS 
 {
 	char appdatadir[_MAX_PATH];
+	int caught_sigill;
 	void *ctx;
 	void (*stdout_hook)(void *ctx, const char *str);
 	void (*stderr_hook)(void *ctx, const char *str);

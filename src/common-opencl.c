@@ -950,7 +950,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		                                  SUBSECTION_OPENCL, "GlobalBuildOpts")))
 			global_opts = OPENCLBUILDOPTIONS;
 
-	sprintf(include, "-I %s %s %s%s%s%d %s %s %s", path_expand(pathname),
+	sprintf(include, "-I \"%s\" %s %s%s%s%d %s %s %s", path_expand(pathname),
 	        global_opts,
 #ifdef __APPLE__
 	        "-DAPPLE ",

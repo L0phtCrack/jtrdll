@@ -81,7 +81,7 @@ void path_init(char **argv)
 			if (!pos) {
 				pos = strrchr(argv[0], '\\'); // handle this for MSVC and MinGW which use 'DOS' style C:\path\run\john  syntax.
 				if (pos>argv[0] && argv[0][1] == ':') {
-					argv[0] += 2;
+//					argv[0] += 2;
 					dos = 1;
 				}
 			}
@@ -112,7 +112,7 @@ void path_init_ex(const char *path)
 	if (!pos) {
 		pos = strrchr(path, '\\');
 		if (pos>path && path[1] == ':') {
-			path += 2;
+//			path += 2;
 			dos = 1;
 		}
 		else if (pos == path)
