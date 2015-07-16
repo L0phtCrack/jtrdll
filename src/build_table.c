@@ -207,62 +207,63 @@ static void init_tables(unsigned int approx_offset_table_sz, unsigned int approx
 #if _OPENMP
 #pragma omp parallel private(i, offset_data_idx)
 #endif
-{
+	{
 #if _OPENMP
 #pragma omp for
 #endif
-	for (i = 0; i < offset_table_size; i++) {
-		//memset(&offset_data[i], 0, sizeof(auxilliary_offset_data));
-		offset_data[i].offset_table_idx = 0;
-		offset_data[i].collisions = 0;
-		offset_data[i].hash_location_list = NULL;
-		offset_data[i].iter = 0;
-		offset_table[i] = 0;
-	}
+		for (i = 0; i < offset_table_size; i++) {
+			//memset(&offset_data[i], 0, sizeof(auxilliary_offset_data));
+			offset_data[i].offset_table_idx = 0;
+			offset_data[i].collisions = 0;
+			offset_data[i].hash_location_list = NULL;
+			offset_data[i].iter = 0;
+			offset_table[i] = 0;
+		}
 #if _OPENMP
 #pragma omp barrier
 #endif
-	/* Build Auxilliary data structure for offset_table. */
+		/* Build Auxilliary data structure for offset_table. */
 #if _OPENMP
 #pragma omp for
 #endif
-	for (i = 0; i < num_loaded_hashes; i++) {
-		offset_data_idx = modulo_op((char *)loaded_hashes + i * binary_size_actual, offset_table_size, shift64_ot_sz, shift128_ot_sz);
+		for (i = 0; i < num_loaded_hashes; i++) {
+			offset_data_idx = modulo_op((char *)loaded_hashes + i * binary_size_actual, offset_table_size, shift64_ot_sz, shift128_ot_sz);
 #if _OPENMP
 #pragma omp atomic
 #endif
-		offset_data[offset_data_idx].collisions++;
-	}
+			offset_data[offset_data_idx].collisions++;
+		}
 #if _OPENMP
 #pragma omp barrier
 #endif
 #if _OPENMP
 #pragma omp single
 #endif
-	for (i = 0; i < offset_table_size; i++)
-	{
-		if (offset_data[i].collisions) {
-			offset_data[i].hash_location_list = (unsigned int*)mem_alloc(offset_data[i].collisions * sizeof(unsigned int));
-			if (offset_data[i].collisions > max_collisions)
-				max_collisions = offset_data[i].collisions;
+		for (i = 0; i < offset_table_size; i++)
+		{
+			if (offset_data[i].collisions) {
+				offset_data[i].hash_location_list = (unsigned int*)mem_alloc(offset_data[i].collisions * sizeof(unsigned int));
+				if (offset_data[i].collisions > max_collisions)
+					max_collisions = offset_data[i].collisions;
+			}
 		}
-	}
 #if _OPENMP
 #pragma omp barrier
-MAYBE_PARALLEL_FOR
+		MAYBE_PARALLEL_FOR
 #endif
-	for (i = 0; i < num_loaded_hashes; i++) {
-		unsigned int iter;
-		offset_data_idx = modulo_op((char *)loaded_hashes + i * binary_size_actual, offset_table_size, shift64_ot_sz, shift128_ot_sz);
-MAYBE_ATOMIC_WRITE
-		offset_data[offset_data_idx].offset_table_idx = offset_data_idx;
-MAYBE_ATOMIC_CAPTURE
-		iter = offset_data[offset_data_idx].iter++;
-		offset_data[offset_data_idx].hash_location_list[iter] = i;
-	}
+			for (i = 0; i < num_loaded_hashes; i++) {
+				unsigned int iter;
+				offset_data_idx = modulo_op((char *)loaded_hashes + i * binary_size_actual, offset_table_size, shift64_ot_sz, shift128_ot_sz);
+				MAYBE_ATOMIC_WRITE
+					offset_data[offset_data_idx].offset_table_idx = offset_data_idx;
+				MAYBE_ATOMIC_CAPTURE
+					iter = offset_data[offset_data_idx].iter++;
+				offset_data[offset_data_idx].hash_location_list[iter] = i;
+			}
 #if _OPENMP
 #pragma omp barrier
 #endif
+	}
 
 	total_memory_in_bytes += num_loaded_hashes * sizeof(unsigned int);
 
