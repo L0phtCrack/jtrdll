@@ -6,7 +6,12 @@
  */
 #ifdef HAVE_OPENCL
 
+#if defined(JTRDLL) && defined(_MSC_VER)
+#include<gettimeofday.h>
+#else
 #include <sys/time.h>
+#endif
+
 #include <assert.h>
 
 #include "opencl_mscash2_helper_plug.h"
@@ -509,8 +514,7 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 			workPart = devParam[gpu_device_list[i]].devLws;
 #ifdef  _DEBUG
 		gettimeofday(&startc, NULL) ;
-		fprintf(stderr, "Work Offset:%d  Work Part Size:%d Event No:%d",workOffset,workPart,event_ctr);
-
+		
 		if (workPart != devParam[gpu_device_list[i]].devGws)
 			fprintf(stderr, "Deficit: %d %zu\n",  gpu_device_list[i], devParam[gpu_device_list[i]].devGws - workPart);
 #endif

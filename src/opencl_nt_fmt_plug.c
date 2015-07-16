@@ -28,7 +28,11 @@ john_register_one(&fmt_opencl_NT);
 
 #include <string.h>
 #include <assert.h>
+#if defined(JTRDLL) && defined(_MSC_VER)
+#include<gettimeofday.h>
+#else
 #include <sys/time.h>
+#endif
 
 #include "arch.h"
 #include "params.h"
