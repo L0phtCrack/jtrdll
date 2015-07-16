@@ -838,6 +838,8 @@ static void john_load_conf(void)
 
 static void john_load_conf_db(void)
 {
+	struct pers_opts x;
+
 	if (options.flags & FLG_STDOUT) {
 		/* john.conf alternative for --internal-encoding */
 		if (!pers_opts.internal_enc &&
@@ -857,6 +859,8 @@ static void john_load_conf_db(void)
 
 	pers_opts.report_utf8 = cfg_get_bool(SECTION_OPTIONS,
 	                                     NULL, "AlwaysReportUTF8", 0);
+
+	x = pers_opts;
 
 	/* Unicode (UTF-16) formats may lack encoding support. We
 	   must stop the user from trying to use it because it will

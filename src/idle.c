@@ -89,7 +89,7 @@ void idle_init(struct fmt_main *format)
 #ifndef JTRDLL
 	SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS);
 #endif
-	//SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE);
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE);
 #elif defined(__BEOS__)
 	set_thread_priority(getpid(), 1);
 #else
