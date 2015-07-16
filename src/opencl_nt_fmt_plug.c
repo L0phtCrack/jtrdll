@@ -43,15 +43,7 @@ john_register_one(&fmt_opencl_NT);
 
 #define FORMAT_LABEL		"nt-opencl"
 #define FORMAT_NAME		"NT"
-<<<<<<< HEAD
-#ifdef JTRDLL
-#define ALGORITHM_NAME      "MD4 OpenCL"
-#else
-#define ALGORITHM_NAME      "MD4 OpenCL (inefficient, development use only)"
-#endif
-=======
 #define ALGORITHM_NAME		"MD4 OpenCL"
->>>>>>> b8f787be60d6be660ce4797e32d5f6991629fe10
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define PLAINTEXT_LENGTH	23
@@ -1072,17 +1064,6 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 #undef calc_ms
 }
 
-<<<<<<< HEAD
-static char *get_key(int index)
-{
-	int length = -1;
-	
-	do
-	{
-		length++;
-		//Decode saved key
-		get_key_saved[length] = saved_plain[(length/4)*global_work_size*4+index*4+length%4];
-=======
 static void reset(struct db_main *db)
 {
 	static int initialized;
@@ -1103,7 +1084,6 @@ static void reset(struct db_main *db)
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_hash_table, CL_TRUE, 0, sizeof(cl_uint) * hash_table_size * 2, hash_table_128, 0, NULL, NULL), "failed in clEnqueueWriteBuffer buffer_hash_table.");
 
 		auto_tune(db, 300);
->>>>>>> b8f787be60d6be660ce4797e32d5f6991629fe10
 	}
 	else {
 		unsigned int *binary, i = 0;

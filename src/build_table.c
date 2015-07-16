@@ -248,7 +248,6 @@ static void init_tables(unsigned int approx_offset_table_sz, unsigned int approx
 		}
 	}
 #if _OPENMP
->>>>>>> b8f787be60d6be660ce4797e32d5f6991629fe10
 #pragma omp barrier
 MAYBE_PARALLEL_FOR
 #endif
