@@ -36,6 +36,7 @@
 #include <openssl/crypto.h>
 
 #include "arch.h"
+#include "sse-intrinsics.h"
 #include "jumbo.h"
 #include "params.h"
 #include "path.h"
@@ -130,9 +131,13 @@ static void listconf_list_build_info(void)
 	int gmp_major, gmp_minor, gmp_patchlevel;
 #endif
 	puts("Version: " JTR_GIT_VERSION);
-	puts("Build: " JOHN_BLD _MP_VERSION DEBUG_STRING MEMDBG_STRING ASAN_STRING);
-	printf("Arch: %d-bit %s\n", ARCH_BITS,
-	       ARCH_LITTLE_ENDIAN ? "LE" : "BE");
+	puts("Build: " JOHN_BLD _MP_VERSION DEBUG_STRING MEMDBG_STRING ASAN_STRING UBSAN_STRING);
+#ifdef SIMD_COEF_32
+	printf("SIMD: %s, interleaving: MD4:%d MD5:%d SHA1:%d SHA256:%d SHA512:%d\n",
+	       SIMD_TYPE,
+	       SIMD_PARA_MD4, SIMD_PARA_MD5, SIMD_PARA_SHA1,
+	       SIMD_PARA_SHA256, SIMD_PARA_SHA512);
+#endif
 #if JOHN_SYSTEMWIDE
 	puts("System-wide exec: " JOHN_SYSTEMWIDE_EXEC);
 	puts("System-wide home: " JOHN_SYSTEMWIDE_HOME);
@@ -150,35 +155,19 @@ static void listconf_list_build_info(void)
 	printf("CHARSET_LENGTH: %d\n", CHARSET_LENGTH);
 	printf("Max. Markov mode level: %d\n", MAX_MKV_LVL);
 	printf("Max. Markov mode password length: %d\n", MAX_MKV_LEN);
-#if FCNTL_LOCKS
-	puts("File locking: fcntl()");
-#elif OS_FLOCK
-	puts("File locking: flock()");
-#else
-	puts("File locking: NOT supported by this build - do not run concurrent sessions!");
-#endif
-#ifdef __VERSION__
-	printf("Compiler version: %s\n", __VERSION__);
-#endif
-#ifdef __GNUC__
+
+#if __ICC
+	printf("icc version: %d.%d.%d (gcc %d.%d.%d compatibility)\n",
+	       __ICC / 100, (__ICC % 100) / 10, __ICC % 10,
+	       __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+#elif defined(__clang_version__)
+	printf("clang version: %s (gcc %d.%d.%d compatibility)\n",
+	       __clang_version__,
+	       __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+#elif __GNUC__
 	printf("gcc version: %d.%d.%d\n", __GNUC__,
 	       __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
-#endif
-#ifdef __ICC
-	printf("icc version: %d\n", __ICC);
-#endif
-#if defined(__clang_version__) && !__INTEL_COMPILER
-	printf("clang version: %s\n", __clang_version__);
-#endif
-
-#ifdef __GLIBC_MINOR__
-#ifdef __GLIBC__
-	printf("GNU libc version: %d.%d (loaded: %s)\n",
-	       __GLIBC__, __GLIBC_MINOR__, gnu_get_libc_version());
-#endif
-#endif
-
-#ifdef _MSC_VER
+#elif _MSC_VER
 /*
  * See https://msdn.microsoft.com/en-us/library/b0084kay.aspx
  * Currently, _MSC_BUILD is not reported, but we could convert
@@ -192,6 +181,15 @@ static void listconf_list_build_info(void)
 #endif
 #ifdef __CLR_VER
 	puts("Common Language Runtime version: " __CLR_VER);
+#endif
+#elif defined(__VERSION__)
+	printf("Compiler version: %s\n", __VERSION__);
+#endif
+
+#ifdef __GLIBC_MINOR__
+#ifdef __GLIBC__
+	printf("GNU libc version: %d.%d (loaded: %s)\n",
+	       __GLIBC__, __GLIBC_MINOR__, gnu_get_libc_version());
 #endif
 #endif
 
@@ -240,6 +238,14 @@ static void listconf_list_build_info(void)
 	       JS_REGEX_MAJOR_VERSION, JS_REGEX_MINOR_VERSION,
 	       rexgen_version());
 #endif
+
+#if FCNTL_LOCKS
+	puts("File locking: fcntl()");
+#elif OS_FLOCK
+	puts("File locking: flock()");
+#else
+	puts("File locking: NOT supported by this build - do not run concurrent sessions!");
+#endif
 	printf("fseek(): " STR_MACRO(jtr_fseek64) "\n");
 	printf("ftell(): " STR_MACRO(jtr_ftell64) "\n");
 	printf("fopen(): " STR_MACRO(jtr_fopen) "\n");
@@ -265,6 +271,9 @@ static void listconf_list_build_info(void)
 #endif
 #ifdef WITH_ASAN
 	cpdbg += sprintf(cpdbg, "\tASan (Address Sanitizer debugging)\n");
+#endif
+#ifdef WITH_UBSAN
+	cpdbg += sprintf(cpdbg, "\tUbSan (Undefined Behavior Sanitizer debugging)\n");
 #endif
 	if (DebuggingOptions != cpdbg) {
 		printf("Built with these debugging options\n%s\n", DebuggingOptions);
@@ -512,6 +521,15 @@ void listconf_parse_late(void)
 		setenv("BLOCKS", "1", 0);
 		setenv("THREADS", "1", 0);
 #endif
+
+#if 0
+		puts("label\tmaxlen\tmin/\tmaxkpc\tflags\tntests\talgorithm_name\tformat_name\tbench comment\tbench len\tbin size\tsalt size"
+#if FMT_MAIN_VERSION > 11
+		     "\tcosts"
+#endif
+		     "\tminlen");
+#endif
+
 		format = fmt_list;
 		do {
 			int ntests = 0;
@@ -618,6 +636,7 @@ void listconf_parse_late(void)
 			printf(" Uses a bitslice implementation      %s\n", (format->params.flags & FMT_BS) ? "yes" : "no");
 			printf(" The split() method unifies case     %s\n", (format->params.flags & FMT_SPLIT_UNIFIES_CASE) ? "yes" : "no");
 
+#ifndef DYNAMIC_DISABLED
 			if (format->params.flags & FMT_DYNAMIC) {
 #if SIMD_COEF_32
 				private_subformat_data *p = (private_subformat_data *)format->private.data;
@@ -634,7 +653,7 @@ void listconf_parse_late(void)
 #endif
 			} else
 				printf(" A $dynamic$ format                  no\n");
-
+#endif
 			printf(" A dynamic sized salt                %s\n", (format->params.flags & FMT_DYNA_SALT) ? "yes" : "no");
 #ifdef _OPENMP
 			printf(" Parallelized with OpenMP            %s\n", (format->params.flags & FMT_OMP) ? "yes" : "no");

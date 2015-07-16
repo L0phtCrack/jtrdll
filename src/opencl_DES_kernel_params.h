@@ -15,7 +15,8 @@ typedef unsigned WORD vtype;
  * "fast goto" version.
  */
 #if nvidia_sm_5x(DEVICE_INFO) || gpu_intel(DEVICE_INFO) ||	  \
-	(gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR >= 1573 && !defined(__Tahiti__))
+	(gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR >= 1573 && !defined(__Tahiti__)) || \
+	(gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR >= 1702)
 //#warning Using 'safe goto' kernel
 #define SAFE_GOTO
 #else
@@ -27,9 +28,6 @@ typedef unsigned WORD vtype;
 #endif
 #if gpu_nvidia(DEVICE_INFO)
 #define _NV
-#endif
-#if cpu(DEVICE_INFO)
-#define _CPU
 #endif
 
 #define vxorf(a, b) 					\
@@ -51,7 +49,7 @@ typedef unsigned WORD vtype;
 #define vshl1(dst, src) 				\
 	vshl((dst), (src), 1)
 
-#if defined(_NV)||defined(_CPU)
+#if defined(_NV) || __CPU__
 #define vsel(dst, a, b, c) 				\
 	(dst) = (((a) & ~(c)) ^ ((b) & (c)))
 #else
@@ -59,7 +57,7 @@ typedef unsigned WORD vtype;
 	(dst) = bitselect((a),(b),(c))
 #endif
 
-#if defined(_NV) || defined(_CPU)
+#if defined(_NV) || __CPU__
 #include "opencl_sboxes.h"
 #else
 #include "opencl_sboxes-s.h"

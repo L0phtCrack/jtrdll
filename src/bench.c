@@ -240,7 +240,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	if (!(current = format->params.tests) || !current->ciphertext)
 		return "FAILED (no data)";
 #endif
-	if ((where = fmt_self_test(format))) {
+	if ((where = fmt_self_test(format, NULL))) {
 		sprintf(s_error, "FAILED (%s)\n", where);
 		return s_error;
 	}
@@ -524,12 +524,9 @@ int benchmark_all(void)
 AGAIN:
 #endif
 	total = failed = 0;
-#ifdef WITH_ASAN
+#if defined(WITH_ASAN) || defined(WITH_UBSAN) || defined(DEBUG)
 	if (benchmark_time)
-	puts("NOTE: This is an ASan debug build, speed will be lower than normal");
-#elif defined(DEBUG)
-	if (benchmark_time)
-	puts("NOTE: This is a -DDEBUG build, speed may be lower than normal");
+		puts("NOTE: This is a debug build, speed will be lower than normal");
 #endif
 #ifndef BENCH_BUILD
 	options.loader.field_sep_char = 31;
@@ -553,6 +550,12 @@ AGAIN:
 			if ((format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) {
 				// in debug mode, we 'allow' dyna
 			} else
+#else
+			if ((options.format && !strcasecmp(options.format, "dynamic-all")&&(format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) ||
+			    (options.listconf && !strcasecmp(options.listconf, "subformats"))) {
+				// allow dyna if '-format=dynamic-all' was selected
+			} else
+
 #endif
 			continue;
 		}

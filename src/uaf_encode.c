@@ -494,15 +494,8 @@ int uaf_getuai_info (
 #else
     if ( uai_ctx == -1 ) {
 #ifdef HAVE_PTHREADS
-<<<<<<< HEAD:src/uaf_encode_plug.c
-		pthread_mutex_lock ( &uaf_static );	/* just to fool compiler */
-#endif
-		uai_ctx = -2;
-#ifdef HAVE_PTHREADS
-=======
         pthread_mutex_lock ( &uaf_static );	/* just to fool compiler */
-	uai_ctx = -2;
->>>>>>> ca858b37ab7a5b535c385b5cc4ba05ccc5eab1d9:src/uaf_encode.c
+		uai_ctx = -2;
         pthread_mutex_unlock ( &uaf_static );
 #endif
     }

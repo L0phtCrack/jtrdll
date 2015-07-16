@@ -79,6 +79,7 @@ JOHN_OBJS = \
 	LM_fmt.o \
 	trip_fmt.o \
 	NT_fmt.o \
+	whirlpool.o haval.o skein.o md2.o panama.o \
 	timer.o \
 	md5.o \
 	rc4.o \
@@ -86,6 +87,7 @@ JOHN_OBJS = \
 	base64.o base64_convert.o \
 	md4.o sha2.o \
 	dynamic_fmt.o dynamic_parser.o dynamic_preloads.o dynamic_utils.o dynamic_big_crypt.o \
+	dynamic_compiler.o \
 	ripemd.o tiger.o \
 	ssh2john.o \
 	pfx2john.o \
@@ -93,12 +95,8 @@ JOHN_OBJS = \
 	rar2john.o \
 	zip2john.o pkzip.o gladman_hmac.o gladman_pwd2key.o \
 	racf2john.o \
-	keychain2john.o \
-	kwallet2john.o \
-	pwsafe2john.o \
 	dmg2john.o \
 	keepass2john.o \
-	keyring2john.o \
 	hccap2john.o \
 	$(PLUGFORMATS_OBJS) \
 	dyna_salt.o dummy.o \
@@ -134,11 +132,10 @@ GENMKVPWD_OBJS = \
 	genmkvpwd.o mkvlib.o memory.o miscnl.o path.o memdbg.o
 
 PROJ = ../run/john@EXE_EXT@ ../run/unshadow@EXE_EXT@ ../run/unafs@EXE_EXT@ ../run/unique@EXE_EXT@ ../run/undrop@EXE_EXT@ \
-	../run/ssh2john@EXE_EXT@ ../run/rar2john@EXE_EXT@ ../run/zip2john@EXE_EXT@ \
+	../run/ssh2john@EXE_EXT@ ../run/rar2john@EXE_EXT@ ../run/zip2john@EXE_EXT@ ../run/dynacomptest@EXE_EXT@ \
 	../run/genmkvpwd@EXE_EXT@ ../run/mkvcalcproba@EXE_EXT@ ../run/calc_stat@EXE_EXT@ \
 	../run/tgtsnarf@EXE_EXT@ ../run/racf2john@EXE_EXT@ ../run/hccap2john@EXE_EXT@ \
-	../run/pwsafe2john@EXE_EXT@ ../run/raw2dyna@EXE_EXT@ ../run/keepass2john@EXE_EXT@ ../run/pfx2john@EXE_EXT@ \
-	../run/keychain2john@EXE_EXT@ ../run/keyring2john@EXE_EXT@ ../run/kwallet2john@EXE_EXT@ \
+	../run/raw2dyna@EXE_EXT@ ../run/pfx2john@EXE_EXT@  ../run/keepass2john@EXE_EXT@ \
 	../run/dmg2john@EXE_EXT@ ../run/putty2john@EXE_EXT@ ../run/uaf2john@EXE_EXT@ \
 	../run/wpapcap2john@EXE_EXT@ \
 	../run/gpg2john@EXE_EXT@ ../run/cprepair@EXE_EXT@ ../run/luks2john@EXE_EXT@ ../run/base64conv@EXE_EXT@
@@ -214,6 +211,10 @@ memdbg_ex:
 
 help:
 	@echo "The 'older' fat makefile can be done with make --file=Makefile.legacy [target]"
+
+dynamic_big_crypt.c: dynamic_big_crypt_hash.cin dynamic_big_crypt_header.cin dynamic_big_crypt_generator.sh dynamic_big_crypt_chopper.pl unused/dynamic_big_crypt.c
+	$(shell ./dynamic_big_crypt_generator.sh)
+	@if [ ! -e dynamic_big_crypt.c ] ; then $(CP_PRESERVE) unused/dynamic_big_crypt.c dynamic_big_crypt.c ; fi
 
 # Digital/Compaq's cc and make use the .S suffix for a different purpose...
 digipaq-alpha.o: alpha.S
@@ -379,19 +380,13 @@ jumbo.o:	jumbo.c jumbo.h params.h memory.h memdbg.h
 
 keepass2john.o:	keepass2john.c autoconfig.h stdint.h missing_getopt.h jumbo.h params.h memory.h memdbg.h
 
-keychain2john.o:	keychain2john.c stdint.h jumbo.h memdbg.h
-
-keyring2john.o:	keyring2john.c stdint.h memory.h jumbo.h memdbg.h
-
-kwallet2john.o:	kwallet2john.c stdint.h jumbo.h memdbg.h
-
 list.o:	list.c memory.h list.h memdbg.h
 
 version.h: find_version
 
 find_version:
 	echo "#define JTR_GIT_VERSION $(JTR_GIT_VERSION)" > version.h.new
-	diff >/dev/null -Nq version.h.new version.h && $(RM) version.h.new || $(MV) version.h.new version.h
+	diff >/dev/null 2>/dev/null version.h.new version.h && $(RM) version.h.new || $(MV) version.h.new version.h
 
 listconf.o:	version.h listconf.h listconf.c autoconfig.h arch.h jumbo.h params.h path.h formats.h options.h unicode.h dynamic.h config.h regex.h john_build_rule.h common-opencl.h memdbg.h
 
@@ -431,6 +426,18 @@ nonstd.o:	nonstd.c
 
 NT_fmt.o:	NT_fmt.c arch.h misc.h memory.h common.h formats.h options.h unicode.h aligned.h johnswap.h memdbg.h
 
+whirlpool.o:	whirlpool.c sph_whirlpool.h memdbg.h md_helper.c md_helper.c md_helper.c
+
+haval.o:	haval.c arch.h sph_haval.h memdbg.h haval_helper.c haval_helper.c haval_helper.c
+
+skein.o:	skein.c sph_skein.h memdbg.h
+
+md2.o:	md2.c sph_md2.h memdbg.h
+
+panama.o:	panama.c sph_panama.h memdbg.h
+
+skein.o:        skein.c sph_skein.h memdbg.h
+
 opencl_autotune.o:	opencl_autotune.c common-opencl.h memdbg.h
 
 options.o:	version.h listconf.h options.c os.h arch.h misc.h params.h memory.h list.h loader.h logger.h status.h recovery.h options.h bench.h external.h john.h dynamic.h unicode.h fake_salts.h regex.h john-mpi.h common-opencl.h prince.h memdbg.h john_build_rule.h
@@ -446,8 +453,6 @@ pfx2john.o:	pfx2john.c jumbo.h common.h arch.h params.h memdbg.h
 pkzip.o:	pkzip.c arch.h misc.h common.h memory.h formats.h pkzip.h memdbg.h
 
 putty2john.o:	putty2john.c autoconfig.h memory.h jumbo.h memdbg.h
-
-pwsafe2john.o:	pwsafe2john.c stdint.h jumbo.h memdbg.h
 
 racf2john.o:	racf2john.c autoconfig.h jumbo.h memory.h memdbg.h
 
@@ -597,10 +602,6 @@ aes/aes.a:
 	$(RM) ../run/keepass2john
 	$(LN) john ../run/keepass2john
 
-../run/keyring2john: ../run/john
-	$(RM) ../run/keyring2john
-	$(LN) john ../run/keyring2john
-
 ../run/zip2john: ../run/john
 	$(RM) ../run/zip2john
 	$(LN) john ../run/zip2john
@@ -616,18 +617,6 @@ aes/aes.a:
 ../run/racf2john: ../run/john
 	$(RM) ../run/racf2john
 	$(LN) john ../run/racf2john
-
-../run/keychain2john: ../run/john
-	$(RM) ../run/keychain2john
-	$(LN) john ../run/keychain2john
-
-../run/kwallet2john: ../run/john
-	$(RM) ../run/kwallet2john
-	$(LN) john ../run/kwallet2john
-
-../run/pwsafe2john: ../run/john
-	$(RM) ../run/pwsafe2john
-	$(LN) john ../run/pwsafe2john
 
 ../run/dmg2john: ../run/john
 	$(RM) ../run/dmg2john
@@ -681,10 +670,6 @@ aes/aes.a:
 	$(CC) symlink.c -o ../run/keepass2john.exe
 	$(STRIP) ../run/keepass2john.exe
 
-../run/keyring2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/keyring2john.exe
-	$(STRIP) ../run/keyring2john.exe
-
 ../run/zip2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/zip2john.exe
 	$(STRIP) ../run/zip2john.exe
@@ -700,18 +685,6 @@ aes/aes.a:
 ../run/racf2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/racf2john.exe
 	$(STRIP) ../run/racf2john.exe
-
-../run/keychain2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/keychain2john.exe
-	$(STRIP) ../run/keychain2john.exe
-
-../run/kwallet2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/kwallet2john.exe
-	$(STRIP) ../run/kwallet2john.exe
-
-../run/pwsafe2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/pwsafe2john.exe
-	$(STRIP) ../run/pwsafe2john.exe
 
 ../run/dmg2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/dmg2john.exe
@@ -758,6 +731,9 @@ aes/aes.a:
 ../run/wpapcap2john@EXE_EXT@: wpapcap2john.o
 	$(LD) $(LDFLAGS) wpapcap2john.o @MEMDBG_CFLAGS@ memdbg.o @OPENMP_CFLAGS@ -o ../run/wpapcap2john
 
+../run/dynacomptest@EXE_EXT@: dynamic_compiler.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o
+	$(CC) -DAC_BUILT -Wall -O2 @CPPFLAGS@ @CFLAGS@  @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ @OPENMP_CFLAGS@ -DWITH_MAIN -D_JOHN_MISC_NO_LOG -DUNICODE_NO_OPTIONS @MEMDBG_CFLAGS@ dynamic_compiler.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o $(LDFLAGS)  @OPENSSL_LIBS@ @COMMONCRYPTO_LIBS@  -o ../run/dynacomptest
+
 ../run/luks2john@EXE_EXT@: luks2john.o
 	$(LD) $(LDFLAGS) luks2john.o @OPENSSL_LIBS@ @OPENMP_CFLAGS@ -o ../run/luks2john
 
@@ -786,7 +762,10 @@ unrarppm.o: unrarppm.c
 .S.o:
 	$(AS) $(ASFLAGS) $*.S
 
+# For jumbo, --make_check fails for the first thin format that is linked
+# to a dynamic format in a config file, so we deviate from core here.
 check: default
+	../run/john --list=build-info
 	../run/john --test=0 --verbosity=2
 
 depend:
@@ -972,7 +951,7 @@ distclean: clean
 		config.log autoconfig-stamp-h autoconfig-stamp-h-in stamp-h1
 	$(LN) Makefile.stub Makefile
 	$(RM) arch.h
-	$(RM) fmt_registers.h fmt_externs.h john_build_rule.h version.h version.h.new
+	$(RM) fmt_registers.h fmt_externs.h dynamic_big_crypt.c john_build_rule.h version.h version.h.new
 
 install: default shell-completion
 	@echo Stripping executables.

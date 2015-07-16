@@ -183,22 +183,25 @@ static void release_clobj(void)
 
 static void done(void)
 {
-	release_clobj();
+	if (autotuned) {
+		release_clobj();
 
-	HANDLE_CLERROR(clReleaseKernel(pbkdf2_init), "Release kernel");
-	HANDLE_CLERROR(clReleaseKernel(pbkdf2_loop), "Release kernel");
-	HANDLE_CLERROR(clReleaseKernel(pbkdf2_final), "Release kernel");
-	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+		HANDLE_CLERROR(clReleaseKernel(pbkdf2_init), "Release kernel");
+		HANDLE_CLERROR(clReleaseKernel(pbkdf2_loop), "Release kernel");
+		HANDLE_CLERROR(clReleaseKernel(pbkdf2_final), "Release kernel");
+		HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+
+		autotuned--;
+	}
 }
 
 static void init(struct fmt_main *_self)
 {
-	char build_opts[64];
 	static char valgo[sizeof(ALGORITHM_NAME) + 8] = "";
 
 	self = _self;
 
-	opencl_preinit();
+	opencl_prepare_dev(gpu_id);
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
 	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
 		v_width = 2;
@@ -211,24 +214,26 @@ static void init(struct fmt_main *_self)
 		         ALGORITHM_NAME " %ux", v_width);
 		self->params.algorithm_name = valgo;
 	}
-
-	snprintf(build_opts, sizeof(build_opts),
-	         "-DHASH_LOOPS=%u -DOUTLEN=%u "
-	         "-DPLAINTEXT_LENGTH=%u -DV_WIDTH=%u",
-	         HASH_LOOPS, OUTLEN, PLAINTEXT_LENGTH, v_width);
-	opencl_init("$JOHN/kernels/pbkdf2_hmac_sha1_kernel.cl", gpu_id, build_opts);
-
-	pbkdf2_init = clCreateKernel(program[gpu_id], "pbkdf2_init", &ret_code);
-	HANDLE_CLERROR(ret_code, "Error creating kernel");
-	crypt_kernel = pbkdf2_loop = clCreateKernel(program[gpu_id], "pbkdf2_loop", &ret_code);
-	HANDLE_CLERROR(ret_code, "Error creating kernel");
-	pbkdf2_final = clCreateKernel(program[gpu_id], "pbkdf2_final", &ret_code);
-	HANDLE_CLERROR(ret_code, "Error creating kernel");
 }
 
 static void reset(struct db_main *db)
 {
-	if (!db) {
+	if (!autotuned) {
+		char build_opts[64];
+
+		snprintf(build_opts, sizeof(build_opts),
+		         "-DHASH_LOOPS=%u -DOUTLEN=%u "
+		         "-DPLAINTEXT_LENGTH=%u -DV_WIDTH=%u",
+		         HASH_LOOPS, OUTLEN, PLAINTEXT_LENGTH, v_width);
+		opencl_init("$JOHN/kernels/pbkdf2_hmac_sha1_kernel.cl", gpu_id, build_opts);
+
+		pbkdf2_init = clCreateKernel(program[gpu_id], "pbkdf2_init", &ret_code);
+		HANDLE_CLERROR(ret_code, "Error creating kernel");
+		crypt_kernel = pbkdf2_loop = clCreateKernel(program[gpu_id], "pbkdf2_loop", &ret_code);
+		HANDLE_CLERROR(ret_code, "Error creating kernel");
+		pbkdf2_final = clCreateKernel(program[gpu_id], "pbkdf2_final", &ret_code);
+		HANDLE_CLERROR(ret_code, "Error creating kernel");
+
 		//Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events, warn,
 		                       2, self, create_clobj, release_clobj,
@@ -258,7 +263,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		return Buf;
 	}
 	if (!strncmp(fields[1], PK5K2_TAG, 6)) {
-		char tmps[140+4], tmph[70+4], *cp, *cp2;
+		char tmps[160+4], tmph[160+4], *cp, *cp2;
 		unsigned iter=0;
 		// salt was listed as 1024 bytes max. But our max salt size is 64 bytes (~90 base64 bytes).
 		if (strlen(fields[1]) > 128) return fields[1];
@@ -268,6 +273,7 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		cp += 6;
 		while (*cp && *cp != '$') {
 			iter *= 0x10;
+			if (atoi16[ARCH_INDEX(*cp)] == 0x7f) return fields[1];
 			iter += atoi16[ARCH_INDEX(*cp)];
 			++cp;
 		}
@@ -276,8 +282,10 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 		cp2 = strchr(cp, '$');
 		if (!cp2) return fields[1];
 		base64_convert(cp, e_b64_mime, cp2-cp, tmps, e_b64_hex, sizeof(tmps), flg_Base64_MIME_DASH_UNDER);
+		if (strlen(tmps) > 64) return fields[1];
 		++cp2;
 		base64_convert(cp2, e_b64_mime, strlen(cp2), tmph, e_b64_hex, sizeof(tmph), flg_Base64_MIME_DASH_UNDER);
+		if (strlen(tmph) != 40) return fields[1];
 		sprintf(Buf, "$pbkdf2-hmac-sha1$%d.%s.%s", iter, tmps, tmph);
 		return Buf;
 	}

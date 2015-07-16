@@ -165,13 +165,9 @@ extern int zip2john(int argc, char **argv);
 extern int gpg2john(int argc, char **argv);
 extern int ssh2john(int argc, char **argv);
 extern int pfx2john(int argc, char **argv);
-extern int keychain2john(int argc, char **argv);
-extern int kwallet2john(int argc, char **argv);
 extern int keepass2john(int argc, char **argv);
-extern int keyring2john(int argc, char **argv);
 extern int rar2john(int argc, char **argv);
 extern int racf2john(int argc, char **argv);
-extern int pwsafe2john(int argc, char **argv);
 extern int dmg2john(int argc, char **argv);
 extern int putty2john(int argc, char **argv);
 
@@ -217,7 +213,7 @@ static void john_register_one(struct fmt_main *format)
 					return;
 			}
 		}
-		else if (!strcasecmp(options.format, "dynamic")) {
+		else if (!strcasecmp(options.format, "dynamic")||!strcasecmp(options.format, "dynamic-all")) {
 			if ( (format->params.flags & FMT_DYNAMIC) == 0) return;
 		}
 		else if (!strcasecmp(options.format, "avx")) {
@@ -276,16 +272,19 @@ static void john_register_one(struct fmt_main *format)
 			if ( (format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) return;
 		}
 #endif
+#ifndef DYNAMIC_DISABLED
 		else if (strcasecmp(options.format, format->params.label)) {
-			if (!strncasecmp(options.format, "@dynamic=", 9) && !strcasecmp(format->params.label, "@dynamic=")) {
+			if (!strncasecmp(options.format, "dynamic=", 8) && !strcasecmp(format->params.label, "dynamic=")) {
 				DC_HANDLE H;
-				if (!dynamic_compile(options.format, &H))
-					dynamic_assign_script_to_format(H);
-				else
+				if (!dynamic_compile(options.format, &H)) {
+					if (dynamic_assign_script_to_format(H, format))
+						return;
+				} else
 					return;
 			} else
 				return;
 		}
+#endif
 	}
 
 	fmt_register(format);
@@ -298,7 +297,11 @@ static void john_register_all(void)
 	struct fmt_main *selfs;
 #endif
 
-	if (options.format) strlwr(options.format);
+	if (options.format) {
+		// The case of the expression for this format is VERY important to keep
+		if (strncmp(options.format, "dynamic=", 8))
+			strlwr(options.format);
+	}
 
 	john_register_one(&fmt_DES);
 	john_register_one(&fmt_BSDI);
@@ -1391,7 +1394,7 @@ static void john_run(void)
 		}
 
 		if (!(options.flags & FLG_STDOUT)) {
-			char *where = fmt_self_test(database.format);
+			char *where = fmt_self_test(database.format, &database);
 			if (where) {
 				fprintf(stderr, "Self test failed (%s)\n",
 				    where);
@@ -1450,6 +1453,9 @@ static void john_run(void)
 
 		if (trigger_reset)
 			database.format->methods.reset(&database);
+
+		if (options.flags & FLG_MASK_CHK)
+			mask_crk_init(&database);
 
 		if (options.flags & FLG_SINGLE_CHK)
 			do_single_crack(&database);
@@ -1691,24 +1697,9 @@ int main(int argc, char **argv)
 		return pfx2john(argc, argv);
 	}
 
-	if (!strcmp(name, "keychain2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return keychain2john(argc, argv);
-	}
-
-	if (!strcmp(name, "kwallet2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return kwallet2john(argc, argv);
-	}
-
 	if (!strcmp(name, "keepass2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return keepass2john(argc, argv);
-	}
-
-	if (!strcmp(name, "keyring2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return keyring2john(argc, argv);
 	}
 
 	if (!strcmp(name, "rar2john")) {
@@ -1719,11 +1710,6 @@ int main(int argc, char **argv)
 	if (!strcmp(name, "racf2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return racf2john(argc, argv);
-	}
-
-	if (!strcmp(name, "pwsafe2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return pwsafe2john(argc, argv);
 	}
 
 	if (!strcmp(name, "gpg2john")) {

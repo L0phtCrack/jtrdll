@@ -18,9 +18,7 @@
  *
  */
 
-#if AC_BUILT
-#include "autoconfig.h"
-#endif
+#include "arch.h"
 #ifndef DYNAMIC_DISABLED
 
 #if FMT_EXTERNS_H
@@ -35,12 +33,13 @@ john_register_one(&fmt_CompiledDynamic);
 #include "formats.h"
 #include "dynamic.h"
 #include "dynamic_compiler.h"
+#include "dynamic_types.h"
+#include "options.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"@dynamic="
+#define FORMAT_LABEL		"dynamic="
 #define FORMAT_NAME			""
 
-#define ALGORITHM_NAME		"?"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	0
 
@@ -49,13 +48,17 @@ john_register_one(&fmt_CompiledDynamic);
 #define DYNA_SALT_SIZE		(sizeof(char*))
 #define SALT_ALIGN			MEM_ALIGN_WORD
 
-static const char *dyna_script="Expression=md5($p)\nFlag=MGF_KEYS_INPUT\nFunc=DynamicFunc__crypt_md5\nTest=@dynamic=md5($p)@900150983cd24fb0d6963f7d28e17f72:abc";
-static const char *dyna_signature="@dynamic=md5($p)@";
-static const char *dyna_one_line = "@dynamic=md5($p)@900150983cd24fb0d6963f7d28e17f72";
-static int dyna_sig_len = 17;
+extern const char *dyna_script;
+extern const char *dyna_signature;
+extern const char *dyna_line1;
+extern const char *dyna_line2;
+extern const char *dyna_line3;
+extern int dyna_sig_len;
 
 static struct fmt_tests tests[] = {
 	{"@dynamic=md5($p)@900150983cd24fb0d6963f7d28e17f72", "abc"},
+	{"@dynamic=md5($p)@527bd5b5d689e2c32ae974c6229ff785", "john"},
+	{"@dynamic=md5($p)@9dc1dc3f8499ab3bbc744557acf0a7fb", "passweird"},
 	{NULL},
 };
 
@@ -92,13 +95,19 @@ static char *Convert(char *Buf, char *ciphertext, int in_load)
 
 static char *our_split(char *ciphertext, int index, struct fmt_main *self)
 {
-	if (strncmp(ciphertext, dyna_signature, dyna_sig_len)) {
-		// convert back into @dynamic@ format
-//		static char Buf[512];
-//		sprintf(Buf, "%s%s", dyna_signature, ciphertext);
-//		ciphertext = Buf;
-	}
+	ciphertext = dynamic_compile_split(ciphertext);
 	return ciphertext;
+}
+static char *our_prepare(char **fields, struct fmt_main *self)
+{
+	if (options.format && !strncmp(options.format, "dynamic=", 8)) {
+		extern const char *options_format;
+		char *ct;
+		options_format = options.format;
+		ct = dynamic_compile_prepare(fields[0], fields[1]);
+		return ct;
+	}
+	return fields[1];
 }
 
 static int our_valid(char *ciphertext, struct fmt_main *self)
@@ -114,12 +123,17 @@ static int our_valid(char *ciphertext, struct fmt_main *self)
 }
 
 
-static void * our_salt(char *ciphertext)
+static void *our_salt(char *ciphertext)
 {
 	get_ptr();
 	return pDynamic->methods.salt(Convert(Conv_Buf, ciphertext, 0));
 }
-static void * our_binary(char *ciphertext)
+static void our_done(void)
+{
+	dynamic_compile_done();
+	pDynamic->methods.done();
+}
+static void *our_binary(char *ciphertext)
 {
 	get_ptr();
 	return pDynamic->methods.binary(Convert(Conv_Buf, ciphertext, 0));
@@ -141,20 +155,51 @@ struct fmt_main fmt_CompiledDynamic =
 		/*  All we setup here, is the pointer to valid, and the pointer to init */
 		/*  within the call to init, we will properly set this full object      */
 		our_init,
-		fmt_default_done,
+		our_done,
 		fmt_default_reset,
-		fmt_default_prepare,
+		our_prepare,
 		our_valid,
 		our_split
 	}
 };
 
 static void link_funcs() {
+	char *cp;
+	private_subformat_data *pPriv = fmt_CompiledDynamic.private.data;
+	cp = strrchr(fmt_CompiledDynamic.params.algorithm_name, ')');
+	if (cp) {
+		fmt_CompiledDynamic.params.label = fmt_CompiledDynamic.params.algorithm_name;
+		++cp;
+		if (*cp == '^')
+		{
+			while (*cp != ' ')
+				++cp;
+		}
+		*cp++ = 0;
+		if (*cp  == ' ') ++cp;
+		fmt_CompiledDynamic.params.algorithm_name = cp;
+	}
 	fmt_CompiledDynamic.methods.salt   = our_salt;
 	fmt_CompiledDynamic.methods.binary = our_binary;
 	fmt_CompiledDynamic.methods.split = our_split;
-	fmt_CompiledDynamic.methods.prepare = fmt_default_prepare;
-	fmt_CompiledDynamic.params.tests[0].ciphertext = (char*)dyna_one_line;
+	fmt_CompiledDynamic.methods.prepare = our_prepare;
+	fmt_CompiledDynamic.methods.done = our_done;
+	fmt_CompiledDynamic.params.tests[0].ciphertext = (char*)dyna_line1;
+	fmt_CompiledDynamic.params.tests[1].ciphertext = (char*)dyna_line2;
+	fmt_CompiledDynamic.params.tests[2].ciphertext = (char*)dyna_line3;
+	if ((pPriv->pSetup->flags&MGF_SALTED)!=MGF_SALTED)
+		fmt_CompiledDynamic.params.benchmark_length = -1;
+	else
+		fmt_CompiledDynamic.params.benchmark_length = 0;
+	if ((pPriv->pSetup->flags&MGF_PASSWORD_UPCASE)==MGF_PASSWORD_UPCASE) {
+		tests[0].plaintext = "ABC";
+		tests[1].plaintext = "JOHN";
+		tests[2].plaintext= "PASSWEIRD";
+	} else {
+		tests[0].plaintext = "abc";
+		tests[1].plaintext = "john";
+		tests[2].plaintext= "passweird";
+	}
 }
 
 static void our_init(struct fmt_main *self)
@@ -171,20 +216,9 @@ static void get_ptr() {
 		dynamic_LOCAL_FMT_FROM_PARSER_FUNCTIONS(dyna_script, &dyna_type, &fmt_CompiledDynamic, Convert);
 		sprintf (dyna_hash_type, "$dynamic_%d$", dyna_type);
 		dyna_hash_type_len = strlen(dyna_hash_type);
-
-		pDynamic = dynamic_THIN_FORMAT_LINK(&fmt_CompiledDynamic, Convert(Conv_Buf, (char*)dyna_one_line, 0), "@dynamic=", 0);
+		pDynamic = dynamic_THIN_FORMAT_LINK(&fmt_CompiledDynamic, Convert(Conv_Buf, (char*)dyna_line1, 0), "@dynamic=", 0);
 		link_funcs();
 	}
-}
-
-int dynamic_assign_script_to_format(DC_HANDLE H) {
-	if (!((DC_struct*)H) || ((DC_struct*)H)->magic != DC_MAGIC)
-		return -1;
-	dyna_script = ((DC_struct*)H)->pScript;
-	dyna_signature = ((DC_struct*)H)->pSignature;
-	dyna_one_line = ((DC_struct*)H)->pOneLine;
-	dyna_sig_len = strlen(dyna_signature);
-	return 0;
 }
 
 #endif /* plugin stanza */

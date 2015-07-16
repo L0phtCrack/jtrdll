@@ -28,7 +28,7 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha512);
 #include "johnswap.h"
 
 #define NUUL NULL
-#define FORMAT_LABEL		"pbkdf2-hmac-sha512-opencl"
+#define FORMAT_LABEL		"PBKDF2-HMAC-SHA512-opencl"
 #define FORMAT_NAME		    "GRUB2 / OS X 10.8+"
 #define ALGORITHM_NAME		"PBKDF2-SHA512 OpenCL"
 
@@ -182,28 +182,29 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
 
 static void init(struct fmt_main *_self)
 {
-	char build_opts[128];
-
 	self = _self;
-
-	snprintf(build_opts, sizeof(build_opts),
-	         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%d -DMAX_SALT_SIZE=%d",
-	         HASH_LOOPS, PLAINTEXT_LENGTH, MAX_SALT_SIZE);
-
-	opencl_init("$JOHN/kernels/pbkdf2_hmac_sha512_kernel.cl",
-	            gpu_id, build_opts);
-
-	crypt_kernel = clCreateKernel(program[gpu_id], KERNEL_NAME, &cl_error);
-	HANDLE_CLERROR(cl_error, "Error creating kernel");
-
-	split_kernel =
-	    clCreateKernel(program[gpu_id], SPLIT_KERNEL_NAME, &cl_error);
-	HANDLE_CLERROR(cl_error, "Error creating split kernel");
+	opencl_prepare_dev(gpu_id);
 }
 
 static void reset(struct db_main *db)
 {
-	if (!db) {
+	if (!autotuned) {
+		char build_opts[128];
+
+		snprintf(build_opts, sizeof(build_opts),
+		         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%d -DMAX_SALT_SIZE=%d",
+		         HASH_LOOPS, PLAINTEXT_LENGTH, MAX_SALT_SIZE);
+
+		opencl_init("$JOHN/kernels/pbkdf2_hmac_sha512_kernel.cl",
+		            gpu_id, build_opts);
+
+		crypt_kernel = clCreateKernel(program[gpu_id], KERNEL_NAME, &cl_error);
+		HANDLE_CLERROR(cl_error, "Error creating kernel");
+
+		split_kernel =
+			clCreateKernel(program[gpu_id], SPLIT_KERNEL_NAME, &cl_error);
+		HANDLE_CLERROR(cl_error, "Error creating split kernel");
+
 		//Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn,
 		                       2, self, create_clobj, release_clobj,
@@ -234,9 +235,13 @@ static void release_clobj(void)
 
 static void done(void)
 {
-	release_clobj();
-	HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel");
-	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+	if (autotuned) {
+		release_clobj();
+		HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel");
+		HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+
+		autotuned--;
+	}
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -254,8 +259,6 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	keeptr = ctcopy;
 	if (!(ptr = strtokm(ctcopy, ".")))
 		goto error;
-	if (strlen(ptr) >= 10)
-		goto error;
 	if (!isdecu(ptr))
 		goto error;
 	if (!(ptr = strtokm(NULL, ".")))
@@ -271,6 +274,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (len < BINARY_SIZE || len > MAX_BINARY_SIZE || len & 1)
 		goto error;
 	if (!ishex(ptr))
+		goto error;
+	ptr = strtokm(NULL, ".");
+	if (ptr)
 		goto error;
 	MEM_FREE(keeptr);
 	return 1;
@@ -299,7 +305,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 		return split_fields[1];
 
 	strcpy(out, FORMAT_TAG);
-	strncat(out, &split_fields[1][i], sizeof(out) - 1);
+	strnzcpy(&out[sizeof(FORMAT_TAG)-1], &split_fields[1][i], sizeof(out)-(sizeof(FORMAT_TAG)));
 
 	if (!strncmp(split_fields[1], FORMAT_TAG2, sizeof(FORMAT_TAG2) - 1))
 		for (i = sizeof(FORMAT_TAG); out[i]; i++)
