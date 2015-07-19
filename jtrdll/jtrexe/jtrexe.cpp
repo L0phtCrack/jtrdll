@@ -1,14 +1,11 @@
+#include<string>
 #include<stdio.h>
 #ifdef _WIN32
 #include<windows.h>
 #endif
 #include"cpuinformation.h"
 
-
-
-
-
-int (*TYPEOF_jtrdll_main)(int argc, char **argv, void *hooks);
+typedef int (*TYPEOF_jtrdll_main)(int argc, char **argv, void *hooks);
 
 int main(int argc, char **argv)
 {
@@ -35,13 +32,15 @@ int main(int argc, char **argv)
 	}
 	
 #ifdef _WIN32
-	HMODULE jtrdll = LoadLibrary("jtrdll_"+jtrdllversion);
+	HMODULE jtrdll = LoadLibrary((std::string("jtrdll_")+jtrdllversion).c_str());
 	if(!jtrdll)
 	{
 		fprintf(stderr,"Missing jtrdll\n");
 		exit(1);
 	}
+
 	TYPEOF_jtrdll_main jtrdll_main = (TYPEOF_jtrdll_main) GetProcAddress(jtrdll,"jtrdll_main");
+
 	if(!jtrdll_main)
 	{
 		fprintf(stderr,"Malformed jtrdll\n");
@@ -51,6 +50,8 @@ int main(int argc, char **argv)
 #else
 #error "to do"
 #endif
+
+	printf("Detected %s instruction set\n", jtrdllversion.c_str());
 	
 	int ret = jtrdll_main(argc,argv,NULL);
 	

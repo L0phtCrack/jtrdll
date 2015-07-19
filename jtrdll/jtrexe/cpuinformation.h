@@ -1,11 +1,12 @@
 #ifndef __INC_CPUINFORMATION
 #define __INC_CPUINFORMATION
 
+#include <cstdlib>
+#include <string>
 #include <iostream>
 #include <vector>
 #include <bitset>
 #include <array>
-#include <string>
 
 class CPUInformation
 {
@@ -16,8 +17,8 @@ public:
 
 	// getters
 	virtual int CoreCount(void);
-	virtual QString Vendor(void);
-	virtual QString Brand(void);
+	virtual std::string Vendor(void);
+	virtual std::string Brand(void);
 
 	virtual bool SSE3(void);
 	virtual bool PCLMULQDQ(void);

@@ -1,4 +1,9 @@
 #include"cpuinformation.h"
+
+#ifdef WIN32
+#include<Windows.h>
+#endif
+
 #include<intrin.h>
 
 int CPUInformation::CoreCount(void)
