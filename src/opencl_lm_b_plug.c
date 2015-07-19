@@ -9,7 +9,11 @@
 
 #include <assert.h>
 #include <string.h>
+#ifdef _MSC_VER
+#include<gettimeofday.h>
+#else
 #include <sys/time.h>
+#endif
 
 #include "options.h"
 #include "opencl_lm.h"
@@ -155,7 +159,7 @@ static void release_kernels()
 	}
 }
 
-static void clean_all_buffers()
+static void clean_all_buffers(void)
 {
 	int i;
 	release_buffer_gws();
@@ -571,7 +575,7 @@ static void reset(struct db_main *db)
 	}
 }
 
-static void init_global_variables()
+static void init_global_variables(void)
 {
 	int i;
 
