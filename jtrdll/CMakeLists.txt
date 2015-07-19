@@ -432,4 +432,4 @@ ENDFOREACH()
 
 
 # build jtrexe
-#ADD_EXECUTABLE( jtrexe ${CMAKE_CURRENT_SOURCE_DIR}/jtrexe.c )
+ADD_EXECUTABLE( jtrexe ${CMAKE_CURRENT_SOURCE_DIR}/jtrexe.cpp ${CMAKE_CURRENT_SOURCE_DIR}/cpuinformation.cpp ${CMAKE_CURRENT_SOURCE_DIR}/cpuinformation.h)
