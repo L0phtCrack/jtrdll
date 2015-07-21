@@ -976,7 +976,10 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 		gettimeofday(&endc, NULL);
 		time_ms = calc_ms(startc, endc);
 		count = (size_t)((kernel_run_ms / time_ms) * (long double)gws_init);
+
 		get_power_of_two(count);
+		if (count > gws_limit)
+			count = gws_limit;
 	}
 
 	if (tune_gws && tune_lws)
