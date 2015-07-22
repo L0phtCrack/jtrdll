@@ -8,10 +8,13 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include "memory.h"
-#include "memdbg.h"
-#include "misc.h"
-#include "hash_types.h"
+#include "bt_hash_types.h"
+
+#ifdef _MSC_VER
+#define BT_INLINE
+#else
+#define BT_INLINE inline
+#endif
 
 uint128_t *loaded_hashes_128 = NULL;
 unsigned int *hash_table_128 = NULL;
@@ -31,10 +34,8 @@ uint128_t add128(uint128_t a, unsigned int b)
 	uint128_t result;
 	result.LO64 = a.LO64 + b;
 	result.HI64 = a.HI64 + (result.LO64 < a.LO64);
-	if (result.HI64 < a.HI64) {
-		fprintf(stderr, "128 bit add overflow!!\n");
-		error();
-	}
+	if (result.HI64 < a.HI64)
+		bt_error("128 bit add overflow.");
 
 	return result;
 }
@@ -43,11 +44,8 @@ void allocate_ht_128(unsigned int num_loaded_hashes, unsigned int verbosity)
 {
 	unsigned int i;
 
-	hash_table_128 = mem_alloc_align(4 * hash_table_size * sizeof(unsigned int), 16);
-	if (hash_table_128 == NULL) {
-		fprintf(stderr, "Couldn't allocate memory!!\n");
-		error();
-	}
+	if (bt_memalign_alloc((void **)&hash_table_128, 16, 4 * hash_table_size * sizeof(unsigned int)))
+		bt_error("Couldn't allocate hash_table_128.");
 
 	for (i = 0; i < hash_table_size; i++)
 		hash_table_128[i] = hash_table_128[i + hash_table_size]
@@ -102,7 +100,8 @@ int test_tables_128(unsigned int num_loaded_hashes, OFFSET_TABLE_WORD *offset_ta
 	unsigned int i, hash_table_idx, error = 1, count = 0;
 	uint128_t hash;
 
-	hash_table_collisions = (unsigned char *) mem_calloc(hash_table_size, sizeof(unsigned char));
+	if (bt_calloc((void **)&hash_table_collisions, hash_table_size, sizeof(unsigned char)))
+		bt_error("Failed to allocate memory: hash_table_collisions.");
 
 	if (verbosity > 1)
 		fprintf(stdout, "\nTesting Tables...");
@@ -157,7 +156,7 @@ int test_tables_128(unsigned int num_loaded_hashes, OFFSET_TABLE_WORD *offset_ta
 		return 0;
 	}
 
-	MEM_FREE(hash_table_collisions);
+	bt_free((void **)&hash_table_collisions);
 
 	if (error && verbosity > 1)
 		fprintf(stdout, "OK\n");
@@ -191,8 +190,12 @@ static void remove_duplicates_final(unsigned int num_loaded_hashes, unsigned int
 		COLLISION_DTYPE iter;
 	} hash_table_data;
 
-	hash_table_data *hash_table = (hash_table_data *) mem_alloc(hash_table_size * sizeof(hash_table_data));
-	collisions = (COLLISION_DTYPE *) mem_calloc(hash_table_size, sizeof(COLLISION_DTYPE));
+	hash_table_data *hash_table = NULL;
+
+	if (bt_malloc((void **)&hash_table, hash_table_size * sizeof(hash_table_data)))
+		bt_error("Failed to allocate memory: hash_table.");
+	if (bt_calloc((void **)&collisions, hash_table_size, sizeof(COLLISION_DTYPE)))
+		bt_error("Failed to allocate memory: collisions.");
 
 	for (i = 0; i < num_loaded_hashes; i++) {
 		unsigned int idx = loaded_hashes_128[rehash_list[i]].LO64 % hash_table_size;
@@ -209,12 +212,16 @@ static void remove_duplicates_final(unsigned int num_loaded_hashes, unsigned int
 			hash_table[i].idx_hash_loc_list = counter++;
 	}
 
-	hash_location_list = (unsigned int **) mem_alloc((counter + 1) * sizeof(unsigned int *));
+	if (bt_malloc((void **)&hash_location_list, (counter + 1) * sizeof(unsigned int *)))
+		bt_error("Failed to allocate memory: hash_location_list.");
 
 	counter = 0;
 	for (i = 0; i < hash_table_size; i++)
-	      if (collisions[i] > 3)
-			hash_location_list[counter++] = (unsigned int *) mem_alloc((collisions[i] - 1) * sizeof(unsigned int));
+	      if (collisions[i] > 3) {
+			if (bt_malloc((void **)&hash_location_list[counter], (collisions[i] - 1) * sizeof(unsigned int)))
+				bt_error("Failed to allocate memory: hash_location_list[counter].");
+			counter++;
+	      }
 
 	for (i = 0; i < num_loaded_hashes; i++) {
 		unsigned int k = rehash_list[i];
@@ -264,12 +271,11 @@ static void remove_duplicates_final(unsigned int num_loaded_hashes, unsigned int
 	}
 
 #undef COLLISION_DTYPE
-	for (i = 0; i < counter; i++) {
-		MEM_FREE(hash_location_list[i]);
-	}
-	MEM_FREE(hash_location_list);
-	MEM_FREE(hash_table);
-	MEM_FREE(collisions);
+	for (i = 0; i < counter; i++)
+		bt_free((void **)&hash_location_list[i]);
+	bt_free((void **)&hash_location_list);
+	bt_free((void **)&hash_table);
+	bt_free((void **)&collisions);
 }
 
 unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int hash_table_size, unsigned int verbosity)
@@ -282,7 +288,6 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 		unsigned int store_loc2;
 		unsigned int store_loc3;
 		COLLISION_DTYPE iter;
-
 	} hash_table_data;
 
 	hash_table_data *hash_table = NULL;
@@ -295,8 +300,11 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 		return 0;
 	}
 
-	hash_table = (hash_table_data *) mem_alloc(hash_table_size * sizeof(hash_table_data));
-	collisions = (COLLISION_DTYPE *) mem_calloc(hash_table_size, sizeof(COLLISION_DTYPE));
+	if (bt_malloc((void **)&hash_table, hash_table_size * sizeof(hash_table_data)))
+		bt_error("Failed to allocate memory: hash_table.");
+	if (bt_calloc((void **)&collisions, hash_table_size, sizeof(COLLISION_DTYPE)))
+		bt_error("Failed to allocate memory: collisions.");
+
 #if _OPENMP
 #pragma omp parallel private(i)
 #endif
@@ -315,14 +323,12 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 	counter = 0;
 #if _OPENMP
 #pragma omp barrier
-#endif
 
-#if _OPENMP
 #pragma omp for
 #endif
 	for (i = 0; i < hash_table_size; i++) {
-		 hash_table[i].iter = 0;
-		 if (collisions[i] > 4)
+		hash_table[i].iter = 0;
+		if (collisions[i] > 4)
 #if _OPENMP
 #pragma omp atomic
 #endif
@@ -330,9 +336,7 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 	}
 #if _OPENMP
 #pragma omp barrier
-#endif
 
-#if _OPENMP
 #pragma omp sections
 #endif
 {
@@ -353,12 +357,12 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 		}
 	}
 }
-
 #if _OPENMP
 #pragma omp section
 #endif
 {
-	rehash_list = (unsigned int *) mem_alloc(counter * sizeof(unsigned int));
+	if (bt_malloc((void **)&rehash_list, counter * sizeof(unsigned int)))
+		bt_error("Failed to allocate memory: rehash_list.");
 	counter = 0;
 	for (i = 0; i < num_loaded_hashes; i++) {
 		unsigned int idx = loaded_hashes_128[i].LO64 & (hash_table_size - 1);
@@ -419,7 +423,7 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 
 	if (counter)
 		remove_duplicates_final(counter, counter + (counter >> 1), rehash_list);
-	MEM_FREE(rehash_list);
+	bt_free((void **)&rehash_list);
 }
 }
 }
@@ -467,12 +471,13 @@ unsigned int remove_duplicates_128(unsigned int num_loaded_hashes, unsigned int 
 				}
 		}
 #undef COLLISION_DTYPE
-	MEM_FREE(collisions);
-	MEM_FREE(hash_table);
+	bt_free((void **)&collisions);
+	bt_free((void **)&hash_table);
 
 	if (verbosity > 1)
 		fprintf(stdout, "Done\n");
 
 	return (num_unique_hashes + 1);
 }
+
 #endif

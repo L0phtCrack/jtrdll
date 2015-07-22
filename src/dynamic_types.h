@@ -101,10 +101,10 @@ typedef struct private_subformat_data
 	int store_keys_in_input;
 	int input2_set_len32;
 	int store_keys_in_input_unicode_convert;
-	int store_keys_normal_but_precompute_md5_to_output2;
-	int store_keys_normal_but_precompute_md5_to_output2_base16_to_input1;
-	int store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32;
-	int store_keys_normal_but_precompute_md5_to_output2_base16_type;
+	int store_keys_normal_but_precompute_hash_to_output2;
+	int store_keys_normal_but_precompute_hash_to_output2_base16_to_input1;
+	int store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX;
+	int store_keys_normal_but_precompute_hash_to_output2_base16_type;
 	int using_flat_buffers_sse2_ok;
 	int dynamic_salt_as_hex;
 	int dynamic_salt_as_hex_format_type;  // 00 is md5, 01 is md4, 02 is sha1, etc. See the flags in dynamic_types.h
@@ -154,7 +154,11 @@ typedef struct private_subformat_data
 
 
 // This value still gets us all para from 1 to 7
+#ifdef SIMD_COEF_32
 #define NON_OMP_MAX   (SIMD_COEF_32*3*4*5*7)
+#else
+#define NON_OMP_MAX   1
+#endif
 #define OMP_MAX       (NON_OMP_MAX*OMP_SCALE)
 
 #ifdef SIMD_COEF_32

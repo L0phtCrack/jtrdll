@@ -270,7 +270,6 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	LARGE_HASH_FUNCS(GOST)
 	LARGE_HASH_FUNCS(WHIRLPOOL)
 	LARGE_HASH_FUNCS(Tiger)
-	LARGE_HASH_FUNCS(WHIRLPOOL)
 	LARGE_HASH_FUNCS(RIPEMD128)
 	LARGE_HASH_FUNCS(RIPEMD160)
 	LARGE_HASH_FUNCS(RIPEMD256)
@@ -296,6 +295,7 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	LARGE_HASH_FUNCS(SKEIN256)
 	LARGE_HASH_FUNCS(SKEIN384)
 	LARGE_HASH_FUNCS(SKEIN512)
+	// LARGE_HASH_EDIT_POINT
 	{ NULL, NULL }};
 
 
@@ -328,6 +328,7 @@ static Dynamic_Str_Flag_t Dynamic_Str_Flag[] =  {
 	SALT_AS_HEX_FLAG(GOST)
 	SALT_AS_HEX_FLAG(WHIRLPOOL)
 	SALT_AS_HEX_FLAG(Tiger)
+	SALT_AS_HEX_FLAG(TIGER)
 	SALT_AS_HEX_FLAG(RIPEMD128)
 	SALT_AS_HEX_FLAG(RIPEMD160)
 	SALT_AS_HEX_FLAG(RIPEMD256)
@@ -353,6 +354,7 @@ static Dynamic_Str_Flag_t Dynamic_Str_Flag[] =  {
 	SALT_AS_HEX_FLAG(SKEIN256)
 	SALT_AS_HEX_FLAG(SKEIN384)
 	SALT_AS_HEX_FLAG(SKEIN512)
+	// LARGE_HASH_EDIT_POINT
 
 	{ "MGF_SALT_AS_HEX_TO_SALT2",         MGF_SALT_AS_HEX_TO_SALT2 },
 	{ "MGF_INPBASE64_4x6",				  MGF_INPBASE64_4x6 },
@@ -383,7 +385,7 @@ static Dynamic_Str_Flag_t Dynamic_Str_sFlag[] =  {
 	{ "MGF_KEYS_CRYPT_IN2",                   MGF_KEYS_CRYPT_IN2 },
 	{ "MGF_KEYS_BASE16_IN1",                  MGF_KEYS_BASE16_IN1 }, // deprecated (use the _MD5 version)
 	{ "MGF_KEYS_BASE16_IN1_Offset32",         MGF_KEYS_BASE16_IN1_Offset32 },  // deprecated (use the _MD5 version)
-	SALT_AS_HEX_FLAG(MD5)
+	SALT_AS_HEX_FLAG2(MD5)
 	SALT_AS_HEX_FLAG2(MD4)
 	SALT_AS_HEX_FLAG2(SHA1)
 	SALT_AS_HEX_FLAG2(SHA224)
@@ -393,6 +395,7 @@ static Dynamic_Str_Flag_t Dynamic_Str_sFlag[] =  {
 	SALT_AS_HEX_FLAG2(GOST)
 	SALT_AS_HEX_FLAG2(WHIRLPOOL)
 	SALT_AS_HEX_FLAG2(Tiger)
+	SALT_AS_HEX_FLAG2(TIGER)
 	SALT_AS_HEX_FLAG2(RIPEMD128)
 	SALT_AS_HEX_FLAG2(RIPEMD160)
 	SALT_AS_HEX_FLAG2(RIPEMD256)
@@ -418,6 +421,8 @@ static Dynamic_Str_Flag_t Dynamic_Str_sFlag[] =  {
 	SALT_AS_HEX_FLAG2(SKEIN256)
 	SALT_AS_HEX_FLAG2(SKEIN384)
 	SALT_AS_HEX_FLAG2(SKEIN512)
+	// LARGE_HASH_EDIT_POINT
+
 	{ "MGF_KEYS_UNICODE_B4_CRYPT",        MGF_KEYS_UNICODE_B4_CRYPT },
 	{ "MGF_PHPassSetup",                  MGF_PHPassSetup },
 	{ "MGF_POSetup",                      MGF_POSetup },
@@ -449,6 +454,7 @@ extern struct options_main options;
 
 static void add_line(char *cp) {
 	struct cfg_line *pln, *p;
+	int len;
 
 	pln = mem_calloc_tiny(sizeof(struct cfg_line), sizeof(struct cfg_line*));
 	if (gen_source->head == NULL)
@@ -459,6 +465,12 @@ static void add_line(char *cp) {
 	if (pln != p)
 		p->next = pln;
 	pln->data = str_alloc_copy(cp);
+	len = strlen(cp);
+	while (len>0) {
+		if (pln->data[len-1] != ' ')
+			break;
+		pln->data[--len] = 0;
+	}
 }
 static void load_script_from_string(int which) {
 	char *cp;

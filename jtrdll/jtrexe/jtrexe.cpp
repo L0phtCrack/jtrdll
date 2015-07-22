@@ -28,6 +28,11 @@ int main(int argc, char **argv)
 			{
 				jtrdllversion = "avx";
 			}
+			
+			if (cpu.AVX2())
+			{
+				jtrdllversion = "avx2";
+			}
 		}
 	}
 	

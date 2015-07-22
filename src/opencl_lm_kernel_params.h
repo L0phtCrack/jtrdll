@@ -86,39 +86,82 @@ typedef unsigned WORD vtype;
 	lm_clear_block_8(48); 			\
 	lm_clear_block_8(56);
 
+#if BITMAP_SIZE_BITS_LESS_ONE < 0xffffffff
+#define BITMAP_SIZE_BITS (BITMAP_SIZE_BITS_LESS_ONE + 1)
+#else
+/*undefined, cause error.*/
+#endif
+
+#define GET_HASH_0(hash, x, k, bits)			\
+	for (bit = bits; bit < k; bit++)		\
+		hash |= ((((uint)B[bit]) >> x) & 1) << bit;
+
+#define GET_HASH_1(hash, x, k, bits)   			\
+	for (bit = bits; bit < k; bit++)		\
+		hash |= ((((uint)B[32 + bit]) >> x) & 1) << bit;
+
+inline void cmp_final(__private unsigned lm_vector *B,
+		      __private unsigned int *binary,
+		      __global unsigned int *offset_table,
+		      __global unsigned int *hash_table,
+		     volatile __global uint *output,
+		      volatile __global uint *bitmap_dupe,
+		      unsigned int depth,
+		      unsigned int section)
+{
+	unsigned long hash;
+	unsigned int hash_table_index, t, bit;
+
+#if SELECT_CMP_STEPS > 1
+	GET_HASH_0(binary[0], depth, 32, REQ_BITMAP_BITS);
+	GET_HASH_1(binary[1], depth, 32, REQ_BITMAP_BITS);
+#else
+	binary[0] = 0;
+	GET_HASH_0(binary[0], depth, 32, 0);
+	GET_HASH_1(binary[1], depth, 32, REQ_BITMAP_BITS);
+#endif
+
+	hash = ((unsigned long)binary[1] << 32) | (unsigned long)binary[0];
+	hash += (unsigned long)offset_table[hash % OFFSET_TABLE_SIZE];
+	hash_table_index = hash % HASH_TABLE_SIZE;
+
+	if (hash_table[hash_table_index + HASH_TABLE_SIZE] == binary[1])
+	if (hash_table[hash_table_index] == binary[0])
+	if (!(atomic_or(&bitmap_dupe[hash_table_index/32], (1U << (hash_table_index % 32))) & (1U << (hash_table_index % 32)))) {
+		t = atomic_inc(&output[0]);
+		output[1 + 3 * t] = (section * 32) + depth;
+		output[2 + 3 * t] = 0;
+		output[3 + 3 * t] = hash_table_index;
+	}
+}
+
 inline void cmp( __private unsigned lm_vector *B,
-	  __global int *binary,
-	  volatile __global uint *output,
-	  volatile __global uint *bitmap,
-	  __global lm_vector *B_global,
-	  int section) {
+		 __global unsigned int *offset_table,
+		 __global unsigned int *hash_table,
+		  __global unsigned int *bitmaps,
+		 volatile __global uint *output,
+		 volatile __global uint *bitmap_dupe,
+		 int section) {
 
-	int value[2] , mask, i, bit;
+	unsigned int value[2] , i, bit, bitmap_index;
 
-	for(i = 0; i < NUM_LOADED_HASHES; i++) {
-
-		value[0] = binary[i];
-		value[1] = binary[i + NUM_LOADED_HASHES];
-
-		mask = B[0] ^ -(value[0] & 1);
-
-		for (bit = 1; bit < 32; bit++)
-			mask |= B[bit] ^ -((value[0] >> bit) & 1);
-
-		for (; bit < 64; bit += 2) {
-			mask |= B[bit] ^ -((value[1] >> (bit & 0x1F)) & 1);
-			mask |= B[bit + 1] ^ -((value[1] >> ((bit + 1) & 0x1F)) & 1);
-		}
-
-		if (mask != ~(int)0) {
-			if (!(atomic_or(&bitmap[i/32], (1U << (i % 32))) & (1U << (i % 32)))) {
-				mask = atomic_inc(&output[0]);
-				output[1 + 2 * mask] = section;
-				output[2 + 2 * mask] = 0;
-				for (bit = 0; bit < 64; bit++)
-					B_global[mask * 64 + bit] = (lm_vector)B[bit];
-
-			}
-		}
+	for (i = 0; i < 32; i++){
+#if SELECT_CMP_STEPS > 1
+	value[0] = 0;
+	value[1] = 0;
+	GET_HASH_0(value[0], i, REQ_BITMAP_BITS, 0);
+	GET_HASH_1(value[1], i, REQ_BITMAP_BITS, 0);
+	bitmap_index = value[1] & (BITMAP_SIZE_BITS - 1);
+	bit = (bitmaps[bitmap_index >> 5] >> (bitmap_index & 31)) & 1U;
+	bitmap_index = value[0] & (BITMAP_SIZE_BITS - 1);
+	bit &= (bitmaps[(BITMAP_SIZE_BITS >> 5) + (bitmap_index >> 5)] >> (bitmap_index & 31)) & 1U;
+#else
+	value[1] = 0;
+	GET_HASH_1(value[1], i, REQ_BITMAP_BITS, 0);
+	bitmap_index = value[1] & BITMAP_SIZE_BITS_LESS_ONE;
+	bit = (bitmaps[bitmap_index >> 5] >> (bitmap_index & 31)) & 1U;
+#endif
+	if (bit)
+		cmp_final(B, value, offset_table, hash_table, output, bitmap_dupe, i, section);
 	}
 }

@@ -159,6 +159,7 @@
 //dynamic_340 -->SKEIN256($p)
 //dynamic_350 -->SKEIN384($p)
 //dynamic_360 -->SKEIN512($p)
+// LARGE_HASH_EDIT_POINT
 
 #define DYNA_PRE_DEFINE_LARGE_HASH(H,N,HS) \
 	static DYNAMIC_primitive_funcp _Funcs_##N##0[] = { DynamicFunc__##H##_crypt_input1_to_output1_FINAL, NULL }; \
@@ -347,7 +348,7 @@ static struct fmt_tests _Preloads_5[] =
 //dynamic_6 --> md5(md5($p).$s)
 static DYNAMIC_primitive_funcp _Funcs_6[] =
 {
-	//MGF_KEYS_BASE16_IN1
+	//MGF_KEYS_BASE16_IN1_MD5
 #if ARCH_LITTLE_ENDIAN
 	DynamicFunc__set_input_len_32_cleartop,
 	DynamicFunc__append_salt,
@@ -379,7 +380,7 @@ static struct fmt_tests _Preloads_6[] =
 //dynamic_7 --> md5(md5($p).$s) vBulletin  (forced 3 byte salt, valid chars from 0x20 to 0x7E)
 static DYNAMIC_primitive_funcp _Funcs_7[] =
 {
-	//MGF_KEYS_BASE16_IN1
+	//MGF_KEYS_BASE16_IN1_MD5
 #if ARCH_LITTLE_ENDIAN
 	DynamicFunc__set_input_len_32_cleartop,
 	DynamicFunc__append_salt,
@@ -437,7 +438,7 @@ static DYNAMIC_primitive_funcp _Funcs_9[] =
 	DynamicFunc__crypt_md5,
 	NULL
 #else
-	//MGF_KEYS_BASE16_IN1
+	//MGF_KEYS_BASE16_IN1_MD5
 	DynamicFunc__clean_input2,
 	DynamicFunc__append_salt2,
 	DynamicFunc__append_input2_from_input,
@@ -537,7 +538,7 @@ static struct fmt_tests _Preloads_12[] =
 //dynamic_13 --> md5(md5($p).md5($s))
 static DYNAMIC_primitive_funcp _Funcs_13[] =
 {
-	//MGF_KEYS_BASE16_IN1
+	//MGF_KEYS_BASE16_IN1_MD5
 	//MGF_SALT_AS_HEX
 	//MGF_FLAT_BUFFERS   MUCH faster using flat buffers
 	DynamicFunc__set_input_len_32,
@@ -566,7 +567,7 @@ static DYNAMIC_primitive_funcp _Funcs_14[] =
 	DynamicFunc__crypt_md5,
 	NULL
 #else
-	//MGF_KEYS_BASE16_IN1
+	//MGF_KEYS_BASE16_IN1_MD5
 	DynamicFunc__clean_input2,
 	DynamicFunc__append_salt2,
 	DynamicFunc__append_input2_from_input,
@@ -592,7 +593,7 @@ static struct fmt_tests _Preloads_14[] =
 //dynamic_15 --> md5($u.md5($p).$s)
 static DYNAMIC_primitive_funcp _Funcs_15[] =
 {
-	// MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1
+	// MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_MD5
 	DynamicFunc__clean_input2_kwik,
 	DynamicFunc__append_userid2,
 	DynamicFunc__append_input2_from_input,
@@ -624,7 +625,7 @@ static struct fmt_tests _Preloads_15[] =
 //dynamic_16 --> md5(md5(md5($p).$s).$s2)
 static DYNAMIC_primitive_funcp _Funcs_16[] =
 {
-	// MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1
+	// MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_MD5
 	DynamicFunc__clean_input2_kwik,
 	DynamicFunc__append_input2_from_input,
 	DynamicFunc__append_salt2,
@@ -774,6 +775,14 @@ static DYNAMIC_primitive_funcp _Funcs_22[] =
 	DynamicFunc__X86toSSE_switch_input2,
 	DynamicFunc__crypt_md5_in2_to_out1,
 	NULL
+
+	// This may be faster.  Found with the dyna compiler, optimizer.
+//Flag=MGF_FLAT_BUFFERS
+//Flag=MGF_KEYS_INPUT
+//MaxInputLenX86=110
+//MaxInputLen=110
+//Func=DynamicFunc__SHA1_crypt_input1_overwrite_input2
+//Func=DynamicFunc__MD5_crypt_input2_to_output1_FINAL
 };
 static struct fmt_tests _Preloads_22[] =
 {
@@ -2833,6 +2842,8 @@ static struct fmt_tests _Preloads_368[] = {
     {"$dynamic_368$adc4ba0c2266513b97222409c04d00acb7e77b7cfc2b518218a5b7c49451cb0e8bc35951809b1bd116ffcaece3fcfc3d7ea04f7fb7e4bac92216702acb324b18","passweird"},
     {NULL}};
 
+// LARGE_HASH_EDIT_POINT
+
 // Here is a 'dummy' constant array. This will be 'linked' to any dynamic format that does not have any constants.
 static DYNAMIC_Constants _ConstDefault[] =
 {
@@ -2876,27 +2887,27 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_3: md5(md5(md5($p)))",           _Funcs_3, _Preloads_3, _ConstDefault, MGF_NO_FLAG, MGF_KEYS_INPUT|MGF_SET_INP2LEN32 },
 	{ "dynamic_4: md5($s.$p) (OSC)",            _Funcs_4, _Preloads_4, _ConstDefault, MGF_SALTED, MGF_NO_FLAG, -24  },
 	{ "dynamic_5: md5($s.$p.$s)",               _Funcs_5, _Preloads_5, _ConstDefault, MGF_SALTED, MGF_NO_FLAG, -12, 31, 56  },
-	{ "dynamic_6: md5(md5($p).$s)",             _Funcs_6, _Preloads_6, _ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1, -23, 55, 110 },
+	{ "dynamic_6: md5(md5($p).$s)",             _Funcs_6, _Preloads_6, _ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1_MD5, -23, 55, 110 },
 #if 0
 	// this format is deprecated. If someone WANTS it to work, then it can be uncommented.
 	// however it is MUCH better to use dyanamic_6, and if there are any bad characters in
 	// the salts (like ':'), then use %HEX$ for that candidate's salt value.
-	{ "dynamic_7: md5(md5($p).$s) (vBulletin)", _Funcs_7, _Preloads_7, _ConstDefault, MGF_SALTED|MGF_ColonNOTValid, MGF_KEYS_BASE16_IN1, 3, 52 },
+	{ "dynamic_7: md5(md5($p).$s) (vBulletin)", _Funcs_7, _Preloads_7, _ConstDefault, MGF_SALTED|MGF_ColonNOTValid, MGF_KEYS_BASE16_IN1_MD5, 3, 52 },
 #endif
 	{ "dynamic_8: md5(md5($s).$p)",             _Funcs_8, _Preloads_8, _ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX, MGF_NO_FLAG, -32,  23},
-	{ "dynamic_9: md5($s.md5($p))",             _Funcs_9, _Preloads_9, _ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1, -23, 55, 80 },
+	{ "dynamic_9: md5($s.md5($p))",             _Funcs_9, _Preloads_9, _ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1_MD5, -23, 55, 80 },
 	{ "dynamic_10: md5($s.md5($s.$p))",         _Funcs_10,_Preloads_10,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 	{ "dynamic_11: md5($s.md5($p.$s))",         _Funcs_11,_Preloads_11,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 
 	{ "dynamic_12: md5(md5($s).md5($p)) (IPB)", _Funcs_12,_Preloads_12,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_Offset_MD5, -32, 110, 110 },
-	{ "dynamic_13: md5(md5($p).md5($s))",       _Funcs_13,_Preloads_13,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
+	{ "dynamic_13: md5(md5($p).md5($s))",       _Funcs_13,_Preloads_13,_ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_MD5, -32, 110, 110 },
 #if defined (SIMD_COEF_32)
 	{ "dynamic_14: md5($s.md5($p).$s)",         _Funcs_14,_Preloads_14,_ConstDefault, MGF_SALTED,MGF_KEYS_CRYPT_IN2, -11, 55, 80, -24 },
 #else
-	{ "dynamic_14: md5($s.md5($p).$s)",          _Funcs_14,_Preloads_14,_ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1, -11, 55, 80, -24},
+	{ "dynamic_14: md5($s.md5($p).$s)",          _Funcs_14,_Preloads_14,_ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1_MD5, -11, 55, 80, -24},
 #endif
-	{ "dynamic_15: md5($u.md5($p).$s)",         _Funcs_15,_Preloads_15,_ConstDefault, MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
-	{ "dynamic_16: md5(md5(md5($p).$s).$s2)",   _Funcs_16,_Preloads_16,_ConstDefault, MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1, -32, 110, 110 },
+	{ "dynamic_15: md5($u.md5($p).$s)",         _Funcs_15,_Preloads_15,_ConstDefault, MGF_SALTED|MGF_USERNAME|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_MD5, -32, 110, 110 },
+	{ "dynamic_16: md5(md5(md5($p).$s).$s2)",   _Funcs_16,_Preloads_16,_ConstDefault, MGF_SALTED|MGF_SALTED2|MGF_FLAT_BUFFERS, MGF_KEYS_BASE16_IN1_MD5, -32, 110, 110 },
 	#if !ARCH_LITTLE_ENDIAN
 	{ "dynamic_17: phpass ($P$ or $H$)",        _Funcs_17,_Preloads_17,_ConstDefault, MGF_SALTED|MGF_INPBASE64, MGF_PHPassSetup, 9, 38, 38 },
 	#else
@@ -2974,6 +2985,7 @@ static DYNAMIC_Setup Setups[] =
 	SETUP_LARGE_HASH(SKEIN256,  MGF_KEYS_BASE16_IN1_SKEIN256,  MGF_SALT_AS_HEX_SKEIN256,  34,MGF_INPUT_32_BYTE)
 	SETUP_LARGE_HASH(SKEIN384,  MGF_KEYS_BASE16_IN1_SKEIN384,  MGF_SALT_AS_HEX_SKEIN384,  35,MGF_INPUT_48_BYTE)
 	SETUP_LARGE_HASH(SKEIN512,  MGF_KEYS_BASE16_IN1_SKEIN512,  MGF_SALT_AS_HEX_SKEIN512,  36,MGF_INPUT_64_BYTE)
+	// LARGE_HASH_EDIT_POINT
 };
 
 char *dynamic_PRELOAD_SIGNATURE(int cnt)

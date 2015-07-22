@@ -70,7 +70,7 @@ static DYNAMIC_primitive_funcp _Funcs_1[] =
 #ifndef DYNAMIC_DISABLED
 
 #ifdef SIMD_COEF_32
-#include "sse-intrinsics.h"
+#include "simd-intrinsics.h"
 #endif
 
 #include "misc.h"
@@ -1533,7 +1533,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	// single crypt.  That eliminates almost 1/2 of the calls to md5_crypt() for the format show in this example.
 	if (keys_dirty)
 	{
-		if (curdat.store_keys_normal_but_precompute_md5_to_output2)
+		if (curdat.store_keys_normal_but_precompute_hash_to_output2)
 		{
 			keys_dirty = 0;
 			__nonMP_DynamicFunc__clean_input2();
@@ -1544,13 +1544,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 			//if (curdat.using_flat_buffers_sse2_ok) {
 			if (curdat.dynamic_use_sse == 0) {
-				if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1) {
+				if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1) {
 #ifdef _OPENMP
 #define CASE(H) case MGF__##H: DynamicFunc__##H##_crypt_input2_overwrite_input1(0,m_count,0); break
 #else
 #define CASE(H) case MGF__##H: DynamicFunc__##H##_crypt_input2_overwrite_input1(); break
 #endif
-					switch(curdat.store_keys_normal_but_precompute_md5_to_output2_base16_type)
+					switch(curdat.store_keys_normal_but_precompute_hash_to_output2_base16_type)
 					{
 						CASE(MD5);
 						CASE(MD4);
@@ -1587,24 +1587,20 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 						CASE(SKEIN256);
 						CASE(SKEIN384);
 						CASE(SKEIN512);
+						// LARGE_HASH_EDIT_POINT
 					}
-				} else if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32) {
+				} else if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX) {
 					unsigned int i;
 					for (i = 0; i < m_count; ++i)
-						total_len_X86[i] = 32;
-#ifdef _OPENMP
-					DynamicFunc__MD5_crypt_input2_append_input1(0,m_count,0);
-#else
-					DynamicFunc__MD5_crypt_input2_append_input1();
-#endif
+						total_len_X86[i] = curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX;
 #undef CASE
 #ifdef _OPENMP
-#define CASE(H) case MGF__##H: total_len_X86[i] = 32; DynamicFunc__##H##_crypt_input2_append_input1(0,m_count,0); break
+#define CASE(H) case MGF__##H: DynamicFunc__##H##_crypt_input2_append_input1(0,m_count,0); break
 #else
-#define CASE(H) case MGF__##H: total_len_X86[i] = 32; DynamicFunc__##H##_crypt_input2_append_input1(); break
+#define CASE(H) case MGF__##H: DynamicFunc__##H##_crypt_input2_append_input1(); break
 #endif
 
-					switch(curdat.store_keys_normal_but_precompute_md5_to_output2_base16_type) {
+					switch(curdat.store_keys_normal_but_precompute_hash_to_output2_base16_type) {
 						CASE(MD5);
 						CASE(MD4);
 						CASE(SHA1);
@@ -1640,6 +1636,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 						CASE(SKEIN256);
 						CASE(SKEIN384);
 						CASE(SKEIN512);
+						// LARGE_HASH_EDIT_POINT
 					}
 				} else {
 					// calls 'old' code (ossl, sorry :(   We should FIND and remove any format
@@ -1648,23 +1645,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				}
 			} else {
 				__possMP_DynamicFunc__crypt2_md5();
-				if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1)
+				if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1)
 				{
-					if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1==2)
+					if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1==2)
 						__nonMP_DynamicFunc__SSEtoX86_switch_output2();
 					__nonMP_DynamicFunc__clean_input();
-					__nonMP_DynamicFunc__append_from_last_output2_to_input1_as_base16();
-				}
-				if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32)
-				{
-#ifndef SIMD_COEF_32
-					if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32==2)
-#else
-					if (dynamic_use_sse == 1)
-#endif
-						__nonMP_DynamicFunc__SSEtoX86_switch_output2();
-					__nonMP_DynamicFunc__clean_input();
-					__nonMP_DynamicFunc__set_input_len_32();
 					__nonMP_DynamicFunc__append_from_last_output2_to_input1_as_base16();
 				}
 			}
@@ -2332,6 +2317,7 @@ static void *get_salt(char *ciphertext)
 			SPH_CASE(SKEIN256,skein256,32);
 			SPH_CASE(SKEIN384,skein384,48);
 			SPH_CASE(SKEIN512,skein512,64);
+			// LARGE_HASH_EDIT_POINT
 
 			default:
 			{
@@ -4968,12 +4954,12 @@ void DynamicFunc__crypt_md5(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		if (curdat.store_keys_in_input) {
 			for (; i < til; i += SIMD_PARA_MD5) {
-				SSEmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			}
 		} else {
 			for (; i < til; i += SIMD_PARA_MD5) {
 				SSE_Intrinsics_LoadLens_md5(0, i);
-				SSEmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			}
 		}
 		return;
@@ -5010,12 +4996,12 @@ void DynamicFunc__crypt_md4(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		if (curdat.store_keys_in_input) {
 			for (; i < til; i += SIMD_PARA_MD4) {
-				SSEmd4body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd4body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			}
 		} else {
 			for (; i < til; i += SIMD_PARA_MD4) {
 				SSE_Intrinsics_LoadLens_md4(0, i);
-				SSEmd4body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd4body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			}
 		}
 		return;
@@ -5203,7 +5189,7 @@ void DynamicFunc__crypt2_md5(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		for (; i < til; i += SIMD_PARA_MD5) {
 			SSE_Intrinsics_LoadLens_md5(1, i);
-			SSEmd5body(input_buf2[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd5body(input_buf2[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 		}
 		return;
 	}
@@ -5239,7 +5225,7 @@ void DynamicFunc__crypt2_md4(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		for (; i < til; i += SIMD_PARA_MD4) {
 			SSE_Intrinsics_LoadLens_md4(1, i);
-			SSEmd4body(input_buf2[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd4body(input_buf2[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 		}
 		return;
 	}
@@ -5281,12 +5267,12 @@ void DynamicFunc__crypt_md5_in1_to_out2(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		if (curdat.store_keys_in_input) {
 			for (; i < til; i += SIMD_PARA_MD5) {
-				SSEmd5body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd5body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 			}
 		} else {
 			for (; i < til; i += SIMD_PARA_MD5) {
 				SSE_Intrinsics_LoadLens_md5(0, i);
-				SSEmd5body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd5body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 			}
 		}
 		return;
@@ -5323,12 +5309,12 @@ void DynamicFunc__crypt_md4_in1_to_out2(DYNA_OMP_PARAMS)
 		i /= SIMD_COEF_32;
 		if (curdat.store_keys_in_input) {
 			for (; i < til; i += SIMD_PARA_MD4) {
-				SSEmd4body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd4body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 			}
 		} else {
 			for (; i < til; i += SIMD_PARA_MD4) {
 				SSE_Intrinsics_LoadLens_md4(0, i);
-				SSEmd4body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
+				SIMDmd4body(input_buf[i].c, crypt_key2[i].w, NULL, SSEi_MIXED_IN);
 			}
 		}
 		return;
@@ -5372,7 +5358,7 @@ void DynamicFunc__crypt_md5_in2_to_out1(DYNA_OMP_PARAMS)
 		for (; i < til; i += SIMD_PARA_MD5)
 		{
 			SSE_Intrinsics_LoadLens_md5(1, i);
-			SSEmd5body(input_buf2[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd5body(input_buf2[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			//dump_stuff_mmx_msg("DynamicFunc__crypt_md5_in2_to_out1", input_buf2[i].c,64,m_count-1);
 		}
 		return;
@@ -5410,7 +5396,7 @@ void DynamicFunc__crypt_md4_in2_to_out1(DYNA_OMP_PARAMS)
 		for (; i < til; i += SIMD_PARA_MD4)
 		{
 			SSE_Intrinsics_LoadLens_md4(1, i);
-			SSEmd4body(input_buf2[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd4body(input_buf2[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 		}
 		return;
 	}
@@ -5453,7 +5439,7 @@ void DynamicFunc__crypt_md5_to_input_raw(DYNA_OMP_PARAMS)
 			// NOTE, since crypt_key array is 16 bytes each, and input_buf is 64 bytes
 			// each, and we are doing 3 at a time, we can NOT directly write to the
 			// input buff, but have to use the crypt_key buffer, and then memcpy when done.
-			SSEmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			for (j = 0; j < SIMD_PARA_MD5; ++j)
 			{
 				memset(input_buf[i+j].c, 0, sizeof(input_buf[0]));
@@ -5503,7 +5489,7 @@ void DynamicFunc__crypt_md5_to_input_raw_Overwrite_NoLen_but_setlen_in_SSE(DYNA_
 			// NOTE, since crypt_key array is 16 bytes each, and input_buf is 64 bytes
 			// each, and we are doing 3 at a time, we can NOT directly write to the
 			// input buff, but have to use the crypt_key buffer, and then memcpy when done.
-			SSEmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			for (j = 0; j < SIMD_PARA_MD5; ++j)
 				memcpy(input_buf[i+j].c, crypt_key[i+j].c, 16*SIMD_COEF_32);
 		}
@@ -5545,7 +5531,7 @@ void DynamicFunc__crypt_md5_to_input_raw_Overwrite_NoLen(DYNA_OMP_PARAMS)
 			// NOTE, since crypt_key array is 16 bytes each, and input_buf is 64 bytes
 			// each, and we are doing 3 at a time, we can NOT directly write to the
 			// input buff, but have to use the crypt_key buffer, and then memcpy when done.
-			SSEmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
+			SIMDmd5body(input_buf[i].c, crypt_key[i].w, NULL, SSEi_MIXED_IN);
 			for (j = 0; j < SIMD_PARA_MD5; ++j)
 				memcpy(input_buf[i+j].c, crypt_key[i+j].c, 16*SIMD_COEF_32);
 		}
@@ -7203,6 +7189,7 @@ static int isSKEINFunc(DYNAMIC_primitive_funcp p) {
 	RETURN_TRUE_IF_BIG_FUNC(SKEIN384); RETURN_TRUE_IF_BIG_FUNC(SKEIN512);
 	return 0;
 }
+// LARGE_HASH_EDIT_POINT  (Add a new IsXXXFunc() type function)
 
 static int isLargeHashFinalFunc(DYNAMIC_primitive_funcp p)
 {
@@ -7215,6 +7202,7 @@ static int isLargeHashFinalFunc(DYNAMIC_primitive_funcp p)
 		IF(HAVAL192_3)||IF(HAVAL192_4)||IF(HAVAL192_5)||IF(HAVAL224_3)||IF(HAVAL224_4)||IF(HAVAL224_5)||
 		IF(HAVAL256_3)||IF(HAVAL256_4)||IF(HAVAL256_5)||IF(MD2)||IF(PANAMA)||IF(SKEIN224)||IF(SKEIN256)||
 		IF(SKEIN384)||IF(SKEIN512))
+		// LARGE_HASH_EDIT_POINT
 		return 1;
 	return 0;
 }
@@ -7569,19 +7557,32 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 	if (curdat.store_keys_in_input_unicode_convert && curdat.store_keys_in_input)
 		return !fprintf(stderr, "Error invalid format %s: Using MGF_KEYS_INPUT and MGF_KEYS_UNICODE_B4_CRYPT in same format is NOT valid\n", Setup->szFORMAT_NAME);
 
-	curdat.store_keys_normal_but_precompute_md5_to_output2 = !!(Setup->startFlags&MGF_KEYS_CRYPT_IN2);
+	curdat.store_keys_normal_but_precompute_hash_to_output2 = !!(Setup->startFlags&MGF_KEYS_CRYPT_IN2);
 
-	curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1 = !!(Setup->startFlags&(MGF_KEYS_BASE16_IN1|MGF_KEYS_BASE16_IN1_SHA1|MGF_KEYS_BASE16_IN1_SHA256));
+	curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1 = !!(Setup->startFlags&MGF_KEYS_BASE16_IN1);
 
-	if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1)
-		curdat.store_keys_normal_but_precompute_md5_to_output2 = 1;
+	if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1)
+		curdat.store_keys_normal_but_precompute_hash_to_output2 = 1;
 
-	curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32 = !!(Setup->startFlags&MGF_KEYS_BASE16_IN1_Offset32);
-	if (curdat.store_keys_normal_but_precompute_md5_to_output2_base16_to_input1_offset32)
+#define IF_CDOFF32(F,L) if (!curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX) \
+	curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX = (!!(Setup->startFlags&MGF_KEYS_BASE16_IN1_Offset_ ## F))*L
+
+	curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX = 0;
+	IF_CDOFF32(MD5,32); IF_CDOFF32(MD4,32); IF_CDOFF32(SHA1,40); IF_CDOFF32(SHA224,56);
+	IF_CDOFF32(SHA256,64); IF_CDOFF32(SHA384,96); IF_CDOFF32(SHA512,128); IF_CDOFF32(GOST,64);
+	IF_CDOFF32(WHIRLPOOL,128); IF_CDOFF32(Tiger,48); IF_CDOFF32(RIPEMD128,32); IF_CDOFF32(RIPEMD160,40);
+	IF_CDOFF32(RIPEMD256,64); IF_CDOFF32(RIPEMD320,80); IF_CDOFF32(MD2,32); IF_CDOFF32(PANAMA,64);
+	IF_CDOFF32(HAVAL128_3,32); IF_CDOFF32(HAVAL160_3,40); IF_CDOFF32(HAVAL192_3,48); IF_CDOFF32(HAVAL224_3,56); IF_CDOFF32(HAVAL256_3,64);
+	IF_CDOFF32(HAVAL128_4,32); IF_CDOFF32(HAVAL160_4,40); IF_CDOFF32(HAVAL192_4,48); IF_CDOFF32(HAVAL224_4,56); IF_CDOFF32(HAVAL256_4,64);
+	IF_CDOFF32(HAVAL128_5,32); IF_CDOFF32(HAVAL160_5,40); IF_CDOFF32(HAVAL192_5,48); IF_CDOFF32(HAVAL224_5,56); IF_CDOFF32(HAVAL256_5,64);
+	IF_CDOFF32(SKEIN224,56); IF_CDOFF32(SKEIN256,64); IF_CDOFF32(SKEIN384,96); IF_CDOFF32(SKEIN512,128);
+	// LARGE_HASH_EDIT_POINT
+
+	if (curdat.store_keys_normal_but_precompute_hash_to_output2_base16_to_input1_offsetX)
 	{
-		curdat.store_keys_normal_but_precompute_md5_to_output2 = 1;
+		curdat.store_keys_normal_but_precompute_hash_to_output2 = 1;
 	}
-	curdat.store_keys_normal_but_precompute_md5_to_output2_base16_type = Setup->startFlags>>56;
+	curdat.store_keys_normal_but_precompute_hash_to_output2_base16_type = Setup->startFlags>>56;
 
 	if (Setup->startFlags&MGF_PHPassSetup)
 	{
@@ -7780,6 +7781,7 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 				IS_FUNC_NAME(MD2,MD2)
 				IS_FUNC_NAME(PANAMA,PANAMA)
 				IS_FUNC_NAME(SKEIN,SKEIN)
+				// LARGE_HASH_EDIT_POINT  (MUST match the just added a new IsXXXFunc() type function)
 			}
 			if (isLargeHashFinalFunc(curdat.dynamic_FUNCTIONS[j-1]))
 			{

@@ -40,17 +40,21 @@
 	char *dst;							\
 									\
 	if (hash_ids == NULL || hash_ids[0] == 0 ||			\
-	    index > 32 * hash_ids[0] || hash_ids[0] > num_loaded_hashes)\
-		section = index >> LM_LOG_DEPTH;			\
-	else								\
-		section = hash_ids[2 * (index >> LM_LOG_DEPTH) + 1];	\
+	    index > hash_ids[0] || hash_ids[0] > num_loaded_hashes) {	\
+		section = 0;						\
+		block = 0;						\
+	}								\
+	else {								\
+		section = hash_ids[3 * index + 1] / 32;			\
+		block  = hash_ids[3 * index + 1] & 31;			\
+	}								\
 									\
 	if (section > global_work_size ) {				\
 		fprintf(stderr, "Get key error! %u %zu\n", section,	\
 			global_work_size);				\
 		section = 0;						\
+		block = 0;						\
 	}								\
-	block  = index & (LM_DEPTH - 1);				\
 									\
 	src = opencl_lm_all[section].pxkeys[block];			\
 	dst = out;							\
@@ -79,8 +83,6 @@ struct fmt_main fmt_opencl_lm;
 
 extern opencl_lm_combined *opencl_lm_all;
 extern opencl_lm_transfer *opencl_lm_keys;
-extern int opencl_lm_keys_changed;
-extern lm_vector *opencl_lm_cracked_hashes;
 
 extern void opencl_lm_b_register_functions(struct fmt_main *);
 
@@ -94,7 +96,6 @@ extern int opencl_lm_get_hash_4(int index);
 extern int opencl_lm_get_hash_5(int index);
 extern int opencl_lm_get_hash_6(int index);
 extern void opencl_lm_init(int block);
-extern int opencl_lm_cmp_one_b(WORD *binary, int count, int index);
 extern char *opencl_lm_get_source(WORD *raw);
 extern WORD *opencl_lm_get_binary(char *ciphertext);
 extern void opencl_lm_set_key(char *key, int index);
