@@ -42,13 +42,9 @@
  * SIMD buffers need to be aligned to register size
  */
 #if SIMD_COEF_32
-#ifdef _MSC_VER
+#define MEM_ALIGN_SIMD			SIMD_COEF_32x4
+#else
 #define MEM_ALIGN_SIMD			16
-#else
-#define MEM_ALIGN_SIMD			(SIMD_COEF_32 * 4)
-#endif
-#else
-#define MEM_ALIGN_SIMD			(16)
 #endif
 
 /*

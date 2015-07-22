@@ -471,12 +471,6 @@ typedef __m64i vtype;
 
 /************************* COMMON STUFF BELOW *************************/
 
-#ifdef _MSC_VER
-#define MEM_ALIGN_SIMD			16
-#else
-#define MEM_ALIGN_SIMD          (SIMD_COEF_32 * 4)
-#endif
-
 #if (!__XOP__ && !__ALTIVEC__) || __AVX2__ || __MIC__
 
 #if __SSE3__ || __MIC__
