@@ -185,6 +185,11 @@ static char *get_key(int index)
 	init_t();
 
 	src = DES_bs_all.pxkeys[index];
+	if (!src)
+	{
+		return out;
+	}
+
 	dst = out;
 	while (dst < &out[7] && (*dst = *src)) {
 		src += sizeof(DES_bs_vector) * 8;

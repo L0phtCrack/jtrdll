@@ -324,6 +324,9 @@ typedef struct {
 
 #elif defined(__MIC__) && DES_BS_DEPTH == 512
 #include <immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef __m512i vtype;
 
@@ -349,6 +352,9 @@ typedef __m512i vtype;
 
 #elif defined(__AVX__) && DES_BS_DEPTH == 256 && !defined(DES_BS_NO_AVX256)
 #include <immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef __m256i vtype;
 
@@ -367,8 +373,13 @@ typedef __m256i vtype;
 
 #ifdef __XOP__
 /* This could be _mm256_cmov_si256(), but it does not exist (yet?) */
+#ifdef __GNUC__
 #define vsel(dst, a, b, c) \
 	(dst) = __builtin_ia32_vpcmov_v8sf256((b), (a), (c))
+#else
+#define vsel(dst, a, b, c) \
+	(dst) = __mm256_cmov_si256((b), (a), (c))
+#endif
 #endif
 
 #define vshl1(dst, src) \
@@ -382,6 +393,9 @@ typedef __m256i vtype;
 #include <immintrin.h>
 #ifdef __XOP__
 #include <x86intrin.h>
+#endif
+#ifdef _MSC_VER
+#include<intrin.h>
 #endif
 
 typedef struct {
@@ -411,9 +425,14 @@ typedef struct {
 
 #ifdef __XOP__
 /* This could be _mm256_cmov_ps(), but it does not exist (yet?) */
+#ifdef __GNUC__
 #define vsel(dst, a, b, c) \
 	(dst).f = __builtin_ia32_vpcmov_v8sf256((b).f, (a).f, (c).f); \
 	(dst).g = _mm_cmov_si128((b).g, (a).g, (c).g)
+#else
+	(dst).f = __mm256_cmov_si256((b).f, (a).f, (c).f); \
+	(dst).g = _mm_cmov_si128((b).g, (a).g, (c).g)
+#endif
 #endif
 
 #define vshl(dst, src, shift) \
@@ -425,6 +444,9 @@ typedef struct {
 
 #elif defined(__AVX__) && DES_BS_DEPTH == 512
 #include <immintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef struct {
 	__m256i f, g;
@@ -452,9 +474,14 @@ typedef struct {
 
 #ifdef __XOP__
 /* This could be _mm256_cmov_ps(), but it does not exist (yet?) */
+#ifdef __GNUC__
 #define vsel(dst, a, b, c) \
 	(dst).f = __builtin_ia32_vpcmov_v8sf256((b).f, (a).f, (c).f); \
 	(dst).g = __builtin_ia32_vpcmov_v8sf256((b).g, (a).g, (c).g)
+#else
+	(dst).f = __mm256_cmov_si256((b).f, (a).f, (c).f); \
+	(dst).g = __mm256_cmov_si256((b).g, (a).g, (c).g)
+#endif
 #endif
 
 #define vshl(dst, src, shift) \
@@ -468,6 +495,9 @@ typedef struct {
     !defined(DES_BS_NO_MMX)
 #include <immintrin.h>
 #include <mmintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef struct {
 	__m256i f;
@@ -505,6 +535,9 @@ typedef struct {
     (ARCH_BITS == 32 && DES_BS_DEPTH == 288))
 #include <immintrin.h>
 #include <mmintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef struct {
 	__m256i f;
@@ -545,6 +578,9 @@ typedef struct {
     (ARCH_BITS == 32 && DES_BS_DEPTH == 352))
 #include <immintrin.h>
 #include <mmintrin.h>
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
 
 typedef struct {
 	__m256i f;
@@ -597,6 +633,10 @@ typedef struct {
 #endif
 #else
 #include <emmintrin.h>
+#endif
+
+#ifdef _MSC_VER
+#include<intrin.h>
 #endif
 
 typedef __m128i vtype;

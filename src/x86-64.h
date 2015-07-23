@@ -69,7 +69,7 @@
 #if !defined(__SSE2__)
 #define DES_BS_VECTOR			0
 #define DES_BS_ALGORITHM_NAME		"DES 64/64"
-#elif defined(JOHN_AVX) && (defined(__GNUC__) || defined(_OPENMP))
+#elif defined(JOHN_AVX)
 /*
  * Require gcc for AVX/XOP because DES_bs_all is aligned in a gcc-specific way,
  * except in OpenMP-enabled builds, where it's aligned by different means.
@@ -91,8 +91,7 @@
 #if 0
 /* 512-bit as 2x256 */
 #define DES_BS_VECTOR			8
-#if defined(JOHN_XOP) && defined(__GNUC__)
-/* Require gcc for 256-bit XOP because of __builtin_ia32_vpcmov_v8sf256() */
+#if defined(JOHN_XOP)
 #undef DES_BS
 #define DES_BS				3
 #define DES_BS_ALGORITHM_NAME		"DES 256/256 X2 XOP-16"
@@ -103,8 +102,7 @@
 /* 384-bit as 256+128 */
 #define DES_BS_VECTOR_SIZE		8
 #define DES_BS_VECTOR			6
-#if defined(JOHN_XOP) && defined(__GNUC__)
-/* Require gcc for 256-bit XOP because of __builtin_ia32_vpcmov_v8sf256() */
+#if defined(JOHN_XOP)
 #undef DES_BS
 #define DES_BS				3
 #define DES_BS_ALGORITHM_NAME		"DES 256/256 XOP-16 + 128/128 XOP-16"
@@ -131,8 +129,7 @@
 #elif __AVX2__
 /* 256-bit as 1x256 */
 #define DES_BS_VECTOR			4
-#if defined(JOHN_XOP) && defined(__GNUC__)
-/* Require gcc for 256-bit XOP because of __builtin_ia32_vpcmov_v8sf256() */
+#if defined(JOHN_XOP)
 #undef DES_BS
 #define DES_BS				3
 #define DES_BS_ALGORITHM_NAME		"DES 256/256 XOP2-16"

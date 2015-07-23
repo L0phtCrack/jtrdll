@@ -6,7 +6,7 @@
 //#define __SSE4_1__ 1
 //#define __AVX__ 1
 //#define __XOP__ 1
-#define DES_BS_ASM 1
+//#define DES_BS_ASM 1
 
 #define uint unsigned __int32
 #define ushort unsigned __int16
