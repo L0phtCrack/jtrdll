@@ -540,8 +540,13 @@ int crk_reload_pot(void)
 		if (crk_methods.valid(ciphertext, crk_db->format)) {
 			ciphertext = crk_methods.split(ciphertext, 0,
 			                               crk_db->format);
-			if (crk_remove_pot_entry(ciphertext))
+			char *dup_ciphertext = strdup(ciphertext);
+			if (crk_remove_pot_entry(dup_ciphertext))
+			{
+				MEM_FREE(dup_ciphertext);
 				break;
+			}
+			MEM_FREE(dup_ciphertext);
 		}
 	}
 
