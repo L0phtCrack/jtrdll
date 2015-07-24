@@ -495,7 +495,7 @@ int crk_reload_pot(void)
 	if (crk_params.flags & FMT_NOT_EXACT)
 		return 0;
 
-	if (!(pot_file = fopen(path_expand(pers_opts.activepot), "rb")))
+	if (!(pot_file = fopen(path_expand(pers_opts.activepot), "r")))
 		pexit("fopen: %s", path_expand(pers_opts.activepot));
 
 #if OS_FLOCK || FCNTL_LOCKS

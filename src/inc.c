@@ -48,7 +48,7 @@ static double get_progress(void)
 	if (!cand)
 		return -1;
 
-	try = (double)((unsigned long long)status.cands.hi << 32) + status.cands.lo;
+	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
 
 	return 100.0 * try / (cand * mask_mult);
 }
@@ -446,9 +446,9 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 
 	log_event("Proceeding with \"incremental\" mode: %.100s", mode);
-	
+
 	/* mode starting with 'file:' specify a path to a character set file */
-	if (strncmp(mode, "file:", 5)==0)
+	if (strncmp(mode, "file:", 5) == 0)
 	{
 		charset = mode + 5;
 
@@ -818,8 +818,8 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		unsigned long long mask_mult =
 			mask_tot_cand ? mask_tot_cand : 1;
 
-		cand = (double)((((unsigned long long)status.cands.hi << 32) +
-		        status.cands.lo) / mask_mult);
+		cand = (((unsigned long long)status.cands.hi << 32) +
+		        status.cands.lo) / mask_mult;
 	}
 
 	crk_done();

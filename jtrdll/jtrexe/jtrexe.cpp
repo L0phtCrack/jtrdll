@@ -37,7 +37,8 @@ int main(int argc, char **argv)
 	}
 	
 #ifdef _WIN32
-	HMODULE jtrdll = LoadLibrary((std::string("jtrdll_")+jtrdllversion).c_str());
+	printf("%s\n", (std::string("jtrdll_") + jtrdllversion + ".dll").c_str());
+	HMODULE jtrdll = LoadLibrary((std::string("jtrdll_")+jtrdllversion+".dll").c_str());
 	if(!jtrdll)
 	{
 		fprintf(stderr,"Missing jtrdll\n");

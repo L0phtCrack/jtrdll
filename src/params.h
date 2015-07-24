@@ -348,8 +348,13 @@ extern int password_hash_thresholds[PASSWORD_HASH_SIZES];
 /*
  * john.pot and log file buffer sizes, can be zero.
  */
+#ifdef JTRDLL
+#define POT_BUFFER_SIZE			0
+#define LOG_BUFFER_SIZE			0
+#else
 #define POT_BUFFER_SIZE			0x8000
 #define LOG_BUFFER_SIZE			0x8000
+#endif
 
 /*
  * Buffer size for path names.

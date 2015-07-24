@@ -14,12 +14,8 @@
 #include <errno.h>
 #include <string.h>
 
-<<<<<<< HEAD
-#include "john_stdint.h"
-=======
 #include "stdint.h"
 #include "common.h"
->>>>>>> ca858b37ab7a5b535c385b5cc4ba05ccc5eab1d9
 #include "jumbo.h"
 #include "memdbg.h"
 

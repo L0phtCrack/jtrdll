@@ -44,7 +44,7 @@ char *pf_gensalt ( const unsigned char *salt, size_t saltlen, unsigned int t_cos
     /* if the user didn't supply a salt, generate one for them */
     if ( salt == NULL )
     {
-        fp = fopen ( "/dev/urandom", "r" );
+        fp = fopen ( "/dev/urandom", "rb" );
         bytes = fread  ( buf + 4, sizeof ( unsigned char ), saltlen, fp );
         fclose ( fp );
     }

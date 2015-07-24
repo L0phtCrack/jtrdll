@@ -433,7 +433,7 @@ static void modify_build_save_restore(int cur_salt, int id_gpu) {
 
 	sprintf(kernel_bin_name, "$JOHN/kernels/DES_bs_kernel_h_%d_%d.bin", cur_salt, id_gpu);
 
-	file = fopen(path_expand(kernel_bin_name), "r");
+	file = fopen(path_expand(kernel_bin_name), "rb");
 
 	if (file == NULL) {
 		char *build_opt = "-fno-bin-amdil -fno-bin-source -fbin-exe";
