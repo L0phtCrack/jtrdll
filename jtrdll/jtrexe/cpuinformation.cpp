@@ -1,5 +1,5 @@
 #include"cpuinformation.h"
-
+#include<signal.h>
 #ifdef WIN32
 #include<Windows.h>
 #endif
@@ -83,8 +83,15 @@ bool CPUInformation::MMXEXT(void) { return CPU_Rep.isAMD_ && CPU_Rep.f_81_EDX_[2
 bool CPUInformation::RDTSCP(void) { return CPU_Rep.isIntel_ && CPU_Rep.f_81_EDX_[27]; }
 bool CPUInformation::_3DNOWEXT(void) { return CPU_Rep.isAMD_ && CPU_Rep.f_81_EDX_[30]; }
 bool CPUInformation::_3DNOW(void) { return CPU_Rep.isAMD_ && CPU_Rep.f_81_EDX_[31]; }
+bool CPUInformation::XMM_SAVED(void) { return CPU_Rep.f_1_ECX_[26] && CPU_Rep.f_bv_0_EAX_[1]; }
+bool CPUInformation::YMM_SAVED(void) { return CPU_Rep.f_1_ECX_[26] && CPU_Rep.f_bv_0_EAX_[2]; }
 
-CPUInformation::InstructionSet_Internal::InstructionSet_Internal(): 
+static void sigillhandler(int)
+{
+	throw "barf";
+}
+
+CPUInformation::InstructionSet_Internal::InstructionSet_Internal() :
 	nIds_( 0 ),
 	nExIds_( 0 ),
 	isIntel_( false ),
@@ -96,7 +103,8 @@ CPUInformation::InstructionSet_Internal::InstructionSet_Internal():
 	f_81_ECX_( 0 ),
 	f_81_EDX_( 0 ),
 	data_(),
-	extdata_()
+	extdata_(),
+	f_bv_0_EAX_(0)
 {
 	//int cpuInfo[4] = {-1};
 	std::array<int, 4> cpui;
@@ -171,6 +179,35 @@ CPUInformation::InstructionSet_Internal::InstructionSet_Internal():
 		memcpy(brand + 32, extdata_[4].data(), sizeof(cpui));
 		brand_ = brand;
 	}
+	
+	// XGETBV
+	if (f_1_ECX_[26])
+	{
+		unsigned long long bv0 = _xgetbv(0);
+		f_bv_0_EAX_ = (unsigned long)(bv0);
+		f_bv_0_EDX_ = (unsigned long)(bv0 >> 32);
+	}
+
+	// Catch an illegal instruction
+	void(__cdecl *prevsigill)(int) = signal(SIGILL, sigillhandler);
+
+	try
+	{
+		unsigned long long bv0 = _xgetbv(0);
+		f_bv_0_EAX_ = (unsigned long)(bv0);
+		f_bv_0_EDX_ = (unsigned long)(bv0 >> 32);
+	}
+	catch (...)
+	{
+		// Sometimes VM can have this and still except!
+		f_1_ECX_[26] = 0;
+		f_bv_0_EAX_ = 0;
+		f_bv_0_EDX_ = 0;
+	}
+
+	signal(SIGILL, prevsigill);
+
+
 };
 
 

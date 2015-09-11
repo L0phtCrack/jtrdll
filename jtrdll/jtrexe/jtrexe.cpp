@@ -24,12 +24,12 @@ int main(int argc, char **argv)
 			{
 				jtrdllversion = "xop";
 			}
-			else if (cpu.AVX())
+			else if (cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
 				jtrdllversion = "avx";
 			}
-			
-			if (cpu.AVX2())
+
+			if (cpu.AVX2() && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
 				jtrdllversion = "avx2";
 			}

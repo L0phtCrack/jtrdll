@@ -78,6 +78,9 @@ public:
 	virtual bool _3DNOWEXT(void);
 	virtual bool _3DNOW(void);
 
+	virtual bool XMM_SAVED(void);
+	virtual bool YMM_SAVED(void);
+
 private:
 
 	class InstructionSet_Internal
@@ -99,6 +102,8 @@ private:
 		std::bitset<32> f_81_EDX_;
 		std::vector<std::array<int, 4>> data_;
 		std::vector<std::array<int, 4>> extdata_;
+		std::bitset<32> f_bv_0_EAX_;
+		std::bitset<32> f_bv_0_EDX_;
 	};
 
 	InstructionSet_Internal CPU_Rep;
