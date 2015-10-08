@@ -15,6 +15,12 @@
 
 #ifdef HAVE_OPENCL
 
+#ifdef JTRDLL
+#ifdef _WIN32
+#include<Windows.h>
+#endif
+#endif
+
 #define _BSD_SOURCE 1           // setenv()
 #define _DEFAULT_SOURCE 1       // setenv()
 #define NEED_OS_TIMER

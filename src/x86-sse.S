@@ -1693,8 +1693,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t2;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $(s), aa3;						\
+	pslld $(s), aa;						\
 	psrld $(32-s), t2;					\
 	por t2, aa;
 
@@ -1718,8 +1718,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t1;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $(s), aa3;						\
+	pslld $(s), aa;						\
 	psrld $(32-s), t1;					\
 	por t1, aa;
 
@@ -1737,8 +1737,8 @@ const_stage3:
 	paddd t1, aa;						\
 	addl t13, aa3;						\
 	movdqa aa, t1;						\
-	roll $s, aa3;						\
-	pslld $s, aa;						\
+	roll $(s), aa3;						\
+	pslld $(s), aa;						\
 	psrld $(32-s), t1;					\
 	por t1, aa;
 

@@ -380,6 +380,28 @@ typedef __m256i vtype;
     x = vgather_epi64(&y[0][z], indices, 1);                      \
 }
 
+#ifdef _MSC_VER
+#if defined(_WIN32) && !defined(_WIN64)
+
+#ifdef _MSC_VER // if Visual C/C++
+__inline __m64 _mm_set_pi64x(const __int64 i) {
+	union {
+		__int64 i;
+		__m64 v;
+	} u;
+
+	u.i = i;
+	return u.v;
+}
+#endif
+
+#define _mm256_set_epi64x(a1, a2, a3, a4) _mm256_set_m128i(_mm_set_epi64(_mm_set_pi64x(a3), _mm_set_pi64x(a4)), _mm_set_epi64(_mm_set_pi64x(a1), _mm_set_pi64x(a2)))
+#define _mm256_set1_epi64x(a) _mm256_set_m128i(_mm_set_epi64(_mm_set_pi64x(a), _mm_set_pi64x(a)), _mm_set_epi64(_mm_set_pi64x(a), _mm_set_pi64x(a)))
+
+#endif
+#endif
+
+
 /************************* SSE2/3/4/AVX/XOP ***************************/
 #elif __SSE2__
 
