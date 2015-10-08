@@ -28,7 +28,7 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #define FORMAT_NAME		""
 #define ALGORITHM_NAME		"PBKDF2-SHA256 OpenCL"
 
-#define BENCHMARK_COMMENT	", rounds=12000"
+#define BENCHMARK_COMMENT	", rounds=1000"
 #define BENCHMARK_LENGTH	-1
 
 #define BINARY_ALIGN		4
@@ -75,7 +75,11 @@ typedef struct {
 	salt and checksum are encoded in "adapted base64"
 */
 static struct fmt_tests tests[] = {
-
+	/* Low iteration test vectors for comparison */
+	{"$pbkdf2-sha256$1000$b1dWS2dab3dKQWhPSUg3cg$UY9j5wlyxtsJqhDKTqua8Q3fMp0ojc2pOnErzr8ntLE", "magnum"},
+	{"$pbkdf2-sha256$1000$amkzNk9tOXJVZ043QTZ1dA$YIpbl0hjiV9UFMszHNDlJIa0bcObTIkPzT6XvhJPcMM", "bonum"},
+	{"$pbkdf2-sha256$10000$UWthWUhuRXdPZkZPMnF0Ug$l/T9Bmy7qtaPEvbPC2qAfYuj5RAxTbv8I.hSTfyIwYg", "10K worth of looping"},
+	{"$pbkdf2-sha256$10000$Sm1hNlBZWDVYd1FWT3FUUQ$foweCatpTeXpaba1tS7fJTPUquByBb5oI8vilOSspaI", "moebusring"},
 	{"$pbkdf2-sha256$12000$2NtbSwkhRChF6D3nvJfSGg$OEWLc4keep8Vx3S/WnXgsfalb9q0RQdS1s05LfalSG4", ""},
 	{"$pbkdf2-sha256$12000$fK8VAoDQuvees5ayVkpp7Q$xfzKAoBR/Iaa68tjn.O8KfGxV.zdidcqEeDoTFvDz2A", "1"},
 	{"$pbkdf2-sha256$12000$GoMQYsxZ6/0fo5QyhtAaAw$xQ9L6toKn0q245SIZKoYjCu/Fy15hwGme9.08hBde1w", "12"},
@@ -120,9 +124,6 @@ static const char * warn[] = {
 };
 
 static int split_events[] = { 2, -1, -1 };
-
-static int crypt_all(int *pcount, struct db_salt *_salt);
-static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
@@ -172,19 +173,6 @@ static size_t get_task_max_work_group_size()
 	return s;
 }
 
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-	if (cpu(device_info[gpu_id]))
-		return 1;
-	else
-		return 128;
-}
-
 static void release_clobj(void)
 {
 	if (host_crack) {
@@ -230,11 +218,9 @@ static void reset(struct db_main *db)
 		                       sizeof(state_t), 0);
 
 		// Auto tune execution from shared/included code.
-		self->methods.crypt_all = crypt_all_benchmark;
 		autotune_run(self, ITERATIONS, 0,
 		             (cpu(device_info[gpu_id]) ?
 		              1000000000 : 10000000000ULL));
-		self->methods.crypt_all = crypt_all;
 	}
 }
 
@@ -349,58 +335,14 @@ static void set_salt(void *salt)
 	    "Copy salt to gpu");
 }
 
-static void opencl_limit_gws(int count)
-{
-	global_work_size =
-	    (count + local_work_size - 1) / local_work_size * local_work_size;
-}
-
-static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
-{
-	const int count = *pcount;
-	size_t gws;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-#if 0
-	printf("crypt_all(%d)\n", count);
-	printf("LWS = %d, GWS = %d\n", (int)local_work_size, (int)gws);
-#endif
-
-	// Copy data to gpu
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
-		CL_FALSE, 0, gws * sizeof(pass_t), host_pass, 0,
-		NULL, multi_profilingEvent[0]), "Copy data to gpu");
-
-	// Run 1st kernel
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
-		1, NULL, &gws, lws, 0, NULL,
-		multi_profilingEvent[1]), "Run kernel");
-
-	// Warm-up run
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-		1, NULL, &gws, lws, 0, NULL,
-		NULL), "Run kernel");
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-		1, NULL, &gws, lws, 0, NULL,
-		multi_profilingEvent[2]), "Run split kernel");
-
-	// Read the result back
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
-		CL_TRUE, 0, gws * sizeof(crack_t), host_crack, 0,
-		NULL, multi_profilingEvent[3]), "Copy result back");
-
-	return count;
-}
-
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int i;
 	const int count = *pcount;
 	int loops = (host_salt->rounds + HASH_LOOPS - 1) / HASH_LOOPS;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	opencl_limit_gws(count);
+	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 #if 0
 	printf("crypt_all(%d)\n", count);
@@ -410,24 +352,23 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
 		CL_FALSE, 0, global_work_size * sizeof(pass_t), host_pass, 0,
-		NULL, NULL), "Copy data to gpu");
+		NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
 	// Run kernel
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
-		1, NULL, &global_work_size, &local_work_size, 0, NULL,
-		profilingEvent), "Run kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
+		1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
 
-	for(i = 0; i < loops; i++) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-			1, NULL, &global_work_size, &local_work_size, 0, NULL,
-			profilingEvent), "Run split kernel");
-		HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish");
+	for(i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
+			1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
+		BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 		opencl_process_event();
 	}
+
 	// Read the result back
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
 		CL_TRUE, 0, global_work_size * sizeof(crack_t), host_crack, 0,
-		NULL, NULL), "Copy result back");
+		NULL, multi_profilingEvent[3]), "Copy result back");
 
 	return count;
 }
@@ -480,7 +421,7 @@ static int binary_hash_0(void *binary)
 		printf("%08x ", b[i]);
 	puts("");
 #endif
-	return (((uint32_t *) binary)[0] & 0xf);
+	return (((uint32_t *) binary)[0] & PH_MASK_0);
 }
 
 static int get_hash_0(int index)
@@ -492,40 +433,39 @@ static int get_hash_0(int index)
 		printf("%08x ", ((uint32_t *) host_crack[index].hash)[i]);
 	puts("");
 #endif
-	return host_crack[index].hash[0] & 0xf;
+	return host_crack[index].hash[0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return host_crack[index].hash[0] & 0xff;
+	return host_crack[index].hash[0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return host_crack[index].hash[0] & 0xfff;
+	return host_crack[index].hash[0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return host_crack[index].hash[0] & 0xffff;
+	return host_crack[index].hash[0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return host_crack[index].hash[0] & 0xfffff;
+	return host_crack[index].hash[0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return host_crack[index].hash[0] & 0xffffff;
+	return host_crack[index].hash[0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return host_crack[index].hash[0] & 0x7ffffff;
+	return host_crack[index].hash[0] & PH_MASK_6;
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	salt_t *my_salt;
@@ -533,7 +473,6 @@ static unsigned int iteration_count(void *salt)
 	my_salt = salt;
 	return (unsigned int)my_salt->rounds;
 }
-#endif
 
 struct fmt_main fmt_opencl_pbkdf2_hmac_sha256 = {
 {
@@ -551,11 +490,9 @@ struct fmt_main fmt_opencl_pbkdf2_hmac_sha256 = {
 	1,
 	1,
 	FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 	tests
 }, {
 	init,
@@ -566,11 +503,9 @@ struct fmt_main fmt_opencl_pbkdf2_hmac_sha256 = {
 	fmt_default_split,
 	get_binary,
 	get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 	fmt_default_source,
 	{
 		binary_hash_0,

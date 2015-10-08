@@ -11,6 +11,9 @@
  * keytool -genkeypair -alias my_certificate -keystore my_keystore.pfx -storepass
  * my_password -validity 365 -keyalg RSA -keysize 2048 -storetype pkcs12 */
 
+#include "arch.h"
+#if !AC_BUILT || HAVE_BIO_NEW
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_pfx;
 #elif FMT_REGISTERS_H
@@ -36,7 +39,6 @@ john_register_one(&fmt_pfx);
 //#define OMP_SCALE              32 // tuned on K8-dual HT  (20% faster)
 #endif
 #include <string.h>
-#include "arch.h"
 #include "common.h"
 #include "formats.h"
 #include "params.h"
@@ -151,7 +153,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	len = atoi(p);
 	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
 		goto err;
-	if (!ishex(p))
+	if (!ishexlc(p))
 		goto err;
 	if(strlen(p) != len * 2)
 		goto err;
@@ -322,9 +324,7 @@ struct fmt_main fmt_pfx = {
 		FMT_OMP |
 #endif
 		FMT_CASE | FMT_8_BIT | FMT_DYNA_SALT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		pfx_tests
 	}, {
 		init,
@@ -335,9 +335,7 @@ struct fmt_main fmt_pfx = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash
@@ -359,3 +357,4 @@ struct fmt_main fmt_pfx = {
 };
 
 #endif /* plugin stanza */
+#endif /* HAVE_BIO_NEW */

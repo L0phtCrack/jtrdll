@@ -156,7 +156,13 @@ static void init(struct fmt_main *self)
 static void set_key(char *key, int index)
 {
 #ifdef SIMD_COEF_32
+#if ARCH_ALLOWS_UNALIGNED
 	const ARCH_WORD_32 *wkey = (ARCH_WORD_32*)key;
+#else
+	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint32_t));
+	const ARCH_WORD_32 *wkey = (uint32_t*)(is_aligned(key, sizeof(uint32_t)) ?
+	                                       key : strcpy(buf_aligned, key));
+#endif
 	ARCH_WORD_32 *keybuf_word = (ARCH_WORD_32*)&saved_key[GETPOS(3, index)];
 	unsigned int len;
 	ARCH_WORD_32 temp;
@@ -311,84 +317,84 @@ static int get_hash_0(int index)
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xf;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_0;
 }
 static int get_hash_1(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_1;
 }
 static int get_hash_2(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xfff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_2;
 }
 static int get_hash_3(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xffff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_3;
 }
 static int get_hash_4(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xfffff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_4;
 }
 static int get_hash_5(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0xffffff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_5;
 }
 static int get_hash_6(int index)
 {
 	unsigned int x,y;
         x = index&(SIMD_COEF_32-1);
         y = (unsigned int)index/SIMD_COEF_32;
-	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & 0x7ffffff;
+	return ((ARCH_WORD_32*)crypt_key)[x+y*SIMD_COEF_32*5] & PH_MASK_6;
 }
 #else
 static int get_hash_0(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xFFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xFFFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xFFFFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0xFFFFFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return ((ARCH_WORD_32 *)crypt_key)[index] & 0x7FFFFFF;
+	return ((ARCH_WORD_32 *)crypt_key)[index] & PH_MASK_6;
 }
 #endif
 
@@ -408,9 +414,7 @@ struct fmt_main fmt_mysqlSHA1 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -421,9 +425,7 @@ struct fmt_main fmt_mysqlSHA1 = {
 		split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

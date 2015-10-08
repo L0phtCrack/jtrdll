@@ -79,6 +79,42 @@ static struct fmt_tests tests[] = {
 	{"$1$JVDbGx8K$T9h8HK4LZxeLPMTAxCfpc1", "password"},
 	{"$1$1Cu6fEvv$42kuaJ5fMEqyVStPuFG040", "0123456789ABCDE"},
 	{"$1$ql5x.xXL$vYVDhExol2xUBBpERRWcn1", "jtr>hashcat"},
+	{"$1$27iyq7Ya$miN09fW1Scj0DHVNyewoU/", ""},
+	{"$1$84Othc1n$v1cuReaa5lRdGuHaOa76n0", "a"},
+	{"$1$4zq0BsCR$U2ua9WZtDEhzy4gFSiLxN1", "aa"},
+	{"$1$DKwjKWxp$PY6PdlPZsXjOppPDoFOz4.", "aaa"},
+	{"$1$OKDV6ppN$viTVmH48bSePiCrMvXT/./", "aaaa"},
+	{"$1$QEWsCY0O$xrTTMKTepiHMp7Oxgz0pX/", "aaaaa"},
+	{"$1$5dfdk2dF$XiJBPNrfKcCgdQ/kcoB40/", "aaaaaa"},
+	{"$1$Ps6A1Cy6$WsvLg9cQhm9JU0rXkLEtz.", "aaaaaaa"},
+	{"$1$9IK7nZ4M$4nx7Mdj05KGPJX/mZaDrh.", "aaaaaaaa"},
+	{"$1$l3pNTqwT$GAc.dcRaxCvC20CFGCjp4/", "aaaaaaaaa"},
+	{"$1$jSAARhJR$6daQ/ekjAL0MgOUgGJyp10", "aaaaaaaaaa"},
+	{"$1$wk3Xwqqg$2AtdiucwJvJgbaVT1jWpb0", "aaaaaaaaaaa"},
+	{"$1$G6Fn69Ei$d7AKJUOIdz/gO4Utc0TQP1", "aaaaaaaaaaaa"},
+	{"$1$A7XJ7lGK$W5jTnH/4lW4XwZ.6F7n1N.", "aaaaaaaaaaaaa"},
+	{"$1$Rcm46RfA$LfdIK/OP16yHzMYHSlx/B.", "aaaaaaaaaaaaaa"},
+	{"$1$4bCSSJMN$TcYKTsukD4SFJE1n4MwMZ/", "aaaaaaaaaaaaaaa"},
+#if PLAINTEXT_LENGTH > 15
+	{"$1$mJxBkkl8$u7OHfWCPmNxvf0um7hH89.", "aaaaaaaaaaaaaaaa"},
+	{"$1$Ub1gBUt4$TNaLxU7Pq5mk/MiDEb60b/", "aaaaaaaaaaaaaaaaa"},
+	{"$1$8ot7QScR$x.p4vjIgdFxxS83x29PkJ0", "aaaaaaaaaaaaaaaaaa"},
+	{"$1$wRi4OjD3$eJjKD2AwLMWfOTRYA30zn.", "aaaaaaaaaaaaaaaaaaa"},
+	{"$1$lmektrsg$2KSRY4EUFzsYNMg80fG4/0", "aaaaaaaaaaaaaaaaaaaa"},
+	{"$1$tgVBKBmE$YRvzsi7qHP2MC1Atg8VCV.", "aaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$oTsk88YC$Eh435T1BQzmjQekfqkHof/", "aaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$ykxSZEfP$hJrFeGOFk049L.94Mgggj/", "aaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$LBK4p5tD$5/gAIx8/7hpTVwDC/.KQv/", "aaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$fkEasaUI$G7CelOWHkol2nVHN8XQP40", "aaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$gRevVzeY$eMMQrsl5OHL5dP1p/ktJc/", "aaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$164TNEjj$ppoV6Ju6Vu63j1OlM4zit/", "aaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$ErPmhjp2$lZZstb2M455Xhk50eeH4i/", "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$NUssS5fT$QaS4Ywt0IwzxbE0FAGnXn0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$NxlTyiJ7$gxkXTEJdeTzY8P6tqKmcz.", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$Cmy9x7gW$kamvHI42Kh1CH4Shy6g6S/", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$IsuapfCX$4Yq0Adq5nNZgl0LwbSl5Y0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$rSZfNcKX$N4XPvGrfhKsyoEcRSaqmG0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+#endif
 	{NULL}
 };
 
@@ -127,10 +163,10 @@ static int get_hash_0(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_0;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xF;
+	return MD5_out[index][0] & PH_MASK_0;
 #endif
 }
 
@@ -140,10 +176,10 @@ static int get_hash_1(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_1;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xFF;
+	return MD5_out[index][0] & PH_MASK_1;
 #endif
 }
 
@@ -153,10 +189,10 @@ static int get_hash_2(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_2;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xFFF;
+	return MD5_out[index][0] & PH_MASK_2;
 #endif
 }
 
@@ -166,10 +202,10 @@ static int get_hash_3(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_3;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xFFFF;
+	return MD5_out[index][0] & PH_MASK_3;
 #endif
 }
 
@@ -179,10 +215,10 @@ static int get_hash_4(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_4;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xFFFFF;
+	return MD5_out[index][0] & PH_MASK_4;
 #endif
 }
 
@@ -192,10 +228,10 @@ static int get_hash_5(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0xFFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_5;
 #else
 	init_t();
-	return MD5_out[index][0] & 0xFFFFFF;
+	return MD5_out[index][0] & PH_MASK_5;
 #endif
 }
 
@@ -205,10 +241,10 @@ static int get_hash_6(int index)
 	unsigned int x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & 0x7FFFFFF;
+	return ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] & PH_MASK_6;
 #else
 	init_t();
-	return MD5_out[index][0] & 0x7FFFFFF;
+	return MD5_out[index][0] & PH_MASK_6;
 #endif
 }
 
@@ -365,9 +401,7 @@ struct fmt_main fmt_MD5 = {
 		FMT_OMP |
 #endif
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -378,9 +412,7 @@ struct fmt_main fmt_MD5 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

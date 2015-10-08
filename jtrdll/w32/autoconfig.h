@@ -194,7 +194,7 @@
 #define HAVE_LSEEK 1
 
 /* Define to 1 if you have the `lseek64' function. */
-#define HAVE_LSEEK64 1
+/* #define HAVE_LSEEK64 */
 
 /* Define to 1 if you have the `memmem' function. */
 /* #undef HAVE_MEMMEM */
@@ -253,6 +253,9 @@
 /* Have PTHREAD_PRIO_INHERIT. */
 /* #undef HAVE_PTHREAD_PRIO_INHERIT */
 
+/* Define to 1 if you have the `strrev' function. */
+#define HAVE_STRREV 1
+
 /* Define to 1 if the system has the type `ptrdiff_t'. */
 #define HAVE_PTRDIFF_T 1
 
@@ -284,7 +287,7 @@
 #define HAVE_STDDEF_H 1
 
 /* Define to 1 if you have the <stdint.h> header file. */
-/* #undef HAVE_STDINT_H */
+#define HAVE_STDINT_H 1
 
 /* Define to 1 if you have the <stdlib.h> header file. */
 #define HAVE_STDLIB_H 1
@@ -401,10 +404,10 @@
 /* #undef HAVE__FOPEN64 */
 
 /* Define to 1 if you have the `_fseeki64' function. */
-/* #undef HAVE__FSEEKI64 */
+#define HAVE__FSEEKI64 1
 
 /* Define to 1 if you have the `_ftelli64' function. */
-/* #undef HAVE__FTELLI64 */
+#define HAVE__FTELLI64 1
 
 /* Define to 1 if you have the `_strcmpi' function. */
 #define HAVE__STRCMPI 1
@@ -533,7 +536,7 @@
 /* Define to `__inline__' or `__inline' if that's what the C compiler
    calls it, or to nothing if 'inline' is not supported under any name.  */
 #ifndef __cplusplus
-/* #undef inline */
+#define inline __inline
 #endif
 
 /* Define to the type of a signed integer type of width exactly 32 bits if
@@ -574,5 +577,7 @@
 
 /* Define as `fork' if `vfork' does not work. */
 #define vfork fork
+
+#define HAVE__ALIGNED_MALLOC 1
 
 #endif

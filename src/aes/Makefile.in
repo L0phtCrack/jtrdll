@@ -28,7 +28,7 @@ ifeq "$(GCCV44)" "1"
 	endif
 endif
 
-aes.o: aes.c aes.h aes_func.h
+aes.o: aes.c ../aes.h aes_func.h
 	$(CC) $(CFLAGS) $(AESNI_DEC) -c aes.c -o aes.o
 
 .PHONY: subdirs $(SUBDIRS)
@@ -39,8 +39,7 @@ $(SUBDIRS):
 	$(MAKE) -C $@ all
 
 aes.a: $(SUBDIRS) aes.o
-	$(AR) -r $@ $(AESIN)
-	$(AR) -s $@
+	$(AR) -rs $@ $(AESIN)
 
 default: aes.a
 all: aes.a

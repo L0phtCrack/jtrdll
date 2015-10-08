@@ -57,7 +57,7 @@ john_register_one(&fmt_hmacSHA1);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      SHA1_N
 #define MAX_KEYS_PER_CRYPT      SHA1_N
-#define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32 + (3 - ((i) & 3)) + index/SIMD_COEF_32 * SHA_BUF_SIZ * 4 * SIMD_COEF_32)
+#define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32 + (3 - ((i) & 3)) + (unsigned int)index/SIMD_COEF_32 * SHA_BUF_SIZ * 4 * SIMD_COEF_32)
 
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -69,6 +69,9 @@ static struct fmt_tests tests[] = {
 	{"#fbdb1d1b18aa6c08324b7d64b71fb76370690e1d", ""},
 	{"Beppe#Grillo#DEBBDB4D549ABE59FAB67D0FB76B76FDBC4431F1", "Io credo nella reincarnazione e sono di Genova; per cui ho fatto testamento e mi sono lasciato tutto a me."},
 	{"7oTwG04WUjJ0BTDFFIkTJlgl#293b75c1f28def530c17fc8ae389008179bf4091", "late*night"}, // from the test suite
+	{"D2hIU7fdd78WARm5dt95k6MD#e741a6100ccfd1205a8ffe1321b61fc5aa06f6db", "123"},
+	{"6Fv5kYoxuEuroTkagbf3ZRsV#370edad3540b1ad3e96b03ccf3956645306074b7", "123456789"},
+	{"3uqqtMBC7vzh9tdVMPJ9bAwE#65ed35cf94e2180d6a797e5ad5e4175891427572", "passWOrd"},
 	{NULL}
 };
 
@@ -104,7 +107,7 @@ static void clear_keys(void)
 static void init(struct fmt_main *self)
 {
 #ifdef SIMD_COEF_32
-	int i;
+	unsigned int i;
 #endif
 #ifdef _OPENMP
 	int omp_t = omp_get_num_threads();
@@ -317,7 +320,7 @@ static int cmp_one(void *binary, int index)
 	int i;
 	for(i = 0; i < (BINARY_SIZE/4); i++)
 		// NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_32)
-		if (((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + index/SIMD_COEF_32 * SHA_BUF_SIZ * SIMD_COEF_32])
+		if (((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32 * SHA_BUF_SIZ * SIMD_COEF_32])
 			return 0;
 	return 1;
 #else
@@ -408,8 +411,8 @@ static void *get_salt(char *ciphertext)
 {
 	static unsigned char salt[SALT_LENGTH];
 #ifdef SIMD_COEF_32
-	int i = 0;
-	int j;
+	unsigned int i = 0;
+	unsigned int j;
 	unsigned total_len = 0;
 #endif
 	memset(salt, 0, sizeof(salt));
@@ -438,21 +441,21 @@ static void *get_salt(char *ciphertext)
 #ifdef SIMD_COEF_32
 // NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_32)
 #define HASH_OFFSET (index & (SIMD_COEF_32 - 1)) + ((unsigned int)index / SIMD_COEF_32) * SIMD_COEF_32 * SHA_BUF_SIZ
-static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xf; }
-static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xff; }
-static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xfff; }
-static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xffff; }
-static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xfffff; }
-static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0xffffff; }
-static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & 0x7ffffff; }
+static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_0; }
+static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_1; }
+static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_2; }
+static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_3; }
+static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_4; }
+static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_5; }
+static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_6; }
 #else
-static int get_hash_0(int index) { return crypt_key[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_key[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_key[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_key[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_key[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_key[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
 #endif
 
 struct fmt_main fmt_hmacSHA1 = {
@@ -470,10 +473,9 @@ struct fmt_main fmt_hmacSHA1 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD |
+		FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -484,9 +486,7 @@ struct fmt_main fmt_hmacSHA1 = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

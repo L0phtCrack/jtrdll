@@ -27,7 +27,11 @@
 #define F(x, y, z)	bitselect((z), (y), (x))
 #define G(x, y, z)	bitselect((y), (x), (z))
 #else
-#define F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
+#if HAVE_ANDNOT
+#define F(x, y, z) ((x & y) ^ ((~x) & z))
+#else
+#define F(x, y, z) (z ^ (x & (y ^ z)))
+#endif
 #define G(x, y, z)	((y) ^ ((z) & ((x) ^ (y))))
 #endif
 #define H(x, y, z)	(((x) ^ (y)) ^ (z))
@@ -251,7 +255,7 @@ __kernel void md5(__global uint *keys,
 		  __global
 #endif
 		  uint *int_keys
-#if USE_CONST_CACHE && gpu_amd(DEVICE_INFO)
+#if !defined(__OS_X__) && USE_CONST_CACHE && gpu_amd(DEVICE_INFO)
 		__attribute__((max_constant_size (NUM_INT_KEYS * 4)))
 #endif
 		 , __global uint *bitmaps,

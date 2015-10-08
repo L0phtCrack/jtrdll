@@ -125,7 +125,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (tgt-ciphertext > REALM_SZ)
 		return 0;
 	++tgt;
-	if (!ishex(tgt)) return 0;
+	if (!ishexlc(tgt)) return 0;
 	if (strlen(tgt) != TGT_LENGTH * 2)
 		return 0;
 
@@ -264,9 +264,7 @@ struct fmt_main fmt_KRB4 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		fmt_default_init,
@@ -277,9 +275,7 @@ struct fmt_main fmt_KRB4 = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash,

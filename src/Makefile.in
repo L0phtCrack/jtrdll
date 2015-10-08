@@ -79,6 +79,7 @@ JOHN_OBJS = \
 	LM_fmt.o \
 	trip_fmt.o \
 	NT_fmt.o \
+	KeccakDuplex.o KeccakF-1600-opt64.o KeccakHash.o KeccakSponge.o \
 	whirlpool.o haval.o skein.o md2.o panama.o \
 	timer.o \
 	md5.o \
@@ -93,7 +94,7 @@ JOHN_OBJS = \
 	pfx2john.o \
 	unrarcmd.o unrarfilter.o unrarhlp.o unrar.o unrarppm.o unrarvm.o \
 	rar2john.o \
-	zip2john.o pkzip.o gladman_hmac.o gladman_pwd2key.o \
+	zip2john.o pkzip.o \
 	racf2john.o \
 	dmg2john.o \
 	keepass2john.o \
@@ -127,17 +128,24 @@ CUDA_OBJS = common-cuda.o cuda_common.o cuda_cryptmd5.o cuda_phpass.o \
 	cuda_xsha512.o cuda_wpapsk.o cuda_rawsha512.o cuda_pwsafe.o \
 	cuda_rawsha224_fmt.o cuda_rawsha256_fmt.o
 
+FUZZ_OBJS = fuzz.o
+
 GENMKVPWD_OBJS = \
 	genmkvpwd.o mkvlib.o memory.o miscnl.o path.o memdbg.o
 
 PROJ = ../run/john@EXE_EXT@ ../run/unshadow@EXE_EXT@ ../run/unafs@EXE_EXT@ ../run/unique@EXE_EXT@ ../run/undrop@EXE_EXT@ \
-	../run/ssh2john@EXE_EXT@ ../run/rar2john@EXE_EXT@ ../run/zip2john@EXE_EXT@ \
+	../run/rar2john@EXE_EXT@ ../run/zip2john@EXE_EXT@ \
 	../run/genmkvpwd@EXE_EXT@ ../run/mkvcalcproba@EXE_EXT@ ../run/calc_stat@EXE_EXT@ \
 	../run/tgtsnarf@EXE_EXT@ ../run/racf2john@EXE_EXT@ ../run/hccap2john@EXE_EXT@ \
-	../run/raw2dyna@EXE_EXT@ ../run/pfx2john@EXE_EXT@  ../run/keepass2john@EXE_EXT@ \
+	../run/raw2dyna@EXE_EXT@ ../run/keepass2john@EXE_EXT@ \
 	../run/dmg2john@EXE_EXT@ ../run/putty2john@EXE_EXT@ ../run/uaf2john@EXE_EXT@ \
-	../run/wpapcap2john@EXE_EXT@ \
-	../run/gpg2john@EXE_EXT@ ../run/cprepair@EXE_EXT@ ../run/luks2john@EXE_EXT@ ../run/base64conv@EXE_EXT@
+	../run/wpapcap2john@EXE_EXT@ ../run/luks2john@EXE_EXT@ \
+	../run/gpg2john@EXE_EXT@ ../run/cprepair@EXE_EXT@ ../run/base64conv@EXE_EXT@
+
+WITH_BIO_NEW = @HAVE_BIO_NEW@
+ifdef WITH_BIO_NEW
+PROJ += ../run/pfx2john@EXE_EXT@ ../run/ssh2john@EXE_EXT@
+endif
 
 WITH_PCAP = @HAVE_PCAP@
 ifdef WITH_PCAP
@@ -161,19 +169,16 @@ CFLAGS_MAIN += -DHAVE_OPENCL @CL_CFLAGS@
 JOHN_OBJS += $(OCL_OBJS)
 endif
 
+WITH_FUZZ=@HAVE_FUZZ@
+ifdef WITH_FUZZ
+CFLAGS += -DHAVE_FUZZ
+CFLAGS_MAIN += -DHAVE_FUZZ
+JOHN_OBJS += $(FUZZ_OBJS)
+endif
+
 #########################################################
 # this is what ./configure && make
-# gets you. NOTE, we have to do the link in ./configure.
-#   ** DONE $(LN) x86-sse.h arch.h or $(LN) x86-64 arch.h
-# for now, in my testing, this is hard coded to x86-32.h
-# NOTE, we also need to add extra .o file's some how.
-#  ** DONE x86-64.o simd-intrinsics.o for 64 bit
-#  ** DONE x86.o x86-sse.o sha1-mmx.o md4-mmx.o md5-mmx.o simd-intrinsics.o  for 32 bit:
-#
-# for ssexi builds:
-# x86-64.o simd-intrinsics-64.o for 64 bit
-# x86.o x86-sse.o sha1-mmx.o md4-mmx.o md5-mmx.o simd-intrinsics-32.o  for 32 bit:
-#   and add -DUSING_ICC_S_FILE to CFLAGS
+# gets you.
 #
 #  also need to figure out -DUNDERSCORES and add to ASFLAGS
 #  also need to figure out -mpreferred-stack-boundary=4 and add (or whatever the stack size is)
@@ -213,7 +218,11 @@ help:
 
 dynamic_big_crypt.c: dynamic_big_crypt_hash.cin dynamic_big_crypt_header.cin dynamic_big_crypt_generator.sh dynamic_big_crypt_chopper.pl unused/dynamic_big_crypt.c
 	$(shell ./dynamic_big_crypt_generator.sh)
-	@if [ ! -e dynamic_big_crypt.c ] ; then $(CP_PRESERVE) unused/dynamic_big_crypt.c dynamic_big_crypt.c ; fi
+	@if [ ! -f dynamic_big_crypt.c ] ; then $(CP_PRESERVE) unused/dynamic_big_crypt.c dynamic_big_crypt.c ; fi
+
+dynamic_compiler.o:     dynamic_compiler.c arch.h common.h stdint.h formats.h list.h crc32.h johnswap.h dynamic.h dynamic_compiler.h base64_convert.h md5.h md4.h sha.h sha2.h gost.h unicode.h sph_ripemd.h sph_tiger.h sph_whirlpool.h sph_haval.h sph_md2.h sph_panama.h sph_skein.h KeccakHash.h memdbg.h
+
+dynamic_compiler_lib.o: dynamic_compiler_lib.c arch.h formats.h dynamic.h dynamic_compiler.h memdbg.h
 
 # Digital/Compaq's cc and make use the .S suffix for a different purpose...
 digipaq-alpha.o: alpha.S
@@ -268,30 +277,9 @@ cuda_pwsafe.o: cuda_pwsafe.h cuda/pwsafe.cu cuda_common.o
 
 @PLUGFORMATS_DEPS@
 
-######## auto-generated, best-effort
+######## auto-generated, best-effort:
+
 AFS_fmt.o:	AFS_fmt.c arch.h misc.h params.h DES_std.h common.h formats.h memdbg.h
-
-BF_common.o:	BF_common.c arch.h misc.h common.h formats.h BF_common.h
-
-BF_fmt.o:	BF_fmt.c arch.h misc.h BF_std.h common.h formats.h memdbg.h
-
-BF_std.o:	BF_std.c arch.h common.h BF_std.h memdbg.h
-
-BSDI_fmt.o:	BSDI_fmt.c arch.h misc.h DES_std.h common.h formats.h DES_bs.h memdbg.h
-
-DES_bs.o:	DES_bs.c arch.h common.h DES_std.h DES_bs.h unicode.h memdbg.h
-
-DES_fmt.o:	DES_fmt.c arch.h DES_std.h common.h formats.h DES_bs.h memdbg.h
-
-DES_std.o:	DES_std.c arch.h common.h DES_std.h memdbg.h misc.h
-
-LM_fmt.o:	LM_fmt.c arch.h misc.h memory.h DES_bs.h common.h formats.h memdbg.h
-
-MD5_fmt.o:	MD5_fmt.c arch.h misc.h simd-intrinsics.h MD5_std.h common.h formats.h memdbg.h
-
-MD5_std.o:	MD5_std.c arch.h common.h MD5_std.h memdbg.h
-
-SIPdump.o:	SIPdump.c autoconfig.h tcphdr.h SIPdump.h memdbg.h
 
 base64.o:	base64.c memdbg.h
 
@@ -303,7 +291,15 @@ bench.o:	bench.c os.h times.h arch.h misc.h math.h params.h memory.h signals.h f
 
 best.o:	best.c os.h math.h params.h common.h formats.h bench.h memdbg.h
 
+BF_common.o:	BF_common.c arch.h misc.h common.h formats.h BF_common.h
+
+BF_fmt.o:	BF_fmt.c arch.h misc.h BF_std.h common.h formats.h memdbg.h
+
+BF_std.o:	BF_std.c arch.h common.h BF_std.h memdbg.h
+
 blowfish.o:	blowfish.c blowfish.h bf_tab.h memory.h johnswap.h memdbg.h
+
+BSDI_fmt.o:	BSDI_fmt.c arch.h misc.h DES_std.h common.h formats.h DES_bs.h memdbg.h
 
 c3_fmt.o:	c3_fmt.c autoconfig.h options.h arch.h misc.h params.h memory.h common.h formats.h loader.h john.h john-mpi.h memdbg.h
 
@@ -329,7 +325,13 @@ crc32.o:	crc32.c memory.h crc32.h memdbg.h
 
 cryptmd5_common.o:	cryptmd5_common.c arch.h misc.h common.h formats.h cryptmd5_common.h
 
-dmg2john.o:	dmg2john.c autoconfig.h stdint.h gladman_fileenc.h filevault.h misc.h jumbo.h memdbg.h
+DES_bs.o:	DES_bs.c arch.h common.h DES_std.h DES_bs.h unicode.h memdbg.h
+
+DES_fmt.o:	DES_fmt.c arch.h DES_std.h common.h formats.h DES_bs.h memdbg.h
+
+DES_std.o:	DES_std.c arch.h common.h DES_std.h memdbg.h misc.h
+
+dmg2john.o:	dmg2john.c autoconfig.h stdint.h filevault.h misc.h jumbo.h memdbg.h
 
 dummy.o:	dummy.c common.h formats.h memdbg.h
 
@@ -351,17 +353,17 @@ fake_salts.o:	fake_salts.c config.h john.h memory.h options.h fake_salts.h memdb
 
 formats.o:	formats.c params.h memory.h formats.h dyna_salt.h misc.h unicode.h options.h loader.h common-opencl.h cuda_common.h memdbg.h
 
+fuzz.o:	fuzz.h fuzz.c
+
 genmkvpwd.o:	genmkvpwd.c autoconfig.h params.h memory.h mkvlib.h memdbg.h
 
 getopt.o:	getopt.c misc.h memory.h list.h getopt.h john.h memdbg.h
 
-gladman_hmac.o:	gladman_hmac.c gladman_hmac.h memdbg.h
-
-gladman_pwd2key.o:	gladman_pwd2key.c gladman_hmac.h memdbg.h
-
 gost.o:	gost.c gost.h memdbg.h
 
 gpg2john.o:	gpg2john.c autoconfig.h arch.h jumbo.h misc.h memdbg.h
+
+haval.o:	haval.c arch.h sph_haval.h memdbg.h haval_helper.c haval_helper.c haval_helper.c
 
 haval_helper.o:	haval_helper.c
 
@@ -377,31 +379,39 @@ john-mpi.o:	john-mpi.c autoconfig.h john-mpi.h john.h memory.h memdbg.h
 
 jumbo.o:	jumbo.c jumbo.h params.h memory.h memdbg.h
 
+KeccakDuplex.o:	KeccakDuplex.c KeccakDuplex.h KeccakF-1600-interface.h memdbg.h
+
+KeccakF-1600-opt64.o:	KeccakF-1600-opt64.c brg_endian.h KeccakF-1600-opt64-settings.h KeccakF-1600-interface.h memdbg.h
+
+KeccakHash.o:	KeccakHash.c KeccakHash.h KeccakF-1600-interface.h memdbg.h
+
+KeccakSponge.o:	KeccakSponge.c KeccakSponge.h KeccakF-1600-interface.h memdbg.h
+
 keepass2john.o:	keepass2john.c autoconfig.h stdint.h missing_getopt.h jumbo.h params.h memory.h memdbg.h
 
 list.o:	list.c memory.h list.h memdbg.h
 
-version.h: find_version
-
-find_version:
-	echo "#define JTR_GIT_VERSION $(JTR_GIT_VERSION)" > version.h.new
-	diff >/dev/null 2>/dev/null version.h.new version.h && $(RM) version.h.new || $(MV) version.h.new version.h
-
 listconf.o:	version.h listconf.h listconf.c autoconfig.h arch.h jumbo.h params.h path.h formats.h options.h unicode.h dynamic.h config.h regex.h john_build_rule.h common-opencl.h memdbg.h
 
-loader.o:	loader.c autoconfig.h jumbo.h os.h arch.h misc.h params.h path.h memory.h list.h signals.h formats.h dyna_salt.h loader.h options.h config.h unicode.h dynamic.h fake_salts.h john.h cracker.h config.h logger.h memdbg.h
+LM_fmt.o:	LM_fmt.c arch.h misc.h memory.h DES_bs.h common.h formats.h memdbg.h
+
+loader.o:	loader.c autoconfig.h jumbo.h os.h arch.h misc.h params.h path.h memory.h list.h signals.h formats.h dyna_salt.h loader.h options.h config.h unicode.h dynamic.h fake_salts.h john.h cracker.h config.h logger.h base64_convert.h memdbg.h
 
 logger.o:	logger.c os.h arch.h misc.h params.h path.h memory.h status.h options.h config.h options.h unicode.h dynamic.h john-mpi.h cracker.h signals.h memdbg.h
-
-luks2john.o:	luks2john.c autoconfig.h jumbo.h stdint.h johnswap.h params.h memdbg.h
 
 mask.o:	mask.c misc.h logger.h recovery.h os.h signals.h status.h options.h config.h external.h cracker.h john.h mask.h unicode.h encoding_data.h memdbg.h
 
 math.o:	math.c arch.h math.h memdbg.h
 
+md2.o:	md2.c sph_md2.h memdbg.h
+
 md4.o:	md4.c md4.h memdbg.h
 
 md5.o:	md5.c md5.h memdbg.h
+
+MD5_fmt.o:	MD5_fmt.c arch.h misc.h simd-intrinsics.h MD5_std.h common.h formats.h memdbg.h
+
+MD5_std.o:	MD5_std.c arch.h common.h MD5_std.h memdbg.h
 
 md_helper.o:	md_helper.c
 
@@ -425,23 +435,11 @@ nonstd.o:	nonstd.c
 
 NT_fmt.o:	NT_fmt.c arch.h misc.h memory.h common.h formats.h options.h unicode.h aligned.h johnswap.h memdbg.h
 
-whirlpool.o:	whirlpool.c sph_whirlpool.h memdbg.h md_helper.c md_helper.c md_helper.c
-
-haval.o:	haval.c arch.h sph_haval.h memdbg.h haval_helper.c haval_helper.c haval_helper.c
-
-skein.o:	skein.c sph_skein.h memdbg.h
-
-md2.o:	md2.c sph_md2.h memdbg.h
-
-panama.o:	panama.c sph_panama.h memdbg.h
-
-skein.o:        skein.c sph_skein.h memdbg.h
-
 opencl_autotune.o:	opencl_autotune.c common-opencl.h memdbg.h
 
 options.o:	version.h listconf.h options.c os.h arch.h misc.h params.h memory.h list.h loader.h logger.h status.h recovery.h options.h bench.h external.h john.h dynamic.h unicode.h fake_salts.h regex.h john-mpi.h common-opencl.h prince.h memdbg.h john_build_rule.h
 
-para-best.o:	para-best.c math.h params.h common.h formats.h bench.h memdbg.h
+panama.o:	panama.c sph_panama.h memdbg.h
 
 params.o:	params.c params.h memdbg.h
 
@@ -481,9 +479,13 @@ sha2.o:	sha2.c arch.h sha2.h params.h common.h johnswap.h memdbg.h
 
 signals.o:	signals.c os.h arch.h misc.h params.h tty.h options.h config.h bench.h john.h status.h signals.h john-mpi.h memdbg.h
 
+simd-intrinsics.o:	simd-intrinsics.c pseudo_intrinsics.h arch.h memory.h md5.h MD5_std.h stdint.h johnswap.h simd-intrinsics-load-flags.h aligned.h memdbg.h
+
 single.o:	single.c misc.h params.h common.h memory.h os.h signals.h loader.h logger.h status.h recovery.h options.h rpp.h rules.h external.h cracker.h john.h unicode.h config.h memdbg.h
 
-simd-intrinsics.o:	simd-intrinsics.c pseudo_intrinsics.h arch.h memory.h md5.h MD5_std.h stdint.h johnswap.h simd-intrinsics-load-flags.h aligned.h memdbg.h
+SIPdump.o:	SIPdump.c autoconfig.h tcphdr.h SIPdump.h memdbg.h
+
+skein.o:	skein.c sph_skein.h memdbg.h
 
 ssh2john.o:	ssh2john.c jumbo.h common.h arch.h params.h memdbg.h
 
@@ -527,18 +529,26 @@ unshadow.o:	unshadow.c misc.h params.h memory.h memdbg.h
 
 vncpcap2john.o:	vncpcap2john.c autoconfig.h cygwin/ethernet.h tcphdr.h memdbg.h
 
-win32_memmap.o:	win32_memmap.c os.h win32_memmap.h memdbg.h
+whirlpool.o:	whirlpool.c sph_whirlpool.h memdbg.h md_helper.c md_helper.c md_helper.c
+
+win32_memmap.o:	win32_memmap.c os.h win32_memmap.h misc.h memdbg.h
 
 wordlist.o:	wordlist.c autoconfig.h os.h win32_memmap.h mmap-windows.c arch.h jumbo.h misc.h math.h params.h common.h path.h signals.h loader.h logger.h status.h recovery.h options.h rpp.h rules.h external.h cracker.h john.h memory.h unicode.h regex.h mask.h memdbg.h
-
-pp.o:	pp.c prince.h mpz_int128.h autoconfig.h os.h arch.h jumbo.h misc.h math.h params.h common.h path.h signals.h loader.h logger.h status.h recovery.h options.h external.h cracker.h john.h memory.h unicode.h memdbg.h
-	$(CC) $(CFLAGS) $(OPT_NORMAL) -DJTR_MODE -Wno-declaration-after-statement -std=c99 -c pp.c
 
 wpapcap2john.o:	wpapcap2john.c wpapcap2john.h memdbg.h
 
 zip2john.o:	zip2john.c common.h jumbo.h formats.h stdint.h pkzip.h missing_getopt.h memdbg.h
 
-########
+######## End auto-generated
+
+pp.o:	pp.c prince.h mpz_int128.h autoconfig.h os.h arch.h jumbo.h misc.h math.h params.h common.h path.h signals.h loader.h logger.h status.h recovery.h options.h external.h cracker.h john.h memory.h unicode.h memdbg.h
+	$(CC) $(CFLAGS) $(OPT_NORMAL) -DJTR_MODE -Wno-declaration-after-statement -std=c99 -c pp.c
+
+version.h: find_version
+
+find_version:
+	echo "#define JTR_GIT_VERSION $(JTR_GIT_VERSION)" > version.h.new
+	diff >/dev/null 2>/dev/null version.h.new version.h && $(RM) version.h.new || $(MV) version.h.new version.h
 
 SUBDIRS = aes
 
@@ -731,11 +741,11 @@ aes/aes.a:
 	$(LD) $(LDFLAGS) wpapcap2john.o @MEMDBG_CFLAGS@ memdbg.o @OPENMP_CFLAGS@ -o ../run/wpapcap2john
 
 # Note, this one is NOT build by default. To get it, do a make ../run/dynacomptest (or ../run/dynacomptest.exe for cygwin builds)
-../run/dynacomptest@EXE_EXT@: dynamic_compiler.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o
-	$(CC) -DAC_BUILT -Wall -O2 @CPPFLAGS@ @CFLAGS@  @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ @OPENMP_CFLAGS@ -DWITH_MAIN -D_JOHN_MISC_NO_LOG -DUNICODE_NO_OPTIONS @MEMDBG_CFLAGS@ dynamic_compiler.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o $(LDFLAGS)  @OPENSSL_LIBS@ @COMMONCRYPTO_LIBS@  -o ../run/dynacomptest
+../run/dynacomptest@EXE_EXT@: dynamic_compiler.c dynamic_compiler_lib.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o KeccakDuplex.o KeccakF-1600-opt64.o KeccakHash.o KeccakSponge.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o
+	$(CC) -DAC_BUILT -Wall -O2 @CPPFLAGS@ @CFLAGS@  @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ @OPENMP_CFLAGS@ -DWITH_MAIN -D_JOHN_MISC_NO_LOG -DUNICODE_NO_OPTIONS @MEMDBG_CFLAGS@ dynamic_compiler.c dynamic_compiler_lib.c dynamic_utils.c misc.c unicode.c base64_convert.o base64.o common.o crc32.o KeccakDuplex.o KeccakF-1600-opt64.o KeccakHash.o KeccakSponge.o gost.o jumbo.o memdbg.o memory.o ripemd.o tiger.o haval.o skein.o md2.o panama.o whirlpool.o sha2.o $(LDFLAGS)  @OPENSSL_LIBS@ @COMMONCRYPTO_LIBS@  -o ../run/dynacomptest
 
-../run/luks2john@EXE_EXT@: luks2john.o
-	$(LD) $(LDFLAGS) luks2john.o @OPENSSL_LIBS@ @OPENMP_CFLAGS@ -o ../run/luks2john
+../run/luks2john@EXE_EXT@: luks2john.c base64_convert.c
+	$(CC) @CFLAGS@ @CFLAGS_EXTRA@ -O2 -Wall -DAC_BUILT -D_JOHN_MISC_NO_LOG luks2john.c base64_convert.c base64.c common.c memdbg.c memory.c jumbo.c misc.c -o ../run/luks2john
 
 ../run/cprepair@EXE_EXT@: cprepair.c autoconfig.h unicode.c unicode.h options.h misc.h misc.c memdbg.h memdbg.c
 	$(CC) -DAC_BUILT -Wall -O3 @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ -DNOT_JOHN -D_JOHN_MISC_NO_LOG $(CPPFLAGS) cprepair.c unicode.c misc.c memdbg.c -o ../run/cprepair
@@ -791,20 +801,23 @@ test_utf8_verbose: default
 	cd ../test && perl jtrts.pl -type utf-8
 
 bash-completion:
-	[ -d /etc/bash_completion.d ] && $(CP) ../run/john.bash_completion /etc/bash_completion.d/ || true
-	[ -d /usr/local/etc/bash_completion.d ] && $(CP) ../run/john.bash_completion /usr/local/etc/bash_completion.d/ || true
-	[ -d /opt/local/etc/bash_completion.d ] && $(CP) ../run/john.bash_completion /opt/local/etc/bash_completion.d/ || true
+	[ -d $(DESTDIR)/etc/bash_completion.d ] && $(CP) ../run/john.bash_completion $(DESTDIR)/etc/bash_completion.d/ || true
+	[ -d $(DESTDIR)/usr/local/etc/bash_completion.d ] && $(CP) ../run/john.bash_completion $(DESTDIR)/usr/local/etc/bash_completion.d/ || true
+	[ -d $(DESTDIR)/opt/local/etc/bash_completion.d ] && $(CP) ../run/john.bash_completion $(DESTDIR)/opt/local/etc/bash_completion.d/ || true
 	@echo Bash-completion for JtR opportunistically installed.
 	@echo Source \". ../run/john.bash_completion\" or logout/login to activate the changes
 
 zsh-completion:
-	[ -d /usr/share/zsh/functions/Completion/Unix ] && $(CP) ../run/john.zsh_completion /usr/share/zsh/functions/Completion/Unix/_john || true
-	[ -d /usr/share/zsh/site-functions ] && $(CP) ../run/john.zsh_completion /usr/share/zsh/site-functions/_john || true
-	[ -d /usr/local/share/zsh/site-functions ] && $(CP) ../run/john.zsh_completion /usr/local/share/zsh/site-functions/_john || true
+	[ -d $(DESTDIR)/usr/share/zsh/functions/Completion/Unix ] && $(CP) ../run/john.zsh_completion $(DESTDIR)/usr/share/zsh/functions/Completion/Unix/_john || true
+	[ -d $(DESTDIR)/usr/share/zsh/site-functions ] && $(CP) ../run/john.zsh_completion $(DESTDIR)/usr/share/zsh/site-functions/_john || true
+	[ -d $(DESTDIR)/usr/local/share/zsh/site-functions ] && $(CP) ../run/john.zsh_completion $(DESTDIR)/usr/local/share/zsh/site-functions/_john || true
 	@echo zsh-completion for JtR opportunistically installed.
 	@echo Source \". ../run/john.zsh_completion\" or logout/login to activate the changes
 
 shell-completion: bash-completion zsh-completion
+
+kernel-clean:
+	$(RM) -r ~/.nv/ComputeCache ../run/kernels/*.bin
 
 clean:
 	$(RM) $(PROJ)
@@ -813,7 +826,7 @@ clean:
 	done
 	$(RM) john-macosx-* *.o escrypt/*.o *.bak core
 	$(RM) ../run/kernels/*.cl ../run/kernels/*.h ../run/kernels/*.bin
-	$(RM) detect bench para-bench generic.h tmp.s
+	$(RM) detect bench generic.h tmp.s
 	$(RM) cuda/*.o cuda/*~ *~
 	$(CP) $(NULL) Makefile.dep
 	@for dir in ${subdirs}; do \
@@ -866,24 +879,6 @@ charsets: ../run/ascii.chr ../run/alpha.chr ../run/lowernum.chr ../run/uppernum.
 ../run/utf8.chr: charset.c params.h
 	../run/john -make-charset=../run/utf8.chr -pot:rockyou.utf8.24.pot
 
-
-# For the time being, icc builds a better simd-intrinsics.S but this may
-# change over time. NOTE that simd-intrinsics.S is never re-built unless you
-# manually do a "make intrinsics".
-intrinsics: clean-intrinsics simd-intrinsics-64.S simd-intrinsics-32.S
-
-clean-intrinsics:
-	$(RM) simd-intrinsics-64.S simd-intrinsics-32.S simd-intrinsics-win32.S
-
-simd-intrinsics-64.S:
-	$(LN) -f x86-64.h arch.h
-	icc -S -o simd-intrinsics-64.S simd-intrinsics.c -O2 -fno-builtin -fno-verbose-asm -openmp -DUSING_ICC_S_FILE -Wall
-
-simd-intrinsics-32.S:
-	$(LN) -f x86-sse.h arch.h
-	icc -m32 -S -o simd-intrinsics-32.S simd-intrinsics.c -O2 -fno-builtin -fno-verbose-asm -openmp -DUSING_ICC_S_FILE -Wall
-	perl sse2i_winfix.pl simd-intrinsics-32.S simd-intrinsics-win32.S
-	$(MV) simd-intrinsics-win32.S simd-intrinsics-32.S
 
 #######################################################################
 ## NOTE, auto re-building configure will ONLY happen IF the user has ##
@@ -943,12 +938,12 @@ all:
 	done && test -z "$$fail"
 
 distclean: clean
-	$(RM) -rf autom4te.cache
+	$(RM) -r autom4te.cache
 	@for dir in ${subdirs}; do \
 	  (cd $$dir && $(MAKE) distclean) \
 	  || case "$(MFLAGS)" in *k*) fail=yes;; *) exit 1;; esac; \
 	done && test -z "$$fail"
-	$(RM) -f Makefile autoconfig.h config.status config.cache \
+	$(RM) Makefile autoconfig.h config.status config.cache \
 		config.log autoconfig-stamp-h autoconfig-stamp-h-in stamp-h1
 	$(LN) Makefile.stub Makefile
 	$(RM) arch.h

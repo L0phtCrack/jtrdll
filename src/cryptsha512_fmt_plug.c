@@ -122,7 +122,11 @@ john_register_one(&fmt_cryptsha512);
 #ifdef SIMD_COEF_64
 #define ALGORITHM_NAME          SHA512_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME			"64/" ARCH_BITS_STR " " SHA2_LIB
+#if ARCH_BITS >= 64
+#define ALGORITHM_NAME         "64/" ARCH_BITS_STR " " SHA2_LIB
+#else
+#define ALGORITHM_NAME         "32/" ARCH_BITS_STR " " SHA2_LIB
+#endif
 #endif
 
 // 79 is max length we can do in 2 SIMD limbs, so just make it 79 always.
@@ -231,13 +235,13 @@ static void done(void)
 	MEM_FREE(saved_len);
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static void set_key(char *key, int index)
 {
@@ -635,13 +639,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		char *cp;
 		char p_bytes[PLAINTEXT_LENGTH+1];
 		char s_bytes[PLAINTEXT_LENGTH+1];
-		//JTR_ALIGN(MEM_ALIGN_SIMD) cryptloopstruct crypt_struct;
-		// JTR_ALIGN(x) fails (compiler bug), for cygwin32 builds. So we instead
-		// align by hand, at runtime using flat buffers on the stack.
 		char tmp_cls[sizeof(cryptloopstruct)+MEM_ALIGN_SIMD];
 		cryptloopstruct *crypt_struct;
 #ifdef SIMD_COEF_64
-		//JTR_ALIGN(MEM_ALIGN_SIMD) ARCH_WORD_64 sse_out[64];
 		char tmp_sse_out[8*MAX_KEYS_PER_CRYPT*8+MEM_ALIGN_SIMD];
 		ARCH_WORD_64 *sse_out;
 		sse_out = (ARCH_WORD_64 *)mem_align(tmp_sse_out, MEM_ALIGN_SIMD);
@@ -874,7 +874,6 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int sha512crypt_iterations(void *salt)
 {
 	struct saltstruct *sha512crypt_salt;
@@ -882,7 +881,6 @@ static unsigned int sha512crypt_iterations(void *salt)
 	sha512crypt_salt = salt;
 	return (unsigned int)sha512crypt_salt->rounds;
 }
-#endif
 
 // Public domain hash function by DJ Bernstein
 // We are hashing the entire struct
@@ -914,11 +912,9 @@ struct fmt_main fmt_cryptsha512 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		tests
 	}, {
 		init,
@@ -929,11 +925,9 @@ struct fmt_main fmt_cryptsha512 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			sha512crypt_iterations,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

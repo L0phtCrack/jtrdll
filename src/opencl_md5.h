@@ -17,18 +17,36 @@
 #include "opencl_misc.h"
 
 /* The basic MD5 functions */
-#ifdef USE_BITSELECT
+#if USE_LOP3_LUT
+#define MD5_F(x, y, z)	lop3_lut(y, z, x, 0xe4)
+#define MD5_G(x, y, z)	lop3_lut(x, y, z, 0xe4)
+#elif USE_BITSELECT
 #define MD5_F(x, y, z)	bitselect((z), (y), (x))
 #define MD5_G(x, y, z)	bitselect((y), (x), (z))
 #else
+#if HAVE_ANDNOT
+#define MD5_F(x, y, z) ((x & y) ^ ((~x) & z))
+#else
 #define MD5_F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
+#endif
 #define MD5_G(x, y, z)	((y) ^ ((z) & ((x) ^ (y))))
 #endif
 
+#if USE_LOP3_LUT
+#define MD5_H(x, y, z)	lop3_lut(x, y, z, 0x96)
+#define MD5_H2 MD5_H
+#else
 #define MD5_H(x, y, z)	(((x) ^ (y)) ^ (z))
 #define MD5_H2(x, y, z)	((x) ^ ((y) ^ (z)))
-#define MD5_I(x, y, z)	((y) ^ ((x) | ~(z)))
+#endif
 
+#if USE_LOP3_LUT
+#define MD5_I(x, y, z)	lop3_lut(x, y, z, 0x39)
+#elif USE_BITSELECT
+#define MD5_I(x, y, z)	((y) ^ bitselect(0xffffffffU, (x), (z)))
+#else
+#define MD5_I(x, y, z)	((y) ^ ((x) | ~(z)))
+#endif
 
 /* The MD5 transformation for all four rounds. */
 #define MD5_STEP(f, a, b, c, d, x, t, s)	  \

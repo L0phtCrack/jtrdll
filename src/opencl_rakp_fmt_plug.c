@@ -60,8 +60,6 @@ john_register_one(&fmt_opencl_rakp);
 #define BINARY_ALIGN            1
 #define SALT_ALIGN              1
 
-#define HEXCHARS                "0123456789abcdef"
-
 #define STEP                    0
 #define SEED                    65536
 #define ROUNDS			5
@@ -78,11 +76,8 @@ static unsigned int *keys;
 static unsigned int *idx;
 static ARCH_WORD_32 (*digest);
 static unsigned int key_idx = 0;
-static unsigned int v_width = 1;	/* Vector width of kernel */
 static int partial_output;
 static struct fmt_main *self;
-
-static int crypt_all(int *pcount, struct db_salt *_salt);
 
 //This file contains auto-tuning routine(s). Have to included after other definitions.
 #include "opencl-autotune.h"
@@ -101,26 +96,6 @@ static struct fmt_tests tests[] = {
 static size_t get_task_max_work_group_size()
 {
 	return autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
-}
-
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-#if 0
-	return get_task_max_work_group_size(); // GTX980: 35773K c/s
-#elif 1
-	return 0; // 39064K c/s
-#else
-	if (cpu(device_info[gpu_id]))
-		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
-			8 : 1;
-	else
-		return 64; // 36962K c/s
-#endif
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -143,11 +118,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if ((q - p - 1) < SALT_MIN_SIZE * 2)
 		return 0;
 
-	len = strspn(q, HEXCHARS);
+	len = strspn(q, HEXCHARS_lc);
 	if (len != BINARY_SIZE * 2 || len != strlen(q))
 		return 0;
 
-	if (strspn(p, HEXCHARS) != q - p - 1)
+	if (strspn(p, HEXCHARS_lc) != q - p - 1)
 		return 0;
 
 	return 1;
@@ -158,7 +133,7 @@ static void set_key(char *key, int index);
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
-	gws *= v_width;
+	gws *= ocl_v_width;
 
 	keys = mem_alloc((PLAINTEXT_LENGTH + 1) * gws);
 	idx = mem_calloc(gws, sizeof(*idx));
@@ -228,14 +203,14 @@ static void init(struct fmt_main *_self)
 	opencl_prepare_dev(gpu_id);
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
 	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
-		v_width = 2;
+		ocl_v_width = 2;
 	else
-		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+		ocl_v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
 
-	if (v_width > 1) {
+	if (ocl_v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
-		         ALGORITHM_NAME " %ux", v_width);
+		         ALGORITHM_NAME " %ux", ocl_v_width);
 		self->params.algorithm_name = valgo;
 	}
 }
@@ -246,7 +221,7 @@ static void reset(struct db_main *db)
 		size_t gws_limit;
 		char build_opts[64];
 
-		snprintf(build_opts, sizeof(build_opts), "-DV_WIDTH=%u", v_width);
+		snprintf(build_opts, sizeof(build_opts), "-DV_WIDTH=%u", ocl_v_width);
 		opencl_init("$JOHN/kernels/rakp_kernel.cl", gpu_id, build_opts);
 
 		// create kernel to execute
@@ -255,14 +230,14 @@ static void reset(struct db_main *db)
 
 		// Current key_idx can only hold 26 bits of offset so
 		// we can't reliably use a GWS higher than 4M or so.
-		gws_limit = MIN((1 << 26) * 4 / (v_width * BUFFER_SIZE),
+		gws_limit = MIN((1 << 26) * 4 / (ocl_v_width * BUFFER_SIZE),
 		                get_max_mem_alloc_size(gpu_id) /
-		                (v_width * BUFFER_SIZE));
+		                (ocl_v_width * BUFFER_SIZE));
 
 		//Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, 0, NULL, warn, 2,
 		                       self, create_clobj, release_clobj,
-		                       v_width * BUFFER_SIZE, gws_limit);
+		                       ocl_v_width * BUFFER_SIZE, gws_limit);
 
 		//Auto tune execution from shared/included code.
 		autotune_run(self, ROUNDS, gws_limit, 200);
@@ -386,13 +361,13 @@ static int cmp_exact(char *source, int index)
 	int i;
 
 	if (partial_output) {
-		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], digest_buffer, CL_TRUE, 0, BINARY_SIZE * global_work_size * v_width, digest, 0, NULL, NULL), "failed reading results back");
+		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], digest_buffer, CL_TRUE, 0, BINARY_SIZE * global_work_size * ocl_v_width, digest, 0, NULL, NULL), "failed reading results back");
 		partial_output = 0;
 	}
 	b = (ARCH_WORD_32*)get_binary(source);
 
 	for(i = 0; i < BINARY_SIZE / 4; i++)
-		if (digest[i * global_work_size * v_width + index] != b[i])
+		if (digest[i * global_work_size * ocl_v_width + index] != b[i])
 			return 0;
 	return 1;
 }
@@ -403,25 +378,25 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = local_work_size ? ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size : count / v_width;
-	scalar_gws = global_work_size * v_width;
+	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	scalar_gws = global_work_size * ocl_v_width;
 
 	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kidx %u\n", __FUNCTION__, count, local_work_size, global_work_size, scalar_gws, key_idx);
 
 	if (key_idx)
-		HANDLE_CLERROR(
+		BENCH_CLERROR(
 			clEnqueueWriteBuffer(queue[gpu_id], keys_buffer, CL_FALSE, 0, 4 * key_idx, keys, 0, NULL, multi_profilingEvent[0]),
 			"Error updating contents of keys_buffer");
 
-	HANDLE_CLERROR(
+	BENCH_CLERROR(
 		clEnqueueWriteBuffer(queue[gpu_id], idx_buffer, CL_FALSE, 0, 4 * scalar_gws, idx, 0, NULL, multi_profilingEvent[1]),
 		"Error updating contents of idx_buffer");
 
-	HANDLE_CLERROR(
+	BENCH_CLERROR(
 		clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]),
 		"Error beginning execution of the kernel");
 
-	HANDLE_CLERROR(
+	BENCH_CLERROR(
 		clEnqueueReadBuffer(queue[gpu_id], digest_buffer, CL_TRUE, 0, sizeof(cl_uint) * scalar_gws, digest, 0, NULL, multi_profilingEvent[3]),
 		"Error reading results from digest_buffer");
 	partial_output = 1;
@@ -429,13 +404,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	return count;
 }
 
-static int get_hash_0(int index) { return digest[index] & 0xf; }
-static int get_hash_1(int index) { return digest[index] & 0xff; }
-static int get_hash_2(int index) { return digest[index] & 0xfff; }
-static int get_hash_3(int index) { return digest[index] & 0xffff; }
-static int get_hash_4(int index) { return digest[index] & 0xfffff; }
-static int get_hash_5(int index) { return digest[index] & 0xffffff; }
-static int get_hash_6(int index) { return digest[index] & 0x7ffffff; }
+static int get_hash_0(int index) { return digest[index] & PH_MASK_0; }
+static int get_hash_1(int index) { return digest[index] & PH_MASK_1; }
+static int get_hash_2(int index) { return digest[index] & PH_MASK_2; }
+static int get_hash_3(int index) { return digest[index] & PH_MASK_3; }
+static int get_hash_4(int index) { return digest[index] & PH_MASK_4; }
+static int get_hash_5(int index) { return digest[index] & PH_MASK_5; }
+static int get_hash_6(int index) { return digest[index] & PH_MASK_6; }
 
 struct fmt_main fmt_opencl_rakp = {
 	{
@@ -453,9 +428,7 @@ struct fmt_main fmt_opencl_rakp = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -466,9 +439,7 @@ struct fmt_main fmt_opencl_rakp = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

@@ -21,12 +21,10 @@ john_register_one(&fmt_putty);
 #include "common.h"
 #include "formats.h"
 #include "misc.h"
-#include <openssl/aes.h>
+#include "aes.h"
 #include "sha.h"
 #include <openssl/evp.h>
-//#include <openssl/hmac.h>
-#include "gladman_hmac.h"
-#include <openssl/aes.h>
+#include "hmac_sha.h"
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -149,7 +147,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* mac */
 		goto err;
-	if (strlen(p) > 128)
+	res = strlen(p);
+	if (res > 128)
+		goto err;
+	if (hexlenl(p) != res)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* public_blob_len */
 		goto err;
@@ -160,9 +161,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* public_blob */
 		goto err;
-	if (strlen(p) != res * 2)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != res * 2)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* private_blob_len */
 		goto err;
@@ -173,14 +172,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* private_blob */
 		goto err;
-	if (strlen(p) != res * 2)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != res * 2)
 		goto err;
 	if (!is_old_fmt) {
 		if ((p = strtokm(NULL, "*")) == NULL)	/* alg */
 			goto err;
-		if (strlen(p) > 8)
+		if (strlen(p) > 7)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* encryption */
 			goto err;
@@ -420,9 +417,7 @@ struct fmt_main fmt_putty = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		putty_tests
 	},
 	{
@@ -434,9 +429,7 @@ struct fmt_main fmt_putty = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

@@ -145,43 +145,43 @@ static int get_hash_0(int index)
 {
 
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xf;
+	return out[hash_addr(0, index)] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xff;
+	return out[hash_addr(0, index)] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xfff;
+	return out[hash_addr(0, index)] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xffff;
+	return out[hash_addr(0, index)] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xfffff;
+	return out[hash_addr(0, index)] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0xffffff;
+	return out[hash_addr(0, index)] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
 	uint32_t *out = outbuffer;
-	return out[hash_addr(0, index)] & 0x7ffffff;
+	return out[hash_addr(0, index)] & PH_MASK_6;
 }
 
 static int cmp_all(void *binary, int count)
@@ -213,7 +213,6 @@ static int cmp_exact(char *source, int index)
 }
 
 /* Commented out due to bugs
-#if FMT_MAIN_VERSION > 11
 // iteration count as tunable cost parameter
 static unsigned int iteration_count(void *salt)
 {
@@ -222,7 +221,6 @@ static unsigned int iteration_count(void *salt)
 	sha256crypt_salt = salt;
 	return (unsigned int)sha256crypt_salt->rounds;
 }
-#endif
 */
 
 struct fmt_main fmt_cuda_cryptsha256 = {
@@ -241,11 +239,9 @@ struct fmt_main fmt_cuda_cryptsha256 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{
 			NULL, //"iteration count",
 		},
-#endif
 		tests
 	}, {
 		init,
@@ -256,11 +252,9 @@ struct fmt_main fmt_cuda_cryptsha256 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			NULL, //iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

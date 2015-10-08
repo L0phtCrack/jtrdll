@@ -73,6 +73,9 @@ john_register_one(&fmt_blackberry1);
 #endif
 static struct fmt_tests blackberry_tests[] = {
 	{"$bbes10$76BDF6BE760FCF5DEE7B20E27632D1FEDD9D64E1BBCC941F42957E87CBFB96F176324B2E2C71976CEBE67CA6F400F33F001D7453D80F4AF5D80C8A93ED0BA0E6$DB1C19C0", "toulouse"},
+	{"$bbes10$57ECCAA65BB087E3E506A8C5CEBEE193DD051538CE44F4156D65F1B44E0266DF49337EA11812DF12E39C8B12EB46F19C291FD9529CD4F09B3C8109BE6F4861E5$0wzWUnuQ", "test"},
+	{"$bbes10$217A6A0646ACF599B5A05A3D2B47F96B576353C74E4D28E857A476EFDFB36B27930FEDAA8064FFD17F36C7C854BED49FF95029B3310434BB2D05524043AE6E44$A5Dr4lXa", "ripper"},
+	{"$bbes10$DE1A954989FFED2D74900463A1AD7B14D852164D84AA0443F0EC59A0875A911C92CEF73E7C082B13864132644FA49DFEBDCF1D2DA0C9711CD4DC348A855F7285$MnphRIkf", "superbadPass"},
 	{NULL}
 };
 
@@ -172,13 +175,13 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static void set_salt(void *salt)
 {
@@ -289,9 +292,7 @@ struct fmt_main fmt_blackberry1 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		blackberry_tests
 	}, {
 		init,
@@ -302,9 +303,7 @@ struct fmt_main fmt_blackberry1 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

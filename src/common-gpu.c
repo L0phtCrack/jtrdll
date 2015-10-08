@@ -228,11 +228,17 @@ void amd_probe(void)
 
 			amd++;
 
-			if (ADL_Overdrive_Caps(adl_id, &iOverdriveSupported, &iOverdriveEnabled, &iOverdriveVersion) != ADL_OK)
+			if (ADL_Overdrive_Caps(adl_id, &iOverdriveSupported, &iOverdriveEnabled, &iOverdriveVersion) != ADL_OK) {
+				MEM_FREE(lpAdapterInfo);
+				ADL_Main_Control_Destroy();
 				return;
+			}
 
-			if (!iOverdriveSupported)
+			if (!iOverdriveSupported) {
+				MEM_FREE(lpAdapterInfo);
+				ADL_Main_Control_Destroy();
 				return;
+			}
 
 			if (iOverdriveVersion == 5)
 				adl2od[adl_id] = 5;
@@ -398,7 +404,8 @@ int id2nvml(const hw_bus busInfo) {
 	nvmlDevice_t dev;
 
 	if (nvmlDeviceGetHandleByPciBusId &&
-	    nvmlDeviceGetHandleByPciBusId(busInfo.busId, &dev) == NVML_SUCCESS)
+	    nvmlDeviceGetHandleByPciBusId(busInfo.busId, &dev) == NVML_SUCCESS &&
+	    nvmlDeviceGetIndex)
 	{
 		unsigned int id_NVML;
 
@@ -429,6 +436,7 @@ int id2adl(const hw_bus busInfo) {
 void gpu_check_temp(void)
 {
 #if HAVE_LIBDL
+	static int warned;
 	int i;
 
 	if (temp_limit < 0)
@@ -440,6 +448,17 @@ void gpu_check_temp(void)
 		int dev = gpu_device_list[i];
 
 		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util);
+
+		if (temp > 125 || temp < 10) {
+			if (!warned++) {
+				log_event("GPU %d probably invalid temp reading (%d" DEGC
+				          ").", dev, temp);
+				fprintf(stderr, "GPU %d probably invalid temp reading (%d"
+				        DEGC ").\n", dev, temp);
+			}
+			return;
+		}
+
 		if (temp >= temp_limit) {
 			char s_fan[10] = "n/a";
 			if (fan >= 0)
@@ -471,7 +490,7 @@ void gpu_log_temp(void)
 
 		fan = temp = util = -1;
 		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util);
-		n = sprintf(s_gpu, "GPU %d:", i);
+		n = sprintf(s_gpu, "GPU %d:", dev);
 		if (temp >= 0)
 			n += sprintf(s_gpu + n, " temp: %u" DEGC, temp);
 		if (util > 0)

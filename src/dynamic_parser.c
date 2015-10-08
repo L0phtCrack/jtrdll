@@ -105,6 +105,14 @@ typedef struct Dynamic_Str_Flag_t
 	{ "DynamicFunc__" #HASH "_crypt_input2_overwrite_input2", DynamicFunc__##HASH##_crypt_input2_overwrite_input2 }, \
 	{ "DynamicFunc__" #HASH "_crypt_input1_overwrite_input2", DynamicFunc__##HASH##_crypt_input1_overwrite_input2 }, \
 	{ "DynamicFunc__" #HASH "_crypt_input2_overwrite_input1", DynamicFunc__##HASH##_crypt_input2_overwrite_input1 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input1_to_output1", DynamicFunc__##HASH##_crypt_input1_to_output1 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input1_to_output2", DynamicFunc__##HASH##_crypt_input1_to_output2 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input1_to_output3", DynamicFunc__##HASH##_crypt_input1_to_output3 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input1_to_output4", DynamicFunc__##HASH##_crypt_input1_to_output4 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input2_to_output1", DynamicFunc__##HASH##_crypt_input2_to_output1 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input2_to_output2", DynamicFunc__##HASH##_crypt_input2_to_output2 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input2_to_output3", DynamicFunc__##HASH##_crypt_input2_to_output3 }, \
+	{ "DynamicFunc__" #HASH "_crypt_input2_to_output4", DynamicFunc__##HASH##_crypt_input2_to_output4 }, \
 	{ "DynamicFunc__" #HASH "_crypt_input1_to_output1_FINAL", DynamicFunc__##HASH##_crypt_input1_to_output1_FINAL }, \
 	{ "DynamicFunc__" #HASH "_crypt_input2_to_output1_FINAL", DynamicFunc__##HASH##_crypt_input2_to_output1_FINAL },
 
@@ -156,8 +164,6 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	{ "DynamicFunc__crypt_md5_to_input_raw_Overwrite_NoLen", DynamicFunc__crypt_md5_to_input_raw_Overwrite_NoLen },
 	{ "DynamicFunc__crypt_to_input_raw", DynamicFunc__crypt_md5_to_input_raw }, // support deprecated function
 	{ "DynamicFunc__crypt_md5_to_input_raw", DynamicFunc__crypt_md5_to_input_raw },
-	{ "DynamicFunc__PHPassCrypt", DynamicFunc__PHPassCrypt },
-	{ "DynamicFunc__FreeBSDMD5Crypt", DynamicFunc__FreeBSDMD5Crypt },
 	{ "DynamicFunc__POCrypt", DynamicFunc__POCrypt },
 	{ "DynamicFunc__set_input_len_16", DynamicFunc__set_input_len_16},
 	{ "DynamicFunc__set_input2_len_16", DynamicFunc__set_input2_len_16},
@@ -258,6 +264,7 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	{ "DynamicFunc__LargeHash_OUTMode_base16u", DynamicFunc__LargeHash_OUTMode_base16u },
 	{ "DynamicFunc__LargeHash_OUTMode_base64", DynamicFunc__LargeHash_OUTMode_base64 },
 	{ "DynamicFunc__LargeHash_OUTMode_base64_nte", DynamicFunc__LargeHash_OUTMode_base64_nte },
+	{ "DynamicFunc__LargeHash_OUTMode_base64c", DynamicFunc__LargeHash_OUTMode_base64c },
 	{ "DynamicFunc__LargeHash_OUTMode_raw", DynamicFunc__LargeHash_OUTMode_raw },
 
 	LARGE_HASH_FUNCS(MD5)
@@ -295,6 +302,12 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	LARGE_HASH_FUNCS(SKEIN256)
 	LARGE_HASH_FUNCS(SKEIN384)
 	LARGE_HASH_FUNCS(SKEIN512)
+	LARGE_HASH_FUNCS(SHA3_224)
+	LARGE_HASH_FUNCS(SHA3_256)
+	LARGE_HASH_FUNCS(SHA3_384)
+	LARGE_HASH_FUNCS(SHA3_512)
+	LARGE_HASH_FUNCS(KECCAK_256)
+	LARGE_HASH_FUNCS(KECCAK_512)
 	// LARGE_HASH_EDIT_POINT
 	{ NULL, NULL }};
 
@@ -354,6 +367,12 @@ static Dynamic_Str_Flag_t Dynamic_Str_Flag[] =  {
 	SALT_AS_HEX_FLAG(SKEIN256)
 	SALT_AS_HEX_FLAG(SKEIN384)
 	SALT_AS_HEX_FLAG(SKEIN512)
+	SALT_AS_HEX_FLAG(SHA3_224)
+	SALT_AS_HEX_FLAG(SHA3_256)
+	SALT_AS_HEX_FLAG(SHA3_384)
+	SALT_AS_HEX_FLAG(SHA3_512)
+	SALT_AS_HEX_FLAG(KECCAK_256)
+	SALT_AS_HEX_FLAG(KECCAK_512)
 	// LARGE_HASH_EDIT_POINT
 
 	{ "MGF_SALT_AS_HEX_TO_SALT2",         MGF_SALT_AS_HEX_TO_SALT2 },
@@ -421,13 +440,17 @@ static Dynamic_Str_Flag_t Dynamic_Str_sFlag[] =  {
 	SALT_AS_HEX_FLAG2(SKEIN256)
 	SALT_AS_HEX_FLAG2(SKEIN384)
 	SALT_AS_HEX_FLAG2(SKEIN512)
+	SALT_AS_HEX_FLAG2(SHA3_224)
+	SALT_AS_HEX_FLAG2(SHA3_256)
+	SALT_AS_HEX_FLAG2(SHA3_384)
+	SALT_AS_HEX_FLAG2(SHA3_512)
+	SALT_AS_HEX_FLAG2(KECCAK_256)
+	SALT_AS_HEX_FLAG2(KECCAK_512)
 	// LARGE_HASH_EDIT_POINT
 
 	{ "MGF_KEYS_UNICODE_B4_CRYPT",        MGF_KEYS_UNICODE_B4_CRYPT },
-	{ "MGF_PHPassSetup",                  MGF_PHPassSetup },
 	{ "MGF_POSetup",                      MGF_POSetup },
 	{ "MGF_POOR_OMP",                     MGF_POOR_OMP },
-	{ "MGF_FreeBSDMD5Setup",              MGF_FreeBSDMD5Setup },
 	{ "MGF_RAW_SHA1_INPUT",               MGF_RAW_SHA1_INPUT },
 	{ "MGF_KEYS_INPUT_BE_SAFE",           MGF_KEYS_INPUT_BE_SAFE },  // big endian safe, i.e. the input will NEVER get swapped.  Only SHA1 is 'safe'.
 	{ "MGF_SET_INP2LEN32",                MGF_SET_INP2LEN32 }, // this sets the input2 lens (in SSE2) to 32 bytes long, but only in init() call
@@ -495,12 +518,7 @@ static int load_config(int which) {
 	} else {
 		ngen_source = 0;
 		sprintf(SubSection, ":dynamic_%d", which);
-
 		gen_source = cfg_get_list("list.generic", SubSection);
-		if (!gen_source) {
-			sprintf(SubSection, ":md5_gen(%d)", which);
-			gen_source = cfg_get_list("list.generic", SubSection);
-		}
 	}
 	return !!gen_source;
 }
@@ -556,18 +574,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 		return 1;
@@ -584,18 +594,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 		return 1;
@@ -612,18 +614,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 		return 1;
@@ -642,18 +636,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 #endif
@@ -673,18 +659,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 #endif
@@ -704,18 +682,10 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 			return !fprintf(stderr, "Error, invalid test line (wrong generic type):  %s\n", Line);
 		cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].plaintext), cp);
 		pSetup->pPreloads[nPreloadCnt].plaintext = dynamic_Demangle(pSetup->pPreloads[nPreloadCnt].plaintext, NULL);
-#if FMT_MAIN_VERSION > 9
 		pSetup->pPreloads[nPreloadCnt].fields[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#else
-		pSetup->pPreloads[nPreloadCnt].flds[1] = str_alloc_copy(pSetup->pPreloads[nPreloadCnt].ciphertext);
-#endif
 		for (j = 0; j < 10; ++j) {
 			if (j==1) continue;
-#if FMT_MAIN_VERSION > 9
 			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].fields[j]), cp);
-#else
-			cp = GetFld(&(pSetup->pPreloads[nPreloadCnt].flds[j]), cp);
-#endif
 		}
 		++nPreloadCnt;
 #endif
@@ -850,26 +820,36 @@ char *dynamic_LOAD_PARSER_SIGNATURE(int which)
 	return Sig;
 }
 
-int dynamic_IS_PARSER_VALID(int which)
+int dynamic_IS_PARSER_VALID(int which, int single_lookup_only)
 {
-	struct cfg_line *gen_line;
-	if (!dynamic_LOAD_PARSER_SIGNATURE(which))
-		return 0;
+	static char valid[5001];
+	static int init=0;
 
-	gen_line = gen_source->head;
-	while (gen_line)
-	{
-		if (!strncasecmp(gen_line->data, "ColonChar", 9))
-		{
-			// not sse2, but we do not handle this in the long bench.
-			// we can still bench if we specify JUST this one.
+	if (which < 1000 || which > 5000)
+		return -1;
+	if (single_lookup_only) {
+		// if only loading a single dyna format, then do NOT load the valid array
+		if (!dynamic_LOAD_PARSER_SIGNATURE(which))
 			return 0;
-		}
-		if (strstr(gen_line->data, "MGF_ColonNOTValid"))
-			return 0;  // same as above, ColonChar.
-		gen_line = gen_line->next;
+		return 1;
 	}
-	return 1;
+	if (!init) {
+		extern const struct cfg_section *get_cfg_db();
+		const struct cfg_section *cfg_db;
+
+		cfg_db = get_cfg_db();
+		memset(valid, -1, sizeof(valid));
+		while (cfg_db) {
+			if (!strncasecmp(cfg_db->name, "list.generic:dynamic_", 21)) {
+				int i = atoi(&cfg_db->name[21]);
+				if (i >= 1000 && i < 5000)
+					valid[i] = 1;
+			}
+			cfg_db = cfg_db->next;
+		}
+		init = 1;
+	}
+	return valid[which];
 }
 
 static int Count_Items(char *Key)

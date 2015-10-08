@@ -37,12 +37,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
-#include <openssl/evp.h>
-#include <openssl/aes.h>
-#include <openssl/hmac.h>
+#include "aes.h"
 
+<<<<<<< HEAD
 #include "john_stdint.h"
 #include "gladman_fileenc.h"
+=======
+#include "stdint.h"
+>>>>>>> 63d108d120d829227f2d771d35c99f6ac957ca75
 #include "filevault.h"
 #include "misc.h"
 #include "jumbo.h"

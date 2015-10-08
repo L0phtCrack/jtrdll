@@ -11,6 +11,11 @@
  */
 
 #define NEED_OS_FORK
+#ifdef HAVE_OPENCL
+#undef _GNU_SOURCE
+#define _GNU_SOURCE 1 /* for strcasestr in legacy opencl builds */
+#endif
+
 #include "os.h"
 
 #include <stdio.h>
@@ -44,8 +49,6 @@
 #ifdef HAVE_OPENCL
 #undef __SSE2__
 #include "common-opencl.h"
-#undef _GNU_SOURCE
-#define _GNU_SOURCE 1 /* for strcasestr in legacy opencl builds */
 #endif
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 #include "prince.h"
@@ -57,10 +60,8 @@
 struct options_main options;
 struct pers_opts pers_opts; /* Not reset after forked resume */
 static char *field_sep_char_str, *show_uncracked_str, *salts_str;
-static char *encoding_str, *target_enc_str, *internal_enc_str;
-#if FMT_MAIN_VERSION > 11
+static char *encoding_str, *target_enc_str, *internal_cp_str;
 static char *costs_str;
-#endif
 
 static struct opt_entry opt_list[] = {
 	{"", FLG_PASSWD, 0, 0, 0, OPT_FMT_ADD_LIST, &options.passwd},
@@ -99,8 +100,11 @@ static struct opt_entry opt_list[] = {
 		0, 0, OPT_FMT_STR_ALLOC, &encoding_str},
 	{"input-encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
 		0, 0, OPT_FMT_STR_ALLOC, &encoding_str},
+	{"internal-codepage", FLG_SECOND_ENC, FLG_SECOND_ENC,
+		0, 0, OPT_FMT_STR_ALLOC, &internal_cp_str},
+	/* -internal-encoding is a deprecated alias for -internal-codepage */
 	{"internal-encoding", FLG_SECOND_ENC, FLG_SECOND_ENC,
-		0, 0, OPT_FMT_STR_ALLOC, &internal_enc_str},
+		0, 0, OPT_FMT_STR_ALLOC, &internal_cp_str},
 	{"target-encoding", FLG_SECOND_ENC, FLG_SECOND_ENC,
 		0, 0, OPT_FMT_STR_ALLOC, &target_enc_str},
 	{"stdin", FLG_STDIN_SET, FLG_CRACKING_CHK},
@@ -110,7 +114,7 @@ static struct opt_entry opt_list[] = {
 #else
 	{"pipe", FLG_PIPE_SET, FLG_CRACKING_CHK},
 #endif
-	{"rules", FLG_RULES_SET, FLG_RULES, FLG_RULES_ALLOW, FLG_STDIN_CHK,
+	{"rules", FLG_RULES, FLG_RULES, FLG_RULES_ALLOW, FLG_STDIN_CHK,
 		OPT_FMT_STR_ALLOC, &pers_opts.activewordlistrules},
 	{"incremental", FLG_INC_SET, FLG_CRACKING_CHK,
 		0, 0, OPT_FMT_STR_ALLOC, &options.charset},
@@ -166,7 +170,20 @@ static struct opt_entry opt_list[] = {
 		OPT_FMT_STR_ALLOC, &show_uncracked_str},
 	{"test", FLG_TEST_SET, FLG_TEST_CHK,
 		0, ~FLG_TEST_SET & ~FLG_FORMAT & ~FLG_SAVEMEM & ~FLG_DYNFMT &
-		~OPT_REQ_PARAM & ~FLG_NOLOG, "%u", &benchmark_time},
+		~OPT_REQ_PARAM & ~FLG_NOLOG, "%d", &benchmark_time},
+	{"test-full", FLG_TEST_SET, FLG_TEST_CHK,
+		0, ~FLG_TEST_SET & ~FLG_FORMAT & ~FLG_SAVEMEM & ~FLG_DYNFMT &
+		OPT_REQ_PARAM & ~FLG_NOLOG, "%d", &benchmark_level},
+#ifdef HAVE_FUZZ
+	{"fuzz", FLG_FUZZ_SET, FLG_FUZZ_CHK,
+		0, ~FLG_FUZZ_DUMP_SET & ~FLG_FUZZ_SET & ~FLG_FORMAT &
+		~FLG_SAVEMEM & ~FLG_DYNFMT & ~OPT_REQ_PARAM & ~FLG_NOLOG,
+		OPT_FMT_STR_ALLOC, &options.fuzz_dic},
+	{"fuzz-dump", FLG_FUZZ_DUMP_SET, FLG_FUZZ_DUMP_CHK,
+		0, ~FLG_FUZZ_SET & ~FLG_FUZZ_DUMP_SET & ~FLG_FORMAT &
+		~FLG_SAVEMEM & ~FLG_DYNFMT & ~OPT_REQ_PARAM & ~FLG_NOLOG,
+		OPT_FMT_STR_ALLOC, &options.fuzz_dump},
+#endif
 	{"users", FLG_NONE, 0, FLG_PASSWD, OPT_REQ_PARAM,
 		OPT_FMT_ADD_LIST_MULTI, &options.loader.users},
 	{"groups", FLG_NONE, 0, FLG_PASSWD, OPT_REQ_PARAM,
@@ -195,11 +212,11 @@ static struct opt_entry opt_list[] = {
 	{"list", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &options.listconf},
 	{"mem-file-size", FLG_ZERO, 0,
-		FLG_WORDLIST_CHK, (FLG_DUPESUPP | FLG_SAVEMEM |
-		FLG_STDIN_CHK | FLG_PIPE_CHK | OPT_REQ_PARAM),
+		FLG_WORDLIST_CHK, (FLG_DUPESUPP | FLG_STDIN_CHK |
+		FLG_PIPE_CHK | OPT_REQ_PARAM),
 		Zu, &options.max_wordfile_memory},
 	{"dupe-suppression", FLG_DUPESUPP, FLG_DUPESUPP, 0,
-		FLG_SAVEMEM | FLG_STDIN_CHK | FLG_PIPE_CHK},
+		FLG_STDIN_CHK | FLG_PIPE_CHK},
 	{"fix-state-delay", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.max_fix_state_delay},
 	{"field-separator-char", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
@@ -207,14 +224,14 @@ static struct opt_entry opt_list[] = {
 	{"config", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &options.config},
 	{"nolog", FLG_NOLOG, FLG_NOLOG},
-	{"log-stderr", FLG_LOG_STDERR | FLG_NOLOG, FLG_LOG_STDERR},
+	{"log-stderr", FLG_LOG_STDERR, FLG_LOG_STDERR},
 	{"crack-status", FLG_CRKSTAT, FLG_CRKSTAT},
 	{"mkpc", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%d", &options.force_maxkeys},
 	{"min-length", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
-		"%u", &options.force_minlength},
+		"%u", &options.req_minlength},
 	{"max-length", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
-		"%u", &options.force_maxlength},
+		"%u", &options.req_maxlength},
 	{"max-run-time", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.max_run_time},
 	{"progress-every", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
@@ -238,15 +255,13 @@ static struct opt_entry opt_list[] = {
 		OPT_FMT_ADD_LIST_MULTI, &options.gpu_devices},
 #endif
 	{"skip-self-tests", FLG_NOTESTS, FLG_NOTESTS},
-#if FMT_MAIN_VERSION > 11
 	{"costs", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
                 OPT_FMT_STR_ALLOC, &costs_str},
 
-#endif
 	{"keep-guessing", FLG_KEEP_GUESSING, FLG_KEEP_GUESSING},
 	{"stress-test", FLG_LOOPTEST | FLG_TEST_SET, FLG_TEST_CHK,
 		0, ~FLG_TEST_SET & ~FLG_FORMAT & ~FLG_SAVEMEM & ~FLG_DYNFMT &
-		~OPT_REQ_PARAM & ~FLG_NOLOG, "%u", &benchmark_time},
+		~OPT_REQ_PARAM & ~FLG_NOLOG, "%d", &benchmark_time},
 	{NULL}
 };
 
@@ -309,6 +324,7 @@ JOHN_USAGE_REGEX \
 "--make-charset=FILE       make a charset file. It will be overwritten\n" \
 "--show[=left]             show cracked passwords [if =left, then uncracked]\n" \
 "--test[=TIME]             run tests and benchmarks for TIME seconds each\n" \
+"--test-full[=TIME]        run more tests and benchmarks for TIME seconds each\n" \
 "--users=[-]LOGIN|UID[,..] [do not] load this (these) user(s) only\n" \
 "--groups=[-]GID[,..]      load users [not] of this (these) group(s) only\n" \
 "--shells=[-]SHELL[,..]    load users with[out] this (these) shell(s) only\n" \
@@ -370,11 +386,9 @@ void opt_print_hidden_usage(void)
 	puts("--mkpc=N                  request a lower max. keys per crypt");
 	puts("--min-length=N            request a minimum candidate length");
 	puts("--max-length=N            request a maximum candidate length");
-#if FMT_MAIN_VERSION > 11
 	puts("--costs=[-]C[:M][,...]    load salts with[out] cost value Cn [to Mn] for");
 	puts("                          tunable cost parameters, see doc/OPTIONS");
 	puts("                          (comma separated list of values/ranges per param.)");
-#endif
 	puts("--field-separator-char=C  use 'C' instead of the ':' in input and pot files");
 	puts("--fix-state-delay=N       performance tweak, see doc/OPTIONS");
 	puts("--nolog                   disables creation and writing to john.log file");
@@ -391,10 +405,15 @@ void opt_print_hidden_usage(void)
 	puts("--reject-printable        reject printable binaries");
 	puts("--verbosity=N             change verbosity (1-5, default 3)");
 	puts("--show=types              show some information about hashes in file (machine readable)");
+	puts("--show=invalid            show the hashes which valid fails.");
 	puts("--skip-self-tests         skip self tests");
 	puts("--stress-test[=TIME]      loop self tests forever");
+#ifdef HAVE_FUZZ
+	puts("--fuzz[=DICTFILE]         fuzz formats' prepare(), valid() and split()");
+	puts("--fuzz-dump[=from,to]     dump the fuzzed hashes between from and to to file pwfile.format");
+#endif
 	puts("--input-encoding=NAME     input encoding (alias for --encoding)");
-	puts("--internal-encoding=NAME  encoding used in rules/masks (see doc/ENCODING)");
+	puts("--internal-codepage=NAME  codepage used in rules/masks (see doc/ENCODING)");
 	puts("--target-encoding=NAME    output encoding (used by format, see doc/ENCODING)");
 #ifdef HAVE_OPENCL
 	puts("--force-scalar            (OpenCL) force scalar mode");
@@ -430,8 +449,9 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	options.regen_lost_salts = 0;
 	options.max_fix_state_delay = 0;
 	options.max_wordfile_memory = WORDLIST_BUFFER_DEFAULT;
-	options.force_maxkeys = options.force_maxlength = 0;
-	options.force_minlength = -1; options.reload_at_crack = 0;
+	options.force_maxkeys = 0;
+	options.req_maxlength = options.force_maxlength = 0;
+	options.req_minlength = -1; options.reload_at_crack = 0;
 	options.max_run_time = options.status_interval = 0;
 	options.reload_at_save = options.dynamic_bare_hashes_always_valid = 0;
 	options.verbosity = 3;
@@ -450,6 +470,25 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 
 	opt_process(opt_list, &options.flags, argv);
 
+	if (options.flags & FLG_MASK_CHK) {
+		if (options.flags & FLG_CRACKING_CHK)
+			options.flags |= FLG_MASK_STACKED;
+		else if (options.mask && strcasestr(options.mask, "?w")) {
+			fprintf(stderr, "?w is only used with hybrid mask\n");
+			error();
+		} else
+			options.flags |= FLG_CRACKING_SET;
+	}
+	if (options.flags & FLG_REGEX_CHK) {
+		if (options.flags & FLG_CRACKING_CHK)
+			options.flags |= FLG_REGEX_STACKED;
+		else if (strstr(options.regex, "\\0")) {
+			fprintf(stderr, "\\0 is only used with hybrid regex\n");
+			error();
+		} else
+			options.flags |= FLG_CRACKING_SET;
+	}
+
 	ext_flags = 0;
 	if (options.flags & FLG_EXTERNAL_CHK) {
 		if (options.flags & (FLG_CRACKING_CHK | FLG_MAKECHR_CHK)) {
@@ -462,18 +501,6 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 				ext_flags |= EXT_REQ_RESTORE;
 		}
 	}
-	if (options.flags & FLG_MASK_CHK) {
-		if (options.flags & FLG_CRACKING_CHK)
-			options.flags |= FLG_MASK_STACKED;
-		else
-			options.flags |= FLG_CRACKING_SET;
-	}
-	if (options.flags & FLG_REGEX_CHK) {
-		//if (options.flags & FLG_CRACKING_CHK)
-		//	options.flags |= FLG_REGEX_STACKED;
-		//else
-			options.flags |= FLG_CRACKING_SET;
-	}
 
 	/* Bodge for bash completion of eg. "john -stdout -list=..." */
 	if (options.listconf != NULL && options.fork == 0)
@@ -484,17 +511,15 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 
 	opt_check(opt_list, options.flags, argv);
 
+	if (benchmark_level >= 0)
+		benchmark_time = 0;
+
 #if HAVE_OPENCL
 	if (options.format && strcasestr(options.format, "opencl") &&
 	    (options.flags & FLG_FORK) && options.gpu_devices->count == 0) {
 		list_add(options.gpu_devices, "all");
 	}
 #endif
-	if (options.flags & FLG_MASK_STACKED && ext_flags & EXT_REQ_FILTER) {
-		fprintf(stderr, "Can't use Hybrid Mask mode with External "
-		        "Filter\n");
-		error();
-	}
 
 	if (options.session) {
 #if OS_FORK
@@ -594,7 +619,6 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		exit(0);
 	}
-#if FMT_MAIN_VERSION > 11
 	if (costs_str) {
 		/*
 		 * costs_str: [-]COST1[:MAX1][,[-]COST2[:MAX2]][...,[-]COSTn[:MAXn]]
@@ -679,7 +703,6 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			options.loader.max_cost[i] = UINT_MAX;
 		}
 	}
-#endif
 
 	if (options.flags & FLG_SALTS) {
 		int two_salts = 0;
@@ -724,13 +747,13 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			fprintf(stderr, "Invalid plaintext length requested\n");
 		error();
 	}
-	if (options.force_maxlength && options.force_maxlength < options.force_minlength) {
+	if (options.req_maxlength && options.req_maxlength < options.req_minlength) {
 		if (john_main_process)
 			fprintf(stderr, "Invalid options: --min-length larger "
 			        "than --max-length\n");
 		error();
 	}
-	if (options.force_maxlength < 0 || options.force_maxlength > PLAINTEXT_BUFFER_SIZE - 3) {
+	if (options.req_maxlength < 0 || options.req_maxlength > PLAINTEXT_BUFFER_SIZE - 3) {
 		if (john_main_process)
 			fprintf(stderr, "Invalid max length requested\n");
 		error();
@@ -741,6 +764,13 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			        "Invalid options: --mkpc must be at least 1\n");
 		error();
 	}
+
+	/*
+	 * If max length came from --max-len, these are set the same.
+	 * If max length later comes from FMT_TRUNC, only force_maxlength
+	 * will be set.
+	 */
+	options.force_maxlength = options.req_maxlength;
 
 	if (options.flags & FLG_STDOUT) options.flags &= ~FLG_PWD_REQ;
 
@@ -824,8 +854,8 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	 * that in john.conf or with the --encoding option.
 	 */
 	if ((encoding_str && !strcasecmp(encoding_str, "list")) ||
-	    (internal_enc_str &&
-	     !strcasecmp(internal_enc_str, "list")) ||
+	    (internal_cp_str &&
+	     !strcasecmp(internal_cp_str, "list")) ||
 	    (target_enc_str && !strcasecmp(target_enc_str, "list"))) {
 		listEncodings(stdout);
 		exit(EXIT_SUCCESS);
@@ -837,14 +867,14 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	if (target_enc_str)
 		pers_opts.target_enc = cp_name2id(target_enc_str);
 
-	if (internal_enc_str)
-		pers_opts.internal_enc = cp_name2id(internal_enc_str);
+	if (internal_cp_str)
+		pers_opts.internal_cp = cp_name2id(internal_cp_str);
 
 	if (pers_opts.input_enc && pers_opts.input_enc != UTF_8) {
 		if (!pers_opts.target_enc)
 			pers_opts.target_enc = pers_opts.input_enc;
-		if (!pers_opts.internal_enc)
-			pers_opts.internal_enc = pers_opts.input_enc;
+		if (!pers_opts.internal_cp)
+			pers_opts.internal_cp = pers_opts.input_enc;
 	}
 
 #ifdef HAVE_OPENCL
@@ -900,8 +930,11 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 		else if (!strcasecmp(show_uncracked_str, "types")) {
 			options.loader.showtypes = 1;
 		}
+		else if (!strcasecmp(show_uncracked_str, "invalid")) {
+			options.loader.showinvalid = 1;
+		}
 		else {
-			fprintf(stderr, "Invalid option in --show switch.\nOnly --show , --show=left or --show=types are valid\n");
+			fprintf(stderr, "Invalid option in --show switch.\nOnly --show , --show=left, --show=types or --show=invalid are valid\n");
 			error();
 		}
 	}

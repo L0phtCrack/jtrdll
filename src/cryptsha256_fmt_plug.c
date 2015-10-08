@@ -247,13 +247,13 @@ static void done(void)
 	MEM_FREE(saved_len);
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static void set_key(char *key, int index)
 {
@@ -651,13 +651,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		char *cp;
 		char p_bytes[PLAINTEXT_LENGTH+1];
 		char s_bytes[PLAINTEXT_LENGTH+1];
-		//JTR_ALIGN(MEM_ALIGN_SIMD) cryptloopstruct crypt_struct;
-		// alignment may 'fail' on cygwin32 for OMP builds :(
-		// so do the alignment by hand
 		char tmp_cls[sizeof(cryptloopstruct)+MEM_ALIGN_SIMD];
 		cryptloopstruct *crypt_struct;
 #ifdef SIMD_COEF_32
-		//JTR_ALIGN(MEM_ALIGN_SIMD) ARCH_WORD_32 sse_out[64];
 		char tmp_sse_out[8*MAX_KEYS_PER_CRYPT*4+MEM_ALIGN_SIMD];
 		ARCH_WORD_32 *sse_out;
 		sse_out = (ARCH_WORD_32 *)mem_align(tmp_sse_out, MEM_ALIGN_SIMD);
@@ -762,7 +758,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			if (cnt == cur_salt->rounds)
 				break;
 			{
-				int j, k;
+				unsigned int j, k;
 				for (k = 0; k < MAX_KEYS_PER_CRYPT; ++k) {
 					ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_struct->cptr[k][idx];
 					for (j = 0; j < 8; ++j)
@@ -773,7 +769,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				idx = 0;
 		}
 		{
-			int j, k;
+			unsigned int j, k;
 			for (k = 0; k < MAX_KEYS_PER_CRYPT; ++k) {
 				ARCH_WORD_32 *o = (ARCH_WORD_32 *)crypt_out[MixOrder[index+k]];
 				for (j = 0; j < 8; ++j)
@@ -890,7 +886,6 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	struct saltstruct *sha256crypt_salt;
@@ -898,7 +893,6 @@ static unsigned int iteration_count(void *salt)
 	sha256crypt_salt = salt;
 	return (unsigned int)sha256crypt_salt->rounds;
 }
-#endif
 
 // Public domain hash function by DJ Bernstein
 // We are hashing the entire struct
@@ -930,11 +924,9 @@ struct fmt_main fmt_cryptsha256 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		tests
 	}, {
 		init,
@@ -945,11 +937,9 @@ struct fmt_main fmt_cryptsha256 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2001,2010-2012 by Solar Designer
+ * Copyright (c) 1996-2001,2010-2012,2015 by Solar Designer
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -38,6 +38,9 @@ static struct fmt_tests tests[] = {
 	{"_J9..XXXXsqM/YSSP..Y", "*U*U*U*U*"},
 	{"_J9..XXXXVL7qJCnku0I", "*U*U*U*U*U*U*U*U"},
 	{"_J9..XXXXAj8cFbP5scI", "*U*U*U*U*U*U*U*U*"},
+	{"_J9..XXXXAj8cFbP5scI",
+	    "\xaa\xd5\xaa\xd5\xaa\xd5\xaa\xd5"
+	    "\xaa\xd5\xaa\xd5\xaa\xd5\xaa\xd5\xaa"},
 	{"_J9..SDizh.vll5VED9g", "ab1234567"},
 	{"_J9..SDizRjWQ/zePPHc", "cr1234567"},
 	{"_J9..SDizxmRI1GjnQuE", "zxyDPWgydbQjgq"},
@@ -143,37 +146,37 @@ static void *salt(char *ciphertext)
 
 static int binary_hash_0(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_0;
 }
 
 static int binary_hash_1(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_1;
 }
 
 static int binary_hash_2(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_2;
 }
 
 static int binary_hash_3(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_3;
 }
 
 static int binary_hash_4(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_4;
 }
 
 static int binary_hash_5(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_5;
 }
 
 static int binary_hash_6(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0x7FFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_6;
 }
 
 #define get_hash_0 DES_bs_get_hash_0
@@ -279,8 +282,8 @@ static void set_key(char *key, int index)
 		ptr -= 8;
 		for (word = 0; word < 2; word++)
 		for (pos = 0; pos < 4; pos++)
-			block[word] ^= (unsigned ARCH_WORD)(unsigned char)
-			    *ptr++ << (1 + (pos << 3));
+			block[word] ^= ((unsigned ARCH_WORD)(unsigned char)
+			    *ptr++ & 0x7f) << (1 + (pos << 3));
 
 #if !DES_BS
 		if (current_salt)
@@ -395,13 +398,10 @@ static int cmp_exact(char *source, int index)
 
 #endif
 
-
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	return (unsigned int) ((ARCH_WORD *)salt)[1];
 }
-#endif
 
 struct fmt_main fmt_BSDI = {
 	{
@@ -426,11 +426,9 @@ struct fmt_main fmt_BSDI = {
 #else
 		FMT_CASE,
 #endif
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		tests
 	}, {
 		init,
@@ -446,11 +444,9 @@ struct fmt_main fmt_BSDI = {
 			DES_std_get_binary,
 #endif
 		salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			binary_hash_0,

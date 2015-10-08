@@ -32,9 +32,6 @@
 #include "md5.h"
 #include "hmacmd5.h"
 
-#ifdef _MSC_VER
-#define inline _inline
-#endif
 #include "memdbg.h"
 
 /***********************************************************************

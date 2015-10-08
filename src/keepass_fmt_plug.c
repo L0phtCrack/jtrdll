@@ -31,7 +31,7 @@ john_register_one(&fmt_KeePass);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "aes/aes.h"
+#include "aes.h"
 #include "twofish.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -223,31 +223,20 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* final random seed */
 		goto err;
-	res = strlen(p);
+	res = hexlenl(p);
 	if (res != 32 && res != 64)
-		goto err;
-	if (!ishex(p))
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* transf random seed */
 		goto err;
-	res = strlen(p);
-	if (res != 64)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != 64)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* env_iv */
 		goto err;
-	res = strlen(p);
-	if (res != 32)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != 32)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* hash or expected bytes*/
 		goto err;
-	res = strlen(p);
-	if (res != 64)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != 64)
 		goto err;
 	if (version == 1) {
 		if ((p = strtokm(NULL, "*")) == NULL)	/* inline flag */
@@ -269,10 +258,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			contentsize = atoi(p);
 			if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 				goto err;
-			res = strlen(p);
-			if (res / 2 != contentsize)
-				goto err;
-			if (!ishex(p))
+			if (hexlenl(p) / 2 != contentsize)
 				goto err;
 			p = strtokm(NULL, "*");
 			if (p)
@@ -283,24 +269,17 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			// keyfile handling
 			if ((p = strtokm(NULL, "*")) == NULL)
 				goto err;
-			if (!ishex(p))
-				goto err;
-			res = strlen(p);
+			res = hexlenl(p);
 			if ((p = strtokm(NULL, "*")) == NULL)
 				goto err;
-			if (res != 32 || strlen(p) != 64)
-				goto err;
-			if (!ishex(p))
+			if (res != 32 || hexlenl(p) != 64)
 				goto err;
 		}
 	}
 	else {
 		if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 			goto err;
-		res = strlen(p);
-		if (res != 64)
-			goto err;
-		if (!ishex(p))
+		if (hexlenl(p) != 64)
 			goto err;
 	}
 
@@ -524,7 +503,6 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	struct custom_salt *my_salt;
@@ -544,7 +522,6 @@ static unsigned int keepass_version(void *salt)
 	my_salt = salt;
 	return (unsigned int) my_salt->version;
 }
-#endif
 struct fmt_main fmt_KeePass = {
 	{
 		FORMAT_LABEL,
@@ -561,12 +538,10 @@ struct fmt_main fmt_KeePass = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 			"version",
 		},
-#endif
 		KeePass_tests
 	}, {
 		init,
@@ -577,12 +552,10 @@ struct fmt_main fmt_KeePass = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 			keepass_version,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

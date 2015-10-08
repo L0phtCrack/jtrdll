@@ -84,9 +84,9 @@ john_register_one(&fmt_NETLM);
 
 static struct fmt_tests tests[] = {
   {"", "G3RG3P00!",      {"User", "", "", "6E1EC36D3417CE9E09A4424309F116C4C991948DAEB4ADAD", "ntlm-hash", "1122334455667788"} },
-  {"$NETLM$1122334455667788$16A7FDFE0CA109B937BFFB041F0E5B2D8B94A97D3FCA1A18", "HIYAGERGE"},
+  {"$NETLM$1122334455667788$16A7FDFE0CA109B937BFFB041F0E5B2D8B94A97D3FCA1A18", "hiyagerge"},
   {"$NETLM$1122334455667788$B3A1B87DBBD4DF3CFA296198DD390C2F4E2E93C5C07B1D8B", "MEDUSAFGDUMP12"},
-  {"$NETLM$1122334455667788$0836F085B124F33895875FB1951905DD2F85252CC731BB25", "CORY21"},
+  {"$NETLM$1122334455667788$0836F085B124F33895875FB1951905DD2F85252CC731BB25", "cory21"},
 
   {"$NETLM$1122334455667788$6E1EC36D3417CE9E09A4424309F116C4C991948DAEB4ADAD", "G3RG3P00!"},
   {"", "HIYAGERGE",      {"User", "", "", "16A7FDFE0CA109B937BFFB041F0E5B2D8B94A97D3FCA1A18", "ntlm-hash", "1122334455667788"} },
@@ -330,37 +330,37 @@ static int salt_hash(void *salt)
 
 static int get_hash_0(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xFFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xFFFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xFFFFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0xFFFFFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return *(ARCH_WORD_32 *)output[index] & 0x7FFFFFF;
+	return *(ARCH_WORD_32 *)output[index] & PH_MASK_6;
 }
 
 struct fmt_main fmt_NETLM = {
@@ -378,10 +378,8 @@ struct fmt_main fmt_NETLM = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
+		FMT_8_BIT | FMT_TRUNC | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_OMP_BAD,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -392,9 +390,7 @@ struct fmt_main fmt_NETLM = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

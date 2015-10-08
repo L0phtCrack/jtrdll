@@ -24,6 +24,11 @@ john_register_one(&fmt_haval_128_4);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
@@ -66,12 +71,24 @@ static struct fmt_tests haval_256_3_tests[] = {
 	{"$haval$91850C6487C9829E791FC5B58E98E372F3063256BB7D313A93F1F83B426AEDCC", "HAVAL"},
 	// john.pot uses lower case hex, so repeat that hash with lower case hex
 	{"$haval$91850c6487c9829e791fc5b58e98e372f3063256bb7d313a93f1f83b426aedcc", "HAVAL"},
+	{"8699f1e3384d05b2a84b032693e2b6f46df85a13a50d93808d6874bb8fb9e86c", "abc"},
+	{"$haval$8699f1e3384d05b2a84b032693e2b6f46df85a13a50d93808d6874bb8fb9e86c", "abc"},
+	{"cd43bec91c50e5f781fc50a78a3e9c8c48b407fa35a20c972178d63867dbe158", "john"},
+	{"$haval$cd43bec91c50e5f781fc50a78a3e9c8c48b407fa35a20c972178d63867dbe158", "john"},
+	{"5aa9c913463f82260071629c8ac2c54d73b3af016ffd8e8ce128558d909fab06", "passweird"},
+	{"$haval$5aa9c913463f82260071629c8ac2c54d73b3af016ffd8e8ce128558d909fab06", "passweird"},
 	{NULL}
 };
 
 static struct fmt_tests haval_128_4_tests[] = {
 	{"EE6BBF4D6A46A679B3A856C88538BB98", ""},
 	{"$haval$ee6bbf4d6a46a679b3a856c88538bb98", ""},
+	{"6f2132867c9648419adcd5013e532fa2", "abc"},
+	{"$haval$6f2132867c9648419adcd5013e532fa2", "abc"},
+	{"c98232b4ae6e7ef3235e838387111f23", "john"},
+	{"$haval$c98232b4ae6e7ef3235e838387111f23", "john"},
+	{"50683b38df349781b2ef29e7720eb730", "passweird"},
+	{"$haval$50683b38df349781b2ef29e7720eb730", "passweird"},
 	{NULL}
 };
 
@@ -180,13 +197,13 @@ static void *get_binary_128(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static int crypt_256_3(int *pcount, struct db_salt *salt)
 {
@@ -295,10 +312,11 @@ struct fmt_main fmt_haval_256_3 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
 #endif
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		{ NULL },
 		haval_256_3_tests
 	}, {
 		init,
@@ -309,9 +327,7 @@ struct fmt_main fmt_haval_256_3 = {
 		split,
 		get_binary_256,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,
@@ -360,10 +376,11 @@ struct fmt_main fmt_haval_128_4 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
 #endif
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		{ NULL },
 		haval_128_4_tests
 	}, {
 		init,
@@ -374,9 +391,7 @@ struct fmt_main fmt_haval_128_4 = {
 		split,
 		get_binary_128,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

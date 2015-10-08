@@ -16,18 +16,25 @@
 
 #include "opencl_misc.h"
 
+/* The basic MD4 functions */
 #ifdef USE_BITSELECT
 #define MD4_F(x, y, z)	bitselect((z), (y), (x))
 #else
+#if HAVE_ANDNOT
+#define MD4_F(x, y, z) ((x & y) ^ ((~x) & z))
+#else
 #define MD4_F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
+#endif
+#endif
+
+#ifdef USE_BITSELECT
+#define MD4_G(x, y, z)	bitselect((x), (y), (z) ^ (x))
+#else
+#define MD4_G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
 #endif
 
 #define MD4_H(x, y, z)	(((x) ^ (y)) ^ (z))
 #define MD4_H2(x, y, z)	((x) ^ ((y) ^ (z)))
-
-
-/* The basic MD4 functions */
-#define MD4_G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
 
 
 /* The MD4 transformation for all three rounds. */

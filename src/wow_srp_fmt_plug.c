@@ -361,13 +361,13 @@ static void *get_salt(char *ciphertext)
 	return out.b;
 }
 
-static int get_hash_0(int index)       { return crypt_out[index][0] & 0xF; }
-static int get_hash_1(int index)       { return crypt_out[index][0] & 0xFF; }
-static int get_hash_2(int index)       { return crypt_out[index][0] & 0xFFF; }
-static int get_hash_3(int index)       { return crypt_out[index][0] & 0xFFFF; }
-static int get_hash_4(int index)       { return crypt_out[index][0] & 0xFFFFF; }
-static int get_hash_5(int index)       { return crypt_out[index][0] & 0xFFFFFF; }
-static int get_hash_6(int index)       { return crypt_out[index][0] & 0x7FFFFFF; }
+static int get_hash_0(int index)       { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index)       { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index)       { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index)       { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index)       { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index)       { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index)       { return crypt_out[index][0] & PH_MASK_6; }
 
 static int salt_hash(void *salt)
 {
@@ -526,9 +526,7 @@ struct fmt_main fmt_blizzard = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -539,9 +537,7 @@ struct fmt_main fmt_blizzard = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

@@ -34,7 +34,6 @@
 #define _UNICODE
 
 char *rexgen_alphabets[256];
-static const size_t WORDSIZE=1024;
 
 static void fix_state(void) {}
 static double get_progress(void) { return -1; }
@@ -105,13 +104,14 @@ void SetupAlpha(const char *regex_alpha)
 	}
 }
 
-int do_regex_crack_as_rules(const char *regex, const char *base_word, int regex_case, const char *regex_alpha) {
+int do_regex_hybrid_crack(struct db_main *db, const char *regex, const char *base_word, int regex_case, const char *regex_alpha) {
 	c_simplestring_ptr buffer = c_simplestring_new();
 	c_iterator_ptr iter = NULL;
 	charset encoding = CHARSET_UTF8;
-	char word[WORDSIZE];
+	char word[PLAINTEXT_BUFFER_SIZE];
 	static int bFirst=1;
 	static int bALPHA=0;
+	int max_len = db->format->params.plaintext_length;
 
 	if (bFirst) {
 		bFirst = 0;
@@ -134,7 +134,9 @@ int do_regex_crack_as_rules(const char *regex, const char *base_word, int regex_
 				break;
 		}
 		*cp = 0;
-		printf ("buf=%s\n", Buf);
+#if DEBUG
+		fprintf(stderr, "buf=%s\n", Buf);
+#endif
 		if (*regex == 0)
 			regex = Buf;
 		else {
@@ -156,8 +158,8 @@ int do_regex_crack_as_rules(const char *regex, const char *base_word, int regex_
 
 	strcpy(BaseWord, base_word);
 	if (!regex[0]) {
-		if (ext_filter("")) {
-			if (crk_process_key(""))
+		if (ext_filter(fmt_null_key)) {
+			if (crk_process_key(fmt_null_key))
 				return 1;
 		}
 		return 0;
@@ -165,13 +167,14 @@ int do_regex_crack_as_rules(const char *regex, const char *base_word, int regex_
 	iter = c_regex_iterator_cb(regex, regex_case, encoding, callback);
 	if (!iter) {
 		fprintf(stderr, "Error, invalid regex expression.  John exiting now  base_word=%s  Regex= %s\n", base_word, regex);
-		exit(1);
+		error();
 	}
 	while (c_iterator_next(iter)) {
 		c_iterator_value(iter, buffer);
 		c_simplestring_to_binary_string(buffer, &word[0], sizeof(word));
 		c_simplestring_clear(buffer);
 		if (ext_filter((char*)word)) {
+			word[max_len] = 0;
 			if (crk_process_key((char*)word)) {
 				c_simplestring_delete(buffer);
 				c_iterator_delete(iter);
@@ -189,7 +192,8 @@ void do_regex_crack(struct db_main *db, const char *regex) {
 	c_iterator_ptr iter = NULL;
 	charset encoding = CHARSET_UTF8;
 	int ignore_case = 0;
-	char word[WORDSIZE];
+	char word[PLAINTEXT_BUFFER_SIZE];
+	int max_len = db->format->params.plaintext_length;
 
 	if (john_main_process)
 		fprintf(stderr, "Warning: regex mode currently can't be "
@@ -203,13 +207,14 @@ void do_regex_crack(struct db_main *db, const char *regex) {
 	iter = c_regex_iterator_cb(regex, ignore_case, encoding, callback);
 	if (!iter) {
 		fprintf(stderr, "Error, invalid regex expression.  John exiting now\n");
-		exit(1);
+		error();
 	}
 	while (c_iterator_next(iter)) {
 		c_iterator_value(iter, buffer);
 		c_simplestring_to_binary_string(buffer, &word[0], sizeof(word));
 		c_simplestring_clear(buffer);
 		if (ext_filter((char*)word)) {
+			word[max_len] = 0;
 			if (crk_process_key((char*)word))
 				break;
 		}

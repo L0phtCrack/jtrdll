@@ -914,7 +914,7 @@ char *cp_id2name(int encoding)
 		return enc_name[encoding];
 
 	fprintf(stderr, "ERROR: %s(%d)\n", __FUNCTION__, encoding);
-	exit(EXIT_FAILURE);
+	error();
 }
 
 static char *enc_macro[] = { "UNDEF", "ASCII", "CP437", "CP720", "CP737",
@@ -931,7 +931,7 @@ char *cp_id2macro(int encoding)
 		return enc_macro[encoding];
 
 	fprintf(stderr, "ERROR: %s(%d)\n", __FUNCTION__, encoding);
-	exit(EXIT_FAILURE);
+	error();
 }
 
 /* Convert encoding name to numerical ID */
@@ -1029,7 +1029,7 @@ int cp_name2id(char *encoding)
  err:
 	fprintf(stderr, "Invalid encoding. Supported encodings:\n");
 	listEncodings(stderr);
-	exit(EXIT_FAILURE);
+	error();
 }
 
 int cp_class(int encoding)
@@ -1062,11 +1062,11 @@ void initUnicode(int type) {
 	if (!pers_opts.target_enc)
 		pers_opts.target_enc = pers_opts.input_enc;
 
-	if (!pers_opts.internal_enc)
-		pers_opts.internal_enc = pers_opts.target_enc;
+	if (!pers_opts.internal_cp)
+		pers_opts.internal_cp = pers_opts.target_enc;
 
-	if (pers_opts.internal_enc != pers_opts.target_enc)
-		encoding = pers_opts.internal_enc;
+	if (pers_opts.internal_cp != pers_opts.target_enc)
+		encoding = pers_opts.internal_cp;
 	else if (pers_opts.target_enc != pers_opts.input_enc)
 		encoding = pers_opts.target_enc;
 	else
@@ -1087,7 +1087,7 @@ void initUnicode(int type) {
 		        cp_id2name(encoding), cp_id2name(pers_opts.unicode_cp));
 		fprintf(stderr, "%s -> %s -> %s\n",
 		        cp_id2name(pers_opts.input_enc),
-		        cp_id2name(pers_opts.internal_enc),
+		        cp_id2name(pers_opts.internal_cp),
 		        cp_id2name(pers_opts.target_enc));
 	}
 

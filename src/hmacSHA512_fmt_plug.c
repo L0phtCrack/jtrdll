@@ -470,21 +470,21 @@ static void *get_salt(char *ciphertext)
 #ifdef SIMD_COEF_64
 // NOTE crypt_key is in input format (4 * SHA_BUF_SIZ * SIMD_COEF_64)
 #define HASH_OFFSET (index & (SIMD_COEF_64 - 1)) + ((unsigned int)index / SIMD_COEF_64) * SIMD_COEF_64 * SHA_BUF_SIZ
-static int get_hash_0(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xf; }
-static int get_hash_1(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xff; }
-static int get_hash_2(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xfff; }
-static int get_hash_3(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xffff; }
-static int get_hash_4(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xfffff; }
-static int get_hash_5(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0xffffff; }
-static int get_hash_6(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & 0x7ffffff; }
+static int get_hash_0(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_0; }
+static int get_hash_1(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_1; }
+static int get_hash_2(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_2; }
+static int get_hash_3(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_3; }
+static int get_hash_4(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_4; }
+static int get_hash_5(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_5; }
+static int get_hash_6(int index) { return ((ARCH_WORD_64*)crypt_key)[HASH_OFFSET] & PH_MASK_6; }
 #else
-static int get_hash_0(int index) { return crypt_key[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_key[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_key[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_key[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_key[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_key[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
 #endif
 
 struct fmt_main fmt_hmacSHA512 = {
@@ -503,9 +503,7 @@ struct fmt_main fmt_hmacSHA512 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -516,9 +514,7 @@ struct fmt_main fmt_hmacSHA512 = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

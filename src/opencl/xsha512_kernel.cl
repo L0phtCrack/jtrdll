@@ -1,76 +1,48 @@
 /*
-* This software is Copyright (c) 2012 Myrice <qqlddg at gmail dot com>
-* and it is hereby released to the general public under the following terms:
-* Redistribution and use in source and binary forms, with or without modification, are permitted.
-*/
+ * This software is Copyright (c) 2012 Myrice <qqlddg at gmail dot com>
+ * and it is hereby released to the general public under the following terms:
+ * Redistribution and use in source and binary forms, with or without modification, are permitted.
+ */
 
 #include "opencl_device_info.h"
+#include "opencl_misc.h"
 
-#define uint8_t  unsigned char
-#define uint32_t unsigned int
-#define uint64_t unsigned long
-#define SALT_SIZE 0
-
-#define BINARY_SIZE 8
-#define FULL_BINARY_SIZE 64
-
-
-#define PLAINTEXT_LENGTH 20
-
-#define CIPHERTEXT_LENGTH 128
-
-#define KEYS_PER_CRYPT (1024*512)
 #define ITERATIONS 1
 
-#define MIN_KEYS_PER_CRYPT	(KEYS_PER_CRYPT)
-#define MAX_KEYS_PER_CRYPT	(ITERATIONS*KEYS_PER_CRYPT)
+#ifdef USE_BITSELECT
+#define Ch(x, y, z) bitselect(z, y, x)
+#define Maj(x, y, z) bitselect(x, y, z ^ x)
+#else
+#if HAVE_ANDNOT
+#define Ch(x, y, z) ((x & y) ^ ((~x) & z))
+#else
+#define Ch(x, y, z) (z ^ (x & (y ^ z)))
+#endif
+#define Maj(x, y, z) ((x & y) | (z & (x | y)))
+#endif /* USE_BITSELECT */
 
+#if __OS_X__ && gpu_nvidia(DEVICE_INFO)
+/* Bug workaround for OSX nvidia 10.2.7 310.41.25f01 */
+#define ror(x, n)       ((x >> n) | (x << (64 - n)))
+#else
+#define ror(x, n)       rotate(x, (ulong)(64 - n))
+#endif
 
-/// Warning: This version of SWAP64(n) is slow and avoid bugs on AMD GPUs(7970)
-#define SWAP64(n)       as_ulong(as_uchar8(n).s76543210)
-
-/*#define SWAP64(n) \
-  (((n) << 56)					\
-   | (((n) & 0xff00) << 40)			\
-   | (((n) & 0xff0000) << 24)			\
-   | (((n) & 0xff000000) << 8)			\
-   | (((n) >> 8) & 0xff000000)			\
-   | (((n) >> 24) & 0xff0000)			\
-   | (((n) >> 40) & 0xff00)			\
-   | ((n) >> 56))
-   */
-
-
-
-#define rol(x,n) ((x << n) | (x >> (64-n)))
-#define ror(x,n) ((x >> n) | (x << (64-n)))
-#define Ch(x,y,z) ((x & y) ^ ( (~x) & z))
-#define Maj(x,y,z) ((x & y) ^ (x & z) ^ (y & z))
 #define Sigma0(x) ((ror(x,28))  ^ (ror(x,34)) ^ (ror(x,39)))
 #define Sigma1(x) ((ror(x,14))  ^ (ror(x,18)) ^ (ror(x,41)))
-#define sigma0(x) ((ror(x,1))  ^ (ror(x,8)) ^(x>>7))
-#define sigma1(x) ((ror(x,19)) ^ (ror(x,61)) ^(x>>6))
-
-
+#define sigma0(x) ((ror(x,1))  ^ (ror(x,8)) ^ (x >> 7))
+#define sigma1(x) ((ror(x,19)) ^ (ror(x,61)) ^ (x >> 6))
 
 typedef struct { // notice memory align problem
 	uint64_t H[8];
 	uint32_t buffer[32];	//1024 bits
 	uint32_t buflen;
-} sha512_ctx;
+} xsha512_ctx;
 
 typedef struct {
-    uint8_t length;
-    char v[PLAINTEXT_LENGTH+1];
-} sha512_key;
-
-
-/* Macros for reading/writing chars from int32's */
-#if gpu_amd(DEVICE_INFO) || no_byte_addressable(DEVICE_INFO)
-#define PUTCHAR(buf, index, val) (buf)[(index)>>2] = ((buf)[(index)>>2] & ~(0xffU << (((index) & 3) << 3))) + ((val) << (((index) & 3) << 3))
-#else
-#define PUTCHAR(buf, index, val) ((uchar*)(buf))[(index)] = (val)
-#endif
+	uint8_t length;
+	char v[PLAINTEXT_LENGTH+1];
+} xsha512_key;
 
 __constant uint64_t k[] = {
 	0x428a2f98d728ae22UL, 0x7137449123ef65cdUL, 0xb5c0fbcfec4d3b2fUL,
@@ -115,18 +87,20 @@ __constant uint64_t k[] = {
 	    0x6c44198c4a475817UL,
 };
 
-inline void sha512(__global const char* password, uint8_t pass_len,
-	__global uint64_t* hash, uint32_t offset)
+inline void xsha512(__global const char *password, uint8_t pass_len,
+	__global uint64_t *hash, uint32_t offset, __constant uint32_t *salt)
 {
-    __private sha512_ctx ctx;
+	__private xsha512_ctx ctx;
+	uint32_t *b32 = ctx.buffer;
 
-	uint32_t* b32 = ctx.buffer;
+	//set salt to buffer
+	*b32 = *salt;
 
 	//set password to buffer
-    for (uint32_t i = 0; i < pass_len; i++) {
-		PUTCHAR(b32,i,password[i]);
+	for (uint32_t i = 0; i < pass_len; i++) {
+		PUTCHAR(b32,i+SALT_SIZE,password[i]);
 	}
-    ctx.buflen = pass_len;
+	ctx.buflen = pass_len+SALT_SIZE;
 
 	//append 1 to ctx buffer
 	uint32_t length = ctx.buflen;
@@ -135,7 +109,7 @@ inline void sha512(__global const char* password, uint8_t pass_len,
 		PUTCHAR(b32, length, 0);
 	}
 
-	uint32_t* buffer32 = b32+(length>>2);
+	uint32_t *buffer32 = b32+(length>>2);
 	for(uint32_t i = length; i < 128; i+=4) {// append 0 to 128
 		*buffer32++=0;
 	}
@@ -160,12 +134,12 @@ inline void sha512(__global const char* password, uint8_t pass_len,
 
 	uint64_t *data = (uint64_t *) ctx.buffer;
 
-	#pragma unroll 16
+#pragma unroll 16
 	for (i = 0; i < 16; i++)
 		w[i] = SWAP64(data[i]);
 
 	uint64_t t1, t2;
-	#pragma unroll 16
+#pragma unroll 16
 	for (i = 0; i < 16; i++) {
 		t1 = k[i] + w[i] + h + Sigma1(e) + Ch(e, f, g);
 		t2 = Maj(a, b, c) + Sigma0(a);
@@ -180,7 +154,7 @@ inline void sha512(__global const char* password, uint8_t pass_len,
 		a = t1 + t2;
 	}
 
-	#pragma unroll 61
+#pragma unroll 61
 	for (i = 16; i < 77; i++) {
 
 		w[i & 15] =sigma1(w[(i - 2) & 15]) + sigma0(w[(i - 15) & 15]) + w[(i -16) & 15] + w[(i - 7) & 15];
@@ -199,31 +173,35 @@ inline void sha512(__global const char* password, uint8_t pass_len,
 	hash[offset] = SWAP64(a);
 }
 
-__kernel void kernel_sha512(
-	__global const sha512_key *password,
-	__global uint64_t *hash)
+__kernel void kernel_xsha512(
+	__global const xsha512_key *password,
+	__global uint64_t *hash,
+	__constant uint32_t *salt)
 {
+	uint32_t idx = get_global_id(0);
 
-    uint32_t idx = get_global_id(0);
 	for(uint32_t it = 0; it < ITERATIONS; ++it) {
-		uint32_t offset = idx+it*KEYS_PER_CRYPT;
-	sha512(password[offset].v, password[offset].length,
-			hash, offset);
+		uint32_t offset = idx+it*get_global_size(0);
+		xsha512(password[offset].v, password[offset].length,
+		        hash, offset, salt);
 	}
 }
 
 __kernel void kernel_cmp(
-	__constant uint64_t* binary,
+	__constant uint64_t *binary,
 	__global uint64_t *hash,
-	__global uint32_t* result)
+	__global uint32_t *result)
 {
-    uint32_t idx = get_global_id(0);
+	uint32_t idx = get_global_id(0);
+
 	if(idx == 0)
 		*result = 0;
 
+	barrier(CLK_GLOBAL_MEM_FENCE);
+
 	for(uint32_t it = 0; it < ITERATIONS; ++it) {
-		uint32_t offset = idx+it*KEYS_PER_CRYPT;
-			if (*binary == hash[offset])
-				*result = 1;
+		uint32_t offset = idx+it*get_global_size(0);
+		if (*binary == hash[offset])
+			*result = 1;
 	}
 }

@@ -176,7 +176,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (strlen(ciphertext) != len)
 		return 0;
 
-	if (len != strspn(ciphertext, "0123456789abcdef"))
+	if (len != strspn(ciphertext, HEXCHARS_lc))
 		return 0;
 
 	return 1;
@@ -185,7 +185,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 static void set_key(char *key, int index)
 {
 #ifdef SIMD_COEF_32
+#if ARCH_ALLOWS_UNALIGNED
 	const ARCH_WORD_32 *wkey = (ARCH_WORD_32*)key;
+#else
+	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint32_t));
+	const ARCH_WORD_32 *wkey = (uint32_t*)(is_aligned(key, sizeof(uint32_t)) ?
+	                                       key : strcpy(buf_aligned, key));
+#endif
 	ARCH_WORD_32 *keybuf_word = (ARCH_WORD_32*)&saved_key[0][GETPOS(SALT_SIZE ^ 3, index)];
 	unsigned int len;
 	ARCH_WORD_32 temp;
@@ -355,21 +361,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 #ifdef SIMD_COEF_32
 #define HASH_IDX ((index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*5)
-static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xf; }
-static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xff; }
-static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xfff; }
-static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xffff; }
-static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xfffff; }
-static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0xffffff; }
-static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & 0x7ffffff; }
+static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_0; }
+static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_1; }
+static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_2; }
+static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_3; }
+static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_4; }
+static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_5; }
+static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_IDX] & PH_MASK_6; }
 #else
-static int get_hash_0(int index) { return crypt_key[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_key[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_key[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_key[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_key[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_key[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
 #endif
 
 static int salt_hash(void *salt)
@@ -392,10 +398,8 @@ struct fmt_main fmt_ctrxns = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -406,9 +410,7 @@ struct fmt_main fmt_ctrxns = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

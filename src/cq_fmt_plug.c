@@ -34,7 +34,7 @@ john_register_one(&fmt_cq);
 #define TAG_LENGTH           (sizeof(FORMAT_TAG) - 1)
 #define ALGORITHM_NAME      "CQWeb"
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1
+#define BENCHMARK_LENGTH    0
 #define PLAINTEXT_LENGTH    32
 #define SALT_SIZE           64  // XXX double check this
 #define SALT_ALIGN          MEM_ALIGN_NONE
@@ -42,6 +42,14 @@ john_register_one(&fmt_cq);
 #define BINARY_ALIGN        sizeof(ARCH_WORD_32)
 #define MIN_KEYS_PER_CRYPT  1
 #define MAX_KEYS_PER_CRYPT  512
+
+static struct fmt_tests cq_tests[] = {
+	{"$cq$admin$a9db7ca6", ""},
+	{"$cq$admin$10200218", "admin"},
+	{"$cq$admin$4cfb73f2", "password"},
+	{"$cq$clearquest$a279b184", "clearquest"},
+	{NULL}
+};
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static ARCH_WORD_32 (*crypt_key)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
@@ -333,19 +341,17 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
+	saved_key = mem_calloc_align(sizeof(*saved_key),
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) *
+	crypt_key = mem_calloc_align(sizeof(*crypt_key),
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
-static struct fmt_tests cq_tests[] = {
-	{"$cq$admin$a9db7ca6", ""},
-	{"$cq$admin$10200218", "admin"},
-	{"$cq$admin$4cfb73f2", "password"},
-	{"$cq$clearquest$a279b184", "clearquest"},
-	{NULL}
-};
+static void done(void)
+{
+	MEM_FREE(crypt_key);
+	MEM_FREE(saved_key);
+}
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
@@ -361,10 +367,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto Err;
 
 	p += 1;
-	if (strlen(p) != BINARY_SIZE * 2)
-		goto Err;
 
-	if (!ishex(p))
+	if (hexlenl(p)  != BINARY_SIZE * 2)
 		goto Err;
 
 	if ((p - q) >= SALT_SIZE || p <= q)
@@ -457,7 +461,7 @@ static int cmp_all(void *binary, int count)
 			return 1;
 	}
 
-	return count;
+	return 0;
 }
 
 static int cmp_one(void *binary, int index)
@@ -473,13 +477,13 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { return crypt_key[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_key[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_key[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_key[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_key[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_key[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_key[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
 
 struct fmt_main fmt_cq = {
 	{
@@ -496,23 +500,19 @@ struct fmt_main fmt_cq = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD | FMT_NOT_EXACT,
 		{ NULL },
-#endif
 		cq_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

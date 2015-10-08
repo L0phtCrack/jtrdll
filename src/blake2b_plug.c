@@ -11,7 +11,7 @@
    You should have received a copy of the CC0 Public Domain Dedication along with
    this software. If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 */
-
+#include "autoconfig.h"
 #include "john_stdint.h"
 #include <string.h>
 #include <stdio.h>
@@ -19,27 +19,7 @@
 #include "blake2.h"
 #include "blake2-impl.h"
 
-#include <emmintrin.h>
-#if defined(__SSSE3__)
-#include <tmmintrin.h>
-#endif
-#if defined(__SSE4_1__)
-#include <smmintrin.h>
-#endif
-#if defined(__AVX__)
-#include <immintrin.h>
-#endif
-#if defined(__XOP__) && !defined(_MSC_VER)
-#include <x86intrin.h>
-#endif
-#if defined(_MSC_VER)
-#include <intrin.h>
-#endif
-
-#if defined (_MSC_VER) && !defined (_M_X64)
-__m128i _mm_set_epi64x (long long a, long long b);
-__m128i _mm_set1_epi64x(long long a);
-#endif
+#include"pseudo_intrinsics.h"
 
 #include "blake2b-round.h"
 #include "memdbg.h"

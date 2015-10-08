@@ -53,7 +53,9 @@
 
 #define BF_ASM				0
 #define BF_SCALE			1
+#ifndef BF_X2
 #define BF_X2				1
+#endif
 
 #define SIMD_COEF_32		16
 #define SIMD_COEF_32x4		64
@@ -61,10 +63,10 @@
 #define SIMD_COEF_64x4		32
 
 #ifndef SIMD_PARA_MD4
-#define SIMD_PARA_MD4		1
+#define SIMD_PARA_MD4		2
 #endif
 #ifndef SIMD_PARA_MD5
-#define SIMD_PARA_MD5		1
+#define SIMD_PARA_MD5		2
 #endif
 #ifndef SIMD_PARA_SHA1
 #define SIMD_PARA_SHA1		1

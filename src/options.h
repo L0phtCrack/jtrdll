@@ -92,6 +92,16 @@
 #define FLG_TEST_CHK			0x00400000
 #define FLG_TEST_SET \
 	(FLG_TEST_CHK | FLG_CRACKING_SUP | FLG_ACTION)
+#ifdef HAVE_FUZZ
+/* Perform a fuzzing */
+#define FLG_FUZZ_CHK			0x08000000
+#define FLG_FUZZ_SET \
+	(FLG_FUZZ_CHK | FLG_CRACKING_SUP | FLG_ACTION)
+/* Dump fuzzed hashes */
+#define FLG_FUZZ_DUMP_CHK		0x40000000
+#define FLG_FUZZ_DUMP_SET \
+	(FLG_FUZZ_DUMP_CHK | FLG_CRACKING_SUP | FLG_ACTION)
+#endif
 /* Passwords per salt requested */
 #define FLG_SALTS			0x01000000
 /* Ciphertext format forced */
@@ -173,7 +183,7 @@
 #define FLG_PRINCE_LOOPBACK		0x0080000000000000ULL
 #define FLG_PRINCE_MMAP			0x0100000000000000ULL
 #define FLG_RULES_ALLOW			0x0200000000000000ULL
-#define FLG_RULES_SET			(FLG_RULES | FLG_RULES_ALLOW)
+#define FLG_REGEX_STACKED		0x0400000000000000ULL
 
 /*
  * Structure with option flags and all the parameters.
@@ -202,6 +212,14 @@ struct options_main {
 
 /* Incremental mode name or charset file name */
 	char *charset;
+
+#ifdef HAVE_FUZZ
+/* Fuzz dictionary file name */
+	char *fuzz_dic;
+
+/* Fuzz dump hashes between from and to */
+	char *fuzz_dump;
+#endif
 
 /* Mask mode's mask */
 	char *mask;
@@ -254,9 +272,12 @@ struct options_main {
 	int force_maxkeys;
 
 /* Requested MinLen (min plaintext_length) */
-	int force_minlength;
+	int req_minlength;
 
 /* Requested MaxLen (max plaintext_length) */
+	int req_maxlength;
+
+/* Forced MaxLen (we will reject candidates longer than this) */
 	int force_maxlength;
 
 /* Graceful exit after this many seconds of cracking */
@@ -297,7 +318,7 @@ struct options_main {
 /* Secure mode. Do not output, log or store cracked passwords. */
 	int secure;
 /* Mode that appended the uid to the user name (on display) */
-	int show_uid_on_crack;
+	int show_uid_in_cracks;
 /* regular expression */
 	char *regex;
 /* Custom masks */
@@ -334,7 +355,7 @@ struct pers_opts {
    do proper case conversion etc. in UTF-8, we can pick this intermediate
    encoding (use one that matches most input) but the double conversions may
    come with a speed penalty. */
-	int internal_enc;
+	int internal_cp;
 
 /* Store UTF-8 in pot file. Default is no conversion. */
 	int store_utf8;

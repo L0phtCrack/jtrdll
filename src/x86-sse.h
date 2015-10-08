@@ -22,13 +22,6 @@
 #if AC_BUILT
 #include "autoconfig.h"
 #else
-#if defined (_MSC_VER) && !defined (_OPENMP)
-#define __SSE2__
-//#define __SSSE3__
-//#define __SSE4_1__
-//#define __XOP__
-//#define __AVX__
-#endif
 #define ARCH_WORD			long
 #define ARCH_SIZE			4
 #define ARCH_BITS			32
@@ -160,7 +153,9 @@
     (defined(__GNUC__) && \
     (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2)))
 #define BF_ASM				0
+#ifndef BF_X2
 #define BF_X2				1
+#endif
 #else
 #define BF_ASM				1
 #define BF_X2				0
@@ -197,7 +192,7 @@
 #endif
 
 #ifndef SIMD_PARA_MD4
-#if defined(__INTEL_COMPILER) || defined(USING_ICC_S_FILE)
+#if defined(__INTEL_COMPILER)
 #define SIMD_PARA_MD4			3
 #elif defined(__clang__)
 #define SIMD_PARA_MD4			3
@@ -215,7 +210,7 @@
 #endif /* SIMD_PARA_MD4 */
 
 #ifndef SIMD_PARA_MD5
-#if defined(__INTEL_COMPILER) || defined(USING_ICC_S_FILE)
+#if defined(__INTEL_COMPILER)
 #define SIMD_PARA_MD5			3
 #elif defined(__clang__)
 #define SIMD_PARA_MD5			4
@@ -231,7 +226,7 @@
 #endif /* SIMD_PARA_MD5 */
 
 #ifndef SIMD_PARA_SHA1
-#if defined(__INTEL_COMPILER) || defined(USING_ICC_S_FILE)
+#if defined(__INTEL_COMPILER)
 #define SIMD_PARA_SHA1			1
 #elif defined(__clang__)
 #define SIMD_PARA_SHA1			3

@@ -124,7 +124,11 @@ inline void sha1_process( sha1_context *ctx, const uchar data[64] )
 #ifdef USE_BITSELECT
 #define F(x, y, z)	bitselect(z, y, x)
 #else
-#define F(x, y, z)	(z ^ (x & (y ^ z)))
+#if HAVE_ANDNOT
+#define F(x, y, z) ((x & y) ^ ((~x) & z))
+#else
+#define F(x, y, z) (z ^ (x & (y ^ z)))
+#endif
 #endif
 #define K 0x5A827999
 
@@ -180,7 +184,7 @@ inline void sha1_process( sha1_context *ctx, const uchar data[64] )
 #undef F
 
 #ifdef USE_BITSELECT
-#define F(x, y, z)	(bitselect(x, y, z) ^ bitselect(x, 0U, y))
+#define F(x, y, z)	bitselect(x, y, (z) ^ (x))
 #else
 #define F(x, y, z)	((x & y) | (z & (x | y)))
 #endif

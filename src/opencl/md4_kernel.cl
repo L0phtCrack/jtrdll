@@ -25,7 +25,11 @@
 #ifdef USE_BITSELECT
 #define F(x, y, z)	bitselect((z), (y), (x))
 #else
-#define F(x, y, z)	((z) ^ ((x) & ((y) ^ (z))))
+#if HAVE_ANDNOT
+#define F(x, y, z) ((x & y) ^ ((~x) & z))
+#else
+#define F(x, y, z) (z ^ (x & (y ^ z)))
+#endif
 #endif
 #define G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
 
@@ -229,7 +233,7 @@ __kernel void md4(__global uint *keys,
 		  __global
 #endif
 		  uint *int_keys
-#if USE_CONST_CACHE && gpu_amd(DEVICE_INFO)
+#if !defined(__OS_X__) && USE_CONST_CACHE && gpu_amd(DEVICE_INFO)
 		__attribute__((max_constant_size (NUM_INT_KEYS * 4)))
 #endif
 		 , __global uint *bitmaps,

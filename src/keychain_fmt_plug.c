@@ -18,6 +18,14 @@ john_register_one(&fmt_keychain);
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <openssl/des.h>
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               64
+#endif
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -26,13 +34,7 @@ john_register_one(&fmt_keychain);
 #include "options.h"
 #include "johnswap.h"
 #include "pbkdf2_hmac_sha1.h"
-#include <openssl/des.h>
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
-#endif
-#endif
+#include "jumbo.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"keychain"
@@ -92,12 +94,15 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(sizeof(*saved_key),  self->params.max_keys_per_crypt);
+	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 }
 
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(saved_key);
+}
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
@@ -108,15 +113,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 11;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
-	if(strlen(p) != SALTLEN * 2)
+	if(hexlenl(p) != SALTLEN * 2)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
-	if(strlen(p) != IVLEN * 2)
+	if(hexlenl(p) != IVLEN * 2)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
-	if(strlen(p) != CTLEN * 2)
+	if(hexlenl(p) != CTLEN * 2)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -161,7 +166,6 @@ static void set_salt(void *salt)
 static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 {
 	unsigned char out[CTLEN];
-	int pad, n, i;
 	DES_cblock key1, key2, key3;
 	DES_cblock ivec;
 	DES_key_schedule ks1, ks2, ks3;
@@ -175,18 +179,10 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 	memcpy(ivec, iv, 8);
 	DES_ede3_cbc_encrypt(data, out, CTLEN, &ks1, &ks2, &ks3, &ivec,  DES_DECRYPT);
 
-	// now check padding
-	pad = out[47];
-	if(pad > 8)
-		// "Bad padding byte. You probably have a wrong password"
+	/* possible bug here, is this assumption (pad of 4) always valid? */
+	if (out[47] != 4 || check_pkcs_pad(out, CTLEN, 8) < 0)
 		return -1;
-	if(pad != 4) /* possible bug here, is this assumption always valid? */
-		return -1;
-	n = CTLEN - pad;
-	for(i = n; i < CTLEN; i++)
-		if(out[i] != pad)
-			// "Bad padding. You probably have a wrong password"
-			return -1;
+
 	return 0;
 }
 
@@ -281,22 +277,18 @@ struct fmt_main fmt_keychain = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		keychain_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

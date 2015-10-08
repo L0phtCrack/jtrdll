@@ -22,7 +22,7 @@
  */
 
 #undef FMT_STRUCT
-#define FMT_STRUCT	fmt_plaintext
+#define FMT_STRUCT	fmt_zzz_plaintext
 
 #if FMT_EXTERNS_H
 extern struct fmt_main FMT_STRUCT;
@@ -143,78 +143,78 @@ static int binary_hash_0(void *binary)
 {
 	ARCH_WORD_32 hash = ((plaintext_binary *)binary)->hash;
 	hash ^= hash >> 8;
-	return (hash ^ (hash >> 4)) & 0xf;
+	return (hash ^ (hash >> 4)) & PH_MASK_0;
 }
 
 static int binary_hash_1(void *binary)
 {
 	ARCH_WORD_32 hash = ((plaintext_binary *)binary)->hash;
-	return (hash ^ (hash >> 8)) & 0xff;
+	return (hash ^ (hash >> 8)) & PH_MASK_1;
 }
 
 static int binary_hash_2(void *binary)
 {
 	ARCH_WORD_32 hash = ((plaintext_binary *)binary)->hash;
-	return (hash ^ (hash >> 12)) & 0xfff;
+	return (hash ^ (hash >> 12)) & PH_MASK_2;
 }
 
 static int binary_hash_3(void *binary)
 {
-	return ((plaintext_binary *)binary)->hash & 0xffff;
+	return ((plaintext_binary *)binary)->hash & PH_MASK_3;
 }
 
 static int binary_hash_4(void *binary)
 {
-	return ((plaintext_binary *)binary)->hash & 0xfffff;
+	return ((plaintext_binary *)binary)->hash & PH_MASK_4;
 }
 
 static int binary_hash_5(void *binary)
 {
-	return ((plaintext_binary *)binary)->hash & 0xffffff;
+	return ((plaintext_binary *)binary)->hash & PH_MASK_5;
 }
 
 static int binary_hash_6(void *binary)
 {
-	return ((plaintext_binary *)binary)->hash & 0x7ffffff;
+	return ((plaintext_binary *)binary)->hash & PH_MASK_6;
 }
 
 static int get_hash_0(int index)
 {
 	ARCH_WORD_32 hash = string_hash(saved_key[index]);
 	hash ^= hash >> 8;
-	return (hash ^ (hash >> 4)) & 0xf;
+	return (hash ^ (hash >> 4)) & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
 	ARCH_WORD_32 hash = string_hash(saved_key[index]);
-	return (hash ^ (hash >> 8)) & 0xff;
+	return (hash ^ (hash >> 8)) & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
 	ARCH_WORD_32 hash = string_hash(saved_key[index]);
-	return (hash ^ (hash >> 12)) & 0xfff;
+	return (hash ^ (hash >> 12)) & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return string_hash(saved_key[index]) & 0xffff;
+	return string_hash(saved_key[index]) & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return string_hash(saved_key[index]) & 0xfffff;
+	return string_hash(saved_key[index]) & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return string_hash(saved_key[index]) & 0xffffff;
+	return string_hash(saved_key[index]) & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return string_hash(saved_key[index]) & 0x7ffffff;
+	return string_hash(saved_key[index]) & PH_MASK_6;
 }
 
 static void set_key(char *key, int index)
@@ -279,9 +279,7 @@ struct fmt_main FMT_STRUCT = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		fmt_default_init,
@@ -292,9 +290,7 @@ struct fmt_main FMT_STRUCT = {
 		fmt_default_split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			binary_hash_0,

@@ -18,6 +18,11 @@ john_register_one(&fmt_dahua);
 #else
 
 #include <string.h>
+
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -60,6 +65,8 @@ static struct fmt_tests tests[] = {
 	{"$dahua$HRG6OLE6", "Do You Even Lift?"},
 	{"$dahua$sh15yfFM", "666666"},
 	{"$dahua$6QNMIQGe", "admin"},
+	{"$dahua$g2UpKxOg", "passWOrd"},
+	{"$dahua$tlJwpbo6", ""},
 	{NULL}
 };
 
@@ -128,13 +135,13 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 // from hashcat.net (alxchk)
 static void compressor(unsigned char *in, unsigned char *out)
@@ -224,10 +231,11 @@ struct fmt_main fmt_dahua = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
 #endif
+		FMT_CASE | FMT_8_BIT,
+		{ NULL },
 		tests
 	}, {
 		init,
@@ -238,9 +246,7 @@ struct fmt_main fmt_dahua = {
 		fmt_default_split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

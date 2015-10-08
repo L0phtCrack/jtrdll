@@ -13,6 +13,9 @@
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted. */
 
+#include "arch.h"
+#if !AC_BUILT || HAVE_BIO_NEW
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_sshng;
 #elif FMT_REGISTERS_H
@@ -20,7 +23,7 @@ john_register_one(&fmt_sshng);
 #else
 
 #include <string.h>
-#include <openssl/aes.h>
+#include "aes.h"
 #include <openssl/des.h>
 #include <openssl/asn1.h>
 #include <assert.h>
@@ -34,7 +37,6 @@ static int omp_t = 1;
 #endif
 #endif
 
-#include "arch.h"
 #include "jumbo.h"
 #include "common.h"
 #include "formats.h"
@@ -110,6 +112,14 @@ static void done(void)
 	MEM_FREE(saved_key);
 }
 
+static char *split(char *ciphertext, int index, struct fmt_main *self)
+{
+	static char buf[sizeof(struct custom_salt)+100];
+	strnzcpy(buf, ciphertext, sizeof(buf));
+	strlwr(buf);
+	return buf;
+}
+
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
@@ -133,9 +143,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (strlen(p) != len * 2)
-		goto err;
-	if (!ishex(p))
+	if (hexlen(p) != len * 2)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext length */
 		goto err;
@@ -144,9 +152,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	len = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext */
 		goto err;
-	if (strlen(p) / 2 != len)
-		goto err;
-	if (!ishex(p))
+	if (hexlen(p) / 2 != len)
 		goto err;
 	if (cipher == 2) {
 		if ((p = strtokm(NULL, "$")) == NULL)	/* rounds */
@@ -294,9 +300,6 @@ static inline int check_padding_only(unsigned char *out, int length)
 
 static inline int check_padding_and_structure(unsigned char *out, int length)
 {
-	int pad;
-	int i;
-	int n;
 	unsigned char output[N];
 	int ul; /* useful length */
 	unsigned char *res = NULL;
@@ -304,13 +307,8 @@ static inline int check_padding_and_structure(unsigned char *out, int length)
 	BIO * outfile;
 
 	// First check padding
-	pad = out[length - 1];
-	if(pad > 16)
+	if (check_pkcs_pad(out, length, 16) < 0)
 		return -1;
-	n = length - pad;
-	for(i = n; i < length; i++)
-		if(out[i] != pad)
-			return -1;
 
 	/* check BER decoding, private key file contains:
 	 * RSAPrivateKey = { version = 0, n, e, d, p, q, d mod p-1, d mod q-1, q**-1 mod p }
@@ -484,10 +482,8 @@ struct fmt_main fmt_sshng = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-#endif
 		sshng_tests
 	}, {
 		init,
@@ -495,12 +491,10 @@ struct fmt_main fmt_sshng = {
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
-		fmt_default_split,
+		split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash
@@ -522,3 +516,4 @@ struct fmt_main fmt_sshng = {
 };
 
 #endif /* plugin stanza */
+#endif /* HAVE_BIO_NEW */

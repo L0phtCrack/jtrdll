@@ -18,30 +18,39 @@
 #define MAX_KEYS_PER_CRYPT      1
 
 //Macros.
-#ifdef USE_BITSELECT
-	#define Ch(x,y,z)       bitselect(z, y, x)
-	#define Maj(x,y,z)      bitselect(x, y, z ^ x)
-	#define ror(x, n)       ((x >> n) | (x << (64UL-n)))
-	#define SWAP64(n)	bitselect(					    \
-				    bitselect(rotate(n, 24UL),			    \
-					rotate(n, 8UL), 0x000000FF000000FFUL),	    \
-				    bitselect(rotate(n, 56UL),			    \
-					rotate(n, 40UL), 0x00FF000000FF0000UL),	    \
-				    0xFFFF0000FFFF0000UL)
+//OSX drivers has problems digesting this SWAP64 macro.
+#if defined(USE_BITSELECT) && !__OS_X__
 
-	#define SWAP64_V(n)     SWAP64(n)
+#define Ch(x,y,z)       bitselect(z, y, x)
+#define Maj(x, y, z) bitselect(x, y, z ^ x)
+#define ror(x, n)       ((x >> n) | (x << (64UL-n)))
+#define SWAP64(n)	bitselect( \
+		bitselect(rotate(n, 24UL), \
+		          rotate(n, 8UL), 0x000000FF000000FFUL), \
+		bitselect(rotate(n, 56UL), \
+		          rotate(n, 40UL), 0x00FF000000FF0000UL), \
+		0xFFFF0000FFFF0000UL)
+
+#define SWAP64_V(n)     SWAP64(n)
+
 #else
-	#define SWAP(n) \
-            (((n)             << 56)     | (((n) & 0xff00UL)     << 40) |   \
-            (((n) & 0xff0000UL) << 24)   | (((n) & 0xff000000UL) << 8)  |   \
-            (((n) >> 8)  & 0xff000000UL) | (((n) >> 24) & 0xff0000UL)   |   \
-            (((n) >> 40) & 0xff00UL)     | ((n)  >> 56))
-	#define Ch(x,y,z)       ((x & y) ^ ( (~x) & z))
-        #define Maj(x,y,z)      ((x & y) ^ (x & z) ^ (y & z))
-        #define ror(x, n)       ((x >> n) | (x << (64UL-n)))
-        #define SWAP64(n)       SWAP(n)
-	#define SWAP64_V(n)     SWAP(n)
+
+#define SWAP(n)	  \
+	(((n)             << 56)     | (((n) & 0xff00UL)     << 40) | \
+	 (((n) & 0xff0000UL) << 24)   | (((n) & 0xff000000UL) << 8)  | \
+	 (((n) >> 8)  & 0xff000000UL) | (((n) >> 24) & 0xff0000UL)   | \
+	 (((n) >> 40) & 0xff00UL)     | ((n)  >> 56))
+#if HAVE_ANDNOT
+#define Ch(x, y, z) ((x & y) ^ ((~x) & z))
+#else
+#define Ch(x, y, z) (z ^ (x & (y ^ z)))
 #endif
+#define Maj(x, y, z) ((x & y) | (z & (x | y)))
+#define ror(x, n)       ((x >> n) | (x << (64UL-n)))
+#define SWAP64(n)       SWAP(n)
+#define SWAP64_V(n)     SWAP(n)
+#endif
+
 #define Sigma0(x)               ((ror(x,28UL)) ^ (ror(x,34UL)) ^ (ror(x,39UL)))
 #define Sigma1(x)               ((ror(x,14UL)) ^ (ror(x,18UL)) ^ (ror(x,41UL)))
 #define sigma0(x)               ((ror(x,1UL))  ^ (ror(x,8UL))  ^ (x>>7))
@@ -131,8 +140,8 @@ __constant uint64_t clear_mask[] = {
 
 #define CLEAR_BUFFER_64(dest, start) {             \
     uint32_t tmp, pos;                             \
-    tmp = (start & 7U);				   \
-    pos = (start >> 3);				   \
+    tmp = ((start) & 7U);			   \
+    pos = ((start) >> 3);			   \
     dest[pos] = dest[pos] & clear_mask[tmp];       \
     if (tmp)                                       \
         length = pos + 1;                          \
@@ -142,30 +151,30 @@ __constant uint64_t clear_mask[] = {
 
 #define CLEAR_BUFFER_64_SINGLE(dest, start) {      \
     uint32_t tmp, pos;                             \
-    tmp = (start & 7U);				   \
-    pos = (start >> 3);				   \
+    tmp = ((start) & 7U);			   \
+    pos = ((start) >> 3);			   \
     dest[pos] = dest[pos] & clear_mask[tmp];       \
 }
 
 #define APPEND_BE(dest, src, start) {              \
     uint32_t tmp, pos;                             \
-    tmp = ((start & 7U) << 3);			   \
-    pos = (start >> 3);				   \
+    tmp = (((start) & 7U) << 3);		   \
+    pos = ((start) >> 3);			   \
     dest[pos] = (dest[pos] | (src >> tmp));	   \
     dest[pos+1] = (tmp ? (src << (64U - tmp)) : 0UL);  \
 }
 
 #define APPEND_BE_SINGLE(dest, src, start) {       \
     uint32_t tmp, pos;                             \
-    tmp = ((start & 7U) << 3);                     \
-    pos = (start >> 3);                            \
+    tmp = (((start) & 7U) << 3);                   \
+    pos = ((start) >> 3);                          \
     dest[pos] = (dest[pos] | (src >> tmp));        \
 }
 
 #define APPEND_BE_SPECIAL(dest, src, index, start) {			\
     uint32_t tmp, pos, offset;						\
-    tmp = ((start & 7U) << 3);						\
-    pos = (start >> 3);							\
+    tmp = (((start) & 7U) << 3);					\
+    pos = ((start) >> 3);						\
     offset = OFFSET(index, pos);					\
     dest[offset] = (dest[offset] | (src >> tmp));			\
     if (pos < 7) {							\
@@ -177,8 +186,8 @@ __constant uint64_t clear_mask[] = {
 
 #define APPEND_BE_F(dest, src, start) {					\
     uint32_t tmp, pos;							\
-    tmp = ((start & 7U) << 3);						\
-    pos = (start >> 3);							\
+    tmp = (((start) & 7U) << 3);					\
+    pos = ((start) >> 3);						\
     dest[pos] = (dest[pos] | (src >> tmp));				\
     if (pos < 15)							\
        dest[pos+1] = (tmp ? (src << (64U - tmp)) : 0UL);		\
@@ -195,8 +204,8 @@ __constant uint64_t clear_mask[] = {
 
 #define APPEND_F(dest, src, start) {					\
     uint32_t tmp, pos;							\
-    tmp = ((start & 7U) << 3);						\
-    pos = (start >> 3);							\
+    tmp = (((start) & 7U) << 3);					\
+    pos = ((start) >> 3);						\
     dest[pos]   = (dest[pos] | (src << tmp));				\
     if (pos < 15)							\
        dest[pos+1] = (tmp ? (src >> (64U - tmp)) : 0UL);		\
@@ -204,8 +213,8 @@ __constant uint64_t clear_mask[] = {
 
 #define APPEND_SINGLE(dest, src, start) {				\
     uint32_t tmp, pos;							\
-    tmp = ((start & 7U) << 3);						\
-    pos = (start >> 3);							\
+    tmp = (((start) & 7U) << 3);					\
+    pos = ((start) >> 3);						\
     dest[pos] = (dest[pos] | (src << tmp));				\
 }
 

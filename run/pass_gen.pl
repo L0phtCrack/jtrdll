@@ -78,6 +78,7 @@ my @funcs = (qw(DESCrypt BigCrypt BSDIcrypt md5crypt md5crypt_a BCRYPT BCRYPTx
 		clipperz-srp dahua fortigate lp lastpass rawmd2 mongodb mysqlna
 		o5logon postgres pst raw-blake2 raw-keccak raw-keccak256 siemens-s7
 		raw-skein-256 raw-skein-512 ssha512 tcp-md5 strip bitcoin blockchain
+		rawsha3-512 rawsha3-224 rawsha3-256 rawsha3-384
 	      ));
 
 # todo: sapb sapfg ike keepass cloudkeychain pfx racf vnc pdf pkzip rar5 ssh raw_gost_cp cq dmg dominosec efs eigrp encfs fde gpg haval-128 Haval-256 keyring keystore krb4 krb5 krb5pa-sha1 kwallet luks pfx racf mdc2 sevenz afs ssh oldoffice openbsd-softraid openssl-enc openvms panama putty snefru-128 snefru-256 ssh-ng sxc sybase-prop tripcode vtp whirlpool0 whirlpool1
@@ -116,9 +117,9 @@ my $debug_pcode=0; my $gen_needs; my $gen_needs2; my $gen_needu; my $gen_singles
 #########################################################
 # These global vars settable by command line args.
 #########################################################
-my $arg_utf8 = 0; my $arg_codepage = ""; my $arg_minlen = 0; my $arg_maxlen = 128; my $arg_dictfile = "unknown";
+my $arg_utf8 = 0; my $arg_codepage = ""; my $arg_minlen = 0; my $arg_maxlen = 128; my $arg_dictfile = "stdin";
 my $arg_count = 1500, my $argsalt, my $argiv, my $argcontent; my $arg_nocomment = 0; my $arg_hidden_cp; my $arg_loops=-1;
-my $arg_tstall = 0; my $arg_genall = 0; my $arg_nrgenall = 0; my $argmode; my $arguser;
+my $arg_tstall = 0; my $arg_genall = 0; my $arg_nrgenall = 0; my $argmode; my $arguser; my $arg_vectors;
 
 GetOptions(
 	'codepage=s'       => \$arg_codepage,
@@ -137,6 +138,7 @@ GetOptions(
 	'tstall!'          => \$arg_tstall,
 	'genall!'          => \$arg_genall,
 	'nrgenall!'        => \$arg_nrgenall,
+	'vectors!'         => \$arg_vectors,
 	'user=s'           => \$arguser
 	) || usage();
 
@@ -186,7 +188,8 @@ $s
 
     -tstall       runs a 'simple' test for all known types.
     -genall       generates all hashes with random salts.
-    -nrgenall     gererates all hashes (non-random, repeatable)
+    -nrgenall     generates all hashes (non-random, repeatable)
+    -vectors      output in test vector source code format
 
     -help         shows this help screen.
 UsageHelp
@@ -212,9 +215,11 @@ if ($arg_utf8) {
 #if not a redirected file, prompt the user
 if (-t STDIN) {
 	print STDERR "\nEnter words to hash, one per line.\n";
-	print STDERR "When all entered ^D starts the processing.\n\n";
+	if (@ARGV != 1) { print STDERR "When all entered ^D starts the processing.\n\n"; }
 	$arg_nocomment = 1;  # we do not output 'comment' line if writing to stdout.
 }
+
+if ($arg_vectors) { $arg_nocomment = 1; }
 
 ###############################################################################################
 # modifications to character set used.  This is to get pass_gen.pl working correctly
@@ -236,7 +241,7 @@ if ($arg_genall != 0) {
 		chomp;
 		s/\r$//;  # strip CR for non-Windows
 		#my $line_len = length($_);
-		my $line_len = jtr_unicode_corrected_length($_);
+		my $line_len = utf16_len($_);
 		next if $line_len > $arg_maxlen || $line_len < $arg_minlen;
 		gen_all($_);
 	}
@@ -260,17 +265,23 @@ if (@ARGV == 1) {
 		@funcs = ();
 		push(@funcs, $arg = dynamic_compile(substr($orig_arg,8)));
 	}
+	my $have_something = 0;
 	foreach (@funcs) {
 		if ($arg eq lc $_) {
-			if (-t STDOUT) { print "\n  ** Here are the hashes for format $orig_arg **\n"; }
+			$have_something = 1;
+			if (!$arg_nocomment) {
+				print "\n  ** Here are the ";
+				print $arg_vectors ? "test vectors" : "hashes";
+				print " for format $orig_arg **\n";
+			}
+			$arg =~ s/-/_/g;
 			while (<STDIN>) {
 				next if (/^#!comment/);
 				chomp;
 				s/\r$//;  # strip CR for non-Windows
 				#my $line_len = length($_);
-				my $line_len = jtr_unicode_corrected_length($_);
+				my $line_len = utf16_len($_);
 				next if $line_len > $arg_maxlen || $line_len < $arg_minlen;
-				$arg =~ s/-/_/g;
 				reset_out_vars();
 				no strict 'refs';
 				my $hash = &$arg($_, word_encode($_));
@@ -287,6 +298,10 @@ if (@ARGV == 1) {
 			last;
 		}
 	}
+	if (!$have_something) {
+		print STDERR "hash type [$orig_arg] is not supported\n";
+		exit(1);
+	}
 } else {
 	#slurp the wordlist words from stdin.  We  have to, to be able to run the same words multiple
 	# times, and not interleave the format 'types' in the file.  Doing this allows us to group them.
@@ -300,15 +315,18 @@ if (@ARGV == 1) {
 		if (substr($arg,0,8) eq "dynamic=") {
 			push(@funcs, $arg = dynamic_compile(substr($orig_arg,8)));
 		}
+		my $have_something = 0;
 		foreach (@funcs) {
 			if ($arg eq lc $_) {
-				if (-t STDOUT) { print "\n  ** Here are the hashes for format $orig_arg **\n"; }
+				$have_something = 1;
+				if (!$arg_nocomment) { print "\n  ** Here are the hashes for format $orig_arg **\n"; }
+				$arg =~ s/-/_/g;
 				foreach (@lines) {
 					next if (/^#!comment/);
 					chomp;
 					s/\r$//;  # strip CR for non-Windows
 					#my $line_len = length($_);
-					my $line_len = jtr_unicode_corrected_length($_);
+					my $line_len = utf16_len($_);
 					next if $line_len > $arg_maxlen || $line_len < $arg_minlen;
 					reset_out_vars();
 					no strict 'refs';
@@ -322,6 +340,10 @@ if (@ARGV == 1) {
 				}
 				last;
 			}
+		}
+		if (!$have_something) {
+			print STDERR "hash type [$orig_arg] is not supported\n";
+			exit(1);
 		}
 	}
 }
@@ -349,6 +371,10 @@ sub reset_out_vars {
 sub output_hash {
 	if ($l0pht_fmt == 1) {
 		print "$_[0]:$_[1]:\n";
+		return;
+	}
+	elsif ($arg_vectors) {
+		printf("\t{\"%s\", \"%s\"},\n", $_[0], $_[1]);
 		return;
 	}
 	my $p = $_[1];
@@ -481,23 +507,16 @@ sub to_phpbyte {
 
 
 #############################################################################
-# this function is 'like' the length($s) function, BUT it has special processing
-# needed by JtR.  The only problems we are seeing, is that 4 byte utf-8 (or 5
-# byte, etc), end up requiring 4 bytes of buffer, while 3 byte utf-8 only require
-# 2 bytes. We have assumption that 1 utf8 char is 2 bytes long. So if we find
-# 4 byte characters used for a single utf8 char, then we have to say it is 2
-# characters long.  Sounds complicated, and the length is 'not' the proper
-# character length, but we have to make this choice, since the low level functions
-# in jtr do NOT know unicode, then only know bytes, AND we have to fit things
-# into proper buffer length constraints.
+# this function is 'like' the length($s) function, BUT it has special
+# processing needed for UTF-16 formats.  The problem is that 4-byte UTF-8
+# end up requiring 4 bytes of UTF-16 (using a surrogate), while up to 3-byte
+# UTF-8 only require 2 bytes. We have assumption that 1 UTF-8 char is 2 bytes
+# long. So if we find 4-byte characters used for a single UTF-8 char, then we
+# have to say it is 2 characters long.
 #############################################################################
-sub jtr_unicode_corrected_length {
+sub utf16_len {
 	my $base_len = length($_[0]);
 	if ($arg_codepage ne "UTF-8") { return $base_len; }
-	# We need to check each letter, and see if it takes 4 bytes to store. If
-	# so then we charge an extra character to that char (from 1 to 2 utf-16
-	# chars). The 1 or 2 byte characters were already handled by length(),
-	# we just have to add 'extra' characters for any 4 byte unicode chars.
 	my $final_len = $base_len;
 	for (my $i = 0; $i < $base_len; $i += 1) {
 		my $s = substr($_[0], $i, 1);
@@ -975,7 +994,6 @@ sub bsdicrypt {
 	return "_".Crypt::UnixCrypt_XS::int24_to_base64($rounds).$salt.Crypt::UnixCrypt_XS::block_to_base64($h);
 }
 sub md5crypt {
-	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
 	$salt = get_salt(8);
 	return md5crypt_hash($_[1], $salt, "\$1\$");
 }
@@ -1339,6 +1357,26 @@ sub raw_blake2 {
 	require Digest::BLAKE2;
 	import Digest::BLAKE2 qw(blake2b);
 	return "\$BLAKE2\$".unpack("H*",blake2b($_[1]));
+}
+sub rawsha3_224 {
+	require Digest::SHA3;
+	import Digest::SHA3 qw(sha3_224);
+	return unpack("H*",sha3_224($_[1]));
+}
+sub rawsha3_256 {
+	require Digest::SHA3;
+	import Digest::SHA3 qw(sha3_256);
+	return unpack("H*",sha3_256($_[1]));
+}
+sub rawsha3_384 {
+	require Digest::SHA3;
+	import Digest::SHA3 qw(sha3_384);
+	return unpack("H*",sha3_384($_[1]));
+}
+sub rawsha3_512 {
+	require Digest::SHA3;
+	import Digest::SHA3 qw(sha3_512);
+	return unpack("H*",sha3_512($_[1]));
 }
 sub raw_keccak {
 	require Digest::Keccak;
@@ -2056,13 +2094,11 @@ sub md5crypt_hash {
 	return $ret;
 }
 sub md5crypt_a {
-	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
 	$salt = get_salt(8);
 	$h = md5crypt_hash($_[1], $salt, "\$apr1\$");
 	return $h;
 }
 sub md5crypt_smd5 {
-	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
 	$salt = get_salt(8);
 	$h = md5crypt_hash($_[1], $salt, "");
 	return "{smd5}$h";
@@ -3044,13 +3080,11 @@ sub dynamic_20 { #dynamic_20 --> Cisco PIX (MD5 salted)
 	return "\$dynamic_20\$$h\$$salt";
 }
 sub dynamic_27 { #dynamic_27 --> OpenBSD MD5
-	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
 	if (defined $argsalt) { $salt = $argsalt; } else { $salt=randstr(8); }
 	$h = md5crypt_hash($_[1], $salt, "\$1\$");
 	return "\$dynamic_27\$".substr($h,15)."\$$salt";
 }
 sub dynamic_28 { # Apache MD5
-	if (length($_[1]) > 15) { print STDERR "Warning, john can only handle 15 byte passwords for this format!\n"; }
 	if (defined $argsalt) { $salt = $argsalt; } else { $salt=randstr(8); }
 	$h = md5crypt_hash($_[1], $salt, "\$apr1\$");
 	return "\$dynamic_28\$".substr($h,15)."\$$salt";
@@ -3109,7 +3143,56 @@ sub dynamic_compile {
 		my $prefmt = "num=$dynamic_args,optimize=1,format=";
 		my $fmt;
 
-		SWITCH:	{
+		if ($dynamic_args >= 50 && $dynamic_args <= 1000) {
+			my $dyna_func_which = $dynamic_args%10;
+			my $dyna_func_range = $dynamic_args-$dyna_func_which;
+			my %dyna_hashes = (
+				50=>'sha224',		60=>'sha256',		70=>'sha384',	80=>'sha512',	90=>'gost',
+				100=>'whirlpool',	110=>'tiger',		120=>'ripemd128',	130=>'ripemd160',	140=>'ripemd256',
+				150=>'ripemd320',	370=>'sha3_224',	380=>'sha3_256',	390=>'sha3_384',	400=>'sha3_512',
+				410=>'keccak_256',	420=>'keccak_512',	310=>'md2' );
+
+# NOTE, these are still part of dynamic in JtR, but may not be handled here.
+# Some may NOT be able to be done within perl.  Haval does have some Perl
+# support, but not nearly as much as john has.  Skein is the wrong version
+# perl is v1.2 and john is v1.3. John implements skein-512-224 skein-512-256
+# skein-512-384 and skein-512-512
+#dynamic_160 -->haval128_3($p)
+#dynamic_170 -->haval128_4($p)
+#dynamic_180 -->haval128_5($p)
+#dynamic_190 -->haval160_3($p)
+#dynamic_200 -->haval160_4($p)
+#dynamic_210 -->haval160_5($p)
+#dynamic_220 -->haval192_3($p)
+#dynamic_230 -->haval192_4($p)
+#dynamic_240 -->haval192_5($p)
+#dynamic_250 -->haval224_3($p)
+#dynamic_260 -->haval224_4($p)
+#dynamic_270 -->haval224_5($p)
+#dynamic_280 -->haval256_3($p)
+#dynamic_290 -->haval256_4($p)
+#dynamic_300 -->haval256_5($p)
+#dynamic_320 -->panama($p)
+#dynamic_330 -->skein224($p)
+#dynamic_340 -->skein256($p)
+#dynamic_350 -->skein384($p)
+#dynamic_360 -->skein512($p)
+			my $ht = $dyna_hashes{$dynamic_args-$dyna_func_which};
+			if (!defined($ht)) { return $func; }
+			SWITCH: {
+				$dyna_func_which==0 && do {$fmt="$ht(\$p)";							last SWITCH; };
+				$dyna_func_which==1 && do {$fmt="$ht(\$s.\$p),saltlen=6";			last SWITCH; };
+				$dyna_func_which==2 && do {$fmt="$ht(\$p.\$s)";						last SWITCH; };
+				$dyna_func_which==3 && do {$fmt="$ht($ht(\$p))";					last SWITCH; };
+				$dyna_func_which==4 && do {$fmt="$ht($ht"."_raw(\$p))";				last SWITCH; };
+				$dyna_func_which==5 && do {$fmt="$ht($ht(\$p).\$s),saltlen=6";		last SWITCH; };
+				$dyna_func_which==6 && do {$fmt="$ht(\$s.$ht(\$p)),saltlen=6";		last SWITCH; };
+				$dyna_func_which==7 && do {$fmt="$ht($ht(\$s).$ht(\$p)),saltlen=6";	last SWITCH; };
+				$dyna_func_which==8 && do {$fmt="$ht($ht(\$p).$ht(\$p))";			last SWITCH; };
+				return $func;
+			}
+		} else {
+		SWITCH: {
 			$dynamic_args==0  && do {$fmt='md5($p)';					last SWITCH; };
 			$dynamic_args==1  && do {$fmt='md5($p.$s),saltlen=32';		last SWITCH; };
 			$dynamic_args==2  && do {$fmt='md5(md5($p))';				last SWITCH; };
@@ -3140,175 +3223,76 @@ sub dynamic_compile {
 			$dynamic_args==34 && do {$fmt='md5(md4($p))';				last SWITCH; };
 			$dynamic_args==35 && do {$fmt='sha1($u.$c1.$p),usrname=uc,const1=:';	last SWITCH; };
 			$dynamic_args==36 && do {$fmt='sha1($u.$c1.$p),usrname=true,const1=:';	last SWITCH; };
-			$dynamic_args==37 && do {$fmt='sha1($u.$p),usrname=lc';		last SWITCH; };
+			$dynamic_args==37 && do {$fmt='sha1($u.$p),usrname=lc';					last SWITCH; };
 			$dynamic_args==38 && do {$fmt='sha1($s.sha1($s.sha1($p))),saltlen=20';	last SWITCH; };
-			$dynamic_args==39 && do {$fmt='md5($s.pad16($p)),saltlen=60';	last SWITCH; };
-			$dynamic_args==40 && do {$fmt='sha1($s.pad20($p)),saltlen=60';	last SWITCH; };
-			$dynamic_args==50 && do {$fmt='sha224($p)';					last SWITCH; };
-			$dynamic_args==51 && do {$fmt='sha224($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==52 && do {$fmt='sha224($p.$s)';				last SWITCH; };
-			$dynamic_args==53 && do {$fmt='sha224(sha224($p))';			last SWITCH; };
-			$dynamic_args==54 && do {$fmt='sha224(sha224_raw($p))';	    last SWITCH; };
-			$dynamic_args==55 && do {$fmt='sha224(sha224($p).$s),saltlen=6';            last SWITCH; };
-			$dynamic_args==56 && do {$fmt='sha224($s.sha224($p)),saltlen=6';            last SWITCH; };
-			$dynamic_args==57 && do {$fmt='sha224(sha224($s).sha224($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==58 && do {$fmt='sha224(sha224($p).sha224($p))';				last SWITCH; };
-			$dynamic_args==60 && do {$fmt='sha256($p)';					last SWITCH; };
-			$dynamic_args==61 && do {$fmt='sha256($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==62 && do {$fmt='sha256($p.$s)';				last SWITCH; };
-			$dynamic_args==63 && do {$fmt='sha256(sha256($p))';			last SWITCH; };
-			$dynamic_args==64 && do {$fmt='sha256(sha256_raw($p))';	    last SWITCH; };
-			$dynamic_args==65 && do {$fmt='sha256(sha256($p).$s),saltlen=6';            last SWITCH; };
-			$dynamic_args==66 && do {$fmt='sha256($s.sha256($p)),saltlen=6';            last SWITCH; };
-			$dynamic_args==67 && do {$fmt='sha256(sha256($s).sha256($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==68 && do {$fmt='sha256(sha256($p).sha256($p))';				last SWITCH; };
-			$dynamic_args==70 && do {$fmt='sha384($p)';					last SWITCH; };
-			$dynamic_args==71 && do {$fmt='sha384($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==72 && do {$fmt='sha384($p.$s)';				last SWITCH; };
-			$dynamic_args==73 && do {$fmt='sha384(sha384($p))';			last SWITCH; };
-			$dynamic_args==74 && do {$fmt='sha384(sha384_raw($p))';	    last SWITCH; };
-			$dynamic_args==75 && do {$fmt='sha384(sha384($p).$s),saltlen=6';            last SWITCH; };
-			$dynamic_args==76 && do {$fmt='sha384($s.sha384($p)),saltlen=6';            last SWITCH; };
-			$dynamic_args==77 && do {$fmt='sha384(sha384($s).sha384($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==78 && do {$fmt='sha384(sha384($p).sha384($p))';				last SWITCH; };
-			$dynamic_args==80 && do {$fmt='sha512($p)';					last SWITCH; };
-			$dynamic_args==81 && do {$fmt='sha512($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==82 && do {$fmt='sha512($p.$s)';				last SWITCH; };
-			$dynamic_args==83 && do {$fmt='sha512(sha512($p))';			last SWITCH; };
-			$dynamic_args==84 && do {$fmt='sha512(sha512_raw($p))';	    last SWITCH; };
-			$dynamic_args==85 && do {$fmt='sha512(sha512($p).$s),saltlen=6';            last SWITCH; };
-			$dynamic_args==86 && do {$fmt='sha512($s.sha512($p)),saltlen=6';            last SWITCH; };
-			$dynamic_args==87 && do {$fmt='sha512(sha512($s).sha512($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==88 && do {$fmt='sha512(sha512($p).sha512($p))';				last SWITCH; };
-			$dynamic_args==90 && do {$fmt='gost($p)';					last SWITCH; };
-			$dynamic_args==91 && do {$fmt='gost($s.$p),saltlen=6';		last SWITCH; };
-			$dynamic_args==92 && do {$fmt='gost($p.$s)';				last SWITCH; };
-			$dynamic_args==93 && do {$fmt='gost(gost($p))';			    last SWITCH; };
-			$dynamic_args==94 && do {$fmt='gost(gost_raw($p))';	        last SWITCH; };
-			$dynamic_args==95 && do {$fmt='gost(gost($p).$s),saltlen=6';        last SWITCH; };
-			$dynamic_args==96 && do {$fmt='gost($s.gost($p)),saltlen=6';        last SWITCH; };
-			$dynamic_args==97 && do {$fmt='gost(gost($s).gost($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==98 && do {$fmt='gost(gost($p).gost($p))';			last SWITCH; };
-			$dynamic_args==100 && do {$fmt='whirlpool($p)';					last SWITCH; };
-			$dynamic_args==101 && do {$fmt='whirlpool($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==102 && do {$fmt='whirlpool($p.$s)';				last SWITCH; };
-			$dynamic_args==103 && do {$fmt='whirlpool(whirlpool($p))';		last SWITCH; };
-			$dynamic_args==104 && do {$fmt='whirlpool(whirlpool_raw($p))';	last SWITCH; };
-			$dynamic_args==105 && do {$fmt='whirlpool(whirlpool($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==106 && do {$fmt='whirlpool($s.whirlpool($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==107 && do {$fmt='whirlpool(whirlpool($s).whirlpool($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==108 && do {$fmt='whirlpool(whirlpool($p).whirlpool($p))';			last SWITCH; };
-			$dynamic_args==110 && do {$fmt='tiger($p)';					last SWITCH; };
-			$dynamic_args==111 && do {$fmt='tiger($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==112 && do {$fmt='tiger($p.$s)';				last SWITCH; };
-			$dynamic_args==113 && do {$fmt='tiger(tiger($p))';		last SWITCH; };
-			$dynamic_args==114 && do {$fmt='tiger(tiger_raw($p))';	last SWITCH; };
-			$dynamic_args==115 && do {$fmt='tiger(tiger($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==116 && do {$fmt='tiger($s.tiger($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==117 && do {$fmt='tiger(tiger($s).tiger($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==118 && do {$fmt='tiger(tiger($p).tiger($p))';			last SWITCH; };
-			$dynamic_args==120 && do {$fmt='ripemd128($p)';					last SWITCH; };
-			$dynamic_args==121 && do {$fmt='ripemd128($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==122 && do {$fmt='ripemd128($p.$s)';				last SWITCH; };
-			$dynamic_args==123 && do {$fmt='ripemd128(ripemd128($p))';		last SWITCH; };
-			$dynamic_args==124 && do {$fmt='ripemd128(ripemd128_raw($p))';	last SWITCH; };
-			$dynamic_args==125 && do {$fmt='ripemd128(ripemd128($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==126 && do {$fmt='ripemd128($s.ripemd128($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==127 && do {$fmt='ripemd128(ripemd128($s).ripemd128($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==128 && do {$fmt='ripemd128(ripemd128($p).ripemd128($p))';			last SWITCH; };
-			$dynamic_args==130 && do {$fmt='ripemd160($p)';					last SWITCH; };
-			$dynamic_args==131 && do {$fmt='ripemd160($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==132 && do {$fmt='ripemd160($p.$s)';				last SWITCH; };
-			$dynamic_args==133 && do {$fmt='ripemd160(ripemd160($p))';		last SWITCH; };
-			$dynamic_args==134 && do {$fmt='ripemd160(ripemd160_raw($p))';	last SWITCH; };
-			$dynamic_args==135 && do {$fmt='ripemd160(ripemd160($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==136 && do {$fmt='ripemd160($s.ripemd160($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==137 && do {$fmt='ripemd160(ripemd160($s).ripemd160($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==138 && do {$fmt='ripemd160(ripemd160($p).ripemd160($p))';			last SWITCH; };
-			$dynamic_args==140 && do {$fmt='ripemd256($p)';					last SWITCH; };
-			$dynamic_args==141 && do {$fmt='ripemd256($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==142 && do {$fmt='ripemd256($p.$s)';				last SWITCH; };
-			$dynamic_args==143 && do {$fmt='ripemd256(ripemd256($p))';		last SWITCH; };
-			$dynamic_args==144 && do {$fmt='ripemd256(ripemd256_raw($p))';	last SWITCH; };
-			$dynamic_args==145 && do {$fmt='ripemd256(ripemd256($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==146 && do {$fmt='ripemd256($s.ripemd256($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==147 && do {$fmt='ripemd256(ripemd256($s).ripemd256($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==148 && do {$fmt='ripemd256(ripemd256($p).ripemd256($p))';			last SWITCH; };
-			$dynamic_args==150 && do {$fmt='ripemd320($p)';			last SWITCH; };
-			$dynamic_args==151 && do {$fmt='ripemd320($s.$p),saltlen=6';	last SWITCH; };
-			$dynamic_args==152 && do {$fmt='ripemd320($p.$s)';				last SWITCH; };
-			$dynamic_args==153 && do {$fmt='ripemd320(ripemd320($p))';		last SWITCH; };
-			$dynamic_args==154 && do {$fmt='ripemd320(ripemd320_raw($p))';	last SWITCH; };
-			$dynamic_args==155 && do {$fmt='ripemd320(ripemd320($p).$s),saltlen=6';				last SWITCH; };
-			$dynamic_args==156 && do {$fmt='ripemd320($s.ripemd320($p)),saltlen=6';				last SWITCH; };
-			$dynamic_args==157 && do {$fmt='ripemd320(ripemd320($s).ripemd320($p)),saltlen=6';	last SWITCH; };
-			$dynamic_args==158 && do {$fmt='ripemd320(ripemd320($p).ripemd320($p))';			last SWITCH; };
+			$dynamic_args==39 && do {$fmt='md5($s.pad16($p)),saltlen=60';			last SWITCH; };
+			$dynamic_args==40 && do {$fmt='sha1($s.pad20($p)),saltlen=60';			last SWITCH; };
 
 			# 7, 17, 19, 20, 21, 27, 28 are still handled by 'special' functions.
 
 			# since these are in dynamic.conf, and treatly 'like' builtins, we might as well put them here.
-			$dynamic_args==1001 && do {$fmt='md5(md5(md5(md5($p))))';	last SWITCH; };
-			$dynamic_args==1002 && do {$fmt='md5(md5(md5(md5(md5($p)))))';	last SWITCH; };
-			$dynamic_args==1003 && do {$fmt='md5(md5($p).md5($p))';		last SWITCH; };
-			$dynamic_args==1004 && do {$fmt='md5(md5(md5(md5(md5(md5($p))))))';	last SWITCH; };
-			$dynamic_args==1005 && do {$fmt='md5(md5(md5(md5(md5(md5(md5($p)))))))';	last SWITCH; };
+			$dynamic_args==1001 && do {$fmt='md5(md5(md5(md5($p))))';						last SWITCH; };
+			$dynamic_args==1002 && do {$fmt='md5(md5(md5(md5(md5($p)))))';					last SWITCH; };
+			$dynamic_args==1003 && do {$fmt='md5(md5($p).md5($p))';							last SWITCH; };
+			$dynamic_args==1004 && do {$fmt='md5(md5(md5(md5(md5(md5($p))))))';				last SWITCH; };
+			$dynamic_args==1005 && do {$fmt='md5(md5(md5(md5(md5(md5(md5($p)))))))';		last SWITCH; };
 			$dynamic_args==1006 && do {$fmt='md5(md5(md5(md5(md5(md5(md5(md5($p))))))))';	last SWITCH; };
-			$dynamic_args==1007 && do {$fmt='md5(md5($p).$s),saltlen=3';	last SWITCH; };
-			$dynamic_args==1008 && do {$fmt='md5($p.$s),saltlen=16';	last SWITCH; };
-			$dynamic_args==1009 && do {$fmt='md5($s.$p),saltlen=16';	last SWITCH; };
-			$dynamic_args==1010 && do {$fmt='md5(pad100($p))';	last SWITCH; };
-			$dynamic_args==1011 && do {$fmt='md5($p.md5($s)),saltlen=6';	last SWITCH; };
-			$dynamic_args==1012 && do {$fmt='md5($p.md5($s)),saltlen=6';	last SWITCH; };
-			$dynamic_args==1013 && do {$fmt='md5($p.$s),usrname=md5_hex_salt';	last SWITCH; };
-			$dynamic_args==1014 && do {$fmt='md5($p.$s),saltlen=56';	last SWITCH; };
-			$dynamic_args==1015 && do {$fmt='md5(md5($p.$u).$s),saltlen=6,username';	last SWITCH; };
-			$dynamic_args==1016 && do {$fmt='md5($p.$s),saltlen=-64';	last SWITCH; };
-			$dynamic_args==1017 && do {$fmt='md5($s.$p),saltlen=-64';	last SWITCH; };
-			$dynamic_args==1018 && do {$fmt='md5(sha1(sha1($p)))';	last SWITCH; };
-			$dynamic_args==1019 && do {$fmt='md5(sha1(sha1(md5($p))))';	last SWITCH; };
-			$dynamic_args==1020 && do {$fmt='md5(sha1(md5($p)))';	last SWITCH; };
-			$dynamic_args==1021 && do {$fmt='md5(sha1(md5(sha1($p))))';	last SWITCH; };
-			$dynamic_args==1022 && do {$fmt='md5(sha1(md5(sha1(md5($p)))))';	last SWITCH; };
-			$dynamic_args==1023 && do {$fmt='trunc32(sha1($p))';	last SWITCH; };
-			$dynamic_args==1024 && do {$fmt='trunc32(sha1(md5($p)))';	last SWITCH; };
-			$dynamic_args==1025 && do {$fmt='trunc32(sha1(md5(md5($p))))';	last SWITCH; };
-			$dynamic_args==1026 && do {$fmt='trunc32(sha1(sha1($p)))';	last SWITCH; };
-			$dynamic_args==1027 && do {$fmt='trunc32(sha1(sha1(sha1($p))))';	last SWITCH; };
-			$dynamic_args==1028 && do {$fmt='trunc32(sha1(sha1_raw($p)))';	last SWITCH; };
-			$dynamic_args==1029 && do {$fmt='trunc32(sha256($p))';	last SWITCH; };
-			$dynamic_args==1030 && do {$fmt='trunc32(whirlpool($p))';	last SWITCH; };
-			$dynamic_args==1031 && do {$fmt='trunc32(gost($p))';	last SWITCH; };
-			$dynamic_args==1032 && do {$fmt='sha1_64(utf16($p))';	last SWITCH; };
-			$dynamic_args==1033 && do {$fmt='sha1_64(utf16($p).$s)';	last SWITCH; };
-			$dynamic_args==1300 && do {$fmt='md5(md5_raw($p))';	last SWITCH; };
+			$dynamic_args==1007 && do {$fmt='md5(md5($p).$s),saltlen=3';					last SWITCH; };
+			$dynamic_args==1008 && do {$fmt='md5($p.$s),saltlen=16';						last SWITCH; };
+			$dynamic_args==1009 && do {$fmt='md5($s.$p),saltlen=16';						last SWITCH; };
+			$dynamic_args==1010 && do {$fmt='md5(pad100($p))';								last SWITCH; };
+			$dynamic_args==1011 && do {$fmt='md5($p.md5($s)),saltlen=6';					last SWITCH; };
+			$dynamic_args==1012 && do {$fmt='md5($p.md5($s)),saltlen=6';					last SWITCH; };
+			$dynamic_args==1013 && do {$fmt='md5($p.$s),usrname=md5_hex_salt';				last SWITCH; };
+			$dynamic_args==1014 && do {$fmt='md5($p.$s),saltlen=56';						last SWITCH; };
+			$dynamic_args==1015 && do {$fmt='md5(md5($p.$u).$s),saltlen=6,username';		last SWITCH; };
+			$dynamic_args==1016 && do {$fmt='md5($p.$s),saltlen=-64';						last SWITCH; };
+			$dynamic_args==1017 && do {$fmt='md5($s.$p),saltlen=-64';						last SWITCH; };
+			$dynamic_args==1018 && do {$fmt='md5(sha1(sha1($p)))';							last SWITCH; };
+			$dynamic_args==1019 && do {$fmt='md5(sha1(sha1(md5($p))))';						last SWITCH; };
+			$dynamic_args==1020 && do {$fmt='md5(sha1(md5($p)))';							last SWITCH; };
+			$dynamic_args==1021 && do {$fmt='md5(sha1(md5(sha1($p))))';						last SWITCH; };
+			$dynamic_args==1022 && do {$fmt='md5(sha1(md5(sha1(md5($p)))))';				last SWITCH; };
+			$dynamic_args==1023 && do {$fmt='trunc32(sha1($p))';							last SWITCH; };
+			$dynamic_args==1024 && do {$fmt='trunc32(sha1(md5($p)))';						last SWITCH; };
+			$dynamic_args==1025 && do {$fmt='trunc32(sha1(md5(md5($p))))';					last SWITCH; };
+			$dynamic_args==1026 && do {$fmt='trunc32(sha1(sha1($p)))';						last SWITCH; };
+			$dynamic_args==1027 && do {$fmt='trunc32(sha1(sha1(sha1($p))))';				last SWITCH; };
+			$dynamic_args==1028 && do {$fmt='trunc32(sha1(sha1_raw($p)))';					last SWITCH; };
+			$dynamic_args==1029 && do {$fmt='trunc32(sha256($p))';							last SWITCH; };
+			$dynamic_args==1030 && do {$fmt='trunc32(whirlpool($p))';						last SWITCH; };
+			$dynamic_args==1031 && do {$fmt='trunc32(gost($p))';							last SWITCH; };
+			$dynamic_args==1032 && do {$fmt='sha1_64(utf16($p))';							last SWITCH; };
+			$dynamic_args==1033 && do {$fmt='sha1_64(utf16($p).$s)';						last SWITCH; };
+			$dynamic_args==1300 && do {$fmt='md5(md5_raw($p))';								last SWITCH; };
 			$dynamic_args==1350 && do {$fmt='md5(md5($s.$p).$c1.$s),saltlen=2,const1=:';	last SWITCH; };
-			$dynamic_args==1400 && do {$fmt='sha1(utf16($p))';	last SWITCH; };
+			$dynamic_args==1400 && do {$fmt='sha1(utf16($p))';								last SWITCH; };
 			$dynamic_args==1401 && do {$fmt='md5_40($u.$c1.$p),const1='."\n".'skyper'."\n,usrname=true";	last SWITCH; };
-			$dynamic_args==1501 && do {$fmt='sha1($s.sha1($p)),saltlen=32';	last SWITCH; };
-			$dynamic_args==1502 && do {$fmt='sha1(sha1($p).$s),saltlen=-32';	last SWITCH; };
-			$dynamic_args==1503 && do {$fmt='sha256(sha256($p).$s),saltlen=64';	last SWITCH; };
-			$dynamic_args==1504 && do {$fmt='sha1($s.$p.$s)';	last SWITCH; };
-			$dynamic_args==1505 && do {$fmt='md5($p.$s.md5($p.$s)),saltlen=-64';	last SWITCH; };
-			$dynamic_args==1506 && do {$fmt='md5($u.$c1.$p),const1=:XDB:,usrname=true';	last SWITCH; };
+			$dynamic_args==1501 && do {$fmt='sha1($s.sha1($p)),saltlen=32';					last SWITCH; };
+			$dynamic_args==1502 && do {$fmt='sha1(sha1($p).$s),saltlen=-32';				last SWITCH; };
+			$dynamic_args==1503 && do {$fmt='sha256(sha256($p).$s),saltlen=64';				last SWITCH; };
+			$dynamic_args==1504 && do {$fmt='sha1($s.$p.$s)';								last SWITCH; };
+			$dynamic_args==1505 && do {$fmt='md5($p.$s.md5($p.$s)),saltlen=-64';			last SWITCH; };
+			$dynamic_args==1506 && do {$fmt='md5($u.$c1.$p),const1=:XDB:,usrname=true';		last SWITCH; };
 			$dynamic_args==1588 && do {$fmt='SHA256($s.SHA1($p)),saltlen=64,salt=asHEX64';	last SWITCH; };
-			$dynamic_args==2000 && do {$fmt='md5($p)';					last SWITCH; };
-			$dynamic_args==2001 && do {$fmt='md5($p.$s),saltlen=32';	last SWITCH; };
-			$dynamic_args==2002 && do {$fmt='md5(md5($p))';				last SWITCH; };
-			$dynamic_args==2003 && do {$fmt='md5(md5(md5($p)))';		last SWITCH; };
-			$dynamic_args==2004 && do {$fmt='md5($s.$p),saltlen=2';		last SWITCH; };
-			$dynamic_args==2005 && do {$fmt='md5($s.$p.$s)';			last SWITCH; };
-			$dynamic_args==2006 && do {$fmt='md5(md5($p).$s)';			last SWITCH; };
-			$dynamic_args==2008 && do {$fmt='md5(md5($s).$p)';			last SWITCH; };
-			$dynamic_args==2009 && do {$fmt='md5($s.md5($p))';			last SWITCH; };
-			$dynamic_args==2010 && do {$fmt='md5($s.md5($s.$p))';		last SWITCH; };
-			$dynamic_args==2011 && do {$fmt='md5($s.md5($p.$s))';		last SWITCH; };
-			$dynamic_args==2014 && do {$fmt='md5($s.md5($p).$s)';		last SWITCH; };
+			$dynamic_args==2000 && do {$fmt='md5($p)';										last SWITCH; };
+			$dynamic_args==2001 && do {$fmt='md5($p.$s),saltlen=32';						last SWITCH; };
+			$dynamic_args==2002 && do {$fmt='md5(md5($p))';									last SWITCH; };
+			$dynamic_args==2003 && do {$fmt='md5(md5(md5($p)))';							last SWITCH; };
+			$dynamic_args==2004 && do {$fmt='md5($s.$p),saltlen=2';							last SWITCH; };
+			$dynamic_args==2005 && do {$fmt='md5($s.$p.$s)';								last SWITCH; };
+			$dynamic_args==2006 && do {$fmt='md5(md5($p).$s)';								last SWITCH; };
+			$dynamic_args==2008 && do {$fmt='md5(md5($s).$p)';								last SWITCH; };
+			$dynamic_args==2009 && do {$fmt='md5($s.md5($p))';								last SWITCH; };
+			$dynamic_args==2010 && do {$fmt='md5($s.md5($s.$p))';							last SWITCH; };
+			$dynamic_args==2011 && do {$fmt='md5($s.md5($p.$s))';							last SWITCH; };
+			$dynamic_args==2014 && do {$fmt='md5($s.md5($p).$s)';							last SWITCH; };
 
 			return $func;
 		}
+		}
 		# allow the generic compiler to handle these types.
 		$dynamic_args = $prefmt.$fmt;
-
 	}
 
 	# now compile.
@@ -3356,6 +3340,13 @@ sub do_dynamic_GetToken {
 	if (substr($exprStr, 0,10) eq "sha256_raw") { return dyna_addtok("f256r", substr($exprStr,10)); }
 	if (substr($exprStr, 0,10) eq "sha384_raw") { return dyna_addtok("f384r", substr($exprStr,10)); }
 	if (substr($exprStr, 0,10) eq "sha512_raw") { return dyna_addtok("f512r", substr($exprStr,10)); }
+	if (substr($exprStr, 0,12) eq "sha3_224_raw") { return dyna_addtok("fsha3_224r", substr($exprStr,12)); }
+	if (substr($exprStr, 0,12) eq "sha3_256_raw") { return dyna_addtok("fsha3_256r", substr($exprStr,12)); }
+	if (substr($exprStr, 0,12) eq "sha3_384_raw") { return dyna_addtok("fsha3_384r", substr($exprStr,12)); }
+	if (substr($exprStr, 0,12) eq "sha3_512_raw") { return dyna_addtok("fsha3_512r", substr($exprStr,12)); }
+	if (substr($exprStr, 0,14) eq "keccak_256_raw") { return dyna_addtok("fkeccak_256r", substr($exprStr,14)); }
+	if (substr($exprStr, 0,14) eq "keccak_512_raw") { return dyna_addtok("fkeccak_512r", substr($exprStr,14)); }
+	if (substr($exprStr, 0, 7) eq "md2_raw") { return dyna_addtok("fmd2r", substr($exprStr, 7)); }
 	if (substr($exprStr, 0, 8) eq "gost_raw")   { return dyna_addtok("fgostr",substr($exprStr, 8)); }
 	if (substr($exprStr, 0,13) eq "whirlpool_raw") { return dyna_addtok("fwrlpr", substr($exprStr, 13)); }
 	if (substr($exprStr, 0, 9) eq "tiger_raw")     { return dyna_addtok("ftigr", substr($exprStr, 9)); }
@@ -3401,6 +3392,23 @@ sub do_dynamic_GetToken {
 		if (substr($exprStr, 0, 9) eq "sha512_64") { return dyna_addtok("f5126", substr($exprStr, 9)); }
 		if (substr($exprStr, 0, 6) eq "SHA512")    { return dyna_addtok("f512H", substr($exprStr, 6)); }
 		if (substr($exprStr, 0, 6) eq "sha512")    { return dyna_addtok("f512h", substr($exprStr, 6)); }
+		if (substr($exprStr, 0,12) eq "sha3_224_64c"){ return dyna_addtok("fsha3_224c", substr($exprStr, 12)); }
+		if (substr($exprStr, 0,11) eq "sha3_224_64") { return dyna_addtok("fsha3_2246", substr($exprStr, 11)); }
+		if (substr($exprStr, 0, 8) eq "SHA3_224")    { return dyna_addtok("fsha3_224H", substr($exprStr, 8)); }
+		if (substr($exprStr, 0, 8) eq "sha3_224")    { return dyna_addtok("fsha3_224h", substr($exprStr, 8)); }
+		if (substr($exprStr, 0,12) eq "sha3_256_64c"){ return dyna_addtok("fsha3_256c", substr($exprStr, 12)); }
+		if (substr($exprStr, 0,11) eq "sha3_256_64") { return dyna_addtok("fsha3_2566", substr($exprStr, 11)); }
+		if (substr($exprStr, 0, 8) eq "SHA3_256")    { return dyna_addtok("fsha3_256H", substr($exprStr, 8)); }
+		if (substr($exprStr, 0, 8) eq "sha3_256")    { return dyna_addtok("fsha3_256h", substr($exprStr, 8)); }
+		if (substr($exprStr, 0,12) eq "sha3_384_64c"){ return dyna_addtok("fsha3_384c", substr($exprStr, 12)); }
+		if (substr($exprStr, 0,11) eq "sha3_384_64") { return dyna_addtok("fsha3_3846", substr($exprStr, 11)); }
+		if (substr($exprStr, 0, 8) eq "SHA3_384")    { return dyna_addtok("fsha3_384H", substr($exprStr, 8)); }
+		if (substr($exprStr, 0, 8) eq "sha3_384")    { return dyna_addtok("fsha3_384h", substr($exprStr, 8)); }
+		if (substr($exprStr, 0,12) eq "sha3_512_64c"){ return dyna_addtok("fsha3_512c", substr($exprStr, 12)); }
+		if (substr($exprStr, 0,11) eq "sha3_512_64") { return dyna_addtok("fsha3_5126", substr($exprStr, 11)); }
+		if (substr($exprStr, 0, 8) eq "SHA3_512")    { return dyna_addtok("fsha3_512H", substr($exprStr, 8)); }
+		if (substr($exprStr, 0, 8) eq "sha3_512")    { return dyna_addtok("fsha3_512h", substr($exprStr, 8)); }
+
 	} elsif ($stmp eq "MD4") {
 		if (substr($exprStr, 0, 7) eq "md4_64c")   { return dyna_addtok("f4c", substr($exprStr, 7)); }
 		if (substr($exprStr, 0, 6) eq "md4_64")    { return dyna_addtok("f46", substr($exprStr, 6)); }
@@ -3445,6 +3453,20 @@ sub do_dynamic_GetToken {
 		if (substr($exprStr, 0, 8) eq "haval256")      { return dyna_addtok("fhavh", substr($exprStr, 8)); }
 	} elsif ($stmp eq "TRU") {
 		if (substr($exprStr, 0,7) eq "trunc32")  { return dyna_addtok("ftr32", substr($exprStr, 7)); }
+	} elsif ($stmp eq "KEC") {
+		if (substr($exprStr, 0,14) eq "keccak_256_64c"){ return dyna_addtok("fkeccak_256c", substr($exprStr, 14)); }
+		if (substr($exprStr, 0,13) eq "keccak_256_64") { return dyna_addtok("fkeccak_2566", substr($exprStr, 13)); }
+		if (substr($exprStr, 0,10) eq "KECCAK_256")    { return dyna_addtok("fkeccak_256H", substr($exprStr, 10)); }
+		if (substr($exprStr, 0,10) eq "keccak_256")    { return dyna_addtok("fkeccak_256h", substr($exprStr, 10)); }
+		if (substr($exprStr, 0,14) eq "keccak_512_64c"){ return dyna_addtok("fkeccak_512c", substr($exprStr, 14)); }
+		if (substr($exprStr, 0,13) eq "keccak_512_64") { return dyna_addtok("fkeccak_5126", substr($exprStr, 13)); }
+		if (substr($exprStr, 0,10) eq "KECCAK_512")    { return dyna_addtok("fkeccak_512H", substr($exprStr, 10)); }
+		if (substr($exprStr, 0,10) eq "keccak_512")    { return dyna_addtok("fkeccak_512h", substr($exprStr, 10)); }
+	}  elsif ($stmp eq "MD2") {
+		if (substr($exprStr, 0, 7) eq "md2_64c")   { return dyna_addtok("fmd2c", substr($exprStr, 7)); }
+		if (substr($exprStr, 0, 6) eq "md2_64")    { return dyna_addtok("fmd26", substr($exprStr, 6)); }
+		if (substr($exprStr, 0, 3) eq "md2")       { return dyna_addtok("fmd2h", substr($exprStr, 3)); }
+		if (substr($exprStr, 0, 3) eq "MD2")       { return dyna_addtok("fmd2H", substr($exprStr, 3)); }
 	}
 
 	$gen_lastTokIsFunc=0;
@@ -3464,9 +3486,10 @@ sub do_dynamic_LexiError {
 sub do_dynamic_Lexi {
 	# tokenizes the string, and syntax validates that it IS valid.
 	@gen_toks=();
+
 	my $fmt = do_dynamic_GetToken($hash_format);
 	if ($gen_lastTokIsFunc!=1) {
-		print STDERR "The expression MUST start with an md5/md4/sha1 type function.  This one starts with: $_[0]\n";  die;
+		print STDERR "The expression MUST start with a 'known' md5/md4/sha1 type function.\n";  die;
 	}
 	my $paren = 0;
 	while ($gen_toks[@gen_toks - 1] ne "X") {
@@ -3941,3 +3964,39 @@ sub dynamic_fpad100{ $h = pop @gen_Stack; $h = pad100($h); $gen_Stack[@gen_Stack
 sub dynamic_fpadmd64 { $h = pop @gen_Stack; $h = pad_md64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_futf16  { $h = pop @gen_Stack; $h = encode("UTF-16LE",$h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
 sub dynamic_futf16be{ $h = pop @gen_Stack; $h = encode("UTF-16BE",$h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+
+sub dynamic_fsha3_224h  { require Digest::SHA3; import Digest::SHA3 qw(sha3_224_hex);     $h = pop @gen_Stack; $h = sha3_224_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_224H  { require Digest::SHA3; import Digest::SHA3 qw(sha3_224_hex);     $h = pop @gen_Stack; $h = uc sha3_224_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_2246  { require Digest::SHA3; import Digest::SHA3 qw(sha3_224_base64);  $h = pop @gen_Stack; $h = sha3_224_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_224c  { require Digest::SHA3; import Digest::SHA3 qw(sha3_224);         $h = pop @gen_Stack; $h = base64_wpa(sha3_224($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_224r  { require Digest::SHA3; import Digest::SHA3 qw(sha3_224);         $h = pop @gen_Stack; $h = sha3_224($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_256h  { require Digest::SHA3; import Digest::SHA3 qw(sha3_256_hex);     $h = pop @gen_Stack; $h = sha3_256_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_256H  { require Digest::SHA3; import Digest::SHA3 qw(sha3_256_hex);     $h = pop @gen_Stack; $h = uc sha3_256_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_2566  { require Digest::SHA3; import Digest::SHA3 qw(sha3_256_base64);  $h = pop @gen_Stack; $h = sha3_256_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_256c  { require Digest::SHA3; import Digest::SHA3 qw(sha3_256);         $h = pop @gen_Stack; $h = base64_wpa(sha3_256($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_256r  { require Digest::SHA3; import Digest::SHA3 qw(sha3_256);         $h = pop @gen_Stack; $h = sha3_256($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_384h  { require Digest::SHA3; import Digest::SHA3 qw(sha3_384_hex);     $h = pop @gen_Stack; $h = sha3_384_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_384H  { require Digest::SHA3; import Digest::SHA3 qw(sha3_384_hex);     $h = pop @gen_Stack; $h = uc sha3_384_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_3846  { require Digest::SHA3; import Digest::SHA3 qw(sha3_384_base64);  $h = pop @gen_Stack; $h = sha3_384_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_384c  { require Digest::SHA3; import Digest::SHA3 qw(sha3_384);         $h = pop @gen_Stack; $h = base64_wpa(sha3_384($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_384r  { require Digest::SHA3; import Digest::SHA3 qw(sha3_384);         $h = pop @gen_Stack; $h = sha3_384($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_512h  { require Digest::SHA3; import Digest::SHA3 qw(sha3_512_hex);     $h = pop @gen_Stack; $h = sha3_512_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_512H  { require Digest::SHA3; import Digest::SHA3 qw(sha3_512_hex);     $h = pop @gen_Stack; $h = uc sha3_512_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_5126  { require Digest::SHA3; import Digest::SHA3 qw(sha3_512_base64);  $h = pop @gen_Stack; $h = sha3_512_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_512c  { require Digest::SHA3; import Digest::SHA3 qw(sha3_512);         $h = pop @gen_Stack; $h = base64_wpa(sha3_512($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fsha3_512r  { require Digest::SHA3; import Digest::SHA3 qw(sha3_512);         $h = pop @gen_Stack; $h = sha3_512($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_256h  { require Digest::Keccak; import Digest::Keccak qw(keccak_256_hex);     $h = pop @gen_Stack; $h = keccak_256_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_256H  { require Digest::Keccak; import Digest::Keccak qw(keccak_256_hex);     $h = pop @gen_Stack; $h = uc keccak_256_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_2566  { require Digest::Keccak; import Digest::Keccak qw(keccak_256_base64);  $h = pop @gen_Stack; $h = keccak_256_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_256c  { require Digest::Keccak; import Digest::Keccak qw(keccak_256);         $h = pop @gen_Stack; $h = base64_wpa(keccak_256($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_256r  { require Digest::Keccak; import Digest::Keccak qw(keccak_256);         $h = pop @gen_Stack; $h = keccak_256($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_512h  { require Digest::Keccak; import Digest::Keccak qw(keccak_512_hex);     $h = pop @gen_Stack; $h = keccak_512_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_512H  { require Digest::Keccak; import Digest::Keccak qw(keccak_512_hex);     $h = pop @gen_Stack; $h = uc keccak_512_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_5126  { require Digest::Keccak; import Digest::Keccak qw(keccak_512_base64);  $h = pop @gen_Stack; $h = keccak_512_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_512c  { require Digest::Keccak; import Digest::Keccak qw(keccak_512);         $h = pop @gen_Stack; $h = base64_wpa(keccak_512($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fkeccak_512r  { require Digest::Keccak; import Digest::Keccak qw(keccak_512);         $h = pop @gen_Stack; $h = keccak_512($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fmd2h  { require Digest::MD2; import Digest::MD2 qw(md2_hex);     $h = pop @gen_Stack; $h = md2_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fmd2H  { require Digest::MD2; import Digest::MD2 qw(md2_hex);     $h = pop @gen_Stack; $h = uc md2_hex($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fmd26  { require Digest::MD2; import Digest::MD2 qw(md2_base64);  $h = pop @gen_Stack; $h = md2_base64($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fmd2c  { require Digest::MD2; import Digest::MD2 qw(md2);         $h = pop @gen_Stack; $h = base64_wpa(md2($h)); $gen_Stack[@gen_Stack-1] .= $h; return $h; }
+sub dynamic_fmd2r  { require Digest::MD2; import Digest::MD2 qw(md2);         $h = pop @gen_Stack; $h = md2($h); $gen_Stack[@gen_Stack-1] .= $h; return $h; }

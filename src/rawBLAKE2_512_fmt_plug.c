@@ -20,6 +20,10 @@ john_register_one(&fmt_rawBLAKE2);
 #include "formats.h"
 #include <string.h>
 
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+
 #ifdef _OPENMP
 #ifndef OMP_SCALE
 #define OMP_SCALE			2048
@@ -67,6 +71,8 @@ static struct fmt_tests tests[] = {
 	/* test vectors from Wikipedia */
 	{"$BLAKE2$a8add4bdddfd93e4877d2746e62817b116364a1fa7bc148d95090bc7333b3673f82401cf7aa2e4cb1ecd90296e3f14cb5413f8ed77be73045b13914cdcd6a918", "The quick brown fox jumps over the lazy dog"},
 	{"$BLAKE2$786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce", ""},
+	{"$BLAKE2$da40d8f48e9e7560c56e2b92205aed6342a276994ca0287ea4f8c1423ef07d519ecb4bf8668c118379a36be8aa6c077bbc6213fa81fbb332fad9d8a19a7756e6", "UPPERCASE"},
+	{"$BLAKE2$f5ab8bafa6f2f72b431188ac38ae2de7bb618fb3d38b6cbf639defcdd5e10a86b22fccff571da37e42b23b80b657ee4d936478f582280a87d6dbb1da73f5c47d", "123456789"},
 	{NULL}
 };
 
@@ -148,37 +154,37 @@ static void *get_binary(char *ciphertext)
 
 static int get_hash_0(int index)
 {
-	return crypt_out[index][0] & 0xF;
+	return crypt_out[index][0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return crypt_out[index][0] & 0xFF;
+	return crypt_out[index][0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return crypt_out[index][0] & 0xFFF;
+	return crypt_out[index][0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return crypt_out[index][0] & 0xFFFF;
+	return crypt_out[index][0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return crypt_out[index][0] & 0xFFFFF;
+	return crypt_out[index][0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return crypt_out[index][0] & 0xFFFFFF;
+	return crypt_out[index][0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return crypt_out[index][0] & 0x7FFFFFF;
+	return crypt_out[index][0] & PH_MASK_6;
 }
 
 static void set_key(char *key, int index)
@@ -247,10 +253,11 @@ struct fmt_main fmt_rawBLAKE2 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
 #endif
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		{ NULL },
 		tests
 	}, {
 		init,
@@ -261,9 +268,7 @@ struct fmt_main fmt_rawBLAKE2 = {
 		split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

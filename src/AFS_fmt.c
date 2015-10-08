@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2001,2012 by Solar Designer
+ * Copyright (c) 1996-2001,2012,2015 by Solar Designer
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -129,11 +129,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if (strncmp(ciphertext, "$K4$", 4)) return 0;
 
-	for (pos = &ciphertext[4]; atoi16[ARCH_INDEX(*pos)] != 0x7F; pos++);
+	for (pos = &ciphertext[4]; atoi16l[ARCH_INDEX(*pos)] != 0x7F; pos++);
 	if (*pos != ',' || pos - ciphertext != CIPHERTEXT_LENGTH) return 0;
 
 	for (index = 0; index < 16; index += 2) {
-		value = (int)atoi16[ARCH_INDEX(ciphertext[index + 4])] << 4;
+		value = atoi16[ARCH_INDEX(ciphertext[index + 4])] << 4;
 		value |= atoi16[ARCH_INDEX(ciphertext[index + 5])];
 
 		count = 0;
@@ -161,7 +161,7 @@ static void *get_binary(char *ciphertext)
 	known_long = 0;
 
 	for (index = 0; index < 16; index += 2) {
-		value = (int)atoi16[ARCH_INDEX(ciphertext[index + 4])] << 4;
+		value = atoi16[ARCH_INDEX(ciphertext[index + 4])] << 4;
 		value |= atoi16[ARCH_INDEX(ciphertext[index + 5])];
 
 		out[index >> 3] |= (value | 1) << ((index << 2) & 0x18);
@@ -193,7 +193,7 @@ static void *salt(char *ciphertext)
 static int binary_hash_0(void *binary)
 {
 	if (((ARCH_WORD *)binary)[2] == ~(ARCH_WORD)0)
-		return *(ARCH_WORD *)binary & 0xF;
+		return *(ARCH_WORD *)binary & PH_MASK_0;
 
 	return DES_STD_HASH_0(((ARCH_WORD *)binary)[2]);
 }
@@ -201,7 +201,7 @@ static int binary_hash_0(void *binary)
 static int binary_hash_1(void *binary)
 {
 	if (((ARCH_WORD *)binary)[2] == ~(ARCH_WORD)0)
-		return *(ARCH_WORD *)binary & 0xFF;
+		return *(ARCH_WORD *)binary & PH_MASK_1;
 
 	return DES_STD_HASH_1(((ARCH_WORD *)binary)[2]);
 }
@@ -209,7 +209,7 @@ static int binary_hash_1(void *binary)
 static int binary_hash_2(void *binary)
 {
 	if (((ARCH_WORD *)binary)[2] == ~(ARCH_WORD)0)
-		return *(ARCH_WORD *)binary & 0xFFF;
+		return *(ARCH_WORD *)binary & PH_MASK_2;
 
 	return DES_STD_HASH_2(((ARCH_WORD *)binary)[2]);
 }
@@ -241,7 +241,7 @@ static int get_hash_0(int index)
 
 	if (buffer[index].is_long) {
 		if ((binary = to_short_hash(index)) == ~(ARCH_WORD)0)
-			return buffer[index].aligned.binary[0] & 0xF;
+			return buffer[index].aligned.binary[0] & PH_MASK_0;
 	} else
 		binary = buffer[index].aligned.binary[0] & AFS_BINARY_MASK;
 	return DES_STD_HASH_0(binary);
@@ -253,7 +253,7 @@ static int get_hash_1(int index)
 
 	if (buffer[index].is_long) {
 		if ((binary = to_short_hash(index)) == ~(ARCH_WORD)0)
-			return buffer[index].aligned.binary[0] & 0xFF;
+			return buffer[index].aligned.binary[0] & PH_MASK_1;
 	} else
 		binary = buffer[index].aligned.binary[0] & AFS_BINARY_MASK;
 	return DES_STD_HASH_1(binary);
@@ -265,7 +265,7 @@ static int get_hash_2(int index)
 
 	if (buffer[index].is_long) {
 		if ((binary = to_short_hash(index)) == ~(ARCH_WORD)0)
-			return buffer[index].aligned.binary[0] & 0xFFF;
+			return buffer[index].aligned.binary[0] & PH_MASK_2;
 	} else
 		binary = buffer[index].aligned.binary[0] & AFS_BINARY_MASK;
 	return DES_STD_HASH_2(binary);
@@ -456,9 +456,7 @@ struct fmt_main fmt_AFS = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -469,9 +467,7 @@ struct fmt_main fmt_AFS = {
 		fmt_default_split,
 		get_binary,
 		salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			binary_hash_0,

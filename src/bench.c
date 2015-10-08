@@ -66,9 +66,7 @@
 #include "memdbg.h"
 
 #ifndef BENCH_BUILD
-#if FMT_MAIN_VERSION > 11
 static char cost_msg[128 * FMT_TUNABLE_COSTS];
-#endif
 #endif
 
 long clk_tck = 0;
@@ -84,7 +82,8 @@ void clk_tck_init(void)
 #endif
 }
 
-unsigned int benchmark_time = BENCHMARK_TIME;
+int benchmark_time = BENCHMARK_TIME;
+int benchmark_level = -1;
 
 volatile int bench_running;
 
@@ -141,7 +140,6 @@ static void bench_set_keys(struct fmt_main *format,
 	}
 }
 #ifndef BENCH_BUILD
-#if FMT_MAIN_VERSION > 11
 static unsigned int get_cost(struct fmt_main *format, int index, int cost_idx)
 {
 	void *salt;
@@ -160,7 +158,6 @@ static unsigned int get_cost(struct fmt_main *format, int index, int cost_idx)
 	return value;
 }
 #endif
-#endif
 
 char *benchmark_format(struct fmt_main *format, int salts,
 	struct bench_results *results)
@@ -168,6 +165,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	static void *binary = NULL;
 	static int binary_size = 0;
 	static char s_error[128];
+	static int wait_salts = 0;
 	char *TmpPW[1024];
 	int pw_mangled = 0;
 	char *where;
@@ -186,17 +184,17 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	void *salt, *two_salts[2];
 	int index, max, i;
 #ifndef BENCH_BUILD
-#if FMT_MAIN_VERSION > 11
 	unsigned int t_cost[2][FMT_TUNABLE_COSTS];
 	int ntests, pruned;
 #endif
-#endif
+	int salts_done = 0;
+	int wait = 0;
+
 	clk_tck_init();
 
 	if (!(current = format->params.tests) || !current->ciphertext)
 		return "FAILED (no data)";
 
-#if FMT_MAIN_VERSION > 11
 #ifndef BENCH_BUILD
 	dyna_salt_init(format);
 
@@ -239,7 +237,6 @@ char *benchmark_format(struct fmt_main *format, int salts,
 #endif
 	if (!(current = format->params.tests) || !current->ciphertext)
 		return "FAILED (no data)";
-#endif
 	if ((where = fmt_self_test(format, NULL))) {
 		sprintf(s_error, "FAILED (%s)\n", where);
 		return s_error;
@@ -277,18 +274,15 @@ char *benchmark_format(struct fmt_main *format, int salts,
 			memcpy(two_salts[index], salt,
 			    format->params.salt_size);
 #ifndef BENCH_BUILD
-#if FMT_MAIN_VERSION > 11
 		for (i = 0; i < FMT_TUNABLE_COSTS &&
 		     format->methods.tunable_cost_value[i] != NULL; i++)
 			t_cost[index][i] =
 				format->methods.tunable_cost_value[i](salt);
 #endif
-#endif
 	}
 	format->methods.set_salt(two_salts[0]);
 
 #ifndef BENCH_BUILD
-#if FMT_MAIN_VERSION > 11
 	*cost_msg = 0;
 	for (i = 0; i < FMT_TUNABLE_COSTS &&
 		     format->methods.tunable_cost_value[i] != NULL; i++) {
@@ -309,7 +303,6 @@ char *benchmark_format(struct fmt_main *format, int salts,
 			strcat(cost_msg, ", ");
 		strcat(cost_msg, msg);
 	}
-#endif
 #endif
 
 /* Smashed passwords: -1001 turns into -1 and -1000 turns into 0, and
@@ -353,6 +346,16 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	bench_running = 1;
 	bench_install_handler();
 
+/*
+ * A hack. A negative time means "at least this many seconds, but wait until
+ * "Many salts" have completed".
+ */
+	if (benchmark_time < 0) {
+		wait_salts = 1;
+		benchmark_time *= -1;
+	}
+	wait = format->params.benchmark_length ? 0 : wait_salts;
+
 /* Cap it at a sane value to hopefully avoid integer overflows below */
 	if (benchmark_time > 3600)
 		benchmark_time = 3600;
@@ -382,6 +385,10 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	do {
 		int count = max;
 
+#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+		if (!bench_running)
+			advance_cursor();
+#endif
 		if (!--index) {
 			index = salts;
 			if (!(++current)->ciphertext)
@@ -397,7 +404,9 @@ char *benchmark_format(struct fmt_main *format, int salts,
 #if !OS_TIMER
 		sig_timer_emu_tick();
 #endif
-	} while (bench_running && !event_abort);
+		salts_done++;
+	} while (((wait && salts_done < salts) ||
+	          bench_running) && !event_abort);
 
 #if defined (__MINGW32__) || defined (_MSC_VER)
 	end_real = clock();
@@ -413,6 +422,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 
 	results->real = end_real - start_real;
 	results->crypts = crypts;
+	results->salts_done = salts_done;
 
 	// if left at 0, we get a / by 0 later.  I have seen this happen on -test=0 runs.
 	if (results->real == 0)
@@ -480,6 +490,8 @@ void gather_results(struct bench_results *results)
 		MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI_Reduce(&results->crypts.hi, &combined.crypts.hi, 1, MPI_UNSIGNED,
 		MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&results->salts_done, &combined.salts_done, 1, MPI_INT,
+		MPI_MIN, 0, MPI_COMM_WORLD);
 	if (mpi_id == 0) {
 		combined.real /= mpi_p;
 		combined.virtual /= mpi_p;
@@ -541,24 +553,6 @@ AGAIN:
 /* Silently skip formats for which we have no tests, unless forced */
 		if (!format->params.tests && format != fmt_list)
 			continue;
-
-/* Format disabled in john.conf, unless forced */
-		if (fmt_list->next &&
-		    cfg_get_bool(SECTION_DISABLED, SUBSECTION_FORMATS,
-		                 format->params.label, 0)) {
-#ifdef DEBUG
-			if ((format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) {
-				// in debug mode, we 'allow' dyna
-			} else
-#else
-			if ((options.format && !strcasecmp(options.format, "dynamic-all")&&(format->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC) ||
-			    (options.listconf && !strcasecmp(options.listconf, "subformats"))) {
-				// allow dyna if '-format=dynamic-all' was selected
-			} else
-
-#endif
-			continue;
-		}
 
 /* Just test the encoding-aware formats if --encoding was used explicitly */
 		if (!pers_opts.default_enc && pers_opts.target_enc != ASCII &&
@@ -712,12 +706,10 @@ AGAIN:
 		omp_set_num_threads(ompt_start);
 #endif
 
-#if FMT_MAIN_VERSION > 11
 #ifndef BENCH_BUILD
 		if (john_main_process && benchmark_time &&
 		    *cost_msg && options.verbosity >= 3)
 			puts(cost_msg);
-#endif
 #endif
 #ifdef HAVE_MPI
 		if (mpi_p > 1) {
@@ -725,6 +717,13 @@ AGAIN:
 			gather_results(&results_1);
 		}
 #endif
+		if (msg_1 && format->params.salt_size &&
+		    results_m.salts_done < BENCHMARK_MANY &&
+		    john_main_process && benchmark_time) {
+			printf("Warning: \"Many salts\" test limited: %d/%d\n",
+			       results_m.salts_done, BENCHMARK_MANY);
+		}
+
 		benchmark_cps(&results_m.crypts, results_m.real, s_real);
 		benchmark_cps(&results_m.crypts, results_m.virtual, s_virtual);
 #if !defined(__DJGPP__) && !defined(__BEOS__) && !defined(__MINGW32__) && !defined (_MSC_VER)

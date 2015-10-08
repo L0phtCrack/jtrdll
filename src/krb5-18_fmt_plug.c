@@ -41,7 +41,7 @@ john_register_one(&fmt_krb5_18);
 #include "options.h"
 #include "simd-intrinsics.h"
 #include "pbkdf2_hmac_sha1.h"
-#include <openssl/aes.h>
+#include "aes.h"
 #ifdef _OPENMP
 #include <omp.h>
 #ifdef SIMD_COEF_32
@@ -134,9 +134,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 0;
 	q = ++p;
 
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F) {
-	        if (*q >= 'A' && *q <= 'F') /* support lowercase only */
-			return 0;
+	while (atoi16l[ARCH_INDEX(*q)] != 0x7F) {
 		q++;
 	}
 
@@ -286,13 +284,13 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 struct fmt_main fmt_krb5_18 = {
 	{
@@ -310,9 +308,7 @@ struct fmt_main fmt_krb5_18 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		kinit_tests
 	}, {
 		init,
@@ -323,9 +319,7 @@ struct fmt_main fmt_krb5_18 = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

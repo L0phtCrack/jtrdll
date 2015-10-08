@@ -67,7 +67,7 @@ john_register_one(&fmt_ocl_cryptsha1);
 #define ITERATIONS		(64000*2+2)
 
 /* This handles all widths */
-#define GETPOS(i, index)	(((index) % v_width) * 4 + ((i) & ~3U) * v_width + (((i) & 3) ^ 3) + ((index) / v_width) * 64 * v_width)
+#define GETPOS(i, index)	(((index) % ocl_v_width) * 4 + ((i) & ~3U) * ocl_v_width + (((i) & 3) ^ 3) + ((index) / ocl_v_width) * 64 * ocl_v_width)
 
 static unsigned int *inbuffer;
 static pbkdf1_out *host_crack;
@@ -75,7 +75,6 @@ static pbkdf1_salt *host_salt;
 static cl_int cl_error;
 static cl_mem mem_in, mem_out, mem_salt, mem_state;
 static size_t key_buf_size;
-static unsigned int v_width = 1;	/* Vector width of kernel */
 static cl_kernel pbkdf1_init, pbkdf1_loop, pbkdf1_final;
 static int new_keys;
 static struct fmt_main *self;
@@ -86,16 +85,13 @@ static const char * warn[] = {
 
 static int split_events[] = { 2, -1, -1 };
 
-static int crypt_all(int *pcount, struct db_salt *_salt);
-static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
-
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
 #include "memdbg.h"
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
-	size_t kpc = gws * v_width;
+	size_t kpc = gws * ocl_v_width;
 
 #define CL_RO CL_MEM_READ_ONLY
 #define CL_WO CL_MEM_WRITE_ONLY
@@ -144,20 +140,6 @@ static size_t get_task_max_work_group_size()
 	return s;
 }
 
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-	if (cpu(device_info[gpu_id]))
-		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
-			8 : 1;
-	else
-		return 64;
-}
-
 static void release_clobj(void)
 {
 	if (host_crack) {
@@ -178,16 +160,20 @@ static void init(struct fmt_main *_self)
 	self = _self;
 
 	opencl_prepare_dev(gpu_id);
+	/* Nvidia Kepler benefits from 2x interleaved code */
+	if (!options.v_width && nvidia_sm_3x(device_info[gpu_id]))
+		ocl_v_width = 2;
+	else
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
 	if (!options.v_width && amd_vliw5(device_info[gpu_id]))
-		v_width = 2;
+		ocl_v_width = 2;
 	else
-		v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
+		ocl_v_width = opencl_get_vector_width(gpu_id, sizeof(cl_int));
 
-	if (v_width > 1) {
+	if (ocl_v_width > 1) {
 		/* Run vectorized kernel */
 		snprintf(valgo, sizeof(valgo),
-		         ALGORITHM_NAME " %ux", v_width);
+		         ALGORITHM_NAME " %ux", ocl_v_width);
 		self->params.algorithm_name = valgo;
 	}
 }
@@ -200,7 +186,7 @@ static void reset(struct db_main *db)
 		snprintf(build_opts, sizeof(build_opts),
 		         "-DHASH_LOOPS=%u -DOUTLEN=%u "
 		         "-DPLAINTEXT_LENGTH=%u -DV_WIDTH=%u",
-		         HASH_LOOPS, OUTLEN, PLAINTEXT_LENGTH, v_width);
+		         HASH_LOOPS, OUTLEN, PLAINTEXT_LENGTH, ocl_v_width);
 		opencl_init("$JOHN/kernels/pbkdf1_hmac_sha1_kernel.cl",
 		            gpu_id, build_opts);
 
@@ -214,16 +200,14 @@ static void reset(struct db_main *db)
 		//Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn,
 		                       2, self, create_clobj, release_clobj,
-		                       v_width *
+		                       ocl_v_width *
 		                       (PLAINTEXT_LENGTH + sizeof(pbkdf1_out)),
 		                       0);
 
 		//Auto tune execution from shared/included code.
-		self->methods.crypt_all = crypt_all_benchmark;
 		autotune_run(self, ITERATIONS, 0,
 		             (cpu(device_info[gpu_id]) ?
 		              1000000000 : 10000000000ULL));
-		self->methods.crypt_all = crypt_all;
 	}
 }
 
@@ -253,7 +237,7 @@ static int binary_hash_0(void *binary)
 #if 0
 	dump_stuff_msg("binary_hash[0]", (uint32_t*)binary, 20);
 #endif
-	return (((uint32_t *) binary)[0] & 0xf);
+	return (((uint32_t *) binary)[0] & PH_MASK_0);
 }
 
 static int get_hash_0(int index)
@@ -261,74 +245,47 @@ static int get_hash_0(int index)
 #if 0
 	dump_stuff_msg("\nget_hash", host_crack[index].dk, 20);
 #endif
-	return host_crack[index].dk[0] & 0xf;
+	return host_crack[index].dk[0] & PH_MASK_0;
 }
-static int get_hash_1(int index) { return host_crack[index].dk[0] & 0xff; }
-static int get_hash_2(int index) { return host_crack[index].dk[0] & 0xfff; }
-static int get_hash_3(int index) { return host_crack[index].dk[0] & 0xffff; }
-static int get_hash_4(int index) { return host_crack[index].dk[0] & 0xfffff; }
-static int get_hash_5(int index) { return host_crack[index].dk[0] & 0xffffff; }
-static int get_hash_6(int index) { return host_crack[index].dk[0] & 0x7ffffff; }
-
-static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
-{
-	int count = *pcount;
-	size_t scalar_gws;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = local_work_size ? ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size : count / v_width;
-	scalar_gws = global_work_size * v_width;
-
-#if 0
-	fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu"\n", __FUNCTION__,
-	        *pcount, local_work_size, global_work_size, scalar_gws);
-#endif
-	/// Run kernels, no iterations for fast enumeration
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, key_buf_size, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
-
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
-
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_loop, 1, NULL, &global_work_size, lws, 0, NULL, NULL), "Run loop kernel");
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_loop, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run loop kernel");
-
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_final, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run final kernel");
-
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, sizeof(pbkdf1_out) * scalar_gws, host_crack, 0, NULL, multi_profilingEvent[4]), "Copy result back");
-
-	return count;
-}
+static int get_hash_1(int index) { return host_crack[index].dk[0] & PH_MASK_1; }
+static int get_hash_2(int index) { return host_crack[index].dk[0] & PH_MASK_2; }
+static int get_hash_3(int index) { return host_crack[index].dk[0] & PH_MASK_3; }
+static int get_hash_4(int index) { return host_crack[index].dk[0] & PH_MASK_4; }
+static int get_hash_5(int index) { return host_crack[index].dk[0] & PH_MASK_5; }
+static int get_hash_6(int index) { return host_crack[index].dk[0] & PH_MASK_6; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
 	int i;
 	size_t scalar_gws;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = ((count + (v_width * local_work_size - 1)) / (v_width * local_work_size)) * local_work_size;
-	scalar_gws = global_work_size * v_width;
+	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	scalar_gws = global_work_size * ocl_v_width;
 #if 0
 	fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu"\n", __FUNCTION__,
 	        count, local_work_size, global_work_size, scalar_gws);
 #endif
 	/// Copy data to gpu
-	if (new_keys) {
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, key_buf_size, inbuffer, 0, NULL, NULL), "Copy data to gpu");
+	if (ocl_autotune_running || new_keys) {
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, key_buf_size, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
 		new_keys = 0;
 	}
 
 	/// Run kernels
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_init, 1, NULL, &global_work_size, &local_work_size, 0, NULL, firstEvent), "Run initial kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
 
-	for (i = 0; i < LOOP_COUNT; i++) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_loop, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL), "Run loop kernel");
-		HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
+	for (i = 0; i < (ocl_autotune_running ? 1 : LOOP_COUNT); i++) {
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_loop, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run loop kernel");
+		BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
 		opencl_process_event();
 	}
 
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_final, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL), "Run intermediate kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf1_final, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run intermediate kernel");
 
 	/// Read the result back
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, sizeof(pbkdf1_out) * scalar_gws, host_crack, 0, NULL, NULL), "Copy result back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, sizeof(pbkdf1_out) * scalar_gws, host_crack, 0, NULL, multi_profilingEvent[4]), "Copy result back");
 
 	return count;
 }
@@ -418,13 +375,11 @@ static int salt_hash(void *salt)
 	return hash & (SALT_HASH_SIZE - 1);
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	pbkdf1_salt *p = salt;
 	return p->iterations;
 }
-#endif
 
 struct fmt_main fmt_ocl_cryptsha1 = {
 	{
@@ -442,11 +397,9 @@ struct fmt_main fmt_ocl_cryptsha1 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		sha1crypt_common_tests
 	}, {
 		init,
@@ -457,11 +410,9 @@ struct fmt_main fmt_ocl_cryptsha1 = {
 		fmt_default_split,
 		sha1crypt_common_get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			binary_hash_0,

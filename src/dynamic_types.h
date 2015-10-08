@@ -71,6 +71,19 @@ typedef struct {
 
 typedef struct {
 	union {
+		uint32_t w32[128/4];
+		uint64_t w64[128/8];
+		uint8_t b[128];
+		char c[128];
+	} *dat;
+	uint32_t width; // number of bytes that are 'valid' in the dat[] element.
+	uint32_t bits;
+	uint32_t BE;
+	uint32_t mixed_SIMD;
+} BIG_HASH_OUT;
+
+typedef struct {
+	union {
 		double dummy;
 		MD5_word w[(PLAINTEXT_LENGTH_X86+EX_BUF_LEN)/sizeof(MD5_word)];
 		char b[PLAINTEXT_LENGTH_X86+EX_BUF_LEN];
@@ -157,7 +170,7 @@ typedef struct private_subformat_data
 #ifdef SIMD_COEF_32
 #define NON_OMP_MAX   (SIMD_COEF_32*3*4*5*7)
 #else
-#define NON_OMP_MAX   1
+#define NON_OMP_MAX   (1<<MD5_X2)
 #endif
 #define OMP_MAX       (NON_OMP_MAX*OMP_SCALE)
 
@@ -263,8 +276,8 @@ typedef struct private_subformat_data
 #define ALGORITHM_NAME_TGR     "32/"ARCH_BITS_STR " sph_tiger"
 #define ALGORITHM_NAME_X86_TGR "32/"ARCH_BITS_STR " sph_tiger"
 
-#define ALGORITHM_NAME_RIPEMD     "32/"ARCH_BITS_STR " sph_ripmd"
-#define ALGORITHM_NAME_X86_RIPEMD "32/"ARCH_BITS_STR " sph_ripmd"
+#define ALGORITHM_NAME_RIPEMD     "32/"ARCH_BITS_STR " sph_ripemd"
+#define ALGORITHM_NAME_X86_RIPEMD "32/"ARCH_BITS_STR " sph_ripemd"
 
 #define ALGORITHM_NAME_HAVAL     "32/"ARCH_BITS_STR " sph_haval"
 #define ALGORITHM_NAME_X86_HAVAL "32/"ARCH_BITS_STR " sph_haval"
@@ -278,6 +291,9 @@ typedef struct private_subformat_data
 #define ALGORITHM_NAME_SKEIN     "32/"ARCH_BITS_STR " sph_skein"
 #define ALGORITHM_NAME_X86_SKEIN "32/"ARCH_BITS_STR " sph_skein"
 
+#define ALGORITHM_NAME_KECCAK     "64/"ARCH_BITS_STR " keccak"
+#define ALGORITHM_NAME_X86_KECCAK "64/"ARCH_BITS_STR " keccak"
+// LARGE_HASH_EDIT_POINT
 
 #ifndef SIMD_COEF_32
 //static MD5_OUT tmpOut;
@@ -291,7 +307,7 @@ extern void MD5_body_for_thread(int t, ARCH_WORD_32 x1[15], ARCH_WORD_32 x2[15],
 #else
 extern void MD5_body(ARCH_WORD_32 x1[15], ARCH_WORD_32 x2[15], ARCH_WORD_32 out1[4], ARCH_WORD_32 out2[4]);
 #endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " x2 (MD5_body)"
+#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " x2"
 #define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L[0])<55&&(L[1])<55) {A.x1.b[L[0]]=0x80;A.x2.b2[L[1]]=0x80;A.x1.w[14]=(L[0]<<3);A.x2.w2[14]=(L[1]<<3);MD5_swap(A.x1.w,A.x1.w,(L[0]+4)>>2);MD5_swap(A.x2.w2,A.x2.w2,(L[1]+4)>>2);MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);MD5_swap2(C.x1.w,C.x2.w2,C.x1.w,C.x2.w2,4);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L[0]); MD5_Final((unsigned char *)(C.x1.b),&ctx); MD5_Init(&ctx); MD5_Update(&ctx,A.x2.b2,L[1]); MD5_Final((unsigned char *)(C.x2.b2),&ctx);} }while(0)
 #define DoMD5o(A,L,C) do{if((L[0])<55&&(L[1])<55) {MD5_body(A.x1.w,A.x2.w2,C.x1.w,C.x2.w2);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L[0]); MD5_Final((unsigned char *)(C.x1.b),&ctx); MD5_Init(&ctx); MD5_Update(&ctx,A.x2.b2,L[1]); MD5_Final((unsigned char *)(C.x2.b2),&ctx);} }while(0)
 #define DoMD5a(A,L,C) do{MD5_body(A->x1.w,A->x2.w2,C->x1.w,C->x2.w2);}while(0)
@@ -303,7 +319,7 @@ extern void MD5_body_for_thread(int t, MD5_word x[15],MD5_word out[4]);
 #else
 extern void MD5_body(MD5_word x[15],MD5_word out[4]);
 #endif
-#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR " (MD5_body)"
+#define ALGORITHM_NAME_X86		"32/" ARCH_BITS_STR
 #define DoMD5(A,L,C) do{if(!force_md5_ctx&&(L)<55) {A.x1.b[L]=0x80;A.x1.w[14]=(L<<3);MD5_swap(A.x1.w,A.x1.w,((L+4)>>2));MD5_body(A.x1.w,C.x1.w);MD5_swap(C.x1.w,C.x1.w,4);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L); MD5_Final((unsigned char *)(C.x1.b),&ctx); } }while(0)
 #define DoMD5o(A,L,C) do{if((L)<55) {MD5_body(A.x1.w,C.x1.w);} else {MD5_CTX ctx; MD5_Init(&ctx); MD5_Update(&ctx,A.x1.b,L); MD5_Final((unsigned char *)(C.x1.b),&ctx); } }while(0)
 #define DoMD5a(A,L,C) do{MD5_body(A->x1.w,C->x1.w);}while(0)
@@ -321,7 +337,7 @@ extern void MD5_body(MD5_word x[15],MD5_word out[4]);
 extern int large_hash_output(unsigned char *cpi, unsigned char *cpo, int in_byte_cnt, int tid);
 int large_hash_output_no_null(unsigned char *cpi, unsigned char *cpo, int in_byte_cnt, int tid);
 
-typedef enum { eUNK=0, eBase16=1, eBase16u=2, eBase64=3, eBase64_nte=4, eBaseRaw=5} eLargeOut_t;
+typedef enum { eUNK=0, eBase16=1, eBase16u=2, eBase64=3, eBase64_nte=4, eBaseRaw=5, eBase64c=6, } eLargeOut_t;
 
 #endif /* DYNAMIC_DISABLED */
 

@@ -6,9 +6,9 @@
  */
 
 #if FMT_EXTERNS_H
-extern struct fmt_main fmt_HAS160;
+extern struct fmt_main fmt__HAS160;
 #elif FMT_REGISTERS_H
-john_register_one(&fmt_HAS160);
+john_register_one(&fmt__HAS160);
 #else
 
 #include <string.h>
@@ -19,6 +19,10 @@ john_register_one(&fmt_HAS160);
 #include "formats.h"
 #include "options.h"
 #include "has160.h"
+
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
 
 #ifdef _OPENMP
 #ifndef OMP_SCALE
@@ -52,6 +56,11 @@ john_register_one(&fmt_HAS160);
 static struct fmt_tests tests[] = {
 	{"307964ef34151d37c8047adec7ab50f4ff89762d", ""},
 	{"cb5d7efbca2f02e0fb7167cabb123af5795764e5", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"},
+	{"4872bcbc4cd0f0a9dc7c2f7045e5b43b6c830db8", "a"},
+	{"975e810488cf2a3d49838478124afce4b1c78804", "abc"},
+	{"2338dbc8638d31225f73086246ba529f96710bc6", "message digest"},
+	{"596185c9ab6703d0d0dbb98702bc0f5729cd1d3c", "abcdefghijklmnopqrstuvwxyz"},
+	{"07f05c8c0773c55ca3a5a695ce6aca4c438911b5", "12345678901234567890123456789012345678901234567890123456789012345678901234567890"},
 	{NULL}
 };
 
@@ -88,7 +97,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	p = ciphertext;
 	q = p;
 
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
+	while (atoi16l[ARCH_INDEX(*q)] != 0x7F)
 		q++;
 	return !*q && q - p == CIPHERTEXT_LENGTH;
 }
@@ -112,37 +121,37 @@ static void *get_binary(char *ciphertext)
 
 static int get_hash_0(int index)
 {
-	return crypt_out[index][0] & 0xF;
+	return crypt_out[index][0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return crypt_out[index][0] & 0xFF;
+	return crypt_out[index][0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return crypt_out[index][0] & 0xFFF;
+	return crypt_out[index][0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return crypt_out[index][0] & 0xFFFF;
+	return crypt_out[index][0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return crypt_out[index][0] & 0xFFFFF;
+	return crypt_out[index][0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return crypt_out[index][0] & 0xFFFFFF;
+	return crypt_out[index][0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return crypt_out[index][0] & 0x7FFFFFF;
+	return crypt_out[index][0] & PH_MASK_6;
 }
 
 static void set_key(char *key, int index)
@@ -198,7 +207,7 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-struct fmt_main fmt_HAS160 = {
+struct fmt_main fmt__HAS160 = {
 	{
 		FORMAT_LABEL,
 		FORMAT_NAME,
@@ -208,19 +217,16 @@ struct fmt_main fmt_HAS160 = {
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
-#if FMT_MAIN_VERSION > 9
                 BINARY_ALIGN,
-#endif
 		SALT_SIZE,
-#if FMT_MAIN_VERSION > 9
                 SALT_ALIGN,
-#endif
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
 #endif
+		FMT_CASE | FMT_8_BIT,
+		{ NULL },
 		tests
 	}, {
 		init,
@@ -231,9 +237,7 @@ struct fmt_main fmt_HAS160 = {
 		fmt_default_split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

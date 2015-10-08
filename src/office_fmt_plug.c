@@ -12,7 +12,7 @@ john_register_one(&fmt_office);
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
-#include <openssl/aes.h>
+#include "aes.h"
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -537,16 +537,20 @@ static void init(struct fmt_main *self)
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	saved_key = mem_calloc_tiny(sizeof(*saved_key) *
-	                            self->params.max_keys_per_crypt, sizeof(UTF16));
-	saved_len = mem_calloc_tiny(sizeof(*saved_len) *
-	                            self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_key = mem_calloc_tiny(sizeof(*crypt_key) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	cracked = mem_calloc_tiny(sizeof(*cracked) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
+	saved_len = mem_calloc(sizeof(*saved_len), self->params.max_keys_per_crypt);
+	crypt_key = mem_calloc(sizeof(*crypt_key), self->params.max_keys_per_crypt);
+	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	if (pers_opts.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, PLAINTEXT_LENGTH * 3);
+}
+
+static void done(void)
+{
+	MEM_FREE(cracked);
+	MEM_FREE(crypt_key);
+	MEM_FREE(saved_len);
+	MEM_FREE(saved_key);
 }
 
 static void set_salt(void *salt)
@@ -635,13 +639,13 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xf; }
-static int get_hash_1(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xff; }
-static int get_hash_2(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xfff; }
-static int get_hash_3(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xffff; }
-static int get_hash_4(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xfffff; }
-static int get_hash_5(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0xffffff; }
-static int get_hash_6(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { if (cur_salt->version!=2007) return 0; return crypt_key[index][0] & PH_MASK_6; }
 
 static void office_set_key(char *key, int index)
 {
@@ -656,7 +660,6 @@ static char *get_key(int index)
 {
 	return (char*)utf16_to_enc(saved_key[index]);
 }
-#if FMT_MAIN_VERSION > 11
 /*
  * MS Office version (2007, 2010, 2013) as first tunable cost
  */
@@ -667,7 +670,6 @@ static unsigned int ms_office_version(void *salt)
 	my_salt = salt;
 	return (unsigned int) my_salt->version;
 }
-#endif
 
 struct fmt_main fmt_office = {
 	{
@@ -685,28 +687,24 @@ struct fmt_main fmt_office = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_UTF8,
-#if FMT_MAIN_VERSION > 11
 		{
 			"MS Office version",
 			"iteration count",
 		},
-#endif
 		office_tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		ms_office_common_valid_all,
 		fmt_default_split,
 		ms_office_common_binary,
 		ms_office_common_get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			ms_office_version,
 			ms_office_common_iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

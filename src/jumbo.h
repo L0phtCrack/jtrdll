@@ -15,6 +15,16 @@
  * ./configure)
  */
 #ifndef _JTR_JUMBO_H
+#ifndef _MSC_VER
+// not sure why I need to multiply include in VC, but the SIMD builds will NOT work without it.
+// problems with the define of inline->_inline   I just do not understand why this has to be included
+// multiple times, BUT it does??
+#define _JTR_JUMBO_H
+#endif
+
+// use this define in some core (master) code, to be able to more cleanly insert code
+// leaving the master code more intact for easier merging of changes Solar gives us.
+#define JUMBO_JTR  1
 
 #include "arch.h"
 #include <stdio.h>
@@ -307,13 +317,6 @@ extern int fileno(FILE *);
 #define fdopen _fdopen
 #endif
 
-#ifndef MEMDBG_ON
-#if ((AC_BUILT && HAVE__STRDUP)  || (!AC_BUILT && _MSC_VER)) && !defined (strdup)
-#undef strdup
-#define strdup _strdup
-#endif
-#endif
-
 #if (AC_BUILT && !HAVE_SNPRINTF && HAVE_SPRINTF_S) || (!AC_BUILT && _MSC_VER)
 #undef  snprintf
 #define snprintf sprintf_s
@@ -362,8 +365,13 @@ extern int setenv(const char *name, const char *val, int overwrite);
 #define LLu "%I64u"
 #define LLd "%I64d"
 #define LLx "%I64x"
+#ifdef WIN64
+#define Zu  "%I64u"
+#define Zd  "%I64d"
+#else
 #define Zu  "%u"
 #define Zd  "%d"
+#endif
 #else
 #define LLu "%llu"
 #define LLd "%lld"
@@ -372,9 +380,9 @@ extern int setenv(const char *name, const char *val, int overwrite);
 #define Zd  "%zd"
 #endif
 
-#if (AC_BUILT && !HAVE_STRREV) || (!AC_BUILT && !_MSC_VER)
-char *strrev(char *str);
-#endif
+//#if (AC_BUILT && !HAVE_STRREV) || (!AC_BUILT && !_MSC_VER)
+//char *strrev(char *str);
+//#endif
 
 // Start handing these (some we may not be able to, or are too hard to 'care', and we should
 // simply #ifdef around the logic where the functions are used, or find some other way.
@@ -403,8 +411,14 @@ char *strrev(char *str);
 extern size_t strnlen(const char *s, size_t max);
 #endif
 
-#if AC_BUILT && !HAVE_STRCASESTR
+#if AC_BUILT && !HAVE_STRCASESTR || !AC_BUILT && defined(__MINGW__)
 char *strcasestr(const char *haystack, const char *needle);
 #endif
+
+/*
+ * Standard PKCS padding check. On success, returns net length.
+ * On failure, returns -1.
+ */
+extern int check_pkcs_pad(const unsigned char* data, size_t len, int blocksize);
 
 #endif /* _JTR_JUMBO_H */

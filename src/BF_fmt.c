@@ -70,37 +70,37 @@ static void init(struct fmt_main *self)
 
 static int get_hash_0(int index)
 {
-	return BF_out[index][0] & 0xF;
+	return BF_out[index][0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return BF_out[index][0] & 0xFF;
+	return BF_out[index][0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return BF_out[index][0] & 0xFFF;
+	return BF_out[index][0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return BF_out[index][0] & 0xFFFF;
+	return BF_out[index][0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return BF_out[index][0] & 0xFFFFF;
+	return BF_out[index][0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return BF_out[index][0] & 0xFFFFFF;
+	return BF_out[index][0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return BF_out[index][0] & 0x7FFFFFF;
+	return BF_out[index][0] & PH_MASK_6;
 }
 
 static int salt_hash(void *salt)
@@ -193,12 +193,10 @@ struct fmt_main fmt_BF = {
 #if BF_mt > 1
 		FMT_OMP |
 #endif
-		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
+		FMT_TRUNC | FMT_CASE | FMT_8_BIT,
 		{
 			"iteration count",
 		},
-#endif
 		BF_common_tests
 	}, {
 		init,
@@ -209,11 +207,9 @@ struct fmt_main fmt_BF = {
 		fmt_default_split,
 		BF_common_get_binary,
 		BF_common_get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			BF_common_iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

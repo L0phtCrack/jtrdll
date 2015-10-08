@@ -38,7 +38,7 @@ john_register_one(&fmt_keyring);
 #include "options.h"
 #include "md5.h"
 #include "sha2.h"
-#include <openssl/aes.h>
+#include "aes.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "memdbg.h"
@@ -133,7 +133,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += 9;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
-	if (strlen(p) != SALTLEN * 2)
+	if (hexlenl(p) != SALTLEN * 2)
 		goto err;
 	while (*p)
 		if (atoi16[ARCH_INDEX(*p++)] == 0x7f)
@@ -157,13 +157,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if (ctlen > LINE_BUFFER_SIZE)
 		goto err;
-	if (strlen(p) != ctlen * 2)
+	if (hexlenl(p) != ctlen * 2)
 		goto err;
-	if (strlen(p) < 32)	/* this shouldn't happen for valid hashes */
-		goto err;
-	while (*p)
-		if (atoi16[ARCH_INDEX(*p++)] == 0x7f)
-			goto err;
 
 	MEM_FREE(keeptr);
 	return 1;
@@ -328,11 +323,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			if (verify_decrypted_buffer(buffers[i], cur_salt->crypto_size)) {
 				cracked[index+i] = 1;
-			}
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
-			any_cracked |= 1;
+				any_cracked |= 1;
+			}
 		}
 		MEM_FREE(buffers);
 	}
@@ -368,7 +363,6 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	struct custom_salt *my_salt;
@@ -376,7 +370,6 @@ static unsigned int iteration_count(void *salt)
 	my_salt = salt;
 	return my_salt->iterations;
 }
-#endif
 
 struct fmt_main fmt_keyring = {
 	{
@@ -394,11 +387,9 @@ struct fmt_main fmt_keyring = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		keyring_tests
 	}, {
 		init,
@@ -409,11 +400,9 @@ struct fmt_main fmt_keyring = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

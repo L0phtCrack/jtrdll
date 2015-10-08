@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2001,2005,2010-2013 by Solar Designer
+ * Copyright (c) 1996-2001,2005,2010-2013,2015 by Solar Designer
  *
  * ...with a change in the jumbo patch, by JimF
  */
@@ -28,13 +28,11 @@
  */
 struct fmt_main;
 
-#if FMT_MAIN_VERSION > 11
 /*
  * Maximum number of different tunable cost parameters
  * that can be reported for a single format
  */
 #define FMT_TUNABLE_COSTS	3
-#endif
 
 /*
  * Some format methods accept pointers to these, yet we can't just include
@@ -66,6 +64,12 @@ struct db_salt;
  */
 #define FMT_UTF8			0x00000008
 /*
+ * Mark password->binary = NULL immediately after a hash is cracked. Must be
+ * set for formats that reads salt->list in crypt_all for the purpose of
+ * identification of uncracked hashes for this salt.
+ */
+#define FMT_REMOVE			0x00000010
+/*
  * Format has false positive matches. Thus, do not remove hashes when
  * a likely PW is found.  This should only be set for formats where a
  * false positive will actually not work IRL (eg. 7z),  as opposed to
@@ -75,7 +79,7 @@ struct db_salt;
 #define FMT_NOT_EXACT			0x00000100
 /*
  * this format uses a dynamic sized salt, and its salt structure
- * 'derives' from the dyna_salt type defind in dyna_salt.h
+ * 'derives' from the dyna_salt type defined in dyna_salt.h
  */
 #define FMT_DYNA_SALT			0x00000200
 /* Uses a bitslice implementation */
@@ -84,6 +88,8 @@ struct db_salt;
 #define FMT_SPLIT_UNIFIES_CASE		0x00020000
 /* Is this format a dynamic_x format (or a 'thin' format using dynamic code)? */
 #define FMT_DYNAMIC			0x00100000
+/* Is this a format which originally truncates at our max. length? */
+#define FMT_TRUNC			0x00200000
 #ifdef _OPENMP
 /* Parallelized with OpenMP */
 #define FMT_OMP				0x01000000
@@ -145,7 +151,6 @@ struct fmt_params {
 /* Properties of this format */
 	unsigned int flags;
 
-#if FMT_MAIN_VERSION > 11
 /*
  * Descriptions (names) of tunable cost parameters for this format
  *
@@ -156,7 +161,6 @@ struct fmt_params {
  * returning tunable cost values.
  */
 	char *tunable_cost_name[FMT_TUNABLE_COSTS];
-#endif
 
 /* Some passwords to test the methods for correct operation (or NULL for no
  * self test, and no benchmark), terminated with a NULL ciphertext. */
@@ -211,7 +215,6 @@ struct fmt_methods {
 /* Converts an ASCII salt to its internal representation */
 	void *(*salt)(char *ciphertext);
 
-#if FMT_MAIN_VERSION > 11
 /*
  * These functions return the value of a tunable cost parameter
  * for a given salt.
@@ -225,7 +228,6 @@ struct fmt_methods {
  * e.g., the real iteration count is 2^(t_cost) for parameter t_cost.
  */
 	unsigned int (*tunable_cost_value[FMT_TUNABLE_COSTS])(void *salt);
-#endif
 
 /* Reconstructs the ASCII ciphertext from its binary (saltless only).
  * Alternatively, in the simplest case simply returns "source" as-is. */
@@ -246,7 +248,10 @@ struct fmt_methods {
 /* Sets a salt for the crypt_all() method */
 	void (*set_salt)(void *salt);
 
-/* Sets a plaintext, with index from 0 to fmt_params.max_keys_per_crypt - 1 */
+/* Sets a plaintext, with index from 0 to fmt_params.max_keys_per_crypt - 1.
+ * The string is NUL-terminated, but set_key() may over-read it until up to
+ * PLAINTEXT_BUFFER_SIZE total read (thus, the caller's buffer must be at least
+ * this large).  Empty string may be passed as fmt_null_key. */
 	void (*set_key)(char *key, int index);
 
 /* Returns a plaintext previously set with and potentially altered by
@@ -320,6 +325,12 @@ struct fmt_main {
 	struct fmt_private private;
 	struct fmt_main *next;
 };
+
+/*
+ * Empty key that is safe to pass to the set_key() method, given that it may
+ * over-read the empty string for up to PLAINTEXT_BUFFER_SIZE.
+ */
+extern char fmt_null_key[PLAINTEXT_BUFFER_SIZE];
 
 /*
  * Linked list of registered formats.

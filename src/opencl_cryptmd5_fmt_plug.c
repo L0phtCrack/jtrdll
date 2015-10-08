@@ -66,20 +66,6 @@ static size_t get_task_max_work_group_size()
 	return autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
 }
 
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-	if (cpu(device_info[gpu_id]))
-		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
-			8 : 1;
-	else
-		return 64;
-}
-
 typedef struct {
 	unsigned int saltlen;
 	char salt[8];
@@ -163,6 +149,42 @@ static struct fmt_tests tests[] = {
 	//{"{smd5}s8/xSJ/v$uGam4GB8hOjTLQqvBfxJ2/", "password"},
 	//{"{smd5}alRJaSLb$aKM3H1.h1ycXl5GEVDH1e1", "aixsucks?"},
 	//{"{smd5}eLB0QWeS$Eg.YfWY8clZuCxF0xNrKg.", "0123456789ABCDE"},
+	{"$1$27iyq7Ya$miN09fW1Scj0DHVNyewoU/", ""},
+	{"$1$84Othc1n$v1cuReaa5lRdGuHaOa76n0", "a"},
+	{"$1$4zq0BsCR$U2ua9WZtDEhzy4gFSiLxN1", "aa"},
+	{"$1$DKwjKWxp$PY6PdlPZsXjOppPDoFOz4.", "aaa"},
+	{"$1$OKDV6ppN$viTVmH48bSePiCrMvXT/./", "aaaa"},
+	{"$1$QEWsCY0O$xrTTMKTepiHMp7Oxgz0pX/", "aaaaa"},
+	{"$1$5dfdk2dF$XiJBPNrfKcCgdQ/kcoB40/", "aaaaaa"},
+	{"$1$Ps6A1Cy6$WsvLg9cQhm9JU0rXkLEtz.", "aaaaaaa"},
+	{"$1$9IK7nZ4M$4nx7Mdj05KGPJX/mZaDrh.", "aaaaaaaa"},
+	{"$1$l3pNTqwT$GAc.dcRaxCvC20CFGCjp4/", "aaaaaaaaa"},
+	{"$1$jSAARhJR$6daQ/ekjAL0MgOUgGJyp10", "aaaaaaaaaa"},
+	{"$1$wk3Xwqqg$2AtdiucwJvJgbaVT1jWpb0", "aaaaaaaaaaa"},
+	{"$1$G6Fn69Ei$d7AKJUOIdz/gO4Utc0TQP1", "aaaaaaaaaaaa"},
+	{"$1$A7XJ7lGK$W5jTnH/4lW4XwZ.6F7n1N.", "aaaaaaaaaaaaa"},
+	{"$1$Rcm46RfA$LfdIK/OP16yHzMYHSlx/B.", "aaaaaaaaaaaaaa"},
+	{"$1$4bCSSJMN$TcYKTsukD4SFJE1n4MwMZ/", "aaaaaaaaaaaaaaa"},
+#if PLAINTEXT_LENGTH > 15
+	{"$1$mJxBkkl8$u7OHfWCPmNxvf0um7hH89.", "aaaaaaaaaaaaaaaa"},
+	{"$1$Ub1gBUt4$TNaLxU7Pq5mk/MiDEb60b/", "aaaaaaaaaaaaaaaaa"},
+	{"$1$8ot7QScR$x.p4vjIgdFxxS83x29PkJ0", "aaaaaaaaaaaaaaaaaa"},
+	{"$1$wRi4OjD3$eJjKD2AwLMWfOTRYA30zn.", "aaaaaaaaaaaaaaaaaaa"},
+	{"$1$lmektrsg$2KSRY4EUFzsYNMg80fG4/0", "aaaaaaaaaaaaaaaaaaaa"},
+	{"$1$tgVBKBmE$YRvzsi7qHP2MC1Atg8VCV.", "aaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$oTsk88YC$Eh435T1BQzmjQekfqkHof/", "aaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$ykxSZEfP$hJrFeGOFk049L.94Mgggj/", "aaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$LBK4p5tD$5/gAIx8/7hpTVwDC/.KQv/", "aaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$fkEasaUI$G7CelOWHkol2nVHN8XQP40", "aaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$gRevVzeY$eMMQrsl5OHL5dP1p/ktJc/", "aaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$164TNEjj$ppoV6Ju6Vu63j1OlM4zit/", "aaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$ErPmhjp2$lZZstb2M455Xhk50eeH4i/", "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$NUssS5fT$QaS4Ywt0IwzxbE0FAGnXn0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$NxlTyiJ7$gxkXTEJdeTzY8P6tqKmcz.", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$Cmy9x7gW$kamvHI42Kh1CH4Shy6g6S/", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$IsuapfCX$4Yq0Adq5nNZgl0LwbSl5Y0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	{"$1$rSZfNcKX$N4XPvGrfhKsyoEcRSaqmG0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+#endif
 	{NULL}
 };
 
@@ -264,7 +286,6 @@ static void set_salt(void *salt)
 	memcpy(host_salt.salt, s, host_salt.saltlen);
 	host_salt.prefix = s[8];
 
-	//Author decision. I just keep this way.
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt, CL_FALSE, 0, saltsize, &host_salt, 0, NULL, NULL), "Copy memsalt");
 }
 
@@ -300,8 +321,6 @@ static char *get_key(int index)
 	return ret;
 }
 
-static int crypt_all(int *pcount, struct db_salt *salt);
-
 static void init(struct fmt_main *_self)
 {
 	self = _self;
@@ -311,7 +330,12 @@ static void init(struct fmt_main *_self)
 static void reset(struct db_main *db)
 {
 	if (!autotuned) {
-		opencl_init("$JOHN/kernels/cryptmd5_kernel.cl", gpu_id, NULL);
+		char build_opts[64];
+
+		snprintf(build_opts, sizeof(build_opts),
+		         "-DPLAINTEXT_LENGTH=%u", PLAINTEXT_LENGTH);
+
+		opencl_init("$JOHN/kernels/cryptmd5_kernel.cl", gpu_id, build_opts);
 
 		///Create Kernel
 		crypt_kernel = clCreateKernel(program[gpu_id], KERNEL_NAME, &ret_code);
@@ -338,24 +362,24 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	const int count = *pcount;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = local_work_size ? (count + local_work_size - 1) / local_work_size * local_work_size : count;
+	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 	///Copy data to GPU memory
 	if (new_keys)
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE,
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE,
 			0, insize, inbuffer, 0, NULL, multi_profilingEvent[0]),
 			"Copy memin");
 
 	///Run kernel
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
 		NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]),
 		"Set ND range");
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_FALSE,
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_FALSE,
 		0, outsize, outbuffer, 0, NULL, multi_profilingEvent[2]),
 		"Copy data back");
 
 	///Await completion of all the above
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "clFinish error");
+	BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish error");
 
 	new_keys = 0;
 	return count;
@@ -363,37 +387,37 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int get_hash_0(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xf;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xfff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xffff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xfffff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0xffffff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & 0x7ffffff;
+	return ((ARCH_WORD_32 *) outbuffer[index].v)[0] & PH_MASK_6;
 }
 
 static int cmp_all(void *binary, int count)
@@ -435,9 +459,7 @@ struct fmt_main fmt_opencl_cryptMD5 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -448,9 +470,7 @@ struct fmt_main fmt_opencl_cryptMD5 = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

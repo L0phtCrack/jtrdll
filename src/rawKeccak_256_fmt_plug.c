@@ -38,19 +38,7 @@ john_register_one(&fmt_rawKeccak_256);
 
 #define FORMAT_LABEL		"Raw-Keccak-256"
 #define FORMAT_NAME		""
-#if defined(__AVX__)
-#define ALGORITHM_NAME			"128/128 AVX"
-#elif defined(__XOP__)
-#define ALGORITHM_NAME			"128/128 XOP"
-#elif defined(__SSE4_1__)
-#define ALGORITHM_NAME			"128/128 SSE4.1"
-#elif defined(__SSSE3__)
-#define ALGORITHM_NAME			"128/128 SSSE3"
-#elif defined(__SSE2__)
-#define ALGORITHM_NAME			"128/128 SSE2"
-#else
 #define ALGORITHM_NAME			"32/" ARCH_BITS_STR
-#endif
 
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		-1
@@ -70,6 +58,9 @@ john_register_one(&fmt_rawKeccak_256);
 static struct fmt_tests tests[] = {
 	{"4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "abc"},
 	{"$keccak256$4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "abc"},
+	{"$keccak256$3b673b24a64aebb286f193e5c985c8e528db8590f997d9130889ca7f5f4cfe6e", "passWOrd"},
+	{"$keccak256$2a359feeb8e488a1af2c03b908b3ed7990400555db73e1421181d97cac004d48", "123456789"},
+	{"$keccak256$c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470", ""},
 	{NULL}
 };
 
@@ -151,37 +142,37 @@ static void *get_binary(char *ciphertext)
 
 static int get_hash_0(int index)
 {
-	return crypt_out[index][0] & 0xF;
+	return crypt_out[index][0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return crypt_out[index][0] & 0xFF;
+	return crypt_out[index][0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return crypt_out[index][0] & 0xFFF;
+	return crypt_out[index][0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return crypt_out[index][0] & 0xFFFF;
+	return crypt_out[index][0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return crypt_out[index][0] & 0xFFFFF;
+	return crypt_out[index][0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return crypt_out[index][0] & 0xFFFFFF;
+	return crypt_out[index][0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return crypt_out[index][0] & 0x7FFFFFF;
+	return crypt_out[index][0] & PH_MASK_6;
 }
 
 static void set_key(char *key, int index)
@@ -245,19 +236,14 @@ struct fmt_main fmt_rawKeccak_256 = {
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
-#if FMT_MAIN_VERSION > 9
                 BINARY_ALIGN,
-#endif
 		SALT_SIZE,
-#if FMT_MAIN_VERSION > 9
                 SALT_ALIGN,
-#endif
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD |
+		FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -268,9 +254,7 @@ struct fmt_main fmt_rawKeccak_256 = {
 		split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

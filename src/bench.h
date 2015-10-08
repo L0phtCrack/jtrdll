@@ -30,6 +30,9 @@ struct bench_results {
 
 /* Number of ciphertexts computed */
 	int64 crypts;
+
+/* Number of salts actually tested */
+	int salts_done;
 };
 
 /*
@@ -46,7 +49,8 @@ extern void clk_tck_init(void);
 /*
  * Benchmark time in seconds (per cracking algorithm).
  */
-extern unsigned int benchmark_time;
+extern int benchmark_time;
+extern int benchmark_level;  /* for full test */
 
 /*
  * Benchmarks the supplied cracking algorithm. Returns NULL on success,

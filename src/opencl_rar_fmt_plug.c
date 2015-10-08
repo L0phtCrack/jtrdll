@@ -48,22 +48,8 @@ extern struct fmt_main fmt_ocl_rar;
 john_register_one(&fmt_ocl_rar);
 #else
 
-#ifdef _MSC_VER
-#define atoll _atoi64
-#endif
-
-#define STEP			0
-#define SEED			256
 #include <string.h>
-#include <assert.h>
 #include <errno.h>
-#include <openssl/engine.h>
-#include <openssl/evp.h>
-#include <openssl/ssl.h>
-
-#include "arch.h"
-#include "sha.h"
-
 #if AC_BUILT
 #include "autoconfig.h"
 #endif
@@ -78,6 +64,9 @@ john_register_one(&fmt_ocl_rar);
 #include <sys/mman.h>
 #endif
 
+#include "arch.h"
+#include "sha.h"
+#include "aes.h"
 #include "crc32.h"
 #include "misc.h"
 #include "common.h"
@@ -114,11 +103,9 @@ john_register_one(&fmt_ocl_rar);
 
 #ifdef _OPENMP
 #include <omp.h>
-#include <pthread.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE		32
 #endif
-static pthread_mutex_t *lockarray;
 #endif
 
 static const char * warn[] = {
@@ -128,15 +115,15 @@ static const char * warn[] = {
 
 static int split_events[] = { 3, -1, -1 };
 
-static int crypt_all(int *pcount, struct db_salt *_salt);
-static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
+#define STEP			0
+#define SEED			256
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl-autotune.h"
 #include "memdbg.h"
 
 #define ITERATIONS		0x40000
-#define HASH_LOOPS		0x04000 // Fixed, do not change
+#define HASH_LOOPS		0x4000 // Max. 0x4000
 
 static int new_keys;
 static struct fmt_main *self;
@@ -229,19 +216,6 @@ static size_t get_task_max_work_group_size()
 		autotune_get_task_max_work_group_size(FALSE, 0, RarFinal));
 }
 
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-	if (cpu(device_info[gpu_id]))
-		return 1;
-	else
-		return 64;
-}
-
 static void release_clobj(void)
 {
 	if (cracked) {
@@ -308,7 +282,6 @@ static void init(struct fmt_main *_self)
 
 #if defined (_OPENMP)
 	omp_t = omp_get_max_threads();
-	init_locks();
 #endif /* _OPENMP */
 
 	if (pers_opts.target_enc == UTF_8)
@@ -316,14 +289,6 @@ static void init(struct fmt_main *_self)
 
 	unpack_data = mem_calloc(omp_t, sizeof(unpack_data_t));
 
-	/* OpenSSL init */
-	init_aesni();
-	SSL_load_error_strings();
-	SSL_library_init();
-	OpenSSL_add_all_algorithms();
-#ifndef __APPLE__
-	atexit(openssl_cleanup);
-#endif
 	/* CRC-32 table init, do it before we start multithreading */
 	{
 		CRC32_t crc;
@@ -336,7 +301,7 @@ static void reset(struct db_main *db)
 	if (!autotuned) {
 		char build_opts[64];
 
-		snprintf(build_opts, sizeof(build_opts), "-DPLAINTEXT_LENGTH=%u", PLAINTEXT_LENGTH);
+		snprintf(build_opts, sizeof(build_opts), "-DPLAINTEXT_LENGTH=%u -DHASH_LOOPS=0x%x", PLAINTEXT_LENGTH, HASH_LOOPS);
 		opencl_init("$JOHN/kernels/rar_kernel.cl", gpu_id, build_opts);
 
 		// create kernels to execute
@@ -354,58 +319,38 @@ static void reset(struct db_main *db)
 		                       UNICODE_LENGTH + sizeof(cl_int) * 14, 0);
 
 		//Auto tune execution from shared/included code.
-		self->methods.crypt_all = crypt_all_benchmark;
 		autotune_run(self, ITERATIONS, 0,
 		             (cpu(device_info[gpu_id]) ?
 		              1000000000 : 10000000000ULL));
-		self->methods.crypt_all = crypt_all;
 	}
-}
-
-static int crypt_all_benchmark(int *pcount, struct db_salt *salt)
-{
-	int count = *pcount;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * gws, saved_len, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer saved_len");
-
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarInit, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, NULL), "failed in clEnqueueNDRangeKernel");
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[3]), "failed in clEnqueueNDRangeKernel");
-
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarFinal, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[4]), "failed in clEnqueueNDRangeKernel");
-	// read back aes key & iv
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_key, CL_FALSE, 0, 16 * gws, aes_key, 0, NULL, multi_profilingEvent[5]), "failed in reading key back");
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_iv, CL_TRUE, 0, 16 * gws, aes_iv, 0, NULL, multi_profilingEvent[6]), "failed in reading iv back");
-
-	return count;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
 	int k;
-	size_t gws = ((count + (local_work_size - 1)) / local_work_size) * local_work_size;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
-	if (new_keys) {
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, NULL), "failed in clEnqueueWriteBuffer saved_key");
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * gws, saved_len, 0, NULL, NULL), "failed in clEnqueueWriteBuffer saved_len");
+	if (ocl_autotune_running || new_keys) {
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_len, CL_FALSE, 0, sizeof(int) * gws, saved_len, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer saved_len");
 		new_keys = 0;
 	}
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarInit, 1, NULL, &gws, &local_work_size, 0, NULL, firstEvent), "failed in clEnqueueNDRangeKernel");
-	for (k = 0; k < 16; k++) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, &local_work_size, 0, NULL, NULL), "failed in clEnqueueNDRangeKernel");
-		HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarInit, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "failed in clEnqueueNDRangeKernel");
+	for (k = 0; k < (ocl_autotune_running ? 1 : (ITERATIONS / HASH_LOOPS)); k++) {
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[3]), "failed in clEnqueueNDRangeKernel");
+		BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
 		opencl_process_event();
 	}
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarFinal, 1, NULL, &gws, &local_work_size, 0, NULL, lastEvent), "failed in clEnqueueNDRangeKernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], RarFinal, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[4]), "failed in clEnqueueNDRangeKernel");
 	// read back aes key & iv
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_key, CL_FALSE, 0, 16 * gws, aes_key, 0, NULL, NULL), "failed in reading key back");
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_iv, CL_TRUE, 0, 16 * gws, aes_iv, 0, NULL, NULL), "failed in reading iv back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_key, CL_FALSE, 0, 16 * gws, aes_key, 0, NULL, multi_profilingEvent[5]), "failed in reading key back");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_aes_iv, CL_TRUE, 0, 16 * gws, aes_iv, 0, NULL, multi_profilingEvent[6]), "failed in reading iv back");
 
-	check_rar(count);
+	if (!ocl_autotune_running)
+		check_rar(count);
+
 	return count;
 }
 
@@ -425,9 +370,7 @@ struct fmt_main fmt_ocl_rar = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		cpu_tests // Changed in init if GPU
 	},{
 		init,
@@ -438,9 +381,7 @@ struct fmt_main fmt_ocl_rar = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

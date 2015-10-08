@@ -23,7 +23,7 @@
 //
 
 #include "arch.h"
-#if defined(SIMD_COEF_32) && (SIMD_COEF_32 < 16 || ARCH_BITS >= 64) && !_MSC_VER
+#if defined(SIMD_COEF_32) && (SIMD_COEF_32 < 16 || ARCH_BITS >= 64) && !_MSC_VER && !__ARM_NEON__
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_sha1_ng;
@@ -64,6 +64,7 @@ john_register_one(&fmt_sha1_ng);
 #include "sha.h"
 #include "johnswap.h"
 #include "aligned.h"
+#include "rawSHA1_common.h"
 #include "memdbg.h"
 
 #define VWIDTH SIMD_COEF_32
@@ -114,13 +115,23 @@ john_register_one(&fmt_sha1_ng);
         E   = vadd_epi32(E, vroti_epi32(A, 5));     \
     } while (false)
 
+#if !VCMOV_EMULATED
 #define R3(W, A, B, C, D, E) do {                                   \
         E   = vadd_epi32(E, K);                                     \
-        E   = vadd_epi32(E, vxor(vcmov(D, B, C), vandnot(D, B)));   \
+        E   = vadd_epi32(E, vcmov(D, B, vxor(C, B)));               \
         E   = vadd_epi32(E, W);                                     \
         B   = vroti_epi32(B, 30);                                   \
         E   = vadd_epi32(E, vroti_epi32(A, 5));                     \
     } while (false)
+#else
+#define R3(W, A, B, C, D, E) do {                                   \
+        E   = vadd_epi32(E, K);                                     \
+        E   = vadd_epi32(E, vor(vand(D, B), vand(vor(D, B), C)));   \
+        E   = vadd_epi32(E, W);                                     \
+        B   = vroti_epi32(B, 30);                                   \
+        E   = vadd_epi32(E, vroti_epi32(A, 5));                     \
+    } while (false)
+#endif
 
 #if SIMD_COEF_32 == 4
 // Not used for AVX2 and better, which has gather instructions.
@@ -148,35 +159,6 @@ static uint32_t *N;
 // MD contains the state of the SHA-1 A register at R75 for each of the input
 // messages.
 static uint32_t *MD;
-
-static const char kFormatTag[] = "$dynamic_26$";
-
-static struct fmt_tests sha1_fmt_tests[] = {
-	{ "da39a3ee5e6b4b0d3255bfef95601890afd80709", ""                },
-	{ "AC80BAA235B7FB7BDFC593A976D40B24B851F924", "CAPSLOCK"        },
-	{ "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8", "a"               },
-	{ "da23614e02469a0d7c7bd1bdab5c9c474b1904dc", "ab"              },
-	{ "a9993e364706816aba3e25717850c26c9cd0d89d", "abc"             },
-	{ "81fe8bfe87576c3ecb22426f8e57847382917acf", "abcd"            },
-	{ "03de6c570bfe24bfc328ccd7ca46b76eadaf4334", "abcde"           },
-	{ "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2", "abcdef"          },
-	{ "2fb5e13419fc89246865e7a324f476ec624e8740", "abcdefg"         },
-	{ "425af12a0743502b322e93a015bcf868e324d56a", "abcdefgh"        },
-	{ "c63b19f1e4c8b5f76b25c49b8b87f57d8e4872a1", "abcdefghi"       },
-	{ "d68c19a0a345b7eab78d5e11e991c026ec60db63", "abcdefghij"      },
-	{ "5dfac39f71ad4d35a153ba4fc12d943a0e178e6a", "abcdefghijk"     },
-	{ "eb4608cebfcfd4df81410cbd06507ea6af978d9c", "abcdefghijkl"    },
-	{ "4b9892b6527214afc655b8aa52f4d203c15e7c9c", "abcdefghijklm"   },
-	{ "85d7c5ff403abe72df5b8a2708821ee33cd0bcce", "abcdefghijklmn"  },
-	{ "2938dcc2e3aa77987c7e5d4a0f26966706d06782", "abcdefghijklmno" },
-	{ "f8252c7b6035a71242b4047782247faabfccb47b", "taviso"          },
-	{ "b47f363e2b430c0647f14deea3eced9b0ef300ce", "is"              },
-	{ "03d67c263c27a453ef65b29e30334727333ccbcd", "awesome"         },
-	{ "7a73673e78669ea238ca550814dca7000d7026cc", "!!!!1111eleven"  },
-	// repeat last hash in exactly the same format that is used for john.pot
-	{"$dynamic_26$7a73673e78669ea238ca550814dca7000d7026cc", "!!!!1111eleven"},
-	{ NULL, NULL }
-};
 
 /* unused
 static inline uint32_t __attribute__((const)) rotateright(uint32_t value, uint8_t count)
@@ -255,37 +237,6 @@ static void done(void)
 	MEM_FREE(M);
 }
 
-
-static int sha1_fmt_valid(char *ciphertext, struct fmt_main *self)
-{
-	// Test for tag prefix in ciphertext.
-	if (!strncmp(ciphertext, kFormatTag, strlen(kFormatTag)))
-	    ciphertext += strlen(kFormatTag);
-
-	// Verify this only contains hex digits.
-	if (strspn(ciphertext, "0123456789aAbBcCdDeEfF") != SHA1_DIGEST_SIZE * 2)
-	    return 0;
-
-	// Verify the length matches.
-	return strlen(ciphertext) == SHA1_DIGEST_SIZE * 2;
-}
-
-
-static void *sha1_fmt_binary_full(void *result, char *ciphertext)
-{
-	static char byte[3];
-	uint8_t    *binary;
-
-	// Convert ascii representation into binary. This routine is not hot, so
-	// it's okay to keep this simple. We copy two digits out of ciphertext at a
-	// time, which can be stored in one byte.
-	for (binary = result; *ciphertext; ciphertext += 2, binary += 1) {
-	    *binary = strtoul(memcpy(byte, ciphertext, 2), NULL, 16);
-	}
-
-	return result;
-}
-
 static void *sha1_fmt_binary(char *ciphertext)
 {
 	// Static buffer storing the binary representation of ciphertext.
@@ -295,11 +246,8 @@ static void *sha1_fmt_binary(char *ciphertext)
 	} result;
 	uint32_t a75;
 
-	// Skip over tag.
-	ciphertext += strlen(kFormatTag);
-
 	// Convert ascii representation into binary.
-	sha1_fmt_binary_full(result.w, ciphertext);
+	memcpy(result.w, rawsha1_common_get_binary(ciphertext), 20);
 
 	// One preprocessing step, if we calculate E80 rol 2 here, we
 	// can compare it against A75 and save 5 rounds in crypt_all().
@@ -309,22 +257,6 @@ static void *sha1_fmt_binary(char *ciphertext)
 	result.v = vset1_epi32(a75);
 
 	return result.w;
-}
-
-static char *sha1_fmt_split(char *ciphertext, int index, struct fmt_main *self)
-{
-	static char result[sizeof(kFormatTag) + SHA1_DIGEST_SIZE * 2];
-
-	// Test for tag prefix already present in ciphertext.
-	if (strncmp(ciphertext, kFormatTag, strlen(kFormatTag)) == 0)
-	    ciphertext += strlen(kFormatTag);
-
-	// Add the hash.
-	strnzcpy(result, kFormatTag, sizeof result);
-	strnzcat(result, ciphertext, sizeof result);
-
-	// Return lowercase result.
-	return strlwr(result);
 }
 
 // This function is called when John wants us to buffer a crypt() operation
@@ -344,7 +276,7 @@ static void sha1_fmt_set_key(char *key, int index)
 	vtype  B;
 
 	// First, find the length of the key by scanning for a zero byte.
-#if (__AVX512F__ && !__AVX512BW__) || __MIC__ || __ALTIVEC__
+#if (__AVX512F__ && !__AVX512BW__) || __MIC__ || __ALTIVEC__ || __ARM_NEON__
 	uint32_t len = strlen(key);
 #else
 	// FIXME: even uint64_t won't be long enough for AVX-1024
@@ -793,26 +725,26 @@ static inline int sha1_fmt_get_hash(int index)
 	return MD[index];
 }
 
-static int sha1_fmt_get_hash0(int index) { return sha1_fmt_get_hash(index) & 0x0000000F; }
-static int sha1_fmt_get_hash1(int index) { return sha1_fmt_get_hash(index) & 0x000000FF; }
-static int sha1_fmt_get_hash2(int index) { return sha1_fmt_get_hash(index) & 0x00000FFF; }
-static int sha1_fmt_get_hash3(int index) { return sha1_fmt_get_hash(index) & 0x0000FFFF; }
-static int sha1_fmt_get_hash4(int index) { return sha1_fmt_get_hash(index) & 0x000FFFFF; }
-static int sha1_fmt_get_hash5(int index) { return sha1_fmt_get_hash(index) & 0x00FFFFFF; }
-static int sha1_fmt_get_hash6(int index) { return sha1_fmt_get_hash(index) & 0x07FFFFFF; }
+static int sha1_fmt_get_hash0(int index) { return sha1_fmt_get_hash(index) & PH_MASK_0; }
+static int sha1_fmt_get_hash1(int index) { return sha1_fmt_get_hash(index) & PH_MASK_1; }
+static int sha1_fmt_get_hash2(int index) { return sha1_fmt_get_hash(index) & PH_MASK_2; }
+static int sha1_fmt_get_hash3(int index) { return sha1_fmt_get_hash(index) & PH_MASK_3; }
+static int sha1_fmt_get_hash4(int index) { return sha1_fmt_get_hash(index) & PH_MASK_4; }
+static int sha1_fmt_get_hash5(int index) { return sha1_fmt_get_hash(index) & PH_MASK_5; }
+static int sha1_fmt_get_hash6(int index) { return sha1_fmt_get_hash(index) & PH_MASK_6; }
 
 static inline int sha1_fmt_get_binary(void *binary)
 {
 	return *(uint32_t*)(binary);
 }
 
-static int sha1_fmt_binary0(void *binary) { return sha1_fmt_get_binary(binary) & 0x0000000F; }
-static int sha1_fmt_binary1(void *binary) { return sha1_fmt_get_binary(binary) & 0x000000FF; }
-static int sha1_fmt_binary2(void *binary) { return sha1_fmt_get_binary(binary) & 0x00000FFF; }
-static int sha1_fmt_binary3(void *binary) { return sha1_fmt_get_binary(binary) & 0x0000FFFF; }
-static int sha1_fmt_binary4(void *binary) { return sha1_fmt_get_binary(binary) & 0x000FFFFF; }
-static int sha1_fmt_binary5(void *binary) { return sha1_fmt_get_binary(binary) & 0x00FFFFFF; }
-static int sha1_fmt_binary6(void *binary) { return sha1_fmt_get_binary(binary) & 0x07FFFFFF; }
+static int sha1_fmt_binary0(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_0; }
+static int sha1_fmt_binary1(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_1; }
+static int sha1_fmt_binary2(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_2; }
+static int sha1_fmt_binary3(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_3; }
+static int sha1_fmt_binary4(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_4; }
+static int sha1_fmt_binary5(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_5; }
+static int sha1_fmt_binary6(void *binary) { return sha1_fmt_get_binary(binary) & PH_MASK_6; }
 
 static int sha1_fmt_cmp_one(void *binary, int index)
 {
@@ -828,7 +760,6 @@ static int sha1_fmt_cmp_one(void *binary, int index)
 static int sha1_fmt_cmp_exact(char *source, int index)
 {
 	uint32_t full_sha1_digest[SHA1_DIGEST_WORDS];
-	uint32_t orig_sha1_digest[SHA1_DIGEST_WORDS];
 	SHA_CTX ctx;
 	char *key;
 
@@ -840,9 +771,8 @@ static int sha1_fmt_cmp_exact(char *source, int index)
 	SHA1_Final((unsigned char*)(full_sha1_digest), &ctx);
 
 	// Compare result.
-	return memcmp(sha1_fmt_binary_full(orig_sha1_digest, source + strlen(kFormatTag)),
-	              full_sha1_digest,
-	              sizeof full_sha1_digest) == 0;
+	return !memcmp(rawsha1_common_get_binary(source), full_sha1_digest,
+	               sizeof(full_sha1_digest));
 }
 
 struct fmt_main fmt_sha1_ng = {
@@ -863,6 +793,8 @@ struct fmt_main fmt_sha1_ng = {
 		.algorithm_name     = "SHA1 128/128 "
 #if __ALTIVEC__
 		"AltiVec"
+#elif __ARM_NEON__
+		"NEON"
 #elif __XOP__
 		"XOP"
 #elif __AVX__
@@ -892,23 +824,19 @@ struct fmt_main fmt_sha1_ng = {
 		                      FMT_OMP | FMT_OMP_BAD |
 #endif
 		                      FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
 		.tunable_cost_name  = { NULL },
-#endif
-		.tests              = sha1_fmt_tests,
+		.tests              = rawsha1_common_tests,
 	},
 	.methods                = {
 		.init               = sha1_fmt_init,
 		.done               = done,
 		.reset              = fmt_default_reset,
-		.prepare            = fmt_default_prepare,
-		.valid              = sha1_fmt_valid,
-		.split              = sha1_fmt_split,
+		.prepare            = rawsha1_common_prepare,
+		.valid              = rawsha1_common_valid,
+		.split              = rawsha1_common_split,
 		.binary             = sha1_fmt_binary,
 		.salt               = fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		.tunable_cost_value = { NULL },
-#endif
 		.source             = fmt_default_source,
 		.salt_hash          = fmt_default_salt_hash,
 		.set_salt           = fmt_default_set_salt,

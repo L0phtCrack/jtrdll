@@ -16,6 +16,10 @@ extern struct fmt_main fmt_rawSHA256_ng;
 john_register_one(&fmt_rawSHA256_ng);
 #else
 
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+
 #if _OPENMP
 #include <omp.h>
 #if __XOP__
@@ -53,6 +57,8 @@ john_register_one(&fmt_rawSHA256_ng);
 #define SIMD_TYPE                 "256/256 AVX2 8x"
 #elif __ALTIVEC__
 #define SIMD_TYPE                 "128/128 AltiVec 4x"
+#elif __ARM_NEON__
+#define SIMD_TYPE                 "128/128 NEON 4x"
 #elif __XOP__
 #define SIMD_TYPE                 "128/128 XOP 4x"
 #elif __SSE4_1__
@@ -62,6 +68,8 @@ john_register_one(&fmt_rawSHA256_ng);
 #else
 #define SIMD_TYPE                 "128/128 SSE2 4x"
 #endif
+
+#define BINARY_SIZE               4
 
 #define FORMAT_LABEL              "Raw-SHA256-ng"
 #define FORMAT_NAME               ""
@@ -138,7 +146,11 @@ john_register_one(&fmt_rawSHA256_ng);
             )                                   \
         )
 
+#if !VCMOV_EMULATED
 #define Maj(x,y,z) vcmov(x, y, vxor(z, y))
+#else
+#define Maj(x,y,z) vor(vand(x, y), vand(vor(x, y), z))
+#endif
 
 #define Ch(x,y,z) vcmov(y, z, x)
 
@@ -191,13 +203,13 @@ static void done(void)
     MEM_FREE(saved_key);
 }
 
-static int get_hash_0(int index) { return crypt_key[0][index] & 0xf; }
-static int get_hash_1(int index) { return crypt_key[0][index] & 0xff; }
-static int get_hash_2(int index) { return crypt_key[0][index] & 0xfff; }
-static int get_hash_3(int index) { return crypt_key[0][index] & 0xffff; }
-static int get_hash_4(int index) { return crypt_key[0][index] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_key[0][index] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_key[0][index] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_key[0][index] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_key[0][index] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_key[0][index] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_key[0][index] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_key[0][index] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_key[0][index] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_key[0][index] & PH_MASK_6; }
 
 
 static void set_key(char *key, int index)
@@ -386,18 +398,19 @@ static int cmp_all(void *binary, int count)
 
 static int cmp_one(void *binary, int index)
 {
+	return ((uint32_t*) binary)[0] == crypt_key[0][index];
+}
+
+
+static int cmp_exact(char *source, int index)
+{
+	ARCH_WORD_32 *binary = sha256_common_binary(source);
     int i;
 
     for (i = 0; i < 8; i++)
         if (((uint32_t*) binary)[i] != crypt_key[i][index])
             return 0;
 
-    return 1;
-}
-
-
-static int cmp_exact(char *source, int index)
-{
     return 1;
 }
 
@@ -417,10 +430,11 @@ struct fmt_main fmt_rawSHA256_ng = {
         SALT_ALIGN,
         MIN_KEYS_PER_CRYPT,
         MAX_KEYS_PER_CRYPT,
-        FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
-		{ NULL },
+#ifdef _OPENMP
+        FMT_OMP | FMT_OMP_BAD |
 #endif
+        FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		{ NULL },
         sha256_common_tests
     }, {
         init,
@@ -431,9 +445,7 @@ struct fmt_main fmt_rawSHA256_ng = {
 	sha256_common_split,
 	sha256_common_binary,
         fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
         fmt_default_source,
         {
 		fmt_default_binary_hash_0,

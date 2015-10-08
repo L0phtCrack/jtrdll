@@ -15,7 +15,7 @@
  *     raw      (binary)
  *     hex
  *     mime     (A..Za..z0..1+/   The == for null trails may be optional, removed for now)
- *     crypt    (./0..9A..Za..Z   Similar to encoding used by crypt)
+ *     crypt    (./0..9A..Za..z   Similar to encoding used by crypt)
  *     cryptBS  like crypt, but bit swapped encoding order
  */
 
@@ -253,13 +253,11 @@ static void hex_to_raw(const char *from, int len, unsigned char *to) {
  * conversion.  With these functions we should be able to walk through a buffer
  ******************************************************************************************/
 static int mime_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, mime_to_cryptBS, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, mime_to_cryptBS, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -280,13 +278,11 @@ static int mime_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int mime_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, mime_to_crypt, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, mime_to_crypt, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -307,13 +303,11 @@ static int mime_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int crypt_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, crypt_to_cryptBS, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, crypt_to_cryptBS, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -334,13 +328,11 @@ static int crypt_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int crypt_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, crypt_to_mime, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, crypt_to_mime, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -361,13 +353,11 @@ static int crypt_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int cryptBS_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, cryptBS_to_mime, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, cryptBS_to_mime, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -388,13 +378,11 @@ static int cryptBS_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int cryptBS_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len_left = strlen(cpi);
 	int use_bytes=3;
-	if (to_len < len_left) {
-		fprintf(stderr, "ERROR, cryptBS_to_crypt, output buffer not large enough\n");
-		error();
-	}
+	if (to_len < len_left)
+		error_msg("ERROR, cryptBS_to_crypt, output buffer not large enough\n");
 	while (len_left > 0) {
 		char tmp[4];
 		if(len_left<4) {
@@ -421,7 +409,7 @@ static int cryptBS_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
  * to do a conversion.  With these functions we should be able to walk through a buffer
  ******************************************************************************************/
 static int hex_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len=0, len_left = strlen(cpi), this_len=4;
 	int use_bytes=3;
 	while (len_left > 0) {
@@ -446,7 +434,7 @@ static int hex_to_cryptBS(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int hex_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len=0, len_left = strlen(cpi), this_len=4;
 	int use_bytes=3;
 	while (len_left > 0) {
@@ -471,7 +459,7 @@ static int hex_to_crypt(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int hex_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len=0, len_left = strlen(cpi), this_len=4;
 	int use_bytes=3;
 	while (len_left > 0) {
@@ -496,7 +484,7 @@ static int hex_to_mime(const char *cpi, char *cpo, int to_len, int flags) {
 	return strlen(cpo_o);
 }
 static int cryptBS_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {
@@ -520,7 +508,7 @@ static int cryptBS_to_hex(const char *cpi, int len_left, char *cpo, int to_len, 
 	return strlen(cpo_o);
 }
 static int crypt_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {
@@ -608,7 +596,7 @@ static int mime_to_raw(const char *cpi, int len_left, char *cpo, int to_len, int
 	return len;
 }
 static int raw_to_mime(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len = 0;
 	while (len_left > 0) {
 		if(len_left<3) {
@@ -628,7 +616,7 @@ static int raw_to_mime(const char *cpi, int len_left, char *cpo, int to_len, int
 	return strlen(cpo_o);
 }
 static int raw_to_crypt(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len = 0;
 	while (len_left > 0) {
 		if(len_left<3) {
@@ -648,7 +636,7 @@ static int raw_to_crypt(const char *cpi, int len_left, char *cpo, int to_len, in
 	return strlen(cpo_o);
 }
 static int raw_to_cryptBS(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len = 0;
 	while (len_left > 0) {
 		if(len_left<3) {
@@ -669,7 +657,7 @@ static int raw_to_cryptBS(const char *cpi, int len_left, char *cpo, int to_len, 
 }
 
 static int mime_to_hex(const char *cpi, int len_left, char *cpo, int to_len, int flags) {
-	char Tmp[3], *cpo_o = cpo;
+	char Tmp[5], *cpo_o = cpo;
 	int len, this_len=3;
 	len = 0;
 	while (len_left > 0) {

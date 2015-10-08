@@ -107,37 +107,37 @@ static void *get_salt(char *ciphertext)
 
 static int get_hash_0(int index)
 {
-	return crypt_out[0] & 0xF;
+	return crypt_out[0] & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	return crypt_out[0] & 0xFF;
+	return crypt_out[0] & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	return crypt_out[0] & 0xFFF;
+	return crypt_out[0] & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	return crypt_out[0] & 0xFFFF;
+	return crypt_out[0] & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	return crypt_out[0] & 0xFFFFF;
+	return crypt_out[0] & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	return crypt_out[0] & 0xFFFFFF;
+	return crypt_out[0] & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	return crypt_out[0] & 0x7FFFFFF;
+	return crypt_out[0] & PH_MASK_6;
 }
 
 static int salt_hash(void *salt)
@@ -221,9 +221,7 @@ struct fmt_main fmt_md4_gen = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		fmt_default_init,
@@ -234,9 +232,7 @@ struct fmt_main fmt_md4_gen = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

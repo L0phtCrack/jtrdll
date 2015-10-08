@@ -16,21 +16,9 @@
 
 #include "opencl_mscash2_helper_plug.h"
 #include "options.h"
+#include "memdbg.h"
 
-#define MAX_DEVICE_PER_PLATFORM 	16
 #define PADDING				1024
-
-#define getPowerOfTwo(v)	\
-{				\
-	v--;			\
-	v |= v >> 1;		\
-	v |= v >> 2;		\
-	v |= v >> 4;		\
-	v |= v >> 8;		\
-	v |= v >> 16;		\
-	v |= v >> 32;		\
-	v++;			\
-}
 
 typedef struct {
 	unsigned int 	istate[5];
@@ -62,9 +50,9 @@ static unsigned int maxActiveDevices = 0;
 
 void initNumDevices(void)
 {
-	devBuffer = (deviceBuffer *) mem_alloc(MAX_DEVICE_PER_PLATFORM * MAX_PLATFORMS * sizeof(deviceBuffer));
-	devParam = (deviceParam *) mem_calloc(MAX_DEVICE_PER_PLATFORM * MAX_PLATFORMS, sizeof(deviceParam));
-	events = (cl_event *) mem_alloc(MAX_DEVICE_PER_PLATFORM * MAX_PLATFORMS * sizeof(cl_event));
+	devBuffer = (deviceBuffer *) mem_calloc(MAX_GPU_DEVICES, sizeof(deviceBuffer));
+	devParam = (deviceParam *) mem_calloc(MAX_GPU_DEVICES, sizeof(deviceParam));
+	events = (cl_event *) mem_alloc(MAX_GPU_DEVICES * sizeof(cl_event));
 }
 
 static void createDevObjGws(size_t gws, int jtrUniqDevId)
@@ -123,13 +111,16 @@ void releaseAll()
 	int 	i;
 
 	for (i = 0; i < get_number_of_devices_in_use(); i++) {
-		releaseDevObjGws(gpu_device_list[i]);
-		releaseDevObj(gpu_device_list[i]);
+	releaseDevObjGws(gpu_device_list[i]);
+	releaseDevObj(gpu_device_list[i]);
+	if (devParam[gpu_device_list[i]].devKernel[0]) {
 		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[0]), "Error releasing kernel pbkdf2_preprocess_short");
 		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[1]), "Error releasing kernel pbkdf2_preprocess_long");
 		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[2]), "Error releasing kernel pbkdf2_iter");
 		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[3]), "Error releasing kernel pbkdf2_postprocess");
 		HANDLE_CLERROR(clReleaseProgram(program[gpu_device_list[i]]), "Error releasing Program");
+		devParam[gpu_device_list[i]].devKernel[0] = 0;
+		}
 	 }
 
 	 MEM_FREE(events);
@@ -235,7 +226,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 
 	gwsLimit = get_max_mem_alloc_size
 		   (jtrUniqDevId) / sizeof(devIterTempSz);
-	getPowerOfTwo(gwsLimit);
+	get_power_of_two(gwsLimit);
 	if (gwsLimit + PADDING >
 		get_max_mem_alloc_size
 		(jtrUniqDevId) / sizeof(devIterTempSz))
@@ -269,7 +260,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 	if (local_work_size) {
 		tuneLws = 0;
 		if (local_work_size & (local_work_size - 1))
-			getPowerOfTwo(local_work_size);
+			get_power_of_two(local_work_size);
 		if (local_work_size > lwsLimit)
 			local_work_size = lwsLimit;
 	}
@@ -280,8 +271,8 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 	devParam[jtrUniqDevId].devGws = global_work_size;
 
 #if 0
-	 fprintf(stderr, "lwsInit:%zu lwsLimit:%zu"
-			 " gwsInit:%zu gwsLimit:%zu\n",
+	 fprintf(stderr, "lwsInit:"Zu" lwsLimit:"Zu""
+			 " gwsInit:"Zu" gwsLimit:"Zu"\n",
 			  lwsInit, lwsLimit, gwsInit,
 			  gwsLimit);
 #endif
@@ -455,7 +446,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 	assert(devParam[jtrUniqDevId].devLws <= PADDING);
 
 	if (options.verbosity > 3)
-	fprintf(stdout, "Device %d  GWS: %zu, LWS: %zu\n", jtrUniqDevId,
+	fprintf(stdout, "Device %d  GWS: "Zu", LWS: "Zu"\n", jtrUniqDevId,
 			devParam[jtrUniqDevId].devGws, devParam[jtrUniqDevId].devLws);
 
 #undef calcMs
@@ -466,7 +457,7 @@ size_t selectDevice(int jtrUniqDevId, struct fmt_main *self)
 {
 	char buildOpts[300];
 
-	assert(jtrUniqDevId < MAX_DEVICE_PER_PLATFORM * MAX_PLATFORMS);
+	assert(jtrUniqDevId < MAX_GPU_DEVICES);
 
 	sprintf(buildOpts, "-D SALT_BUFFER_SIZE=%lu", SALT_BUFFER_SIZE);
 	opencl_init("$JOHN/kernels/pbkdf2_kernel.cl", jtrUniqDevId, buildOpts);
@@ -516,7 +507,7 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 		gettimeofday(&startc, NULL) ;
 		
 		if (workPart != devParam[gpu_device_list[i]].devGws)
-			fprintf(stderr, "Deficit: %d %zu\n",  gpu_device_list[i], devParam[gpu_device_list[i]].devGws - workPart);
+			fprintf(stderr, "Deficit: %d "Zu"\n",  gpu_device_list[i], devParam[gpu_device_list[i]].devGws - workPart);
 #endif
 
 		///call to execKernel()

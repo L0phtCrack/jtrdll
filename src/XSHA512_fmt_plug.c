@@ -62,6 +62,8 @@ john_register_one(&fmt_XSHA512);
 #define __XSHA512_CREATE_PROPER_TESTS_ARRAY__
 #include "rawSHA512_common.h"
 
+#define BINARY_SIZE				DIGEST_SIZE
+
 #ifdef SIMD_COEF_64
 #define GETPOS(i, index)        ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
 static ARCH_WORD_64 (*saved_key)[SHA_BUF_SIZ*MAX_KEYS_PER_CRYPT];
@@ -138,21 +140,21 @@ static void *get_salt(char *ciphertext)
 
 #ifdef SIMD_COEF_64
 #define HASH_IDX (((unsigned int)index&(SIMD_COEF_64-1))+(unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64)
-static int get_hash_0 (int index) { return crypt_out[HASH_IDX] & 0xf; }
-static int get_hash_1 (int index) { return crypt_out[HASH_IDX] & 0xff; }
-static int get_hash_2 (int index) { return crypt_out[HASH_IDX] & 0xfff; }
-static int get_hash_3 (int index) { return crypt_out[HASH_IDX] & 0xffff; }
-static int get_hash_4 (int index) { return crypt_out[HASH_IDX] & 0xfffff; }
-static int get_hash_5 (int index) { return crypt_out[HASH_IDX] & 0xffffff; }
-static int get_hash_6 (int index) { return crypt_out[HASH_IDX] & 0x7ffffff; }
+static int get_hash_0 (int index) { return crypt_out[HASH_IDX] & PH_MASK_0; }
+static int get_hash_1 (int index) { return crypt_out[HASH_IDX] & PH_MASK_1; }
+static int get_hash_2 (int index) { return crypt_out[HASH_IDX] & PH_MASK_2; }
+static int get_hash_3 (int index) { return crypt_out[HASH_IDX] & PH_MASK_3; }
+static int get_hash_4 (int index) { return crypt_out[HASH_IDX] & PH_MASK_4; }
+static int get_hash_5 (int index) { return crypt_out[HASH_IDX] & PH_MASK_5; }
+static int get_hash_6 (int index) { return crypt_out[HASH_IDX] & PH_MASK_6; }
 #else
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 #endif
 
 static int salt_hash(void *salt)
@@ -193,7 +195,13 @@ static void set_key(char *key, int index)
 	// ok, first 4 bytes (if there are that many or more), we handle one offs.
 	// this is because we already have 4 byte salt loaded into our saved_key.
 	// IF there are more bytes of password, we drop into the multi loader.
+#if ARCH_ALLOWS_UNALIGNED
 	const ARCH_WORD_64 *wkey = (ARCH_WORD_64*)&(key[4]);
+#else
+	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint64_t));
+	const ARCH_WORD_64 *wkey = is_aligned(key+4, sizeof(uint64_t)) ?
+			(ARCH_WORD_64*)(key+4) : (ARCH_WORD_64*)strcpy(buf_aligned, key+4);
+#endif
 	ARCH_WORD_64 *keybuffer = &((ARCH_WORD_64 *)saved_key)[(index&(SIMD_COEF_64-1)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
 	ARCH_WORD_64 *keybuf_word = keybuffer;
 	unsigned int len;
@@ -371,9 +379,7 @@ struct fmt_main fmt_XSHA512 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		sha512_common_tests_xsha512
 	}, {
 		init,
@@ -384,9 +390,7 @@ struct fmt_main fmt_XSHA512 = {
 		sha512_common_split_xsha,
 		sha512_common_binary_xsha,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

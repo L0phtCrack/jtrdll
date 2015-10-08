@@ -46,7 +46,11 @@
  * Exit on error. Logs the event, closes john.pot and the log file, and
  * terminates the process with non-zero exit status.
  */
-extern void real_error(char *file, int line)
+extern 
+#ifdef _MSC_VER
+__declspec(noreturn) 
+#endif
+void real_error(char *file, int line)
 #ifdef __GNUC__
 	__attribute__ ((__noreturn__));
 #else
@@ -54,6 +58,20 @@ extern void real_error(char *file, int line)
 #endif
 
 #define error(...) real_error(__FILE__, __LINE__)
+
+/*
+ * Exit on error with message.  Will call real_error to do
+ * the final exiting, after printing error message.
+ */
+extern void real_error_msg(char *file, int line, char *format, ...)
+#ifdef __GNUC__
+	__attribute__ ((__noreturn__))
+	__attribute__ ((format (printf, 3, 4)));
+#else
+	;
+#endif
+
+#define error_msg(...) real_error_msg(__FILE__, __LINE__,  __VA_ARGS__)
 
 /*
  * Similar to perror(), but supports formatted output, and calls error().
@@ -65,6 +83,7 @@ extern void real_pexit(char *file, int line, char *format, ...)
 #else
 	;
 #endif
+
 #define pexit(...) real_pexit(__FILE__, __LINE__, __VA_ARGS__)
 
 /*

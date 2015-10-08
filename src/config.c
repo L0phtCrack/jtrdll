@@ -2,7 +2,7 @@
  * This file is part of John the Ripper password cracker,
  * Copyright (c) 1996-2002,2009,2013 by Solar Designer
  *
- * ...with changes in the jumbo patch, by magnum
+ * ...with changes in the jumbo patch, by magnum and JimF
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -30,6 +30,16 @@ char *cfg_name = NULL;
 static struct cfg_section *cfg_database = NULL;
 static int cfg_recursion;
 static int cfg_process_directive(char *line, int number);
+
+/* we have exposed this to the dyna_parser file, so that it can easily
+ * walk the configuration list one time, to determine which dynamic formats
+ * are in the file.  Before we would walk the entire configuration list
+ * 4000 times. Now only 1 time. We return the pointer to this data in
+ * a const manner, telling the outside function to NOT make changes.
+ */
+const struct cfg_section *get_cfg_db() {
+	return cfg_database;
+}
 
 static char *trim(char *s)
 {
@@ -406,7 +416,7 @@ static int cfg_process_directive_include_section(char *line, int number)
 	}
 	p = strtokm(p, ":");
 	p2 = strtokm(NULL, "");
-	if (!p || !p2) {
+	if (!p) {
 		fprintf(stderr, "ERROR, invalid .include line, can not find this section:  %s\n", line);
 #ifndef BENCH_BUILD
 		log_event("! ERROR, invalid .include line, can not find this section:  %s", line);
@@ -414,7 +424,10 @@ static int cfg_process_directive_include_section(char *line, int number)
 		return 1;
 	}
 	*Section = ':';
-	strnzcpy(&Section[1], p2, 254);
+	if (p2)
+		strnzcpy(&Section[1], p2, 254);
+	else
+		*Section = 0;
 	if ((newsection = cfg_get_section(p, Section))) {
 		if (newsection->list) {
 			// Must check cfg_database->list before cfg_add_line()
@@ -443,7 +456,7 @@ static int cfg_process_directive_include_section(char *line, int number)
 	return 1;
 }
 
-// Handle a .include "file"   or a .include <file>
+// Handle a .include "file"   or a .include <file>   or a .include 'file'
 static int cfg_process_directive_include_config(char *line, int number)
 {
 	char *p, *p2, *saved_fname;
@@ -463,8 +476,20 @@ static int cfg_process_directive_include_config(char *line, int number)
 		}
 		*p2 = 0;
 		strnzcpy(Name, p, PATH_BUFFER_SIZE);
-	}
-	else {
+	} else if (!strncmp(line, ".include '", 10)) {
+		p = &line[10];
+		p2 = strchr(&p[1], '\'');
+		if (!p2) {
+			fprintf(stderr, "ERROR, invalid config include line:  %s\n", line);
+#ifndef BENCH_BUILD
+			log_event("! ERROR, invalid config include line:  %s", line);
+#endif
+			return 1;
+		}
+		*p2 = 0;
+		strnzcpy(Name, p, PATH_BUFFER_SIZE);
+		allow_missing = 1;
+	} else {
 		p = &line[10];
 		p2 = strchr(&p[1], '>');
 		if (!p2) {
@@ -486,9 +511,6 @@ static int cfg_process_directive_include_config(char *line, int number)
 		return 1;
 	}
 
-	/* We silently allow a missing john.local.conf */
-	allow_missing = !strcmp(Name, "$JOHN/john.local.conf");
-
 	saved_fname = cfg_name;
 	cfg_recursion++;
 	cfg_init(Name, allow_missing);
@@ -500,7 +522,7 @@ static int cfg_process_directive_include_config(char *line, int number)
 // Handle a .directive line.  Currently only .include syntax is handled.
 static int cfg_process_directive(char *line, int number)
 {
-	if (!strncmp(line, ".include \"", 10) || !strncmp(line, ".include <", 10))
+	if (!strncmp(line, ".include \"", 10) || !strncmp(line, ".include <", 10) || !strncmp(line, ".include '", 10))
 		return cfg_process_directive_include_config(line, number);
 	if (!strncmp(line, ".include [", 10))
 		return cfg_process_directive_include_section(line, number);

@@ -12,11 +12,20 @@ typedef ARCH_WORD_32 u32;
 
 u32 fget32LE(FILE * fp);
 u16 fget16LE(FILE * fp);
-u8 *pkz_GetFld(u8 *p, u8 **pRet);
-int pkz_is_hex_str(const u8 *cp);
-unsigned pkz_get_hex_num(const u8 *cp);
 
 #define MAX_PKZ_FILES 3
+
+// These came from the gladman headers
+#define KEY_LENGTH(mode)    (8 * ((mode) & 3) + 8)
+#define SALT_LENGTH(mode)   (4 * ((mode) & 3) + 4)
+#define KEYING_ITERATIONS   1000
+#define PASSWORD_VERIFIER
+#ifdef  PASSWORD_VERIFIER
+#define PWD_VER_LENGTH      2
+#else
+#define PWD_VER_LENGTH      0
+#endif
+
 
 #if USE_PKZIP_MAGIC
 typedef struct zip_magic_signatures_t {

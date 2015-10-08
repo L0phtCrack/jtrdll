@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2006,2010-2013 by Solar Designer
+ * Copyright (c) 1996-2006,2010-2013,2015 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JoMo-Kun and magnum
  */
@@ -35,8 +35,6 @@
 extern struct fmt_main fmt_LM;
 
 static double cand;
-
-static char safe_null_key[PLAINTEXT_BUFFER_SIZE];
 
 static double get_progress(void)
 {
@@ -132,6 +130,18 @@ static int is_mixedcase(char *chars)
 		if (c >= 'A' && c <= 'Z' && present[ARCH_INDEX(c) | 0x20])
 			return 1;
 	}
+
+	return 0;
+}
+
+static int has_8bit(char *chars)
+{
+	char *ptr, c;
+
+	ptr = chars;
+	while ((c = *ptr++))
+		if (c & 0x80)
+			return 1;
 
 	return 0;
 }
@@ -427,9 +437,9 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			                           "DefaultIncrementalLM")))
 				mode = "LM_ASCII";
 		} else if (db->format->params.label &&
-		           (!strcmp(db->format->params.label, "lm-opencl") ||
-		            !strcmp(db->format->params.label, "netlm") ||
-		            !strcmp(db->format->params.label, "nethalflm"))) {
+		           (!strcasecmp(db->format->params.label, "lm-opencl") ||
+		            !strcasecmp(db->format->params.label, "netlm") ||
+		            !strcasecmp(db->format->params.label, "nethalflm"))) {
 			if (!(mode = cfg_get_param(SECTION_OPTIONS, NULL,
 			                           "DefaultIncrementalLM")))
 				mode = "LM_ASCII";
@@ -515,10 +525,10 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 
 	/* Command-line can over-ride lengths from config file */
-	if (options.force_minlength >= 0)
-		min_length = options.force_minlength;
-	if (options.force_maxlength)
-		max_length = options.force_maxlength;
+	if (options.req_minlength >= 0)
+		min_length = options.req_minlength;
+	if (options.req_maxlength)
+		max_length = options.req_maxlength;
 
 	if (min_length > max_length) {
 		log_event("! MinLen = %d exceeds MaxLen = %d",
@@ -679,6 +689,14 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			    "tried more than once.\n");
 	}
 
+	if (!(db->format->params.flags & FMT_8_BIT) && has_8bit(allchars)) {
+		log_event("! 8-bit charset, but the hash type is 7-bit");
+		if (john_main_process)
+			fprintf(stderr, "Warning: 8-bit charset, but the current"
+			    " hash type is 7-bit;\n"
+			    "some candidate passwords may be redundant.\n");
+	}
+
 	char2 = NULL;
 	for (pos = 0; pos < CHARSET_LENGTH - 2; pos++)
 		chars[pos] = NULL;
@@ -784,10 +802,10 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		if (!length && !min_length) {
 			min_length = 1;
 			if (options.mask) {
-				if (!skip && do_mask_crack(safe_null_key))
+				if (!skip && do_mask_crack(fmt_null_key))
 					break;
 			} else
-			if (!skip && crk_process_key(safe_null_key))
+			if (!skip && crk_process_key(fmt_null_key))
 				break;
 		}
 

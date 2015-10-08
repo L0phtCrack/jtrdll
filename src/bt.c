@@ -72,17 +72,19 @@ static auxilliary_offset_data *offset_data = NULL;
 
 unsigned long long total_memory_in_bytes = 0;
 
-static unsigned int signal_stop = 0;
+#ifndef _MSC_VER
+static volatile sig_atomic_t signal_stop = 0;
+#else
+static volatile int signal_stop = 0;
+#endif
 
 static unsigned int verbosity;
 
 #ifndef _MSC_VER
 static void alarm_handler(int sig)
 {
-	if (sig == SIGALRM) {
+	if (sig == SIGALRM)
 		signal_stop = 1;
-		fprintf(stderr, "\nProgress is too slow!! trying next table size.\n");
-	}
 }
 #endif
 
@@ -134,10 +136,15 @@ void bt_free(void **ptr)
 	*ptr = NULL;
 }
 
-void bt_error(const char *str)
+void bt_error_fn(const char *str, char *file, int line)
 {
-      fprintf(stderr, "%s\n", str);
+      fprintf(stderr, "%s in file:%s, line:%d.\n", str, file, line);
       error();
+}
+
+void bt_warn_fn(const char *str, char *file, int line)
+{
+      fprintf(stderr, "%s in file:%s, line:%d.\n", str, file, line);
 }
 
 static unsigned int modulo_op(void * hash, unsigned int N, uint64_t shift64, uint64_t shift128)
@@ -406,7 +413,7 @@ static unsigned int create_tables()
 			backtracking = 0;
 		}
 #endif
-#ifndef JTRDLL
+#ifndef _MSC_VER
 		alarm(3);
 #endif
 
@@ -425,16 +432,17 @@ static unsigned int create_tables()
 				fprintf(stdout, "\rProgress:%Lf %%, Number of collisions:%u", done / (long double)num_loaded_hashes * 100.00, offset_data[i].collisions);
 				fflush(stdout);
 			}
-#ifndef JTRDLL
+#ifndef _MSC_VER
 			alarm(0);
 #endif
 		}
 
 		if (signal_stop) {
-			signal_stop = 0;
-#ifndef JTRDLL
+#ifndef _MSC_VER
 			alarm(0);
 #endif
+			signal_stop = 0;
+			fprintf(stderr, "\nProgress is too slow!! trying next table size.\n");
 			bt_free((void **)&hash_table_idxs);
 			bt_free((void **)&store_hash_modulo_table_sz);
 			return 0;
@@ -479,7 +487,7 @@ static unsigned int create_tables()
 		i++;
 	}
 
-#ifndef JTRDLL
+#ifndef _MSC_VER
 	alarm(0);
 #endif
 
@@ -578,7 +586,7 @@ unsigned int create_perfect_hash_table(int htype, void *loaded_hashes_ptr,
 {
 	long double multiplier_ht, multiplier_ot, inc_ht, inc_ot;
 	unsigned int approx_hash_table_sz, approx_offset_table_sz, i, dupe_remove_ht_sz;
-#ifndef JTRDLL
+#ifndef _MSC_VER
 	struct sigaction new_action, old_action;
 	struct itimerval old_it;
 #endif
@@ -678,8 +686,16 @@ unsigned int create_perfect_hash_table(int htype, void *loaded_hashes_ptr,
 		multiplier_ot = 1.31375173;
 		dupe_remove_ht_sz = 16777216;
 	}
-	else if (num_ld_hashes <= 110000000) {
+	else if (num_ld_hashes <= 20000000) {
+		multiplier_ot = 1.35375173;
+		dupe_remove_ht_sz = 33554432;
+	}
+	else if (num_ld_hashes <= 50000000) {
 		multiplier_ot = 1.41375173;
+		dupe_remove_ht_sz = 67108864;
+	}
+	else if (num_ld_hashes <= 110000000) {
+		multiplier_ot = 1.51375173;
 		dupe_remove_ht_sz = 134217728;
 	}
 	else if (num_ld_hashes <= 200000000) {
@@ -771,4 +787,3 @@ unsigned int create_perfect_hash_table(int htype, void *loaded_hashes_ptr,
 }*/
 
 #endif
-

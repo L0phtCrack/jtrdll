@@ -26,10 +26,9 @@ extern struct fmt_main fmt_openbsd_softraid;
 john_register_one(&fmt_openbsd_softraid);
 #else
 
-#include <openssl/evp.h>
-#include <openssl/aes.h>
-#include <openssl/hmac.h>
-#include <openssl/sha.h>
+#include "aes.h"
+#include "hmac_sha.h"
+#include "sha.h"
 #include "common.h"
 #include "formats.h"
 #include "pbkdf2_hmac_sha1.h"
@@ -71,16 +70,20 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-	OpenSSL_add_all_algorithms();
 #ifdef _OPENMP
 	omp_t = omp_get_max_threads();
 	self->params.min_keys_per_crypt *= omp_t;
 	omp_t *= OMP_SCALE;
 	self->params.max_keys_per_crypt *= omp_t;
 #endif
-	key_buffer = mem_calloc_tiny(sizeof(*key_buffer) *
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	crypt_out = mem_calloc_tiny(sizeof(*crypt_out) * self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	key_buffer = mem_calloc(sizeof(*key_buffer), self->params.max_keys_per_crypt);
+	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
+}
+
+static void done(void)
+{
+	MEM_FREE(crypt_out);
+	MEM_FREE(key_buffer);
 }
 
 static int valid(char* ciphertext, struct fmt_main *self)
@@ -104,19 +107,19 @@ static int valid(char* ciphertext, struct fmt_main *self)
 		goto err;
 	if (strlen(p) != 2 * 128) /* salt */
 		goto err;
-	if (!ishex(p))
+	if (!ishexlc(p))
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (strlen(p) != 2 * 32 * 64) /* masked keys */
 		goto err;
-	if (!ishex(p))
+	if (!ishexlc(p))
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (strlen(p) != 2 * BINARY_SIZE) /* HMAC-SHA1 */
 		goto err;
-	if (!ishex(p))
+	if (!ishexlc(p))
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -193,45 +196,44 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 		/* derive masking key from password */
 #ifdef SSE_GROUP_SZ_SHA1
-    int lens[SSE_GROUP_SZ_SHA1];
-    unsigned char *pin[SSE_GROUP_SZ_SHA1], *pout[SSE_GROUP_SZ_SHA1];
-    for (i = 0; i < SSE_GROUP_SZ_SHA1; ++i) {
-      lens[i] = strlen(key_buffer[index+i]);
-      pin[i] = (unsigned char*)key_buffer[index+i];
-      pout[i] = mask_key[i];
-    }
-    pbkdf2_sha1_sse((const unsigned char **)pin, lens,
-        cur_salt->salt, OPENBSD_SOFTRAID_SALTLENGTH,
-        cur_salt->num_iterations, (unsigned char**)pout,
-        32, 0);
+	int lens[SSE_GROUP_SZ_SHA1];
+	unsigned char *pin[SSE_GROUP_SZ_SHA1], *pout[SSE_GROUP_SZ_SHA1];
+	for (i = 0; i < SSE_GROUP_SZ_SHA1; ++i) {
+		lens[i] = strlen(key_buffer[index+i]);
+		pin[i] = (unsigned char*)key_buffer[index+i];
+		pout[i] = mask_key[i];
+	}
+	pbkdf2_sha1_sse((const unsigned char **)pin, lens,
+	                cur_salt->salt, OPENBSD_SOFTRAID_SALTLENGTH,
+	                cur_salt->num_iterations, (unsigned char**)pout,
+	                32, 0);
 #else
-    pbkdf2_sha1((const unsigned char*)(key_buffer[index]),
-        strlen(key_buffer[index]),
-        cur_salt->salt, OPENBSD_SOFTRAID_SALTLENGTH,
-        cur_salt->num_iterations, mask_key[0],
-        32, 0);
+	pbkdf2_sha1((const unsigned char*)(key_buffer[index]),
+	            strlen(key_buffer[index]),
+	            cur_salt->salt, OPENBSD_SOFTRAID_SALTLENGTH,
+	            cur_salt->num_iterations, mask_key[0],
+	            32, 0);
 #endif
 
-    for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+	for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 
 #if !ARCH_LITTLE_ENDIAN
-      alter_endianity(mask_key[i], 32);
+		alter_endianity(mask_key[i], 32);
 #endif
 
-      /* decrypt sector keys */
-      AES_set_decrypt_key(mask_key[i], 256, &akey);
-      for(j = 0; j < (OPENBSD_SOFTRAID_KEYLENGTH * OPENBSD_SOFTRAID_KEYS) / 16;  j++) {
-        AES_decrypt(&cur_salt->masked_keys[16*j], &unmasked_keys[16*j], &akey);
-      }
+		/* decrypt sector keys */
+		AES_set_decrypt_key(mask_key[i], 256, &akey);
+		for(j = 0; j < (OPENBSD_SOFTRAID_KEYLENGTH * OPENBSD_SOFTRAID_KEYS) / 16;  j++) {
+			AES_decrypt(&cur_salt->masked_keys[16*j], &unmasked_keys[16*j], &akey);
+		}
 
-      /* get SHA1 of mask_key */
-      SHA1(mask_key[i], 32, hashed_mask_key);
+		/* get SHA1 of mask_key */
+		SHA1(mask_key[i], 32, hashed_mask_key);
 
-      /* get HMAC-SHA1 of unmasked_keys using hashed_mask_key */
-      HMAC(EVP_sha1(), hashed_mask_key, OPENBSD_SOFTRAID_MACLENGTH,
-          unmasked_keys, OPENBSD_SOFTRAID_KEYLENGTH * OPENBSD_SOFTRAID_KEYS,
-          (unsigned char*)crypt_out[index+i], NULL);
-    }
+		hmac_sha1(hashed_mask_key, OPENBSD_SOFTRAID_MACLENGTH,
+		          unmasked_keys, OPENBSD_SOFTRAID_KEYLENGTH * OPENBSD_SOFTRAID_KEYS,
+		          (unsigned char*)crypt_out[index+i], 20);
+	}
 
 	}
 	return count;
@@ -266,13 +268,11 @@ static char *get_key(int index)
 {
 	return key_buffer[index];
 }
-#if FMT_MAIN_VERSION > 11
 /* report iteration count as tunable cost */
 static unsigned int iteration_count(void *salt)
 {
 	return ((struct custom_salt*)salt)->num_iterations;
 }
-#endif
 static struct fmt_tests tests_openbsdsoftraid[] = {
 	// too long of line was causing my Sparc box to fail to compile this code
 	{"\
@@ -304,26 +304,22 @@ struct fmt_main fmt_openbsd_softraid = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{
 			"iteration count",
 		},
-#endif
 		tests_openbsdsoftraid
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{
 			iteration_count,
 		},
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

@@ -30,15 +30,17 @@
 #define LM_EMPTY			"aad3b435b51404ee"
 
 static struct fmt_tests tests[] = {
-	{"$LM$a9c604d244c4e99d", "AAAAAA"},
+	{"$LM$a9c604d244c4e99d", "aaaaaa"},
 	{"$LM$cbc501a4d2227783", "AAAAAAA"},
 	{"$LM$3466c2b0487fe39a", "CRACKPO"},
-	{"$LM$dbc5e5cba8028091", "IMPUNIT"},
+	{"$LM$dbc5e5cba8028091", "impunit"},
 	{LM_EMPTY LM_EMPTY, ""},
 	{"$LM$73cc402bd3e79175", "SCLEROS"},
 	{"$LM$5ecd9236d21095ce", "YOKOHAM"},
 	{"$LM$A5E6066DE61C3E35", "ZZZZZZZ"}, /* uppercase encoding */
 	{"$LM$1FB363feB834C12D", "ZZZZZZ"}, /* mixed case encoding */
+	{"$LM$fea4ab7d7b7d0452", "0688648"},
+
 	{NULL}
 };
 
@@ -133,37 +135,37 @@ static char *source(char *source, void *binary)
 
 static int binary_hash_0(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_0;
 }
 
 static int binary_hash_1(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_1;
 }
 
 static int binary_hash_2(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_2;
 }
 
 static int binary_hash_3(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_3;
 }
 
 static int binary_hash_4(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_4;
 }
 
 static int binary_hash_5(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xFFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_5;
 }
 
 static int binary_hash_6(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0x7FFFFFF;
+	return *(ARCH_WORD_32 *)binary & PH_MASK_6;
 }
 
 static int cmp_one(void *binary, int index)
@@ -215,13 +217,15 @@ struct fmt_main fmt_LM = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
+/*
+ * Do not add FAST_FORMATS_OMP checks to LM, because its use of OpenMP is in
+ * code shared with other formats.
+ */
 #if DES_bs_mt
 		FMT_OMP | FMT_OMP_BAD |
 #endif
-		FMT_8_BIT | FMT_BS | FMT_SPLIT_UNIFIES_CASE,
-#if FMT_MAIN_VERSION > 11
+		FMT_8_BIT | FMT_TRUNC | FMT_BS | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -232,9 +236,7 @@ struct fmt_main fmt_LM = {
 		split,
 		binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		source,
 		{
 			binary_hash_0,

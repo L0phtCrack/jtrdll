@@ -54,9 +54,6 @@ static cl_kernel prepare_kernel, final_kernel;
 static int new_keys, source_in_use;
 static int split_events[3] = { 1, 5, 6 };
 
-static int crypt_all(int *pcount, struct db_salt *_salt);
-static int crypt_all_benchmark(int *pcount, struct db_salt *_salt);
-
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl-autotune.h"
 #include "memdbg.h"
@@ -73,20 +70,6 @@ static size_t get_task_max_work_group_size()
 	}
 	return s;
 
-}
-
-static size_t get_task_max_size(){
-
-	return 0;
-}
-
-static size_t get_default_workgroup(){
-
-    	if (cpu(device_info[gpu_id]))
-		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
-			8 : 1;
-	else
-		return 0;
 }
 
 /* ------- Create and destroy necessary objects ------- */
@@ -343,33 +326,33 @@ static void build_kernel(char * task) {
 }
 
 static void init(struct fmt_main *_self) {
-	char * tmp_value;
-	char * task = "$JOHN/kernels/cryptsha512_kernel_DEFAULT.cl";
 
 	self = _self;
-
-	opencl_prepare_dev(gpu_id);
-	source_in_use = device_info[gpu_id];
-
-	if ((tmp_value = getenv("_TYPE")))
-		source_in_use = atoi(tmp_value);
-
-	if (amd_gcn(source_in_use))
-		task = "$JOHN/kernels/cryptsha512_kernel_GCN.cl";
-	else if (_USE_GPU_SOURCE)
-		task = "$JOHN/kernels/cryptsha512_kernel_GPU.cl";
-
-	build_kernel(task);
-
-	if (source_in_use != device_info[gpu_id])
-		fprintf(stderr, "Selected runtime id %d, source (%s)\n",
-		        source_in_use, task);
 }
 
 static void reset(struct db_main *db)
 {
 	if (!autotuned) {
+                char * tmp_value;
+                char * task = "$JOHN/kernels/cryptsha512_kernel_DEFAULT.cl";
 		int default_value = 0;
+
+                opencl_prepare_dev(gpu_id);
+                source_in_use = device_info[gpu_id];
+
+                if ((tmp_value = getenv("_TYPE")))
+                        source_in_use = atoi(tmp_value);
+
+                if (amd_gcn(source_in_use))
+                        task = "$JOHN/kernels/cryptsha512_kernel_GCN.cl";
+                else if (_USE_GPU_SOURCE)
+                        task = "$JOHN/kernels/cryptsha512_kernel_GPU.cl";
+
+                build_kernel(task);
+
+                if (source_in_use != device_info[gpu_id])
+                        fprintf(stderr, "Selected runtime id %d, source (%s)\n",
+                                source_in_use, task);
 
 		if (gpu_amd(source_in_use))
 			default_value = get_processors_count(gpu_id);
@@ -389,25 +372,26 @@ static void reset(struct db_main *db)
 		                       sizeof(uint64_t) * 9 * 8 , 0);
 
 		//Auto tune execution from shared/included code.
-		self->methods.crypt_all = crypt_all_benchmark;
 		autotune_run(self, ROUNDS_DEFAULT, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              2000000000ULL : 7000000000ULL));
-		self->methods.crypt_all = crypt_all;
+		             (cpu(device_info[gpu_id]) ? 1000ULL : 300ULL));
 		memset(plaintext, '\0', sizeof(sha512_password) * global_work_size);
 	}
 }
 
 static void done(void) {
-	release_clobj();
 
-	HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel");
+        if (autotuned) {
+                release_clobj();
 
-	if (_SPLIT_KERNEL_IN_USE) {
-		HANDLE_CLERROR(clReleaseKernel(prepare_kernel), "Release kernel");
-		HANDLE_CLERROR(clReleaseKernel(final_kernel), "Release kernel");
-	}
-	HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+                HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel");
+
+                if (_SPLIT_KERNEL_IN_USE) {
+                        HANDLE_CLERROR(clReleaseKernel(prepare_kernel), "Release kernel");
+                        HANDLE_CLERROR(clReleaseKernel(final_kernel), "Release kernel");
+                }
+                HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
+                autotuned = 0;
+        }
 }
 
 /* ------- Compare functins ------- */
@@ -431,7 +415,7 @@ static int cmp_exact(char * source, int count) {
 }
 
 /* ------- Crypt function ------- */
-static int crypt_all_benchmark(int *pcount, struct db_salt *_salt) {
+static int crypt_all(int *pcount, struct db_salt *_salt) {
 	int count = *pcount;
 	int i;
 	size_t gws;
@@ -451,11 +435,14 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *_salt) {
 			&gws, lws, 0, NULL, multi_profilingEvent[3]),
 			"failed in clEnqueueNDRangeKernel I");
 
-		for (i = 0; i < 3; i++) {
+		for (i = 0; i < (ocl_autotune_running ? 3 : (salt->rounds  / HASH_LOOPS)); i++) {
 			BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL,
 				&gws, lws, 0, NULL,
-				multi_profilingEvent[split_events[i]]),  //1, 5, 6
+				(ocl_autotune_running ? multi_profilingEvent[split_events[i]] : NULL)),  //1, 5, 6
 				"failed in clEnqueueNDRangeKernel");
+
+			HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
+			opencl_process_event();
 		}
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], final_kernel, 1, NULL,
 			&gws, lws, 0, NULL, multi_profilingEvent[4]),
@@ -477,70 +464,21 @@ static int crypt_all_benchmark(int *pcount, struct db_salt *_salt) {
 	return count;
 }
 
-static int crypt_all(int *pcount, struct db_salt *_salt)
-{
-	const int count = *pcount;
-	int i;
-	size_t gws;
-
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	//Send data to device.
-	if (new_keys)
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], pass_buffer, CL_FALSE, 0,
-			sizeof(sha512_password) * gws, plaintext, 0, NULL, NULL),
-			"failed in clEnqueueWriteBuffer pass_buffer");
-
-	//Enqueue the kernel
-	if (_SPLIT_KERNEL_IN_USE) {
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], prepare_kernel, 1, NULL,
-			&gws, &local_work_size, 0, NULL, NULL),
-			"failed in clEnqueueNDRangeKernel I");
-
-		for (i = 0; i < (salt->rounds / HASH_LOOPS); i++) {
-			HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL,
-				&gws, &local_work_size, 0, NULL, NULL),
-				"failed in clEnqueueNDRangeKernel");
-			HANDLE_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
-			opencl_process_event();
-		}
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], final_kernel, 1, NULL,
-			&gws, &local_work_size, 0, NULL, NULL),
-			"failed in clEnqueueNDRangeKernel II");
-	} else
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL,
-			&gws, &local_work_size, 0, NULL, NULL),
-			"failed in clEnqueueNDRangeKernel");
-
-	//Read back hashes
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], hash_buffer, CL_FALSE, 0,
-			sizeof(sha512_hash) * gws, calculated_hash, 0, NULL, NULL),
-			"failed in reading data back");
-
-	//Do the work
-	HANDLE_CLERROR(clFinish(queue[gpu_id]), "failed in clFinish");
-	new_keys = 0;
-
-	return count;
-}
-
 /* ------- Binary Hash functions group ------- */
-static int get_hash_0(int index) { return calculated_hash[index].v[0] & 0xf; }
-static int get_hash_1(int index) { return calculated_hash[index].v[0] & 0xff; }
-static int get_hash_2(int index) { return calculated_hash[index].v[0] & 0xfff; }
-static int get_hash_3(int index) { return calculated_hash[index].v[0] & 0xffff; }
-static int get_hash_4(int index) { return calculated_hash[index].v[0] & 0xfffff; }
-static int get_hash_5(int index) { return calculated_hash[index].v[0] & 0xffffff; }
-static int get_hash_6(int index) { return calculated_hash[index].v[0] & 0x7ffffff; }
+static int get_hash_0(int index) { return calculated_hash[index].v[0] & PH_MASK_0; }
+static int get_hash_1(int index) { return calculated_hash[index].v[0] & PH_MASK_1; }
+static int get_hash_2(int index) { return calculated_hash[index].v[0] & PH_MASK_2; }
+static int get_hash_3(int index) { return calculated_hash[index].v[0] & PH_MASK_3; }
+static int get_hash_4(int index) { return calculated_hash[index].v[0] & PH_MASK_4; }
+static int get_hash_5(int index) { return calculated_hash[index].v[0] & PH_MASK_5; }
+static int get_hash_6(int index) { return calculated_hash[index].v[0] & PH_MASK_6; }
 
-#if FMT_MAIN_VERSION > 11
 static unsigned int iteration_count(void *salt)
 {
 	sha512_salt *sha512crypt_salt;
 	sha512crypt_salt = salt;
 	return (unsigned int)sha512crypt_salt->rounds;
 }
-#endif
 
 /* ------- Format structure ------- */
 struct fmt_main fmt_opencl_cryptsha512 = {

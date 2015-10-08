@@ -126,8 +126,8 @@ static char *hex2bin(char *src, unsigned char *dst, int outsize) {
     qe = dst + outsize;
 
     for (p = src, q = dst; p < pe && q < qe && isxdigit((int)(unsigned char)*p); p += 2) {
-        ch = tolower((int)(unsigned char)p[0]);
-        cl = tolower((int)(unsigned char)p[1]);
+	ch = p[0];
+	cl = p[1];
 
         if ((ch >= '0') && (ch <= '9')) ch -= '0';
         else if ((ch >= 'a') && (ch <= 'f')) ch -= 'a' - 10;
@@ -336,9 +336,7 @@ struct fmt_main fmt_KRB5 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_tests
 	}, {
 		init,
@@ -349,9 +347,7 @@ struct fmt_main fmt_KRB5 = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash,

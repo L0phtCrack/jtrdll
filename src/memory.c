@@ -27,6 +27,7 @@
 #if defined (_MSC_VER) && !defined (MEMDBG_ON)
 #define malloc(a) _aligned_malloc(a,16)
 #define realloc(a,b) _aligned_realloc(a,b,16)
+#define calloc(a,b) memset(_aligned_malloc(a*b,16),0,a*b)
 #define free(a) _aligned_free(a)
 char *strdup_MSVC(const char *str)
 {
@@ -89,8 +90,7 @@ void *mem_alloc_func(size_t size
 	res = malloc(size);
 #endif
 	if (!res) {
-		fprintf(stderr, "mem_alloc(): %s trying to allocate "FMT_SIZE_T" bytes\n", strerror(ENOMEM), size);
-/*		fprintf(stderr, "mem_alloc(): %s trying to allocate "Zd" bytes\n", strerror(ENOMEM), size);*/
+		fprintf(stderr, "mem_alloc(): %s trying to allocate "Zu" bytes\n", strerror(ENOMEM), size);
 		error();
 	}
 
@@ -103,14 +103,21 @@ void *mem_calloc_func(size_t count, size_t size
 #endif
 	)
 {
-	char *res;
-	size *= count;
+	void *res;
+
+	if (!count || !size) return NULL;
 #if defined (MEMDBG_ON)
+	size *= count;
 	res = (char*) MEMDBG_alloc(size, file, line);
-#else
-	res = (char*) mem_alloc(size);
-#endif
 	memset(res, 0, size);
+#else
+	res = calloc(count, size);
+#endif
+	if (!res) {
+		fprintf(stderr, "mem_calloc(): %s trying to allocate "Zu" bytes\n", strerror(ENOMEM), count * size);
+		error();
+	}
+
 	return res;
 }
 
@@ -314,16 +321,6 @@ char *str_alloc_copy_func(char *src
 #else
 	return (char *)memcpy(mem_alloc_tiny(size, MEM_ALIGN_NONE), src, size);
 #endif
-}
-
-/* if we stipulate that align must be 1<<x (i.e. base 2), %align can be
-   replaced with &(align-1) */
-void *mem_align(void *stack_ptr, int align) {
-	char *cp_align = (char*)stack_ptr;
-
-	cp_align += (align-1);
-	cp_align -= (size_t)cp_align % align;
-	return (void*)cp_align;
 }
 
 void dump_text(void *in, int len)

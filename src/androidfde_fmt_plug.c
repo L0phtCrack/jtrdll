@@ -36,7 +36,7 @@ john_register_one(&fmt_fde);
 #include "john_stdint.h"
 #include <stdlib.h>
 #include <sys/types.h>
-#include <openssl/aes.h>
+#include "aes.h"
 
 #include <string.h>
 #include "arch.h"
@@ -147,9 +147,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (!ishex(p))
-		goto err;
-	if (strlen(p) != saltlen * 2)
+	if (hexlenl(p) != saltlen * 2)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* keysize */
 		goto err;
@@ -160,15 +158,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* key */
 		goto err;
-	if(strlen(p) != keysize * 2)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != keysize * 2)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* data */
 		goto err;
-	if (strlen(p) != 512 * 3 * 2)
-		goto err;
-	if (!ishex(p))
+	if (hexlenl(p) != 512 * 3 * 2)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -381,9 +375,7 @@ struct fmt_main fmt_fde = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fde_tests
 	}, {
 		init,
@@ -394,9 +386,7 @@ struct fmt_main fmt_fde = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

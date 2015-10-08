@@ -31,7 +31,7 @@ john_register_one(&fmt_o5logon);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "aes/aes.h"
+#include "aes.h"
 #ifdef _OPENMP
 static int omp_t = 1;
 #include <omp.h>
@@ -69,6 +69,8 @@ static struct fmt_tests o5logon_tests[] = {
 	// m3odbe
 	// m3o3rt
 	{"$o5logon$A10D52C1A432B61834F4B0D9592F55BD0DA2B440AEEE1858515A646683240D24A61F0C9366C63E93D629292B7891F44A*878C0B92D61A594F2680", "m3ow00"},
+	{"$o5logon$52696131746C356643796B6D716F46474444787745543263764B725A6D756A69E46DE32AFBB33E385C6D9C7031F4F2B9*3131316D557239736A65", "123456"},
+	{"$o5logon$4336396C304B684638634450576B30397867704F54766D71494F676F5A5A386F09F4A10B5908B3ED5B1D6878A6C78751*573167557661774E7271", ""},
 	{NULL}
 };
 
@@ -122,15 +124,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	p = strtokm(ctcopy, "*"); /* ciphertext */
 	if(!p)
 		goto err;
-	if(strlen(p) != CIPHERTEXT_LENGTH * 2)
-		goto err;
-	if (!ishex(p))
+	if(hexlenu(p) != CIPHERTEXT_LENGTH * 2)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if(strlen(p) != SALT_LENGTH * 2)
-		goto err;
-	if (!ishex(p))
+	if(hexlenu(p) != SALT_LENGTH * 2)
 		goto err;
 	MEM_FREE(keeptr);
 	return 1;
@@ -254,10 +252,8 @@ struct fmt_main fmt_o5logon = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD,
 		{ NULL },
-#endif
 		o5logon_tests
 	}, {
 		init,
@@ -268,9 +264,7 @@ struct fmt_main fmt_o5logon = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

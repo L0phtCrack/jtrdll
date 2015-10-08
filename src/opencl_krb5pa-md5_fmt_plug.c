@@ -68,8 +68,6 @@ john_register_one(&fmt_opencl_krb5pa_md5);
 #define MIN_KEYS_PER_CRYPT 1
 #define MAX_KEYS_PER_CRYPT 1
 
-#define HEXCHARS           "0123456789abcdefABCDEF"
-
 // Second and third plaintext will be replaced in init() under come encodings
 static struct fmt_tests tests[] = {
 	{"$krb5pa$23$user$realm$salt$afcbe07c32c3450b37d0f2516354570fe7d3e78f829e77cdc1718adf612156507181f7daeb03b6fbcfe91f8346f3c0ae7e8abfe5", "John"},
@@ -124,20 +122,6 @@ static size_t get_task_max_work_group_size()
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel));
 	s = MIN(s, 64);
 	return s;
-}
-
-static size_t get_task_max_size()
-{
-	return 0;
-}
-
-static size_t get_default_workgroup()
-{
-	if (cpu(device_info[gpu_id]))
-		return get_platform_vendor_id(platform_id) == DEV_INTEL ?
-			8 : 1;
-	else
-		return 64;
 }
 
 static void create_clobj(size_t gws, struct fmt_main *self)
@@ -250,9 +234,17 @@ static void reset(struct db_main *db)
 	if (!autotuned) {
 		char build_opts[64];
 
+#if !NT_FULL_UNICODE
+		snprintf(build_opts, sizeof(build_opts), 
+		    "-DUCS_2 "
+		    "-D%s -DPLAINTEXT_LENGTH=%u",
+		    cp_id2macro(pers_opts.target_enc), PLAINTEXT_LENGTH);
+#else
 		snprintf(build_opts, sizeof(build_opts),
-		         "-D%s -DPLAINTEXT_LENGTH=%u",
-		         cp_id2macro(pers_opts.target_enc), PLAINTEXT_LENGTH);
+			"-D%s -DPLAINTEXT_LENGTH=%u",
+			cp_id2macro(pers_opts.target_enc), PLAINTEXT_LENGTH);
+#endif
+
 		opencl_init("$JOHN/kernels/krb5pa-md5_kernel.cl", gpu_id, build_opts);
 
 		/* create kernels to execute */
@@ -353,14 +345,17 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	if (new_keys) {
 		if (key_idx > key_offset)
-			HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, key_offset, key_idx - key_offset, saved_key + key_offset, 0, NULL, NULL), "Failed transferring keys");
-		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_idx, CL_FALSE, idx_offset, 4 * (global_work_size + 1) - idx_offset, saved_idx + (idx_offset / 4), 0, NULL, multi_profilingEvent[0]), "Failed transferring index");
-		HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], krb5pa_md5_nthash, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[1]), "Failed running first kernel");
+			BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, key_offset, key_idx - key_offset, saved_key + key_offset, 0, NULL, NULL), "Failed transferring keys");
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_idx, CL_FALSE, idx_offset, 4 * (global_work_size + 1) - idx_offset, saved_idx + (idx_offset / 4), 0, NULL, multi_profilingEvent[0]), "Failed transferring index");
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], krb5pa_md5_nthash, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[1]), "Failed running first kernel");
 
 		new_keys = 0;
 	}
-	HANDLE_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[2]), "Failed running second kernel");
-	HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, BINARY_SIZE * global_work_size, output, 0, NULL, multi_profilingEvent[3]), "failed reading results back");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, &lws, 0, NULL, multi_profilingEvent[2]), "Failed running second kernel");
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, BINARY_SIZE * global_work_size, output, 0, NULL, multi_profilingEvent[3]), "failed reading results back");
+
+	if (ocl_autotune_running)
+		return count;
 
 	for (i = 0; i < count; i++) {
 		unsigned char *binary = &((unsigned char*)output)[BINARY_SIZE * i];
@@ -484,14 +479,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		// checksum
 		p = strchr(data, '$');
 		if (!p || p - data != 2 * CHECKSUM_SIZE ||
-		    strspn(data, HEXCHARS) != p - data)
+		    strspn(data, HEXCHARS_all) != p - data)
 			return 0;
 		data = p + 1;
 
 		// encrypted timestamp
 		p += strlen(data) + 1;
 		if (*p || p - data != TIMESTAMP_SIZE * 2 ||
-		    strspn(data, HEXCHARS) != p - data)
+		    strspn(data, HEXCHARS_all) != p - data)
 			return 0;
 
 		return 1;
@@ -519,7 +514,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		// timestamp+checksum
 		p += strlen(data) + 1;
 		if (*p || p - data != (TIMESTAMP_SIZE + CHECKSUM_SIZE) * 2 ||
-		    strspn(data, HEXCHARS) != p - data)
+		    strspn(data, HEXCHARS_all) != p - data)
 			return 0;
 
 		return 1;
@@ -547,13 +542,13 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xf; }
-static int get_hash_1(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xff; }
-static int get_hash_2(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xfff; }
-static int get_hash_3(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xffff; }
-static int get_hash_4(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xfffff; }
-static int get_hash_5(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0xffffff; }
-static int get_hash_6(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & 0x7ffffff; }
+static int get_hash_0(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_0; }
+static int get_hash_1(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_1; }
+static int get_hash_2(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_2; }
+static int get_hash_3(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_3; }
+static int get_hash_4(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_4; }
+static int get_hash_5(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_5; }
+static int get_hash_6(int index) { return *(ARCH_WORD_32*)&output[index * BINARY_SIZE / sizeof(ARCH_WORD_32)] & PH_MASK_6; }
 
 static int salt_hash(void *salt)
 {
@@ -576,9 +571,7 @@ struct fmt_main fmt_opencl_krb5pa_md5 = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -589,9 +582,7 @@ struct fmt_main fmt_opencl_krb5pa_md5 = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

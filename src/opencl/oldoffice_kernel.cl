@@ -17,9 +17,6 @@
 #include "opencl_md5.h"
 #include "opencl_sha1.h"
 
-/* Do not support full UTF-16 with surrogate pairs */
-#define UCS_2
-
 typedef struct {
 	int type;
 	uint salt[16/4];
@@ -57,7 +54,7 @@ __kernel void oldoffice_utf16(__global const uchar *source,
 	while (source < sourceEnd) {
 		if (*source < 0xC0) {
 			*target++ = (UTF16)*source++;
-			if (*source == 0 || target >= targetEnd) {
+			if (source >= sourceEnd || target >= targetEnd) {
 				break;
 			}
 			continue;
@@ -103,7 +100,7 @@ __kernel void oldoffice_utf16(__global const uchar *source,
 			*target++ = (UTF16)((ch & halfMask) + UNI_SUR_LOW_START);
 		}
 #endif
-		if (*source == 0 || target >= targetEnd)
+		if (source >= sourceEnd || target >= targetEnd)
 			break;
 	}
 
@@ -190,11 +187,15 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 #endif
 #if PLAINTEXT_LENGTH > 31
 	if (len > 31) {
-		for (i = 0; i < 32; i += 2)
-			W[i >> 1] = (uint)*p++ | (*p++ << 16U);
+		for (i = 0; i < 32; i += 2) {
+			W[i >> 1] = (uint)*p++;
+			W[i >> 1] |= (*p++ << 16U);
+		}
 		md5_block(W, md5);
-		for (i = 0; i < len - 32; i += 2)
-			W[i >> 1] = (uint)*p++ | (*p++ << 16U);
+		for (i = 0; i < len - 32; i += 2) {
+			W[i >> 1] = (uint)*p++;
+			W[i >> 1] |= (*p++ << 16U);
+		}
 		PUTSHORT(W, i, 0x80);
 		i++;
 		for (; i < 28; i++)
@@ -206,8 +207,10 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 #endif
 #if PLAINTEXT_LENGTH > 27
 	if (len > 27) {
-		for (i = 0; i < len; i += 2)
-			W[i >> 1] = (uint)*p++ | (*p++ << 16U);
+		for (i = 0; i < len; i += 2) {
+			W[i >> 1] = (uint)*p++;
+			W[i >> 1] |= (*p++ << 16U);
+		}
 		PUTSHORT(W, i, 0x80);
 		for (i = len + 1; i < 32; i++)
 			PUTSHORT(W, i, 0);
@@ -220,8 +223,10 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 	} else
 #endif
 	{
-		for (i = 0; i < len; i += 2)
-			W[i >> 1] = (uint)*p++ | (*p++ << 16U);
+		for (i = 0; i < len; i += 2) {
+			W[i >> 1] = (uint)*p++;
+			W[i >> 1] |= (*p++ << 16U);
+		}
 		PUTSHORT(W, len, 0x80);
 		for (i = len + 1; i < 28; i++)
 			PUTSHORT(W, i, 0);
@@ -236,6 +241,17 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 
 	for (i = 0; i < 4; i++)
 		salt[i] = cs->salt[i];
+
+#if __OS_X__ && gpu_intel(DEVICE_INFO)
+/*
+ * Ridiculous workaround for Apple w/ Intel HD Graphics. Un-comment
+ * the below, and kernel starts working for LWS=1 GWS=1. Still segfaults
+ * with higher work sizes though. This is a driver bug.
+ *
+ * Yosemite, HD Graphics 4000, 1.2(Jul 29 2015 02:40:37)
+ */
+	//dump_stuff_msg("\n", md5, 16);
+#endif
 
 	md5_init(key);
 	W[0] = md5[0];
@@ -405,12 +421,14 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 #if PLAINTEXT_LENGTH > (31 - 8)
 	if (len > 31) {
 		for (i = 8; i < 32; i += 2) {
-			uint u = *p++ | (*p++ << 16U);
+			uint u = *p++;
+			u |= (*p++ << 16U);
 			W[i >> 1] = SWAP32(u);
 		}
 		sha1_block(W, key);
 		for (i = 0; i < len - 32; i += 2) {
-			uint u = *p++ | (*p++ << 16U);
+			uint u = *p++;
+			u |= (*p++ << 16U);
 			W[i >> 1] = SWAP32(u);
 		}
 		PUTSHORT_BE(W, len - 32, 0x8000);
@@ -423,7 +441,8 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 #if PLAINTEXT_LENGTH > (27 - 8)
 	if (len > 27) {
 		for (i = 8; i < len; i += 2) {
-			uint u = *p++ | (*p++ << 16U);
+			uint u = *p++;
+			u |= (*p++ << 16U);
 			W[i >> 1] = SWAP32(u);
 		}
 		PUTSHORT_BE(W, len, 0x8000);
@@ -438,7 +457,8 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 #endif
 	{
 		for (i = 8; i < len; i += 2) {
-			uint u = *p++ | (*p++ << 16U);
+			uint u = *p++;
+			u |= (*p++ << 16U);
 			W[i >> 1] = SWAP32(u);
 		}
 		PUTSHORT_BE(W, len, 0x8000);

@@ -60,6 +60,8 @@ static struct fmt_tests radmin_tests[] = {
 	{"$radmin2$b4e13c7149ebde51e510959f30319ac7", "firebaLL"},
 	{"$radmin2$3d2c8cae4621edf8abb081408569482b", "yamaha12345"},
 	{"$radmin2$60cb8e411b02c10ecc3c98e29e830de8", "xplicit"},
+	{"$radmin2$53b1dc4fd27e58a075b196f99b2ac992", "UPPERCASE"},
+	{"$radmin2$6d0bb00954ceb7fbee436bb55a8397a9", ""},
 	{NULL}
 };
 
@@ -86,15 +88,20 @@ static void done(void)
 	MEM_FREE(crypt_out);
 }
 
+static char *split(char *ciphertext, int index, struct fmt_main *self) {
+	static char buf[CIPHERTEXT_LENGTH + 10];   // $radmin2$ is 9 bytes
+	strnzcpy(buf, ciphertext, CIPHERTEXT_LENGTH + 10);
+	strlwr(buf);
+	return buf;
+}
+
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *p;
 	if (strncmp(ciphertext, "$radmin2$", 9))
 		return 0;
 	p = ciphertext + 9;
-	if (strlen(p) != CIPHERTEXT_LENGTH)
-		return 0;
-	if (!ishex(p))
+	if (hexlen(p) != CIPHERTEXT_LENGTH)
 		return 0;
 	return 1;
 }
@@ -119,13 +126,13 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
@@ -194,10 +201,8 @@ struct fmt_main fmt_radmin = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
-#endif
 		radmin_tests
 	}, {
 		init,
@@ -205,12 +210,10 @@ struct fmt_main fmt_radmin = {
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
-		fmt_default_split,
+		split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

@@ -33,7 +33,7 @@ john_register_one(&fmt_sybaseprop);
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
-#define OMP_SCALE           2048 // xxx
+#define OMP_SCALE           16
 #endif
 static int omp_t = 1;
 #endif
@@ -63,7 +63,7 @@ static int omp_t = 1;
 #define SALT_ALIGN          1
 
 #define MIN_KEYS_PER_CRYPT  1
-#define MAX_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT  128
 
 static struct fmt_tests SybasePROP_tests[] = {
 	{"0x2905aeb3d00e3b80fb0695cb34c9fa9080f84ae1824b24cc51a3849dcb06", "test11"},
@@ -77,11 +77,13 @@ static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
+#ifdef _OPENMP
 	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	if (omp_t > 1) {
+		self->params.min_keys_per_crypt *= omp_t;
+		omp_t *= OMP_SCALE;
+		self->params.max_keys_per_crypt *= omp_t;
+	}
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -102,12 +104,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (strncmp(ciphertext, PREFIX_VALUE, PREFIX_LENGTH))
 		return 0;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
+	if (hexlenl(p) != CIPHERTEXT_LENGTH-PREFIX_LENGTH)
 		return 0;
 
-	while (*p)
-		if (atoi16[ARCH_INDEX(*p++)] == 0x7f)
-			return 0;
 	return 1;
 }
 
@@ -122,7 +121,7 @@ static void *get_binary(char *ciphertext)
 	int i;
 
 	p = ciphertext + PREFIX_LENGTH + SALT_SIZE_HEX + 2;  // last 2 bytes always seem to be "05"
-		for (i = 0; i < BINARY_SIZE; i++) {
+	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
 		    (atoi16[ARCH_INDEX(*p)] << 4) |
 		    atoi16[ARCH_INDEX(p[1])];
@@ -163,17 +162,14 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
-		unsigned int g_seed = 0x3f;
-		struct JtR_FEAL8_CTX ctx;
+	for (index = 0; index < count; index++) {
 		generate_hash((unsigned char*)saved_key[index], saved_salt,
-				(unsigned char*)crypt_out[index], &g_seed, &ctx);
+		    (unsigned char*)crypt_out[index]);
 	}
 	return count;
 }
@@ -197,13 +193,13 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & 0xf; }
-static int get_hash_1(int index) { return crypt_out[index][0] & 0xff; }
-static int get_hash_2(int index) { return crypt_out[index][0] & 0xfff; }
-static int get_hash_3(int index) { return crypt_out[index][0] & 0xffff; }
-static int get_hash_4(int index) { return crypt_out[index][0] & 0xfffff; }
-static int get_hash_5(int index) { return crypt_out[index][0] & 0xffffff; }
-static int get_hash_6(int index) { return crypt_out[index][0] & 0x7ffffff; }
+static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
+static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
+static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
+static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
+static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
+static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
+static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 struct fmt_main fmt_sybaseprop = {
 	{
@@ -221,9 +217,7 @@ struct fmt_main fmt_sybaseprop = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		SybasePROP_tests
 	}, {
 		init,
@@ -234,9 +228,7 @@ struct fmt_main fmt_sybaseprop = {
 		fmt_default_split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

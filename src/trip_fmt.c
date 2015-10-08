@@ -114,12 +114,11 @@ static void init(struct fmt_main *self)
 #define howmany(x, y) (((x) + ((y) - 1)) / (y))
 	worst_case_block_count = 0xFFF +
 	    howmany(fmt_trip.params.max_keys_per_crypt - 0xFFF, DES_BS_DEPTH);
-	crypt_out = mem_alloc_tiny(sizeof(*crypt_out) * worst_case_block_count,
+	crypt_out = mem_calloc_align(sizeof(*crypt_out), worst_case_block_count,
 	    MEM_ALIGN_CACHE);
-	memset(crypt_out, 0, sizeof(*crypt_out) * worst_case_block_count);
 
 #if DES_bs_mt
-	l2g = mem_alloc_tiny(sizeof(*l2g) * DES_bs_max_kpc, MEM_ALIGN_CACHE);
+	l2g = mem_calloc_align(sizeof(*l2g), DES_bs_max_kpc, MEM_ALIGN_CACHE);
 #endif
 
 	hash_func = NULL;
@@ -141,7 +140,7 @@ static void init(struct fmt_main *self)
 	}
 #endif
 
-	buffer = mem_alloc_tiny(sizeof(*buffer) *
+	buffer = mem_calloc_align(sizeof(*buffer),
 	    fmt_trip.params.max_keys_per_crypt,
 	    MEM_ALIGN_CACHE);
 
@@ -156,6 +155,17 @@ static void init(struct fmt_main *self)
 		else
 			salt_map[i] = '.';
 	}
+}
+
+static void done(void)
+{
+	MEM_FREE(buffer);
+#if DES_bs_mt
+	MEM_FREE(l2g);
+#endif
+#if DES_BS
+	MEM_FREE(crypt_out);
+#endif
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -592,30 +602,33 @@ struct fmt_main fmt_trip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
+/*
+ * Characters 2 and 3 of passwords form a descrypt salt.  Formally, 8-bit
+ * characters are invalid in descrypt salts, but our implementation, as well as
+ * most others, actually handles them in some way, and the 8th bit is not
+ * necessarily ignored there.  Hence, we set FMT_8_BIT, even though the 8th bit
+ * is ignored for most character positions and its behavior for positions 2 and
+ * 3 is not precisely defined.
+ */
 #if DES_BS && DES_bs_mt
-		FMT_OMP |
+		FMT_OMP | FMT_OMP_BAD |
 #endif
 #if DES_BS
-		FMT_CASE | FMT_BS,
-#else
-		FMT_CASE,
+		FMT_BS |
 #endif
-#if FMT_MAIN_VERSION > 11
+		FMT_TRUNC | FMT_CASE | FMT_8_BIT,
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
-		fmt_default_done,
+		done,
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
 		get_binary,
 		fmt_default_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			binary_hash_0,

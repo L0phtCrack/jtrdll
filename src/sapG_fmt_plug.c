@@ -160,7 +160,7 @@ static void init(struct fmt_main *self)
 	initUnicode(UNICODE_MS_NEW);
 
 	if (!options.listconf && pers_opts.target_enc != UTF_8 &&
-	    !(options.flags & FLG_TEST_CHK) && warned++ == 0)
+	    !(options.flags & FLG_TEST_CHK) &&warned++ == 0)
 		fprintf(stderr, "Warning: SAP-F/G format should always be UTF-8.\nConvert your input files to UTF-8 and use --input-encoding=utf8\n");
 
 	// Max 40 characters or 120 bytes of UTF-8, We actually do not truncate
@@ -441,10 +441,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int t;
 #pragma omp parallel for
 	for (t = 0; t < omp_t; t++)
-#define ti (t*NBKEYS+index)
+#define ti ((unsigned int)t*NBKEYS+(unsigned int)index)
 #else
 #define t  0
-#define ti index
+#define ti (unsigned int)index
 #endif
 	{
 		unsigned int index, i, longest;
@@ -458,7 +458,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			// Store key into vector key buffer
 			if ((len = keyLen[ti]) < 0) {
 				ARCH_WORD_32 *keybuf_word = (ARCH_WORD_32*)&saved_key[0][GETSTARTPOS(ti)];
+#if ARCH_ALLOWS_UNALIGNED
 				const ARCH_WORD_32 *wkey = (ARCH_WORD_32*)saved_plain[ti];
+#else
+				char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(4);
+				char *key = (char*)saved_plain[ti];
+				const ARCH_WORD_32 *wkey = is_aligned(key, 4) ?
+						(uint32_t*)key : (uint32_t*)strcpy(buf_aligned, key);
+#endif
 				ARCH_WORD_32 temp;
 
 				len = 0;
@@ -697,21 +704,21 @@ static char *source(struct db_password *pw, char Buf[LINE_BUFFER_SIZE] )
 
 #ifdef SIMD_COEF_32
 #define KEY_OFF (((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*5+(index&(SIMD_COEF_32-1)))
-static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xf; }
-static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xff; }
-static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xfff; }
-static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xffff; }
-static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xfffff; }
-static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0xffffff; }
-static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & 0x7ffffff; }
+static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_0; }
+static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_1; }
+static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_2; }
+static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_3; }
+static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_4; }
+static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_5; }
+static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[KEY_OFF] & PH_MASK_6; }
 #else
-static int get_hash_0(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xf; }
-static int get_hash_1(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xff; }
-static int get_hash_2(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xfff; }
-static int get_hash_3(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xffff; }
-static int get_hash_4(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xfffff; }
-static int get_hash_5(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0xffffff; }
-static int get_hash_6(int index) { return *(ARCH_WORD_32*)crypt_key[index] & 0x7ffffff; }
+static int get_hash_0(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_0; }
+static int get_hash_1(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_1; }
+static int get_hash_2(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_2; }
+static int get_hash_3(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_3; }
+static int get_hash_4(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_4; }
+static int get_hash_5(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_5; }
+static int get_hash_6(int index) { return *(ARCH_WORD_32*)crypt_key[index] & PH_MASK_6; }
 #endif
 
 // Here, we remove any salt padding and trim it to 36 bytes
@@ -767,9 +774,7 @@ struct fmt_main fmt_sapG = {
 		FMT_OMP |
 #endif
 		FMT_CASE | FMT_8_BIT | FMT_UTF8,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		tests
 	}, {
 		init,
@@ -780,9 +785,7 @@ struct fmt_main fmt_sapG = {
 		split,
 		get_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash_0,

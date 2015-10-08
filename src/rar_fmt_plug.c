@@ -52,15 +52,7 @@ john_register_one(&fmt_rar);
 #endif
 
 #include <string.h>
-#include <assert.h>
 #include <errno.h>
-#include <openssl/engine.h>
-#include <openssl/evp.h>
-#include <openssl/ssl.h>
-
-#include "arch.h"
-#include "sha.h"
-
 #if AC_BUILT
 #include "autoconfig.h"
 #endif
@@ -75,6 +67,8 @@ john_register_one(&fmt_rar);
 #include <sys/mman.h>
 #endif
 
+#include "arch.h"
+#include "sha.h"
 #include "crc32.h"
 #include "misc.h"
 #include "common.h"
@@ -91,7 +85,6 @@ john_register_one(&fmt_rar);
 
 #define FORMAT_LABEL		"rar"
 #define FORMAT_NAME		"RAR3"
-#define ALGORITHM_NAME		"SHA1 AES 32/" ARCH_BITS_STR
 
 #ifdef DEBUG
 #define BENCHMARK_COMMENT	" (1-16 characters)"
@@ -100,14 +93,28 @@ john_register_one(&fmt_rar);
 #endif
 #define BENCHMARK_LENGTH	-1
 
-#define PLAINTEXT_LENGTH	125
 #define UNICODE_LENGTH		(2 * PLAINTEXT_LENGTH)
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		MEM_ALIGN_NONE
 #define SALT_SIZE		sizeof(rarfile*)
 #define SALT_ALIGN		sizeof(rarfile*)
+
+#ifdef SIMD_COEF_32
+#include "simd-intrinsics.h"
+#define NBKEYS (SIMD_COEF_32*SIMD_PARA_SHA1)
+#define GETPOS(i,idx) ( (idx&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)idx/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 )
+#define HASH_IDX(idx) (((unsigned int)idx&(SIMD_COEF_32-1))+(unsigned int)idx/SIMD_COEF_32*5*SIMD_COEF_32)
+
+#define ALGORITHM_NAME		"SHA1 " SHA1_ALGORITHM_NAME " AES"
+#define PLAINTEXT_LENGTH    26
+#define MIN_KEYS_PER_CRYPT  NBKEYS
+#define MAX_KEYS_PER_CRYPT  NBKEYS
+#else
+#define ALGORITHM_NAME		"SHA1 AES 32/" ARCH_BITS_STR
+#define PLAINTEXT_LENGTH	125
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
+#endif
 
 #define ROUNDS			0x40000
 
@@ -120,23 +127,31 @@ john_register_one(&fmt_rar);
 
 #ifdef _OPENMP
 #include <omp.h>
-#include <pthread.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE		4
 #endif
-static pthread_mutex_t *lockarray;
 #endif
 
 #include "rar_common.c"
 #include "memdbg.h"
+
+// these are supposed to be stack arrays; however gcc cannot correctly align
+// stack arrays so we have to use global arrays; we may switch back to stack
+// arrays (which take less space) when gcc fixes this issue
+#ifdef SIMD_COEF_32
+static uint8_t  (*vec_in)[2][NBKEYS*64];
+static uint32_t (*vec_out)[NBKEYS*5];
+static uint8_t  (*tmp_in)[NBKEYS*64];
+static uint32_t (*tmp_out)[NBKEYS*5];
+#endif
 
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
 	omp_t = omp_get_max_threads();
 	self->params.min_keys_per_crypt *= omp_t;
-	self->params.max_keys_per_crypt = omp_t * OMP_SCALE * MAX_KEYS_PER_CRYPT;
-	init_locks();
+	omp_t *= OMP_SCALE;
+	self->params.max_keys_per_crypt *= omp_t;
 #endif /* _OPENMP */
 
 	if (pers_opts.target_enc == UTF_8)
@@ -145,27 +160,31 @@ static void init(struct fmt_main *self)
 	unpack_data = mem_calloc(omp_t, sizeof(unpack_data_t));
 	cracked = mem_calloc(self->params.max_keys_per_crypt,
 	                     sizeof(*cracked));
-	saved_key = mem_calloc(self->params.max_keys_per_crypt,
+	// allocate 1 more slot to handle the tail of vector buffer
+	saved_key = mem_calloc(self->params.max_keys_per_crypt + 1,
 	                       UNICODE_LENGTH);
-	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	saved_len = mem_calloc(self->params.max_keys_per_crypt + 1,
 	                       sizeof(*saved_len));
 	if (!saved_salt)
-		saved_salt = mem_calloc_tiny(8, MEM_ALIGN_NONE);
-	aes_key = mem_calloc(self->params.max_keys_per_crypt, 16);
-	aes_iv = mem_calloc(self->params.max_keys_per_crypt, 16);
+		saved_salt = mem_calloc(8, 1);
+	aes_key = mem_calloc(self->params.max_keys_per_crypt + 1, 16);
+	aes_iv = mem_calloc(self->params.max_keys_per_crypt + 1, 16);
+
+#ifdef SIMD_COEF_32
+	vec_in  = mem_calloc_align(self->params.max_keys_per_crypt,
+	                           sizeof(*vec_in), MEM_ALIGN_CACHE);
+	vec_out = mem_calloc_align(self->params.max_keys_per_crypt,
+	                           sizeof(*vec_out), MEM_ALIGN_CACHE);
+	tmp_in  = mem_calloc_align(self->params.max_keys_per_crypt,
+	                           sizeof(*tmp_in), MEM_ALIGN_CACHE);
+	tmp_out = mem_calloc_align(self->params.max_keys_per_crypt,
+	                           sizeof(*tmp_out), MEM_ALIGN_CACHE);
+#endif
 
 #ifdef DEBUG
 	self->params.benchmark_comment = " (1-16 characters)";
 #endif
 
-	/* OpenSSL init */
-	init_aesni();
-	SSL_load_error_strings();
-	SSL_library_init();
-	OpenSSL_add_all_algorithms();
-#ifndef __APPLE__
-	atexit(openssl_cleanup);
-#endif
 	/* CRC-32 table init, do it before we start multithreading */
 	{
 		CRC32_t crc;
@@ -181,6 +200,13 @@ static void done(void)
 	MEM_FREE(saved_key);
 	MEM_FREE(cracked);
 	MEM_FREE(unpack_data);
+	MEM_FREE(saved_salt);
+#ifdef SIMD_COEF_32
+	MEM_FREE(vec_in);
+	MEM_FREE(vec_out);
+	MEM_FREE(tmp_in);
+	MEM_FREE(tmp_out);
+#endif
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
@@ -188,6 +214,122 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	const int count = *pcount;
 	int index = 0;
 
+#ifdef SIMD_COEF_32
+	int len;
+	int *indices;
+	int tot_todo = 0;
+
+	/* Tricky formula, see GitHub #1692 :-) */
+	indices = mem_calloc(count + MIN(PLAINTEXT_LENGTH + 1, count) *
+	                     (NBKEYS - 1), sizeof(*indices));
+
+	// sort passwords by length
+	for (len = 0; len <= PLAINTEXT_LENGTH*2; len += 2) {
+		for (index = 0; index < count; ++index) {
+			if (saved_len[index] == len)
+				indices[tot_todo++] = index;
+		}
+		while (tot_todo % NBKEYS)
+			indices[tot_todo++] = count;
+	}
+
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+	for (index = 0; index < tot_todo; index += NBKEYS) {
+		unsigned int i, j, k;
+		uint8_t (*RawPsw)[NBKEYS*64] = vec_in[index/NBKEYS];
+		uint32_t *digest = vec_out[index/NBKEYS];
+
+		// all passwords in one batch has the same length
+		int pw_len = saved_len[indices[index]];
+		int RawLength = pw_len + 8 + 3;
+		int cur_len = 0;
+		int fst_blk = 1;
+		int cur_buf = 0;
+
+		unsigned char tmp1 = 0, tmp2 = 0;
+		for (i = 0; i < ROUNDS; ++i) {
+			// copy passwords to vector buffer
+			for (j = 0; j < NBKEYS; ++j) {
+				int idx = indices[index + j];
+				int len = cur_len;
+				for (k = 0; k < pw_len; ++k) {
+					RawPsw[(len & 64)>>6][GETPOS(len%64, j)] =
+						saved_key[UNICODE_LENGTH*idx + k];
+					len++;
+				}
+				for (k = 0; k < 8; ++k) {
+					RawPsw[(len & 64)>>6][GETPOS(len%64, j)] = saved_salt[k];
+					len++;
+				}
+
+				RawPsw[(len & 64)>>6][GETPOS(len%64, j)] = (unsigned char)i;
+				len++;
+				if ( ((unsigned char) i) == 0) {
+					tmp1 = (unsigned char)(i >> 8);
+					tmp2 = (unsigned char)(i >> 16);
+				}
+				RawPsw[(len & 64)>>6][GETPOS(len%64, j)] = tmp1;
+				len++;
+				RawPsw[(len & 64)>>6][GETPOS(len%64, j)] = tmp2;
+			}
+			cur_len += RawLength;
+
+			if (i % (ROUNDS / 16) == 0) {
+				uint8_t *tempin = tmp_in[index/NBKEYS];
+				uint32_t *tempout = tmp_out[index/NBKEYS];
+				memcpy(tempin, RawPsw[cur_buf], NBKEYS*64);
+				for (j = 0; j < NBKEYS; ++j) { // padding
+					uint32_t *tail;
+					for (k = RawLength; k < 64; ++k)
+						tempin[GETPOS(k, j)] = 0;
+					tempin[GETPOS(RawLength, j)] = 0x80;
+					tail = (uint32_t*)&tempin[GETPOS(64 - 1, j)];
+					*tail = cur_len*8;
+				}
+				if (i == 0)
+					SIMDSHA1body(tempin, tempout, NULL, SSEi_MIXED_IN);
+				else
+					SIMDSHA1body(tempin, tempout, digest,
+					             SSEi_MIXED_IN | SSEi_RELOAD);
+				for (j = 0; j < NBKEYS; ++j) {
+					int idx = indices[index + j];
+					aes_iv[idx*16 + i/(ROUNDS/16)] =
+						(uint8_t)tempout[HASH_IDX(j) + 4*SIMD_COEF_32];
+				}
+			}
+			// swap out and compute digests on the filled buffer
+			if ((cur_len & 64) != (cur_buf << 6)) {
+				if (fst_blk)
+					SIMDSHA1body(RawPsw[cur_buf], digest, NULL, SSEi_MIXED_IN);
+				else
+					SIMDSHA1body(RawPsw[cur_buf], digest, digest,
+					             SSEi_MIXED_IN | SSEi_RELOAD);
+				fst_blk = 0;
+				cur_buf = 1 - cur_buf;
+			}
+		}
+		// padding
+		memset(RawPsw[0], 0, sizeof(RawPsw[0]));
+		for (j = 0; j < NBKEYS; ++j) {
+			uint32_t *tail;
+			RawPsw[0][GETPOS(0, j)] = 0x80;
+			tail = (uint32_t*)&RawPsw[0][GETPOS(64 - 1, j)];
+			*tail = cur_len*8;
+		}
+		SIMDSHA1body(RawPsw[0], digest, digest, SSEi_MIXED_IN | SSEi_RELOAD);
+
+		for (j = 0; j < NBKEYS; ++j) {
+			for (i = 0; i < 4; ++i) {
+				int idx = indices[index + j];
+				uint32_t *dst = (uint32_t*)&aes_key[idx*16];
+				dst[i] = digest[HASH_IDX(j) + i*SIMD_COEF_32];
+			}
+		}
+	}
+	MEM_FREE(indices);
+#else
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
@@ -227,6 +369,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			digest[i] = JOHNSWAP(digest[i]);
 		memcpy(&aes_key[i16], (unsigned char*)digest, 16);
 	}
+#endif
 
 	check_rar(count);
 	return count;
@@ -248,9 +391,7 @@ struct fmt_main fmt_rar = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		cpu_tests
 	},{
 		init,
@@ -261,9 +402,7 @@ struct fmt_main fmt_rar = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash

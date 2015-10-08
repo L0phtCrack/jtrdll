@@ -163,9 +163,9 @@ void ext_init(char *mode, struct db_main *db)
 
 	ext_time = (int) time(NULL);
 
-	ext_maxlen = options.force_maxlength;
-	if (options.force_minlength > 0)
-		ext_minlen = options.force_minlength;
+	ext_maxlen = options.req_maxlength;
+	if (options.req_minlength > 0)
+		ext_minlen = options.req_minlength;
 	else
 		ext_minlen = 0;
 
@@ -181,7 +181,7 @@ void ext_init(char *mode, struct db_main *db)
 		if (john_main_process)
 			fprintf(stderr,
 			    "Compiler error in %s at line %d: %s\n",
-			    cfg_name, ext_line->number,
+			    ext_line->cfg_name, ext_line->number,
 			    c_errors[c_errno]);
 		error();
 	}
@@ -401,7 +401,7 @@ void do_external_crack(struct db_main *db)
 		}
 
 		int_word[maxlen] = 0;
-		if (options.mask) {
+		if (options.flags & FLG_MASK_STACKED) {
 			if (do_mask_crack(int_word))
 				break;
 		} else

@@ -32,7 +32,9 @@ john_register_one(&fmt_openssl);
 // cygwin has HORRIBLE performance GOMP for this format it runs at 1/#cpu's the speed of OMP_NUM_THREADS=1 or non-GMP build
 #undef _OPENMP
 #undef FMT_OMP
+#undef FMT_OMP_BAD
 #define FMT_OMP 0
+#define FMT_OMP_BAD 0
 #endif
 
 #include <string.h>
@@ -44,7 +46,7 @@ john_register_one(&fmt_openssl);
 #include "john_stdint.h"
 #include <sys/types.h>
 #include <openssl/evp.h>
-#include <openssl/aes.h>
+#include "aes.h"
 #include "md5.h"
 #include "arch.h"
 #include "misc.h"
@@ -127,8 +129,6 @@ static void done(void)
 #define return if(printf("\noriginal: %s\n",ciphertext)+printf("fail line %u: '%s' p=%p q=%p q-p-1=%u\n",__LINE__,p,p,q,(unsigned int)(q-p-1)))return
 #endif
 
-#define HEX_DIGITS "0123456789abcdefABCDEF"
-#define DEC_DIGITS "0123456789"
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *p = ciphertext, *q = NULL;
@@ -158,7 +158,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!q)
 		return 0;
 	q = q + 1;
-	len = strspn(p, DEC_DIGITS);
+	len = strspn(p, DIGITCHARS);
 	if (len < 1 || len > 2 || len != q - p - 1)
 		return 0;
 	len = atoi(p);
@@ -168,13 +168,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!q)
 		return 0;
 	q = q + 1;
-	if (2 * len != q - p - 1 || 2 * len != strspn(p, HEX_DIGITS))
+	if (2 * len != q - p - 1 || 2 * len != strspn(p, HEXCHARS_lc))
 		return 0;
 	p = q; q = strchr(p, '$');	// last-chunks
 	if (!q)
 		return 0;
 	q = q + 1;
-	len = strspn(p, HEX_DIGITS);
+	len = strspn(p, HEXCHARS_lc);
 	if (len != q - p - 1 || len < 2 || (len & 1) || len/2 > sizeof(cur_salt->last_chunks))
 		return 0;
 	p = q; q = strchr(p, '$');	// inlined
@@ -190,7 +190,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		if (!q)
 			return 0;
 		q = q + 1;
-		len = strspn(p, DEC_DIGITS);
+		len = strspn(p, DIGITCHARS);
 		if (len < 1 || len > 3 || len != q - p - 1)
 			return 0;
 		len = atoi(p);
@@ -200,7 +200,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		if (!q)
 			return 0;
 		q = q + 1;
-		if (2 * len != q - p - 1 || 2 * len != strspn(p, HEX_DIGITS))
+		if (2 * len != q - p - 1 || 2 * len != strspn(p, HEXCHARS_all))
 			return 0;
 	}
 	p = q; q = strchr(p, '$');	// known-plaintext
@@ -297,12 +297,12 @@ static int kpa(unsigned char *key, unsigned char *iv, int inlined)
 static int decrypt(char *password)
 {
 	unsigned char out[16];
-	int pad, n, i;
 	AES_KEY akey;
 	unsigned char iv[16];
 	unsigned char biv[16];
 	unsigned char key[32];
 	int nrounds = 1;
+
 	// FIXME handle more stuff
 	switch(cur_salt->cipher) {
 		case 0:
@@ -347,14 +347,8 @@ static int decrypt(char *password)
 		AES_cbc_encrypt(cur_salt->last_chunks + 16, out, 16, &akey, iv, AES_DECRYPT);
 	}
 
-	// FIXME use padding check for CBC mode only
 	// now check padding
-	pad = out[16 - 1];
-	if(pad < 1 || pad > 16)
-		return -1;
-	n = 16 - pad;
-	for(i = n; i < 16; i++)
-		if(out[i] != pad)
+	if (check_pkcs_pad(out, 16, 16) < 0)
 			return -1;
 
 	if(cur_salt->kpa)
@@ -433,14 +427,12 @@ struct fmt_main fmt_openssl = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD | FMT_NOT_EXACT,
 /*
  * FIXME: if there wouldn't be so many false positives,
  *        it would be useful to report some tunable costs
  */
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		openssl_tests
 	}, {
 		init,
@@ -451,9 +443,7 @@ struct fmt_main fmt_openssl = {
 		fmt_default_split,
 		fmt_default_binary,
 		get_salt,
-#if FMT_MAIN_VERSION > 11
 		{ NULL },
-#endif
 		fmt_default_source,
 		{
 			fmt_default_binary_hash
