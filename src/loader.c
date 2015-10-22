@@ -1053,6 +1053,44 @@ static void ldr_load_pot_line(struct db_main *db, char *line)
 		db->options->flags |= DB_NEED_REMOVAL;
 }
 
+struct db_main *ldr_init_fake_db(struct fmt_main *format)
+{
+	struct db_main *fakedb;
+	struct fmt_tests *current;
+	char *ciphertext;
+
+	if (!(current = format->params.tests))
+		return NULL;
+
+	fakedb = mem_alloc(sizeof(struct db_main));
+
+	ldr_init_database(fakedb, &options.loader);
+	fakedb->format = format;
+	ldr_init_password_hash(fakedb);
+
+	while ((ciphertext = (current++)->ciphertext)) {
+		char line[LINE_BUFFER_SIZE];
+
+		strcpy(line, ciphertext);
+		ldr_load_pw_line(fakedb, line);
+	}
+
+	ldr_fix_database(fakedb);
+
+	if (options.verbosity > 3)
+	fprintf(stderr, "Loaded %d hashes with %d different salts to fake db from test vectors\n", fakedb->password_count, fakedb->salt_count);
+
+	return fakedb;
+}
+
+void ldr_free_fake_db(struct db_main *fakedb)
+{
+	if (fakedb) {
+		MEM_FREE(fakedb->salt_hash);
+		MEM_FREE(fakedb);
+	}
+}
+
 void ldr_load_pot_file(struct db_main *db, char *name)
 {
 	if (db->format && !(db->format->params.flags & FMT_NOT_EXACT)) {
@@ -1236,7 +1274,7 @@ static void ldr_sort_salts(struct db_main *db)
 	/* finally, we re-build the linked list of salts */
 	db->salts = ar[0].p;
 	s = db->salts;
-	for (i = 1; i < db->salt_count; ++i) {
+	for (i = 1; i <= db->salt_count; ++i) {
 		/* Rebuild salt hash table, if we still had one */
 		if (db->salt_hash) {
 			int hash;
@@ -1245,8 +1283,10 @@ static void ldr_sort_salts(struct db_main *db)
 			if (!db->salt_hash[hash])
 				db->salt_hash[hash] = s;
 		}
-		s->next = ar[i].p;
-		s = s->next;
+		if (i < db->salt_count) {
+			s->next = ar[i].p;
+			s = s->next;
+		}
 	}
 	s->next = 0;
 

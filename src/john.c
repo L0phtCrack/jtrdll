@@ -965,6 +965,68 @@ static void john_load_conf_db(void)
 	}
 }
 
+static void load_extra_pots(void)
+{
+	struct cfg_list *list;
+	struct cfg_line *line;
+
+	if ((list = cfg_get_list("List.Extra:", "Potfiles")))
+	if ((line = list->head))
+	do {
+		struct stat s;
+		char *name = path_expand(line->data);
+
+		if (!stat(name, &s) && s.st_mode & S_IFREG)
+			ldr_load_pot_file(&database, name);
+#if HAVE_DIRENT_H && HAVE_SYS_TYPES_H
+		else if (s.st_mode & S_IFDIR) {
+			DIR *dp;
+
+			dp = opendir(name);
+			if (dp != NULL) {
+				struct dirent *ep;
+
+				while ((ep = readdir(dp))) {
+					char dname[PATH_BUFFER_SIZE];
+					char *p;
+
+					if (!(p = strrchr(ep->d_name, '.')) ||
+					    strcmp(p, ".pot"))
+						continue;
+
+					snprintf(dname, sizeof(dname), "%s/%s",
+					         name, ep->d_name);
+
+					if (!stat(dname, &s) &&
+					    s.st_mode & S_IFREG)
+						ldr_load_pot_file(&database,
+						                  dname);
+				}
+				(void)closedir(dp);
+			}
+		}
+#elif _MSC_VER || __MINGW32__
+		else if (s.st_mode & S_IFDIR) {
+			WIN32_FIND_DATA f;
+			HANDLE h;
+			char dname[PATH_BUFFER_SIZE];
+
+			snprintf(dname, sizeof(dname), "%s/*.pot", name);
+			h = FindFirstFile(dname, &f);
+
+			if (h != INVALID_HANDLE_VALUE)
+			do {
+				snprintf(dname, sizeof(dname), "%s/%s",
+				         name, f.cFileName);
+				ldr_load_pot_file(&database, dname);
+			} while (FindNextFile(h, &f));
+
+			FindClose(h);
+		}
+#endif
+	} while ((line = line->next));
+}
+
 static void db_main_free(struct db_main *db)
 {
 	if (db->format &&
@@ -1021,7 +1083,13 @@ static void john_load(void)
 		dummy_format.params.label = "stdout";
 		dummy_format.methods.clear_keys = &fmt_default_clear_keys;
 
-		pers_opts.target_enc = pers_opts.input_enc;
+		/* Jumbo needs log_init() for session file protect code */
+		options.flags |= FLG_NOLOG;
+		log_init(LOG_NAME, NULL, options.session);
+
+		if (!pers_opts.target_enc || pers_opts.input_enc != UTF_8)
+			pers_opts.target_enc = pers_opts.input_enc;
+
 		if (options.req_maxlength > options.length) {
 			fprintf(stderr, "Can't set max length larger than %u "
 			        "for stdout format\n", options.length);
@@ -1122,65 +1190,7 @@ static void john_load(void)
  * Load optional extra (read-only) pot files. If an entry is a directory,
  * we read all files in it. We currently do NOT recurse.
  */
-		{
-			struct cfg_list *list;
-			struct cfg_line *line;
-
-			if ((list = cfg_get_list("List.Extra:", "Potfiles"))) {
-				if ((line = list->head)) {
-					do {
-						struct stat s;
-						char *name = path_expand(line->data);
-
-						if (!stat(name, &s)) {
-							if (s.st_mode & S_IFREG) {
-								ldr_load_pot_file(&database, name);
-							}
-#if HAVE_DIRENT_H && HAVE_SYS_TYPES_H
-							else if (s.st_mode & S_IFDIR) {
-								DIR *dp;
-
-								dp = opendir(name);
-								if (dp != NULL) {
-									struct dirent *ep;
-
-									while ((ep = readdir(dp))) {
-										char dname[PATH_BUFFER_SIZE];
-
-										snprintf(dname, sizeof(dname), "%s/%s",
-										         name, ep->d_name);
-
-										if (!stat(dname, &s)) {
-											if (s.st_mode & S_IFREG) {
-												ldr_load_pot_file(&database,
-												                  dname);
-											}
-										}
-									}
-									(void)closedir(dp);
-								}
-							}
-#elif _MSC_VER || __MINGW32__
-							else if (s.st_mode & S_IFDIR) {
-								WIN32_FIND_DATA f;
-								HANDLE h;
-								char dname[PATH_BUFFER_SIZE];
-								snprintf(dname, sizeof(dname), "%s/*.pot", name);
-								h = FindFirstFile(dname, &f);
-								if (h != INVALID_HANDLE_VALUE) {
-									do {
-										snprintf(dname, sizeof(dname), "%s/%s", name, f.cFileName);
-										ldr_load_pot_file(&database, dname);
-									} while (FindNextFile(h, &f));
-									FindClose(h);
-								}
-							}
-#endif
-						}
-					} while ((line = line->next));
-				}
-			}
-		}
+		load_extra_pots();
 
 		ldr_fix_database(&database);
 

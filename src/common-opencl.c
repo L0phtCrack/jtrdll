@@ -1,16 +1,17 @@
 /*
  * This file is part of John the Ripper password cracker.
  *
- * Common OpenCL functions go in this file.
+ * Common OpenCL functions.
  *
  * This software is
  * Copyright (c) 2010-2012 Samuele Giovanni Tonon <samu at linuxasylum dot net>
  * Copyright (c) 2010-2013 Lukas Odzioba <ukasz@openwall.net>
- * Copyright (c) 2010-2013 magnum
+ * Copyright (c) 2010-2015 magnum
  * Copyright (c) 2012-2015 Claudio André <claudioandre.br at gmail.com>
+ *
  * and is hereby released to the general public under the following terms:
- *    Redistribution and use in source and binary forms, with or without
- *    modifications, are permitted.
+ * Redistribution and use in source and binary forms, with or without
+ * modifications, are permitted.
  */
 
 #ifdef HAVE_OPENCL
@@ -34,7 +35,10 @@
 #include <time.h>
 #include <signal.h>
 #include <stdlib.h>
-#if (!AC_BUILT || HAVE_FCNTL_H)
+#if !AC_BUILT || HAVE_LOCALE_H
+#include <locale.h>
+#endif
+#if !AC_BUILT || HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
 
@@ -100,6 +104,7 @@ static void (*create_clobj)(size_t gws, struct fmt_main *self);
 static void (*release_clobj)(void);
 static char fmt_base_name[128];
 static size_t gws_limit;
+static int printed_mask;
 
 cl_device_id devices[MAX_GPU_DEVICES];
 cl_context context[MAX_GPU_DEVICES];
@@ -140,7 +145,7 @@ void opencl_process_event(void)
 				status_ticks_overflow_safety();
 			}
 
-			event_pending = (event_abort || event_poll_files);
+			event_pending = (event_abort || event_poll_files || event_reload);
 		}
 	}
 }
@@ -563,12 +568,16 @@ static void add_device_to_list(int sequential_id)
 
 	if (found == 0) {
 		// Only requested and working devices should be started.
-		if (start_opencl_device(sequential_id, &i)) {
-			gpu_device_list[get_number_of_devices_in_use() + 1] = -1;
-			gpu_device_list[get_number_of_devices_in_use()] = sequential_id;
-		} else
-			fprintf(stderr, "Device id %d not working correctly,"
-			        " skipping.\n", sequential_id);
+		if (john_main_process) {
+			if (! start_opencl_device(sequential_id, &i)) {
+				fprintf(stderr, "Device id %d not working correctly,"
+					" skipping.\n", sequential_id);
+				return;
+			}
+		}
+		gpu_device_list[get_number_of_devices_in_use() + 1] = -1;
+		gpu_device_list[get_number_of_devices_in_use()] = sequential_id;
+
 	}
 }
 
@@ -667,6 +676,14 @@ void opencl_preinit(void)
 
 		gpu_device_list[0] = -1;
 		gpu_device_list[1] = -1;
+
+		gpu_temp_limit = cfg_get_int(SECTION_OPTIONS, SUBSECTION_GPU,
+		                             "AbortTemperature");
+
+#if !AC_BUILT || HAVE_LOCALE_H
+		if (setlocale(LC_ALL, "") && strchr(setlocale(LC_ALL, NULL), '.'))
+			gpu_degree_sign = DEGREE_SIGN;
+#endif
 
 		for (i = 0; i < MAX_GPU_DEVICES; i++) {
 			context[i] = NULL;
@@ -838,6 +855,8 @@ void opencl_done()
 {
 	int i;
 
+	printed_mask = 0;
+
 	if (!opencl_initialized)
 		return;
 
@@ -914,6 +933,32 @@ void opencl_get_user_preferences(char *format)
 		duration_time = atoi(tmp_value) * 1000000ULL;
 }
 
+void opencl_get_sane_lws_gws_values()
+{
+	if (!local_work_size) {
+		if (cpu(device_info[gpu_id]))
+			local_work_size =
+				get_platform_vendor_id(platform_id) == DEV_INTEL ?
+			8 : 1;
+		else
+			local_work_size = 64;
+	}
+
+	if (!global_work_size)
+		global_work_size = 768;
+}
+
+char* get_device_name_(int sequential_id)
+{
+	static char device_name[MAX_OCLINFO_STRING_LEN];
+
+	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id], CL_DEVICE_NAME,
+	                               sizeof(device_name), device_name, NULL),
+	               "Error querying DEVICE_NAME");
+
+	return device_name;
+}
+
 static void dev_init(int sequential_id)
 {
 	static int printed[MAX_GPU_DEVICES];
@@ -961,7 +1006,6 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		if (!(global_opts = cfg_get_param(SECTION_OPTIONS,
 		                                  SUBSECTION_OPENCL, "GlobalBuildOpts")))
 			global_opts = OPENCLBUILDOPTIONS;
-
 	sprintf(include, "-I \"%s\" %s %s%s%s%s%d %s -D_OPENCL_COMPILER %s",
 	        full_path = path_expand_safe(pathname),
 	        global_opts,
@@ -979,8 +1023,6 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	        opts ? opts : "");
 	MEM_FREE(full_path);
 
-	if (options.verbosity > 3)
-		fprintf(stderr, "Options used: %s\n", include);
 	return include;
 }
 
@@ -1009,6 +1051,10 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 	HANDLE_CLERROR(err_code, "Error while creating program");
 	// include source is thread safe.
 	build_opts = include_source("$JOHN/kernels", sequential_id, opts);
+
+	if (options.verbosity > 3)
+		fprintf(stderr, "Options used: %s %s\n", build_opts, kernel_source_file);
+
 	build_code = clBuildProgram(*program, 0, NULL,
 	                            build_opts, NULL, NULL);
 
@@ -1027,7 +1073,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 	if ((build_code != CL_SUCCESS)) {
 		// Give us much info about error and exit
 		if (options.verbosity <= 3)
-			fprintf(stderr, "Options used: %s\n", build_opts);
+			fprintf(stderr, "Options used: %s %s\n", build_opts, kernel_source_file);
 		fprintf(stderr, "Build log: %s\n", build_log);
 		fprintf(stderr, "Error %d building kernel %s. DEVICE_INFO=%d\n",
 		        build_code, kernel_source_file, device_info[sequential_id]);
@@ -1444,8 +1490,12 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	        my_work_group += wg_multiple) {
 
 		global_work_size = gws;
-		if (gws % my_work_group != 0)
+		if (gws % my_work_group != 0) {
+
+			if (GET_EXACT_MULTIPLE(gws, my_work_group) > global_work_size)
+			    continue;
 			global_work_size = GET_EXACT_MULTIPLE(gws, my_work_group);
+		}
 
 		if (options.verbosity > 3)
 			fprintf(stderr, "Testing LWS=" Zu " GWS=" Zu " ...", my_work_group, global_work_size);
@@ -1524,7 +1574,8 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 
 static char *human_speed(unsigned long long int speed)
 {
-	static char p, out[32];
+	static char out[32];
+	char p = '\0';
 
 	if (speed > 1000000) {
 		speed /= 1000;
@@ -1542,7 +1593,11 @@ static char *human_speed(unsigned long long int speed)
 		speed /= 1000;
 		p = 'T'; /* you wish */
 	}
-	snprintf(out, sizeof(out), "%llu%cc/s", speed, p);
+	if (p)
+		snprintf(out, sizeof(out), "%llu%cc/s", speed, p);
+	else
+		snprintf(out, sizeof(out), "%lluc/s", speed);
+
 	return out;
 }
 
@@ -1578,6 +1633,9 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 	}
 
 	if (options.verbosity > 3) {
+		if (!printed_mask++ && mask_int_cand.num_int_cand > 1)
+			fprintf(stderr, "Internal mask, multiplier: %u (target: %u)\n",
+			        mask_int_cand.num_int_cand, mask_int_cand_target);
 		if (!max_run_time)
 			fprintf(stderr, "Calculating best GWS for LWS="Zu"; "
 			        "max. %s single kernel invocation.\n",
@@ -2054,6 +2112,7 @@ cl_uint get_processors_count(int sequential_id)
 		else if (major == 5)    // 5.x Maxwell
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
 
+#if __APPLE__
 		/*
 		 * Apple does not expose get_compute_capability() so we need this crap.
 		 * http://en.wikipedia.org/wiki/Comparison_of_Nvidia_graphics_processing_units
@@ -2073,21 +2132,36 @@ cl_uint get_processors_count(int sequential_id)
 		// Maxwell
 		else if (strstr(dname, "GTX 9"))
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
-
+#endif
 	} else if (gpu_amd(device_info[sequential_id])) {
 		// 16 thread proc * 5 SP
 		core_count *= (ocl_device_list[sequential_id].cores_per_MP = (16 *
 		               ((amd_gcn(device_info[sequential_id]) ||
 		                 amd_vliw4(device_info[sequential_id])) ? 4 : 5)));
-	} else if (!strncmp(dname, "HD Graphics", 11)) {
-		core_count *= (ocl_device_list[sequential_id].cores_per_MP = 1);
-	} else if (!strncmp(dname, "Iris", 4)) {
-		core_count *= (ocl_device_list[sequential_id].cores_per_MP = 1);
-	} else if (gpu(device_info[sequential_id]))
-		// Any other GPU, if we don't know we wont guess
-		core_count *= (ocl_device_list[sequential_id].cores_per_MP = 0);
+	} else {
+		// Nothing else known, we use the native vector width for integer
+		cl_uint v_width;
+
+		HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id],
+		                               CL_DEVICE_NATIVE_VECTOR_WIDTH_INT,
+		                               sizeof(v_width), &v_width, NULL),
+		               "Error querying CL_DEVICE_MAX_CLOCK_FREQUENCY");
+		core_count *= (ocl_device_list[sequential_id].cores_per_MP = v_width);
+	}
 
 	return core_count;
+}
+
+unsigned int opencl_speed_index(int sequential_id)
+{
+	cl_uint clock;
+
+	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id],
+	                               CL_DEVICE_MAX_CLOCK_FREQUENCY,
+	                               sizeof(clock), &clock, NULL),
+	               "Error querying CL_DEVICE_MAX_CLOCK_FREQUENCY");
+
+	return clock * get_processors_count(sequential_id);
 }
 
 cl_uint get_processor_family(int sequential_id)
@@ -2347,7 +2421,7 @@ void opencl_list_devices(void)
 			cl_device_local_mem_type memtype;
 			cl_bool boolean;
 			char *p;
-			int ret;
+			int ret, cpu;
 			int fan, temp, util;
 
 /*
@@ -2406,7 +2480,8 @@ void opencl_list_devices(void)
 			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_TYPE,
 			                sizeof(cl_ulong), &long_entries, NULL);
 			printf("    Device type:            ");
-			if (long_entries & CL_DEVICE_TYPE_CPU)
+			cpu = (long_entries & CL_DEVICE_TYPE_CPU);
+			if (cpu)
 				printf("CPU ");
 			if (long_entries & CL_DEVICE_TYPE_GPU)
 				printf("GPU ");
@@ -2514,11 +2589,13 @@ void opencl_list_devices(void)
 			printf("    Parallel compute cores: %d\n", entries);
 
 			long_entries = get_processors_count(sequence_nr);
-			if (ocl_device_list[sequence_nr].cores_per_MP > 1)
+			if (!cpu && ocl_device_list[sequence_nr].cores_per_MP > 1)
 				printf("    Stream processors:      "LLu" "
 				       " (%d x %d)\n",
 				       (unsigned long long)long_entries,
 				       entries, ocl_device_list[sequence_nr].cores_per_MP);
+			printf("    Speed index:            %u\n",
+			       opencl_speed_index(sequence_nr));
 
 			ret = clGetDeviceInfo(devices[sequence_nr],
 			                      CL_DEVICE_WARP_SIZE_NV, sizeof(cl_uint), &long_entries, NULL);
@@ -2572,7 +2649,8 @@ void opencl_list_devices(void)
 			if (fan >= 0)
 				printf("    Fan speed:              %u%%\n", fan);
 			if (temp >= 0)
-				printf("    Temperature:            %u" DEGC "\n", temp);
+				printf("    Temperature:            %u%lsC\n",
+				       temp, gpu_degree_sign);
 			if (util >= 0)
 				printf("    Utilization:            %u%%\n", util);
 			else if (temp >= 0)

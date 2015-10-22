@@ -17,12 +17,15 @@
 
 ///	    *** UNROLL ***
 ///AMD: sometimes a bad thing(?).
+///NVIDIA: GTX 570 don't allow full unroll.
 #if amd_vliw4(DEVICE_INFO) || amd_vliw5(DEVICE_INFO)
-    #define UNROLL_LEVEL	2
+    #define UNROLL_LEVEL	5
 #elif amd_gcn(DEVICE_INFO)
-    #define UNROLL_LEVEL	1
-#elif gpu_nvidia(DEVICE_INFO)
-    #define UNROLL_LEVEL	0
+    #define UNROLL_LEVEL	5
+#elif (nvidia_sm_2x(DEVICE_INFO) || nvidia_sm_3x(DEVICE_INFO))
+    #define UNROLL_LEVEL	4
+#elif nvidia_sm_5x(DEVICE_INFO)
+    #define UNROLL_LEVEL	4
 #else
     #define UNROLL_LEVEL	0
 #endif
@@ -31,11 +34,8 @@ inline void _memcpy(               uint32_t * dest,
                     __global const uint32_t * src,
                              const uint32_t   len) {
 
-#if UNROLL_LEVEL > 0
-    #pragma unroll
-#endif
-    for (uint32_t i = 0; i < 120; i += 4)
-        *dest++ = select(0U, *src++, i < len);
+    for (uint32_t i = 0; i < len; i += 4)
+        *dest++ = *src++;
 }
 
 inline void sha512_block(	  const uint64_t * const buffer,
@@ -59,7 +59,7 @@ inline void sha512_block(	  const uint64_t * const buffer,
     w[15] = (total * 8UL);
 
     /* Do the job. */
-#if UNROLL_LEVEL > 0
+#if UNROLL_LEVEL > 4
     #pragma unroll
 #endif
     for (uint64_t i = 0U; i < 16U; i++) {
@@ -76,8 +76,12 @@ inline void sha512_block(	  const uint64_t * const buffer,
 	a = t;
     }
 
-#if UNROLL_LEVEL > 1
+#if UNROLL_LEVEL > 4
     #pragma unroll
+#elif UNROLL_LEVEL > 3
+    #pragma unroll 16
+#elif UNROLL_LEVEL > 2
+    #pragma unroll 8
 #endif
     for (uint64_t i = 16U; i < 80U; i++) {
 	w[i & 15] = sigma1(w[(i - 2) & 15]) + sigma0(w[(i - 15) & 15]) + w[(i - 16) & 15] + w[(i - 7) & 15];
@@ -142,6 +146,11 @@ void kernel_crypt_raw(
 	//Ajust keys to it start position.
 	keys_buffer += (base >> 6);
     }
+    //Clear the buffer.
+    #pragma unroll
+    for (uint32_t i = 0; i < 15; i++)
+        w[i] = 0;
+
     //Get password.
     _memcpy((uint32_t *) w, keys_buffer, total);
 
@@ -193,6 +202,11 @@ void kernel_crypt_xsha(
     }
     //Get salt information.
     w[0] = salt->salt;
+
+    //Clear the buffer.
+    #pragma unroll
+    for (uint32_t i = 1; i < 15; i++)
+        w[i] = 0;
 
     //Get password.
     _memcpy(((uint32_t *) w) + 1, keys_buffer, total);
