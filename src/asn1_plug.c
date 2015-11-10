@@ -14,9 +14,14 @@
 
 // #include "includes.h"
 #include <stdio.h>
-#include "stdint.h"
+#include "john_stdint.h"
 #include "asn1.h"
+
 #define printf(...)
+#ifdef _MSC_VER
+#define snprintf _snprintf
+#endif
+
 
 int asn1_get_next(const uint8_t *buf, size_t len, struct asn1_hdr *hdr)
 {

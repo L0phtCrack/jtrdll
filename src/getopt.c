@@ -105,7 +105,8 @@ static int opt_process_one(struct opt_entry *list, opt_flags *flg, char *opt)
 	completed = NULL;
 
 	param = opt_find(list, opt, &entry);
-	if (!entry) return OPT_ERROR_UNKNOWN;
+	if (!entry) 
+		return OPT_ERROR_UNKNOWN;
 
 	if (*flg & entry->flg_set & entry->flg_clr) return OPT_ERROR_COMB;
 
@@ -135,7 +136,8 @@ static int opt_check_one(struct opt_entry *list, opt_flags flg, char *opt)
 	struct opt_entry *entry;
 
 	opt_find(list, opt, &entry);
-	if (!entry) return OPT_ERROR_UNKNOWN;
+	if (!entry) 
+		return OPT_ERROR_UNKNOWN;
 
 	if ((flg & entry->req_set) != entry->req_set || (flg & entry->req_clr))
 		return OPT_ERROR_COMB;
