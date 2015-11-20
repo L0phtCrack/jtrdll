@@ -36,10 +36,7 @@
 
 #define GWS_CONFIG		        "des_GWS"
 
-<<<<<<< HEAD
 
-=======
->>>>>>> c25192c23138db92b903c1b14bcf8a76963876ec
 /* Common hash checking variables. */
 extern DES_hash_check_params *hash_chk_params;
 #define num_uncracked_hashes(k) hash_chk_params[k].num_uncracked_hashes
