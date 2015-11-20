@@ -102,7 +102,6 @@ void check_potwatch()
 void install_potwatch()
 {
 	char *lastslash;
-	char *pot;
 	char potdir[MAX_PATH + 1];
 
 	if (hPotWatch)
@@ -110,7 +109,7 @@ void install_potwatch()
 		return;
 	}
 
-	strncpy(potdir, path_expand(pers_opts.activepot), MAX_PATH);
+	strncpy(potdir, path_expand(options.activepot), MAX_PATH);
 	potdir[MAX_PATH] = 0;
 	lastslash = strrchr(potdir, '\\');
 	if (!lastslash)

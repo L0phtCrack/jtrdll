@@ -9,7 +9,7 @@
  */
 
 #if HAVE_OPENCL
-
+#undef FMT_STRUCT
 #define FMT_STRUCT fmt_ocl_tc
 #if FMT_EXTERNS_H
 extern struct fmt_main FMT_STRUCT;

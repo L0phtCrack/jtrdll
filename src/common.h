@@ -132,7 +132,6 @@ int base64_crypt_len(const char *q);
 int base64_mime_du_len(const char *q);  /* mime, -_ instead of +/ */
 
 
-#if ARCH_BITS==64
 #define get_power_of_two(v)	\
 {				\
 	v--;			\
@@ -141,21 +140,9 @@ int base64_mime_du_len(const char *q);  /* mime, -_ instead of +/ */
 	v |= v >> 4;		\
 	v |= v >> 8;		\
 	v |= v >> 16;		\
-	v |= v >> 32;		\
+	v |= (v >> 16) >> 16;		\
 	v++;			\
 }
-#else
-#define get_power_of_two(v)	\
-{				\
-	v--;			\
-	v |= v >> 1;		\
-	v |= v >> 2;		\
-	v |= v >> 4;		\
-	v |= v >> 8;		\
-	v |= v >> 16;		\
-	v++;			\
-}
-#endif
 
 #endif
 

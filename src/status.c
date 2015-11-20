@@ -637,7 +637,7 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 		if (key)
 			strnzcpy(jtrdllstatus->word2, key, sizeof(jtrdllstatus->word2));
 		
-		if(pers_opts.target_enc != UTF_8) {
+		if(options.target_enc != UTF_8) {
 			char buf[PLAINTEXT_BUFFER_SIZE + 1];
 
 			cp_to_utf8_r(jtrdllstatus->word1, buf, PLAINTEXT_BUFFER_SIZE);
