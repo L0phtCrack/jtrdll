@@ -100,6 +100,9 @@ static double progress = 0;
 static int rec_rule;
 static int64_t rec_pos;
 static int64_t rec_line;
+static int hybrid_rec_rule;
+static int64_t hybrid_rec_pos;
+static int64_t hybrid_rec_line;
 
 static int rule_number, rule_count;
 static int64_t line_number, loop_line_no;
@@ -112,9 +115,6 @@ static char *mem_map, *map_pos, *map_end, *map_scan_end;
 // used for file in 'memory buffer' mode (ready to use array)
 static char *word_file_str, **words;
 static int64_t nWordFileLines;
-
-// Used for freezing fix_state while in hybrid Regex
-static int freeze_state;
 
 static void save_state(FILE *file)
 {
@@ -319,7 +319,16 @@ static int fix_state_delay;
 
 static void fix_state(void)
 {
-	if (freeze_state)
+	if (hybrid_rec_rule || hybrid_rec_line || hybrid_rec_pos) {
+		rec_rule = hybrid_rec_rule;
+		rec_line = hybrid_rec_line;
+		rec_pos = hybrid_rec_pos;
+		hybrid_rec_rule = hybrid_rec_line = hybrid_rec_pos = 0;
+
+		return;
+	}
+
+	if (options.flags & FLG_REGEX_CHK)
 		return;
 
 	if (++fix_state_delay < options.max_fix_state_delay)
@@ -336,6 +345,24 @@ static void fix_state(void)
 #ifdef __DJGPP__
 		if (rec_pos != -1)
 			rec_pos = 0;
+		else
+#endif
+			pexit(STR_MACRO(jtr_ftell64));
+	}
+}
+
+void wordlist_hybrid_fix_state(void)
+{
+	hybrid_rec_rule = rule_number;
+	hybrid_rec_line = line_number;
+
+	if (word_file == stdin)
+		hybrid_rec_pos = line_number;
+	else
+	if ((hybrid_rec_pos = jtr_ftell64(word_file)) < 0) {
+#ifdef __DJGPP__
+		if (hybrid_rec_pos != -1)
+			hybrid_rec_pos = 0;
 		else
 #endif
 			pexit(STR_MACRO(jtr_ftell64));
@@ -407,7 +434,7 @@ static MAYBE_INLINE char *convert(char *line)
 	    (p = strchr(line, options.loader.field_sep_char)))
 		line = p + 1;
 
-	if (pers_opts.input_enc != pers_opts.target_enc) {
+	if (options.input_enc != options.target_enc) {
 		UTF16 u16[PLAINTEXT_BUFFER_SIZE + 1];
 		char *cp, *s, *d;
 		char e;
@@ -547,8 +574,8 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	log_event("Proceeding with %s mode",
 	          loopBack ? "loopback" : "wordlist");
 
-	if (pers_opts.activewordlistrules)
-		log_event("- Rules: %.100s", pers_opts.activewordlistrules);
+	if (options.activewordlistrules)
+		log_event("- Rules: %.100s", options.activewordlistrules);
 
 #if HAVE_REXGEN
 	regex = prepare_regex(options.regex, &regex_case, &regex_alpha);
@@ -567,7 +594,7 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	/* If we did not give a name for loopback mode,
 	   we use the active pot file */
 	if (loopBack && !name)
-		name = options.wordlist = pers_opts.activepot;
+		name = options.wordlist = options.activepot;
 
 	/* These will ignore --save-memory */
 	if (loopBack || dupeCheck ||
@@ -596,7 +623,7 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 		if ((file_len = jtr_ftell64(word_file)) == -1)
 			pexit(STR_MACRO(jtr_ftell64));
 		jtr_fseek64(word_file, 0, SEEK_SET);
-		if (file_len == 0) {
+		if (file_len == 0 && !loopBack) {
 			if (john_main_process)
 				fprintf(stderr, "Error, dictionary file is "
 				        "empty\n");
@@ -987,13 +1014,13 @@ SKIP_MEM_MAP_LOAD:;
 REDO_AFTER_LMLOOP:
 
 	if (rules) {
-		if (rpp_init(rule_ctx = &ctx, pers_opts.activewordlistrules)) {
+		if (rpp_init(rule_ctx = &ctx, options.activewordlistrules)) {
 			log_event("! No \"%s\" mode rules found",
-			          pers_opts.activewordlistrules);
+			          options.activewordlistrules);
 			if (john_main_process)
 				fprintf(stderr,
 				        "No \"%s\" mode rules found in %s\n",
-				        pers_opts.activewordlistrules, cfg_name);
+				        options.activewordlistrules, cfg_name);
 			error();
 		}
 
@@ -1027,6 +1054,9 @@ REDO_AFTER_LMLOOP:
 		                  (!nWordFileLines && rec_pos)))
 			do_lmloop = 0;
 		rec_init(db, save_state);
+
+		if (options.flags & FLG_STACKED)
+			options.max_fix_state_delay = 0;
 
 		crk_init(db, fix_state, NULL);
 	}
@@ -1136,7 +1166,21 @@ REDO_AFTER_LMLOOP:
 			loop_line_no++;
 			if ((word = apply(joined->data, rule, -1, last))) {
 				last = word;
-
+#if HAVE_REXGEN
+				if (regex) {
+					if (do_regex_hybrid_crack(db, regex,
+					                          word,
+					                          regex_case,
+					                          regex_alpha))
+					{
+						rule = NULL;
+						rules = 0;
+						pipe_input = 0;
+						break;
+					}
+					wordlist_hybrid_fix_state();
+				} else
+#endif
 				if (options.mask) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
@@ -1145,21 +1189,6 @@ REDO_AFTER_LMLOOP:
 						break;
 					}
 				} else
-#if HAVE_REXGEN
-				if (regex) {
-					freeze_state = 1;
-					if (do_regex_hybrid_crack(db, regex,
-					                          word,
-					                          regex_case,
-					                          regex_alpha)) {
-						rule = NULL;
-						rules = 0;
-						pipe_input = 0;
-						break;
-					}
-					freeze_state = 0;
-				} else
-#endif
 				if (ext_filter(word))
 				if (crk_process_key(word)) {
 					rule = NULL;
@@ -1192,7 +1221,21 @@ REDO_AFTER_LMLOOP:
 
 			if ((word = apply(line, rule, -1, last))) {
 				last = word;
-
+#if HAVE_REXGEN
+				if (regex) {
+					if (do_regex_hybrid_crack(db, regex,
+					                          word,
+					                          regex_case,
+					                          regex_alpha))
+					{
+						rule = NULL;
+						rules = 0;
+						pipe_input = 0;
+						break;
+					}
+					wordlist_hybrid_fix_state();
+				} else
+#endif
 				if (options.mask) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
@@ -1201,21 +1244,6 @@ REDO_AFTER_LMLOOP:
 						break;
 					}
 				} else
-#if HAVE_REXGEN
-				if (regex) {
-					freeze_state = 1;
-					if (do_regex_hybrid_crack(db, regex,
-					                          word,
-					                          regex_case,
-					                          regex_alpha)) {
-						rule = NULL;
-						rules = 0;
-						pipe_input = 0;
-						break;
-					}
-					freeze_state = 0;
-				} else
-#endif
 				if (ext_filter(word))
 				if (crk_process_key(word)) {
 					rules = 0;
@@ -1232,7 +1260,7 @@ REDO_AFTER_LMLOOP:
 
 			if (line[0] != '#') {
 process_word:
-				if (pers_opts.input_enc != pers_opts.target_enc
+				if (options.input_enc != options.target_enc
 				    || loopBack) {
 					char *conv = convert(line);
 					int len = strlen(conv);
@@ -1258,18 +1286,8 @@ process_word:
 						last = word;
 					else
 						strcpy(last, word);
-
-					if (options.mask) {
-						if (do_mask_crack(word)) {
-							rule = NULL;
-							rules = 0;
-							pipe_input = 0;
-							break;
-						}
-					} else
 #if HAVE_REXGEN
 					if (regex) {
-						freeze_state = 1;
 						if (do_regex_hybrid_crack(
 							    db, regex, word,
 							    regex_case,
@@ -1279,9 +1297,17 @@ process_word:
 							pipe_input = 0;
 							break;
 						}
-						freeze_state = 0;
+						wordlist_hybrid_fix_state();
 					} else
 #endif
+					if (options.mask) {
+						if (do_mask_crack(word)) {
+							rule = NULL;
+							rules = 0;
+							pipe_input = 0;
+							break;
+						}
+					} else
 					if (ext_filter(word))
 					if (crk_process_key(word)) {
 						rules = 0;

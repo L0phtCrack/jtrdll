@@ -331,7 +331,7 @@ static void status_print_cracking(double percent)
 			strnzcpy(key2, key, sizeof(key2));
 		key1 = crk_get_key1();
 
-		if (pers_opts.report_utf8 && pers_opts.target_enc != UTF_8) {
+		if (options.report_utf8 && options.target_enc != UTF_8) {
 			char t2buf[PLAINTEXT_BUFFER_SIZE + 1];
 			char *t;
 
@@ -452,12 +452,12 @@ void status_print(void)
 				if (temp >= 0) {
 					if (i == 0)
 						n += sprintf(s_gpu + n,
-						             " GPU:%u%lsC",
+						             " GPU:%u%sC",
 						             temp,
 						             gpu_degree_sign);
 					else
 						n += sprintf(s_gpu + n,
-						             " GPU%d:%u%lsC",
+						             " GPU%d:%u%sC",
 						             i, temp,
 						             gpu_degree_sign);
 				}

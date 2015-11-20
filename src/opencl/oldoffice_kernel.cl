@@ -19,13 +19,13 @@
 #include "opencl_sha1.h"
 
 typedef struct {
+	dyna_salt dsalt;
 	int type;
 	uint salt[16/4];
 	uint verifier[16/4]; /* or encryptedVerifier */
 	uint verifierHash[20/4];  /* or encryptedVerifierHash */
 	uint has_mitm;
 	uint mitm[8/4]; /* Meet-in-the-middle hint, if we have one */
-	int benchmark; /* Disable mitm, during benchmarking */
 } salt_t;
 
 typedef struct {
@@ -166,7 +166,8 @@ __attribute__((work_group_size_hint(64,1,1)))
 #endif
 __kernel void oldoffice_md5(__global const mid_t *mid,
                             __global salt_t *cs,
-                            __global uint *result)
+                            __global uint *result,
+                            __global uint *benchmark)
 {
 	uint i;
 	uint a, b, c, d;
@@ -242,17 +243,6 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 
 	for (i = 0; i < 4; i++)
 		salt[i] = cs->salt[i];
-
-#if __OS_X__ && gpu_intel(DEVICE_INFO)
-/*
- * Ridiculous workaround for Apple w/ Intel HD Graphics. Un-comment
- * the below, and kernel starts working for LWS=1 GWS=1. Still segfaults
- * with higher work sizes though. This is a driver bug.
- *
- * Yosemite, HD Graphics 4000, 1.2(Jul 29 2015 02:40:37)
- */
-	//dump_stuff_msg("\n", md5, 16);
-#endif
 
 	md5_init(key);
 	W[0] = md5[0];
@@ -379,7 +369,7 @@ __kernel void oldoffice_md5(__global const mid_t *mid,
 		    verifier[2] == verifier[6] &&
 		    verifier[3] == verifier[7]) {
 			result[gid] = 1;
-			if (!cs->benchmark && !atomic_xchg(&cs->has_mitm, 1)) {
+			if (!*benchmark && !atomic_xchg(&cs->has_mitm, 1)) {
 				cs->mitm[0] = key[0];
 				cs->mitm[1] = key[1];
 			}
@@ -394,12 +384,13 @@ __attribute__((work_group_size_hint(64,1,1)))
 #endif
 __kernel void oldoffice_sha1(__global const mid_t *mid,
                              __global salt_t *cs,
-                             __global uint *result)
+                             __global uint *result,
+                             __global uint *benchmark)
 {
 	uint i;
 	uint gid = get_global_id(0);
 	uint A, B, C, D, E, temp;
-#if PLAINTEXT_LENGTH > 27
+#if PLAINTEXT_LENGTH > (27 - 8)
 	/* Silly AMD bug workaround */
 	uint a, b, c, d, e;
 #endif
@@ -526,7 +517,7 @@ __kernel void oldoffice_sha1(__global const mid_t *mid,
 		    verifier[2] == verifier[6] &&
 		    verifier[3] == verifier[7]) {
 			result[gid] = 1;
-			if (!cs->benchmark && cs->type == 3 &&
+			if (!*benchmark && cs->type == 3 &&
 			    !atomic_xchg(&cs->has_mitm, 1)) {
 				cs->mitm[0] = sha1[0];
 				cs->mitm[1] = sha1[1];

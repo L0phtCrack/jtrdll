@@ -86,7 +86,6 @@ static cl_uint *zero_buffer;
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
-
 struct s_salt
 {
 	union {

@@ -42,20 +42,64 @@
 #ifdef __SSE2__
 #define CPU_NAME			"SSE2"
 #endif
-#ifdef __SSSE3__
+
+#if __SSSE3__ || JOHN_SSSE3
+#undef CPU_DETECT
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSSE3			1
 #undef CPU_NAME
-#define CPU_NAME		"SSSE3"
+#define CPU_NAME			"SSSE3"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-ssse3"
+#define CPU_FALLBACK_BINARY_DEFAULT
 #endif
-#ifdef __SSE4_1__
+#endif
+
+#if __SSE4_1__ || JOHN_SSE4_1
+#undef CPU_DETECT
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSE4_1			1
 #undef CPU_NAME
-#define CPU_NAME		"SSE4.1"
+#define CPU_NAME			"SSE4.1"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-sse4.1"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#endif
+
+#if __AVX512F__ || JOHN_AVX512F
+#undef CPU_DETECT
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX512F			1
+#undef CPU_NAME
+#define CPU_NAME			"AVX512F"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx512f"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#endif
+
+#if __AVX512BW__ || JOHN_AVX512BW
+#undef CPU_DETECT
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX512BW			1
+#undef CPU_NAME
+#define CPU_NAME			"AVX512BW"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx512bw"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
 #endif
 
 #ifdef __XOP__
-#define JOHN_XOP
+#define JOHN_XOP			1
 #endif
-#if defined(__AVX__) || defined(JOHN_XOP)
-#define JOHN_AVX
+#if defined(__AVX__) || defined(JOHN_XOP) || defined(JOHN_AVX2)
+#define JOHN_AVX			1
 #endif
 
 #define DES_ASM				0
@@ -77,12 +121,9 @@
 #undef CPU_DETECT
 #define CPU_DETECT			1
 #define CPU_REQ				1
-#define CPU_REQ_AVX
+#define CPU_REQ_AVX			1
 #undef CPU_NAME
 #define CPU_NAME			"AVX"
-#ifndef CPU_FALLBACK
-#define CPU_FALLBACK			0
-#endif
 #if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
 #define CPU_FALLBACK_BINARY		"john-non-avx"
 #define CPU_FALLBACK_BINARY_DEFAULT
@@ -126,18 +167,19 @@
 #define DES_BS_VECTOR_SIZE		8
 #define DES_BS_VECTOR			5
 #define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX-16 + 64/64"
-#elif __AVX2__
+#elif __AVX2__ || JOHN_AVX2
 /* 256-bit as 1x256 */
 #define DES_BS_VECTOR			4
-#if defined(JOHN_XOP)
-#undef DES_BS
-#define DES_BS				3
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 XOP2-16"
-#else
 #undef CPU_NAME
 #define CPU_NAME			"AVX2"
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX2-16"
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX2			1
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx2"
+#define CPU_FALLBACK_BINARY_DEFAULT
 #endif
+#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX2-16"
 #elif 0
 /* 256-bit as 2x128 */
 #define DES_BS_NO_AVX256
@@ -190,7 +232,7 @@
 #define DES_BS_EXPAND			1
 
 #if CPU_DETECT && DES_BS == 3
-#define CPU_REQ_XOP
+#define CPU_REQ_XOP			1
 #undef CPU_NAME
 #define CPU_NAME			"XOP"
 #ifdef CPU_FALLBACK_BINARY_DEFAULT
@@ -353,9 +395,11 @@
  * some newer CPUs capable of SSE4.2 but not AVX happen to lack SMT, so will
  * likely benefit from the 3x interleaving with no adverse effects for the
  * multi-threaded case.
+ *
+ * In Jumbo, we may get BF_X2 from autoconf (after testing ht cpuid flag).
  */
 #ifndef BF_X2
-#ifdef __AVX__
+#if __AVX__ && HAVE_HT && _OPENMP
 #define BF_X2				1
 #else
 #define BF_X2				3

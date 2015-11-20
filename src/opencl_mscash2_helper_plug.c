@@ -459,7 +459,7 @@ size_t selectDevice(int jtrUniqDevId, struct fmt_main *self)
 
 	assert(jtrUniqDevId < MAX_GPU_DEVICES);
 
-	sprintf(buildOpts, "-D SALT_BUFFER_SIZE=%lu", SALT_BUFFER_SIZE);
+	sprintf(buildOpts, "-D SALT_BUFFER_SIZE=" Zu, SALT_BUFFER_SIZE);
 	opencl_init("$JOHN/kernels/pbkdf2_kernel.cl", jtrUniqDevId, buildOpts);
 
 	devParam[jtrUniqDevId].devKernel[0] = clCreateKernel(program[jtrUniqDevId], "pbkdf2_preprocess_short", &ret_code);

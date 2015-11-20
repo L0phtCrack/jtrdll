@@ -122,12 +122,12 @@ static void single_init(void)
 	while (key_count > 0xffff / length + 1)
 		key_count >>= 1;
 
-	if (rpp_init(rule_ctx, pers_opts.activesinglerules)) {
+	if (rpp_init(rule_ctx, options.activesinglerules)) {
 		log_event("! No \"%s\" mode rules found",
-		          pers_opts.activesinglerules);
+		          options.activesinglerules);
 		if (john_main_process)
 			fprintf(stderr, "No \"%s\" mode rules found in %s\n",
-			        pers_opts.activesinglerules, cfg_name);
+			        options.activesinglerules, cfg_name);
 		error();
 	}
 
@@ -447,24 +447,24 @@ static void single_run(void)
 		}
 
 		if (!(rule = rules_reject(prerule, 0, NULL, single_db))) {
-			if (options.verbosity > 2)
+			if (options.verbosity > 3)
 			log_event("- Rule #%d: '%.100s' rejected",
 				++rule_number, prerule);
 			continue;
 		}
 
 		if (strcmp(prerule, rule)) {
-			if (options.verbosity > 2)
+			if (options.verbosity > 3)
 			log_event("- Rule #%d: '%.100s' accepted as '%.100s'",
 				rule_number + 1, prerule, rule);
 		} else {
-			if (options.verbosity > 2)
+			if (options.verbosity > 3)
 			log_event("- Rule #%d: '%.100s' accepted",
 				rule_number + 1, prerule);
 		}
 
 		if (saved_min != rec_rule) {
-			if (options.verbosity > 2)
+			if (options.verbosity > 3)
 			log_event("- Oldest still in use is now rule #%d",
 				rec_rule + 1);
 			saved_min = rec_rule;

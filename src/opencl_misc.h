@@ -28,6 +28,21 @@ typedef int int32_t;
 typedef ulong uint64_t;
 typedef long int64_t;
 
+#if SIZEOF_SIZE_T == 8
+typedef uint64_t host_size_t;
+#else
+typedef uint32_t host_size_t;
+#endif
+
+/*
+ * "Copy" of the one in dyna_salt.h (we only need it to be right size,
+ * bitfields are not allowed in OpenCL)
+ */
+typedef struct dyna_salt_t {
+	host_size_t salt_cmp_size;
+	host_size_t bitfield_and_offset;
+} dyna_salt;
+
 #ifndef MIN
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #endif
@@ -63,7 +78,7 @@ inline uint lut3(uint x, uint y, uint z, uchar m)
 #define USE_BITSELECT 1
 #endif
 
-#if SM_MAJOR < 2
+#if SM_MAJOR == 1
 #define OLD_NVIDIA 1
 #endif
 

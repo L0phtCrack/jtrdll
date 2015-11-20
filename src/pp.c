@@ -30,7 +30,6 @@
 #include "autoconfig.h"
 #else
 #include <sys/mman.h>
-#define HAVE_LIBGMP 1
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
 #define __USE_MINGW_ANSI_STDIO 1
@@ -132,6 +131,7 @@
 #include "rpp.h"
 #include "rules.h"
 #include "mask.h"
+#include "regex.h"
 #include "memdbg.h"
 
 #define _STR_VALUE(arg) #arg
@@ -144,6 +144,11 @@ char *prince_skip_str;
 char *prince_limit_str;
 
 static char *mem_map, *map_pos, *map_end;
+#if HAVE_REXGEN
+static char *regex_alpha;
+static int regex_case;
+static char *regex;
+#endif
 
 #else
 
@@ -743,7 +748,7 @@ static char *add_elem (db_entry_t *db_entry, char *input_buf, int input_len)
 
   memcpy (elem_buf->buf, input_buf, input_len);
 #else
-  if (mem_map && pers_opts.input_enc == pers_opts.target_enc)
+  if (mem_map && options.input_enc == options.target_enc)
   {
     elem_buf->buf = (u8*)input_buf;
   }
@@ -837,6 +842,7 @@ int main (int argc, char *argv[])
 #else
 static mpf_t count;
 static mpz_t rec_pos;
+static mpz_t hybrid_rec_pos;
 static int rec_pos_destroyed;
 static int rule_count;
 static struct list_main *rule_list;
@@ -873,7 +879,17 @@ static int restore_state(FILE *file)
 
 static void fix_state(void)
 {
-  mpz_set(rec_pos, save);
+  if (mpz_cmp_ui(hybrid_rec_pos, 0)) {
+    mpz_set(rec_pos, hybrid_rec_pos);
+    mpz_set_ui(hybrid_rec_pos, 0);
+  } else {
+    mpz_set(rec_pos, save);
+  }
+}
+
+void pp_hybrid_fix_state(void)
+{
+  mpz_set(hybrid_rec_pos, save);
 }
 
 static double get_progress(void)
@@ -1011,6 +1027,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 #else
   mpf_init_set_ui(count,     1);
   mpz_init_set_ui(rec_pos,   0);
+  mpz_init_set_ui(hybrid_rec_pos,   0);
 #endif
   int     keyspace      = 0;
   int     pw_min        = PW_MIN;
@@ -1216,6 +1233,18 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   if (options.req_maxlength)
     pw_max = options.req_maxlength;
 
+#if HAVE_REXGEN
+  /* Hybrid regex */
+  if ((regex = prepare_regex(options.regex, &regex_case, &regex_alpha))) {
+    if (pw_min > 1)
+      pw_min--;
+    if (pw_max)
+      pw_max--;
+    if (our_fmt_len)
+      our_fmt_len--;
+  }
+#endif
+
   if (mask_num_qw > 1) {
     pw_min /= MIN(PW_MIN, mask_num_qw);
     pw_max /= mask_num_qw;
@@ -1292,7 +1321,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
   /* If we did not give a name for loopback mode, we use the active pot file */
   if (loopback && !wordlist)
-    wordlist = pers_opts.activepot;
+    wordlist = options.activepot;
 
   /* If we did not give a name for wordlist mode, we use one from john.conf */
   if (!wordlist)
@@ -1309,21 +1338,21 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
     struct rpp_context ctx, *rule_ctx;
     int active_rules = 0, rule_number = 0;
 
-    if (pers_opts.activewordlistrules)
-      log_event("- Rules: %.100s", pers_opts.activewordlistrules);
+    if (options.activewordlistrules)
+      log_event("- Rules: %.100s", options.activewordlistrules);
 
-    if (rpp_init(rule_ctx = &ctx, pers_opts.activewordlistrules)) {
+    if (rpp_init(rule_ctx = &ctx, options.activewordlistrules)) {
       log_event("! No \"%s\" mode rules found",
-                pers_opts.activewordlistrules);
+                options.activewordlistrules);
       if (john_main_process)
         fprintf(stderr,
                 "No \"%s\" mode rules found in %s\n",
-                pers_opts.activewordlistrules, cfg_name);
+                options.activewordlistrules, cfg_name);
       error();
     }
 
   /* rules.c honors -min/max-len options on its own */
-    rules_init(pers_opts.internal_cp == pers_opts.target_enc ?
+    rules_init(options.internal_cp == options.target_enc ?
                pw_max : db->format->params.plaintext_length);
     rule_count = rules_count(&ctx, -1);
 
@@ -1619,7 +1648,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
     if (warn) {
       const UTF8 *ep = (UTF8*)line + input_len;
-      if (pers_opts.input_enc == UTF_8) {
+      if (options.input_enc == UTF_8) {
         if (!pp_valid_utf8((UTF8*)line, ep)) {
           warn = 0;
           fprintf(stderr, "Warning: invalid UTF-8 seen reading %s\n", wordlist);
@@ -1635,7 +1664,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
     input_buf = line;
 
-    if (pers_opts.input_enc != pers_opts.target_enc) {
+    if (options.input_enc != options.target_enc) {
       UTF16 u16[BUFSIZ];
 
       utf8_to_utf16(u16, OUT_LEN_MAX, (UTF8*)input_buf, input_len);
@@ -2240,13 +2269,27 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 #ifndef JTR_MODE
             out_push (out, pw_buf, pw_len + 1);
 #else
+            char key_e[PLAINTEXT_BUFFER_SIZE];
+            char *key;
+
             if (!rules) {
+#if HAVE_REXGEN
+              if (regex) {
+                if ((jtr_done = do_regex_hybrid_crack(db, regex, pw_buf,
+                                                      regex_case, regex_alpha)))
+                  break;
+                pp_hybrid_fix_state();
+              } else
+#endif
               if (options.mask) {
                 if ((jtr_done = do_mask_crack(pw_buf)))
                   break;
-              } else {
-                if (ext_filter(pw_buf) && (jtr_done = crk_process_key(pw_buf)))
-                  break;
+              } else
+              {
+                key = pw_buf;
+                if (!f_filter || ext_filter_body(pw_buf, key = key_e))
+                  if ((jtr_done = crk_process_key(key)))
+                    break;
               }
             } else {
               struct list_entry *rule;
@@ -2257,15 +2300,24 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
                 if ((word = rules_apply(pw_buf, rule->data, -1, last))) {
                   last = word;
-
+#if HAVE_REXGEN
+                  if (regex) {
+                    if ((jtr_done = do_regex_hybrid_crack(db, regex, word,
+                                                          regex_case,
+                                                          regex_alpha)))
+                      break;
+                    pp_hybrid_fix_state();
+                  } else
+#endif
                   if (options.mask) {
                     if ((jtr_done = do_mask_crack(word)))
                       break;
-                  } else {
-                    if (ext_filter(word) && (jtr_done = crk_process_key(word)))
-                    {
-                      break;
-                    }
+                  } else
+                  {
+                    key = word;
+                    if (!f_filter || ext_filter_body(word, key = key_e))
+                      if ((jtr_done = crk_process_key(key)))
+                        break;
                   }
                 }
               } while ((rule = rule->next));

@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <assert.h>
 
+#include "arch.h"
 #include "misc.h" /* for error() */
 #include "logger.h"
 #include "recovery.h"
@@ -34,6 +35,12 @@
 #include "memdbg.h"
 #include "mask_ext.h"
 
+extern void wordlist_hybrid_fix_state(void);
+extern void mkv_hybrid_fix_state(void);
+extern void inc_hybrid_fix_state(void);
+extern void pp_hybrid_fix_state(void);
+extern void ext_hybrid_fix_state(void);
+
 static mask_parsed_ctx parsed_mask;
 static mask_cpu_context cpu_mask_ctx, rec_ctx;
 static int *template_key_offsets;
@@ -42,6 +49,7 @@ static int max_keylen, fmt_maxlen, rec_len, rec_cl, restored_len, restored = 1;
 static unsigned long long cand_length;
 static struct fmt_main *mask_fmt;
 static int mask_bench_index;
+static int parent_fix_state_pending;
 int mask_add_len, mask_num_qw, mask_cur_len;
 
 /*
@@ -182,17 +190,28 @@ static char* plhdr2string(char p, int fmt_case)
 	fprintf(stderr, "%s(%c)\n", __FUNCTION__, p);
 #endif
 
+	/*
+	 * Force lowercase for case insignificant formats. Dupes will
+	 * be removed, so eg. ?l?u == ?l.
+	 */
+	if (!fmt_case) {
+		if (p == 'u')
+			p = 'l';
+		if (p == 'U')
+			p = 'L';
+	}
+
 #define add_range(a, b)	for (j = a; j <= b; j++) *o++ = j
 #define add_string(str)	for (s = (char*)str; *s; s++) *o++ = *s
 
-	if ((pers_opts.internal_cp == ASCII ||
-	     pers_opts.internal_cp == UTF_8) &&
+	if ((options.internal_cp == ASCII ||
+	     options.internal_cp == UTF_8) &&
 	    (p == 'L' || p == 'U' || p == 'D' || p == 'S')) {
 		if (john_main_process)
 			fprintf(stderr,
 			    "Can't use ?%c placeholder without using an 8-bit legacy codepage for\n"
 			    "--internal-codepage%s\n", p,
-			    (pers_opts.internal_cp == UTF_8) ?
+			    (options.internal_cp == UTF_8) ?
 			    " (UTF-8 is not a codepage, it's a Unicode encoding)." : ".");
 		error();
 	}
@@ -203,7 +222,7 @@ static char* plhdr2string(char p, int fmt_case)
 		add_string("aeionrlstmcdyhubkgpjvfwzxq");
 		break;
 	case 'L': /* lower-case letters, non-ASCII only */
-		switch (pers_opts.internal_cp) {
+		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_LOWER_CP437
 			           CHARS_LOW_ONLY_CP437);
@@ -291,7 +310,7 @@ static char* plhdr2string(char p, int fmt_case)
 		add_string("AEIOLRNSTMCDBYHUPKGJVFWZXQ");
 		break;
 	case 'U': /* upper-case letters, non-ASCII only */
-		switch (pers_opts.internal_cp) {
+		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_UPPER_CP437
 			           CHARS_UP_ONLY_CP437);
@@ -379,7 +398,7 @@ static char* plhdr2string(char p, int fmt_case)
 		add_string("1023985467");
 		break;
 	case 'D': /* digits, non-ASCII only */
-		switch (pers_opts.internal_cp) {
+		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_DIGITS_CP437);
 			break;
@@ -447,7 +466,7 @@ static char* plhdr2string(char p, int fmt_case)
 		add_string("._!-* @#/$,\\&+=?)(';<%\"]~:[^`>{}|");
 		break;
 	case 'S': /* specials, non-ASCII only */
-		switch (pers_opts.internal_cp) {
+		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_PUNCTUATION_CP437
 			           CHARS_SPECIALS_CP437
@@ -571,7 +590,7 @@ static char* plhdr2string(char p, int fmt_case)
 			add_string("ae1ionrls02tm3c98dy54hu6b7kgpjvfwzAxEIOLRNSTMqC.DBYH_!UPKGJ-* @VFWZ#/X$,\\&+=Q?)(';<%\"]~:[^`>{}|");
 		else
 			add_string("ae1ionrls02tm3c98dy54hu6b7kgpjvfwzxq._!-* @#/$,\\&+=?)(';<%\"]~:[^`>{}|");
-		switch (pers_opts.internal_cp) {
+		switch (options.internal_cp) {
 		case CP437:
 			if (fmt_case)
 				add_string(CHARS_ALPHA_CP437);
@@ -1204,6 +1223,11 @@ static void save_restore(mask_cpu_context *cpu_mask_ctx, int range_idx, int ch)
 static void truncate_mask(mask_cpu_context *cpu_mask_ctx, int range_idx)
 {
 	int i;
+
+#ifdef MASK_DEBUG
+	fprintf(stderr, "%s(%d %d)\n", __FUNCTION__, range_idx, mask_max_skip_loc);
+#endif
+
 	if (range_idx < mask_max_skip_loc && mask_max_skip_loc != -1) {
 		fprintf(stderr, "Format internal ranges cannot be truncated!\n");
 		fprintf(stderr, "Use a bigger key length or non-gpu format.\n");
@@ -1241,6 +1265,11 @@ static char* generate_template_key(char *mask, const char *key, int key_len,
 				   mask_cpu_context *cpu_mask_ctx)
 {
 	int i, k, t, j, l, offset;
+
+#ifdef MASK_DEBUG
+	fprintf(stderr, "%s(%s) key %s len %d (max %d)\n", __FUNCTION__, mask, key, key_len, max_keylen);
+#endif
+
 	i = 0, k = 0, j = 0, l = 0, offset = 0;
 
 	while (template_key_offsets[l] != -1)
@@ -1306,7 +1335,7 @@ static MAYBE_INLINE char* mask_cp_to_utf8(char *in)
 	static char out[PLAINTEXT_BUFFER_SIZE + 1];
 
 	if (mask_has_8bit &&
-	    (pers_opts.internal_cp != UTF_8 && pers_opts.target_enc == UTF_8))
+	    (options.internal_cp != UTF_8 && options.target_enc == UTF_8))
 		return cp_to_utf8_r(in, out, fmt_maxlen);
 
 	return in;
@@ -1352,14 +1381,19 @@ static MAYBE_INLINE char* mask_cp_to_utf8(char *in)
 static int generate_keys(mask_cpu_context *cpu_mask_ctx,
 			  unsigned long long *my_candidates)
 {
+	char key_e[PLAINTEXT_BUFFER_SIZE];
+	char *key;
 	int ps1 = MAX_NUM_MASK_PLHDR, ps2 = MAX_NUM_MASK_PLHDR,
 	    ps3 = MAX_NUM_MASK_PLHDR, ps4 = MAX_NUM_MASK_PLHDR, ps ;
 	int start1, start2, start3, start4;
 
-#define process_key(key)						\
-	if (ext_filter(template_key))					\
-		if ((crk_process_key(mask_cp_to_utf8(template_key))))   \
-			return 1;
+#define process_key(key_i)	  \
+	do { \
+		key = key_i; \
+		if (!f_filter || ext_filter_body(key_i, key = key_e)) \
+			if ((crk_process_key(mask_cp_to_utf8(key)))) \
+				return 1; \
+	} while(0)
 
 	ps1 = cpu_mask_ctx->ps1;
 	ps2 = cpu_mask_ctx->ranges[ps1].next;
@@ -1636,7 +1670,7 @@ int mask_restore_state(FILE *file)
 	unsigned long long ull;
 	int fail = !(options.flags & FLG_MASK_STACKED);
 
-	if (fscanf(file, ""LLu"\n", &ull) == 1)
+	if (fscanf(file, LLu"\n", &ull) == 1)
 		cand = ull;
 	else
 		return fail;
@@ -1656,11 +1690,10 @@ int mask_restore_state(FILE *file)
 			restored_len = d;
 		else
 			return fail;
-		if (fscanf(file, ""LLu"\n", &ull) == 1)
+		if (fscanf(file, LLu"\n", &ull) == 1)
 			rec_cl = ull;
-		/* FIXME: enable the below at 2015-01-01 or later */
-		//else
-		//	return fail;
+		else
+			return fail;
 	}
 
 	for (i = 0; i < cpu_mask_ctx.count; i++)
@@ -1676,6 +1709,10 @@ void mask_fix_state(void)
 {
 	int i;
 
+	if (parent_fix_state_pending) {
+		crk_fix_state();
+		parent_fix_state_pending = 0;
+	}
 	rec_cand = cand;
 	rec_ctx.count = cpu_mask_ctx.count;
 	rec_ctx.offset = cpu_mask_ctx.offset;
@@ -1784,7 +1821,6 @@ char *stretch_mask(char *mask, mask_parsed_ctx *parsed_mask)
 void mask_init(struct db_main *db, char *unprocessed_mask)
 {
 	int i, max_static_range;
-	char *p;
 
 	mask_fmt = db->format;
 
@@ -1792,7 +1828,7 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	max_keylen = options.req_maxlength ?
 		options.req_maxlength : fmt_maxlen;
 
-	if (options.flags & FLG_TEST_CHK)
+	if (options.flags & FLG_TEST_CHK && !(options.flags & FLG_MASK_STACKED))
 		max_keylen = strlen(mask_fmt->params.tests[0].plaintext);
 
 	if ((options.flags & FLG_MASK_STACKED) && max_keylen < 2) {
@@ -1819,22 +1855,6 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 		   cfg_get_param("Mask", NULL, "DefaultMask")))
 			options.mask = "";
 
-	/* Truncate mask before picking internal candidates from it */
-	i = 0;
-	p = options.mask;
-	while (*p) {
-		if (++i == max_keylen) {
-			while (*p == '?')
-				p++;
-			*++p = 0;
-			break;
-		}
-		if (*p++ == '?') {
-			p++;
-			continue;
-		}
-	}
-
 	/* Load defaults for custom placeholders ?1..?9 from john.conf */
 	for (i = 0; i < MAX_NUM_CUST_PLHDR; i++) {
 		char pl[2] = { '1' + i, 0 };
@@ -1851,7 +1871,7 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	template_key = (char*)mem_alloc(0x400);
 
 	/* Handle command-line (or john.conf) masks given in UTF-8 */
-	if (pers_opts.input_enc == UTF_8 && pers_opts.internal_cp != UTF_8) {
+	if (options.input_enc == UTF_8 && options.internal_cp != UTF_8) {
 		if (valid_utf8((UTF8*)mask) > 1)
 			utf8_to_cp_r(mask, mask, strlen(mask));
 		for (i = 0; i < MAX_NUM_CUST_PLHDR; i++)
@@ -1875,7 +1895,7 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	 * UTF-8 is not supported in mask mode unless -internal-codepage is used
 	 * except for UTF-16 formats (eg. NT).
 	 */
-	if (pers_opts.internal_cp == UTF_8 && valid_utf8((UTF8*)mask) > 1) {
+	if (options.internal_cp == UTF_8 && valid_utf8((UTF8*)mask) > 1) {
 		if (john_main_process)
 			fprintf(stderr,
 			        "Mask contains UTF-8 characters; --internal-codepage is required!\n");
@@ -2146,21 +2166,21 @@ int do_mask_crack(const char *extern_key)
 		i = 0;
 		while(template_key_offsets[i] != -1) {
 			int offset = template_key_offsets[i] & 0xffff;
-			unsigned char is_lower =  (template_key_offsets[i++] >> 16)
-				== 'w';
+			unsigned char toggle =  (template_key_offsets[i++] >> 16) == 'W';
 			int cpy_len = max_keylen - offset;
+
 			cpy_len = cpy_len > key_len ? key_len : cpy_len;
-			if (is_lower)
-			memcpy(template_key + offset, extern_key, cpy_len);
+			if (!toggle)
+				memcpy(template_key + offset, extern_key, cpy_len);
 			else {
 				int z;
 				for (z = 0; z < cpy_len; ++z) {
-					if (islower(ARCH_INDEX(extern_key[z])))
+					if (enc_islower(extern_key[z]))
 						template_key[offset + z] =
-							toupper(ARCH_INDEX(extern_key[z]));
+							enc_toupper(extern_key[z]);
 					else
 						template_key[offset + z] =
-							tolower(ARCH_INDEX(extern_key[z]));
+							enc_tolower(extern_key[z]);
 				}
 			}
 		}
@@ -2172,9 +2192,22 @@ int do_mask_crack(const char *extern_key)
 				return 1;
 		}
 	}
-	if (!event_abort && (options.flags & FLG_MASK_STACKED) &&
-		!(options.flags & FLG_TEST_CHK))
-		crk_fix_state();
+
+	if (options.flags & FLG_MASK_STACKED) {
+		if (options.flags & FLG_WORDLIST_CHK)
+			wordlist_hybrid_fix_state();
+		else if (options.flags & FLG_MKV_CHK)
+			mkv_hybrid_fix_state();
+		else if (options.flags & FLG_INC_CHK)
+			inc_hybrid_fix_state();
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+		else if (options.flags & FLG_PRINCE_CHK)
+			pp_hybrid_fix_state();
+#endif
+		else if (options.flags & FLG_EXTERNAL_CHK)
+			ext_hybrid_fix_state();
+		parent_fix_state_pending = 1;
+	}
 
 	return event_abort;
 }

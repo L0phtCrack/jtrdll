@@ -185,7 +185,7 @@ char *path_expand_safe(char *name)
 				PATH_BUFFER_SIZE - john_home_length);
 			return full_path;
 		}
-		memcpy(full_path, name+6, strlen(name)-6);
+		memcpy(full_path, name + 6, strlen(name) - 6);
 		return full_path;
 	}
 
@@ -198,7 +198,7 @@ char *path_expand_safe(char *name)
 				PATH_BUFFER_SIZE - user_home_length);
 			return full_path;
 		}
-		memcpy(full_path, name+2, strlen(name)-2);
+		memcpy(full_path, name + 2, strlen(name) - 2);
 		return full_path;
 	}
 #endif

@@ -67,7 +67,6 @@ static struct fmt_main *self;
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
-
 #include "memdbg.h"
 
 static struct fmt_tests tests[] = {

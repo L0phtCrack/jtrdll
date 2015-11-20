@@ -92,7 +92,10 @@ static void find_best_gws(struct fmt_main *self, int sequential_id, unsigned int
 static void autotune_run(struct fmt_main *self, unsigned int rounds,
 			 size_t gws_limit, unsigned long long int max_run_time);
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> c25192c23138db92b903c1b14bcf8a76963876ec
 /* --
   This function does the common part of auto-tune adjustments,
   preparation and execution. It is shared code to be inserted

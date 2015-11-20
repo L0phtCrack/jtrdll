@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include "john_stdint.h"
 #include "asn1.h"
+#include "jumbo.h"
 
 #define printf(...)
 #ifdef _MSC_VER

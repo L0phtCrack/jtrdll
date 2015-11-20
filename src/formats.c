@@ -181,7 +181,7 @@ static char *longcand(struct fmt_main *format, int index, int ml)
 	memset(out, '!' + (index & 31), ml);
 	if (!(format->params.flags & FMT_8_BIT) ||
 #ifndef BENCH_BUILD
-	    !(format->params.flags & FMT_CASE) || pers_opts.target_enc == UTF_8
+	    !(format->params.flags & FMT_CASE) || options.target_enc == UTF_8
 #else
 	    !(format->params.flags & FMT_CASE)
 #endif
@@ -431,7 +431,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 #ifndef BENCH_BUILD
 	/* UTF-8 bodge in reverse. Otherwise we will get truncated keys back
 	   from the max-length self-test */
-	if ((pers_opts.target_enc == UTF_8) &&
+	if ((options.target_enc == UTF_8) &&
 	    (format->params.flags & FMT_UTF8) &&
 	    (format->params.flags & FMT_UNICODE))
 		ml /= 3;
@@ -696,14 +696,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		if (strcmp(ciphertext,
 		    format->methods.source(ciphertext, binary)))
 			return "source";
-#else
-		if (strcmp(ciphertext,
-		    format->methods.source(ciphertext, binary))) {
-			//static char LargeBuf[500];
-			//sprintf(LargeBuf, "source\n%.200s\n%.200s\n", ciphertext, format->methods.source(ciphertext, binary));
-			//return LargeBuf;
-			return "source";
-		}
 #endif
 
 		if ((unsigned int)format->methods.salt_hash(salt) >=
@@ -711,6 +703,12 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			return "salt_hash";
 
 		format->methods.set_salt(salt);
+#ifdef JUMBO_JTR
+		if (strcmp(ciphertext,
+		    format->methods.source(ciphertext, binary))) {
+			return "source";
+		}
+#endif
 #ifndef JUMBO_JTR
 		format->methods.set_key(current->plaintext, index);
 
