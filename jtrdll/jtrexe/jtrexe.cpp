@@ -1,4 +1,5 @@
 #include<string>
+#include<vector>
 #include<stdio.h>
 #ifdef _WIN32
 #include<windows.h>
@@ -10,30 +11,49 @@ typedef int (*TYPEOF_jtrdll_main)(int argc, char **argv, void *hooks);
 int main(int argc, char **argv)
 {
 	CPUInformation cpu;
-	std::string jtrdllversion;
-	
+	std::string jtrdllversion, force_jtrdllversion;
+	std::vector<char *> args;
+	for (int arg = 0; arg < argc; arg++)
+	{
+		if (std::string(argv[arg]).compare(0, 8, "--force-") == 0)
+		{
+			force_jtrdllversion = argv[arg] + 8;
+		}
+		else
+		{
+			args.push_back(argv[arg]);
+		}
+	}
+	args.push_back(NULL);
+
 	jtrdllversion  = "sse2";
-	if (cpu.SSSE3())
+	if (jtrdllversion!=force_jtrdllversion && cpu.SSSE3())
 	{
 		jtrdllversion = "ssse3";
-		if (cpu.SSE41())
+		if (jtrdllversion != force_jtrdllversion && cpu.SSE41())
 		{
 			jtrdllversion = "sse41";
 			
-			if (cpu.XOP())
+			if (jtrdllversion != force_jtrdllversion && cpu.XOP())
 			{
 				jtrdllversion = "xop";
 			}
-			else if (cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
+			else if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
 				jtrdllversion = "avx";
 			}
 
-			if (cpu.AVX2() && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
+			if (jtrdllversion != force_jtrdllversion && cpu.AVX2() && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
 				jtrdllversion = "avx2";
 			}
 		}
+	}
+
+	if (force_jtrdllversion.length()!=0 && jtrdllversion != force_jtrdllversion)
+	{
+		fprintf(stderr, "Incompatible instruction set\n");
+		exit(1);
 	}
 	
 #ifdef _WIN32
@@ -59,7 +79,7 @@ int main(int argc, char **argv)
 
 	printf("Detected %s instruction set\n", jtrdllversion.c_str());
 	
-	int ret = jtrdll_main(argc,argv,NULL);
+	int ret = jtrdll_main(args.size()-1,&(args[0]),NULL);
 	
 #ifdef _WIN32
 	FreeLibrary(jtrdll);

@@ -622,6 +622,7 @@ static void gws_tune(size_t gws_init, long double kernel_run_ms, int gws_tune_fl
 	unsigned int lm_log_depth = mask_mode ? 0 : LM_LOG_DEPTH;
 
 	size_t gws_limit = get_max_mem_alloc_size(gpu_id) / sizeof(opencl_lm_transfer);
+
 	if (gws_limit > PADDING)
 		gws_limit -= PADDING;
 

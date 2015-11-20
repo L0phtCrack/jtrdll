@@ -1594,9 +1594,9 @@ static char *human_speed(unsigned long long int speed)
 		p = 'T'; /* you wish */
 	}
 	if (p)
-		snprintf(out, sizeof(out), "%llu%cc/s", speed, p);
+		snprintf(out, sizeof(out), LLu"%cc/s", speed, p);
 	else
-		snprintf(out, sizeof(out), "%lluc/s", speed);
+		snprintf(out, sizeof(out), LLu"c/s", speed);
 
 	return out;
 }
@@ -1690,8 +1690,8 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 			min_time = run_time;
 
 		if (options.verbosity > 3)
-			fprintf(stderr, "gws: %9zu\t%10s%12llu "
-			        "rounds/s%10s per crypt_all()",
+			fprintf(stderr, "gws: "Zu"\t%10s"LLu" "
+			        "rounds/s%10s per crypt_all()\n",
 			        num, human_speed(raw_speed), speed, ns2string(run_time));
 
 		if (best_speed && speed < 1.8 * best_speed &&
@@ -1819,6 +1819,7 @@ size_t opencl_read_source(char *kernel_filename, char **kernel_source)
 	size_t source_size, read_size;
 
 	fp = fopen(full_path = path_expand_safe(kernel_filename), "rb");
+
 	MEM_FREE(full_path);
 
 	if (!fp)
@@ -2035,6 +2036,12 @@ cl_ulong get_max_mem_alloc_size(int sequential_id)
 	                               sizeof(max_alloc_size),
 	                               &max_alloc_size, NULL),
 	               "Error querying CL_DEVICE_MAX_MEM_ALLOC_SIZE");
+
+	// XXX: hack, prevent memory explosion
+//	if (max_alloc_size > (1024 * 1024 * 128))
+//	{
+		//max_alloc_size = (1024 * 1024 * 128);
+	//}
 
 	return max_alloc_size;
 }

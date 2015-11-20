@@ -275,14 +275,16 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if (format->params.flags & FMT_CASE) {
 		// Case-sensitive passwords
-		if (strncmp(key, plaintext, format->params.plaintext_length)) {
+		if (strncmp(key, plaintext, format->params.plaintext_length)) 
+		{
 			sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
 	} else {
 		// Case-insensitive passwords
 		if (strncasecmp(key, plaintext,
-			format->params.plaintext_length)) {
+			format->params.plaintext_length)) 
+		{
 			sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
