@@ -32,7 +32,7 @@
  * as CPU detection additions by magnum 2010-2015.
  */
 
- #include"arch.h"
+#include"arch.h"
 
 #if defined (_WIN64) || defined (__CYGWIN64__)
 /*
@@ -1100,8 +1100,6 @@ DES_bs_init_asm:
 #define iterations			%edi
 #define rounds_and_swapped		%eax
 
-#ifndef _OPENMP
-
 DO_ALIGN(6)
 .globl DES_bs_crypt
 DES_bs_crypt:
@@ -1648,14 +1646,7 @@ DES_bs_crypt_plain_loop:
 	ret
 #endif
 
-<<<<<<< HEAD
-#endif
-
-
-#if defined(CPU_REQ_AVX) || defined(CPU_REQ_XOP)
-=======
 #if CPU_REQ
->>>>>>> c25192c23138db92b903c1b14bcf8a76963876ec
 /*
  * CPU detection.
  */
