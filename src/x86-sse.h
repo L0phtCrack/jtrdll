@@ -95,7 +95,7 @@
 #define DES_COPY			1
 #define DES_STD_ALGORITHM_NAME		"DES 48/64 4K MMX"
 #define DES_BS				1
-#if defined(JOHN_AVX) && (defined(__GNUC__) || defined(_OPENMP))
+#if defined(JOHN_AVX) && (defined(__GNUC__) || defined(_OPENMP) || defined(_MSC_VER))
 /*
  * Require gcc for AVX/XOP because DES_bs_all is aligned in a gcc-specific way,
  * except in OpenMP-enabled builds, where it's aligned by different means.
@@ -117,7 +117,7 @@
 #define CPU_FALLBACK_BINARY_DEFAULT
 #endif
 #define DES_BS_VECTOR			8
-#if defined(JOHN_XOP) && defined(__GNUC__)
+#if defined(JOHN_XOP) && ( defined(__GNUC__) || defined(_MSC_VER) )
 /* Require gcc for 256-bit XOP because of __builtin_ia32_vpcmov_v8sf256() */
 #define CPU_REQ_XOP			1
 #undef CPU_NAME

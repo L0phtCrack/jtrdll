@@ -33,17 +33,18 @@ int main(int argc, char **argv)
 		if (jtrdllversion != force_jtrdllversion && cpu.SSE41())
 		{
 			jtrdllversion = "sse41";
-			
+				
+			if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
+			{
+				jtrdllversion = "avx";				
+			}
+
 			if (jtrdllversion != force_jtrdllversion && cpu.XOP())
 			{
 				jtrdllversion = "xop";
 			}
-			else if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
-			{
-				jtrdllversion = "avx";
-			}
 
-			if (jtrdllversion != force_jtrdllversion && cpu.AVX2() && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
+			if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.AVX2() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED() && cpu.MOVBE() && cpu.FMA())
 			{
 				jtrdllversion = "avx2";
 			}

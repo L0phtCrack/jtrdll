@@ -53,6 +53,8 @@ typedef unsigned long long ARCH_WORD_64;
 #endif
 #elif __STDC_VERSION__ >= 199901L
 #define MAYBE_INLINE inline
+#elif defined(_MSC_VER)
+#define MAYBE_INLINE __inline
 #else
 #define MAYBE_INLINE
 #endif

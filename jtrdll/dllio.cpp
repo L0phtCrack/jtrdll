@@ -241,7 +241,7 @@ JTRDLL_IMPEXP void jtrdll_abort(void)
 	sig_handle_abort(SIGINT);
 }
 
-JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min, unsigned char *max, unsigned char *len, unsigned char *count)
+JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min, unsigned char *max, unsigned char *len, unsigned char *count, unsigned char allchars[256])
 {
 	struct charset_header header;
 	FILE *csf = fopen(path, "rb");
@@ -254,12 +254,19 @@ JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min,
 		fclose(csf);
 		return -1;
 	}
-	fclose(csf);
 
 	*min = header.min;
 	*max = header.max;
 	*len = header.length;
 	*count = header.count;
+
+	if (fread(allchars, header.count, 1, csf) != 1) 
+	{
+		fclose(csf);
+		return -1;
+	}
+
+	fclose(csf);
 
 	return 0;
 }

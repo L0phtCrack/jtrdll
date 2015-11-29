@@ -66,7 +66,7 @@ static clock_t get_time(void)
 #endif
 }
 
-void status_init(double (*get_progress)(void), int start)
+void status_init(double(*get_progress)(void), int start)
 {
 	if (start) {
 		if (!status_restored_time)
