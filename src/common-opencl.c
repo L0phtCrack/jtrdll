@@ -315,7 +315,7 @@ static char *opencl_driver_info(int sequential_id)
 			snprintf(tmp, sizeof(tmp), "%s - Crimson %s", dname, drivers_info[i]);
 
 #if HAVE_WINDOWS_H
-		if (!strcmp("15.7", b) || !strcmp("15.7.1", b))
+		if (!strcmp("15.7", drivers_info[i]) || !strcmp("15.7.1", drivers_info[i]))
 			snprintf(ret, sizeof(ret), "%s%s", tmp, " [recommended]");
 #else
 		if (!strcmp("14.9", drivers_info[i]) || !strcmp("14.12", drivers_info[i]) ||
