@@ -254,7 +254,7 @@ static char *opencl_driver_ver(int sequential_id)
 static char *opencl_driver_info(int sequential_id)
 {
 	static char ret[64];
-	char dname[MAX_OCLINFO_STRING_LEN];
+	char dname[MAX_OCLINFO_STRING_LEN], tmp[64];
 	int major = 0, minor = 0, i = 0;
 
 	int known_drivers[][2] = {
@@ -271,7 +271,9 @@ static char *opencl_driver_info(int sequential_id)
 		{1702, 3},
 		{1729, 3},
 		{1800, 5},
+		{1800, 8},
 		{1800, 11},
+		{1912, 5},
 		{0, 0}
 	};
 
@@ -284,12 +286,14 @@ static char *opencl_driver_info(int sequential_id)
 		"13.12",
 		"14.4 (Mantle)",
 		"14.6 beta (Mantle)",
-		"14.9 (Mantle) [recommended]",
-		"14.12 (Omega) [recommended]",
+		"14.9 (Mantle)",
+		"14.12 (Omega)",
 		"15.5 beta [not recommended]",
 		"15.5",
-		"15.7 [recommended]",
-		"15.9 [recommended]",
+		"15.7",
+		"15.7.1",
+		"15.9",
+		"15.11",
 		""
 	};
 	clGetDeviceInfo(devices[sequential_id], CL_DRIVER_VERSION,
@@ -304,7 +308,22 @@ static char *opencl_driver_info(int sequential_id)
 				break;
 			i++;
 		}
-		snprintf(ret, sizeof(ret), "%s - Catalyst %s", dname, drivers_info[i]);
+
+		if (major < 1912)
+			snprintf(tmp, sizeof(tmp), "%s - Catalyst %s", dname, drivers_info[i]);
+		else
+			snprintf(tmp, sizeof(tmp), "%s - Crimson %s", dname, drivers_info[i]);
+
+#if HAVE_WINDOWS_H
+		if (!strcmp("15.7", b) || !strcmp("15.7.1", b))
+			snprintf(ret, sizeof(ret), "%s%s", tmp, " [recommended]");
+#else
+		if (!strcmp("14.9", drivers_info[i]) || !strcmp("14.12", drivers_info[i]) ||
+		    !strcmp("15.7", drivers_info[i]) || !strcmp("15.9", drivers_info[i]))
+			snprintf(ret, sizeof(ret), "%s%s", tmp, " [recommended]");
+		else
+			snprintf(ret, sizeof(ret), "%s%s", tmp, " ");
+#endif
 
 	} else if (gpu_nvidia(device_info[sequential_id])) {
 
@@ -1882,6 +1901,12 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 		int i;
 		MD5_CTX ctx;
 		char *kernel_source = NULL;
+		char *global_opts;
+
+		if (!(global_opts = getenv("OPENCLBUILDOPTIONS")))
+			if (!(global_opts = cfg_get_param(SECTION_OPTIONS,
+			    SUBSECTION_OPENCL, "GlobalBuildOpts")))
+				global_opts = OPENCLBUILDOPTIONS;
 
 		startTime = (unsigned long)time(NULL);
 
@@ -1891,12 +1916,13 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 		                               dev_name, NULL), "Error querying DEVICE_NAME");
 
 /*
- * Create a hash of kernel source and paramters, and use as cache name.
+ * Create a hash of kernel source and parameters, and use as cache name.
  */
 		MD5_Init(&ctx);
 		md5add(kernel_filename);
 		opencl_read_source(kernel_filename, &kernel_source);
 		md5add(kernel_source);
+		md5add(global_opts);
 		if (opts)
 			md5add(opts);
 		md5add(opencl_driver_ver(sequential_id));

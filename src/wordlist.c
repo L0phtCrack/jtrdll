@@ -609,6 +609,9 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	if (!(name = cfg_get_param(SECTION_OPTIONS, NULL, "Wordfile")))
 		name = options.wordlist = WORDLIST_NAME;
 
+	if (options.flags & FLG_STACKED)
+		options.max_fix_state_delay = 0;
+
 	if (name) {
 		char *cp, csearch;
 		int64_t ourshare = 0;
@@ -924,7 +927,16 @@ skip:
 			words = mem_alloc(max_pipe_words * sizeof(char*));
 			rules_keep = rules;
 
-GRAB_NEXT_PIPE_LOAD:;
+			init_once = 0;
+
+			status_init(get_progress, 0);
+
+			rec_restore_mode(restore_state);
+			rec_init(db, save_state);
+
+			crk_init(db, fix_state, NULL);
+
+GRAB_NEXT_PIPE_LOAD:
 #if HAVE_WINDOWS_H
 			if (options.sharedmemoryfilename != NULL)
 				goto MEM_MAP_LOAD;
@@ -985,28 +997,28 @@ GRAB_NEXT_PIPE_LOAD:;
 			}
 #if HAVE_WINDOWS_H
 			goto SKIP_MEM_MAP_LOAD;
-MEM_MAP_LOAD:;
-			{
-				rules = rules_keep;
-				nWordFileLines = 0;
-				if (options.verbosity > 3)
+MEM_MAP_LOAD:
+			rules = rules_keep;
+			nWordFileLines = 0;
+			if (options.verbosity > 3)
 				log_event("- Reading next block of candidate from the memory mapped file");
-				release_sharedmem_object(pIPC);
-				pIPC = next_sharedmem_object();
-				if (!pIPC || pIPC->n == 0) {
-					pipe_input = 0;
-					shutdown_sharedmem();
-					goto EndOfFile;
-				} else {
-					int i;
-					nWordFileLines = pIPC->n;
-					words[0] = pIPC->Data;
-					for (i = 1; i < nWordFileLines; ++i) {
-						words[i] = words[i-1] + pIPC->WordOff[i-1];
-					}
+			release_sharedmem_object(pIPC);
+			pIPC = next_sharedmem_object();
+			if (!pIPC || pIPC->n == 0) {
+				pipe_input = 0;
+				shutdown_sharedmem();
+				goto EndOfFile;
+			} else {
+				int i;
+				nWordFileLines = pIPC->n;
+				words[0] = pIPC->Data;
+				for (i = 1; i < nWordFileLines; ++i) {
+					words[i] =
+						words[i-1] + pIPC->WordOff[i-1];
 				}
 			}
-SKIP_MEM_MAP_LOAD:;
+SKIP_MEM_MAP_LOAD:
+			; /* Needed for the label */
 #endif
 		}
 	}
@@ -1054,9 +1066,6 @@ REDO_AFTER_LMLOOP:
 		                  (!nWordFileLines && rec_pos)))
 			do_lmloop = 0;
 		rec_init(db, save_state);
-
-		if (options.flags & FLG_STACKED)
-			options.max_fix_state_delay = 0;
 
 		crk_init(db, fix_state, NULL);
 	}
@@ -1176,6 +1185,7 @@ REDO_AFTER_LMLOOP:
 						rule = NULL;
 						rules = 0;
 						pipe_input = 0;
+						do_lmloop = 0;
 						break;
 					}
 					wordlist_hybrid_fix_state();
@@ -1186,6 +1196,7 @@ REDO_AFTER_LMLOOP:
 						rule = NULL;
 						rules = 0;
 						pipe_input = 0;
+						do_lmloop = 0;
 						break;
 					}
 				} else
@@ -1194,6 +1205,7 @@ REDO_AFTER_LMLOOP:
 					rule = NULL;
 					rules = 0;
 					pipe_input = 0;
+					do_lmloop = 0;
 					break;
 				}
 			}

@@ -464,6 +464,9 @@ static void john_omp_fallback(char **argv) {
 #else
 #define OMP_FALLBACK_PATHNAME path_expand("$JOHN/" OMP_FALLBACK_BINARY)
 #endif
+#if HAVE_MPI
+		mpi_teardown();
+#endif
 		execv(OMP_FALLBACK_PATHNAME, argv);
 #ifdef JOHN_SYSTEMWIDE_EXEC
 		perror("execv: " OMP_FALLBACK_PATHNAME);
@@ -1636,7 +1639,7 @@ static void john_run(void)
 				log_flush();
 			}
 		}
-		tty_init(options.flags & FLG_STDIN_CHK);
+		tty_init(options.flags & (FLG_STDIN_CHK | FLG_PIPE_CHK));
 
 		if (john_main_process &&
 		    database.format->params.flags & FMT_NOT_EXACT) {

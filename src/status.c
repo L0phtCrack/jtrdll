@@ -435,7 +435,7 @@ void status_print(void)
 	char s_gpu[32 * MAX_GPU_DEVICES] = "";
 
 	if (!(options.flags & FLG_STDOUT) &&
-	    cfg_get_bool(SECTION_OPTIONS, SUBSECTION_GPU, "SensorsStatus", 0)) {
+	    cfg_get_bool(SECTION_OPTIONS, SUBSECTION_GPU, "SensorsStatus", 1)) {
 		int i;
 		int n = 0;
 
@@ -449,7 +449,10 @@ void status_print(void)
 				fan = temp = util = -1;
 				dev_get_temp[dev](temp_dev_id[dev],
 				                  &temp, &fan, &util);
-				if (temp >= 0) {
+				if (temp >= 0 && (options.verbosity > 3 ||
+				    cfg_get_bool(SECTION_OPTIONS,
+				                 SUBSECTION_GPU,
+				                 "TempStatus", 1))) {
 					if (i == 0)
 						n += sprintf(s_gpu + n,
 						             " GPU:%u%sC",
@@ -461,10 +464,16 @@ void status_print(void)
 						             i, temp,
 						             gpu_degree_sign);
 				}
-				if (util > 0)
+				if (util > 0 && (options.verbosity > 3 ||
+				    cfg_get_bool(SECTION_OPTIONS,
+				                 SUBSECTION_GPU,
+				                 "UtilStatus", 0)))
 					n += sprintf(s_gpu + n,
 					             " util:%u%%", util);
-				if (fan >= 0)
+				if (fan >= 0 && (options.verbosity > 3 ||
+				    cfg_get_bool(SECTION_OPTIONS,
+				                 SUBSECTION_GPU,
+				                 "FanStatus", 0)))
 					n += sprintf(s_gpu + n,
 					             " fan:%u%%", fan);
 			}
