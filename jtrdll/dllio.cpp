@@ -3,6 +3,14 @@
 #include<signal.h>
 #include<string.h>
 #include<memory.h>
+#include<malloc.h>
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#include <OpenCL/cl_ext.h>
+#else
+#include <CL/cl.h>
+#include <CL/cl_ext.h>
+#endif
 #include<exception>
 #include<hash_set>
 
@@ -25,6 +33,14 @@ extern "C"
 std::hash_set<void *> g_malloc_allocations;
 std::hash_set<void *> g__aligned_malloc_allocations;
 //std::hash_set<void *> g__malloca_allocations;
+std::hash_set<cl_mem> g_cl_mem_objects;
+std::hash_set<cl_context> g_cl_contexts;
+std::hash_set<cl_command_queue> g_cl_command_queues;
+std::hash_set<cl_program> g_cl_programs; 
+std::hash_set<cl_kernel> g_cl_kernels;
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
 
 extern "C" int jtrdll_entrypoint(int argc, char **argv);
 
@@ -189,6 +205,8 @@ extern "C"
 		dllexit(exitcode);
 	}
 
+	/////////////////////////////////////////
+
 	void * dllcalloc(size_t _Count, size_t _Size)
 	{
 		void *ret = calloc(_Count, _Size);
@@ -240,7 +258,7 @@ extern "C"
 	void dll_aligned_free(void * _Memory)
 	{
 		_aligned_free(_Memory);
-		g_malloc_allocations.erase(_Memory);
+		g__aligned_malloc_allocations.erase(_Memory);
 	}
 
 	void * dll_aligned_malloc(size_t _Size, size_t _Alignment)
@@ -307,6 +325,122 @@ extern "C"
 		return ret;
 	}
 
+	/////////////////////////////////////////
+
+	CL_API_ENTRY cl_mem CL_API_CALL dllclCreateBuffer(cl_context context, cl_mem_flags flags, size_t size, void *host_ptr, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_mem ret = clCreateBuffer(context, flags, size, host_ptr, errcode_ret);
+		if (ret)
+		{
+			g_cl_mem_objects.insert(ret);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseMemObject(cl_mem memobj) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseMemObject(memobj);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_mem_objects.erase(memobj);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_context CL_API_CALL dllclCreateContext(const cl_context_properties * properties, cl_uint num_devices, const cl_device_id *devices, void (CL_CALLBACK *pfn_notify)(const char *, const void *, size_t, void *), void *user_data, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_context ret = clCreateContext(properties, num_devices, devices, pfn_notify, user_data, errcode_ret);
+		if (ret)
+		{
+			g_cl_contexts.insert(ret);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseContext(cl_context context) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseContext(context);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_contexts.erase(context);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_command_queue CL_API_CALL dllclCreateCommandQueue(cl_context context, cl_device_id device, cl_command_queue_properties properties, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_command_queue ret = clCreateCommandQueue(context, device, properties, errcode_ret);
+		if (ret)
+		{
+			g_cl_command_queues.insert(ret);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseCommandQueue(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseCommandQueue(command_queue);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_command_queues.erase(command_queue);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_program CL_API_CALL dllclCreateProgramWithSource(cl_context context, cl_uint count, const char **strings, const size_t *lengths, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_program ret = clCreateProgramWithSource(context, count, strings, lengths, errcode_ret);
+		if (ret)
+		{
+			g_cl_programs.insert(ret);
+		}
+
+		return ret;
+	}
+
+	CL_API_ENTRY cl_program CL_API_CALL dllclCreateProgramWithBinary(cl_context context, cl_uint num_devices, const cl_device_id *device_list, const size_t *lengths, const unsigned char **binaries, cl_int *binary_status, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_program ret = clCreateProgramWithBinary(context, num_devices, device_list, lengths, binaries, binary_status, errcode_ret);
+		if (ret)
+		{
+			g_cl_programs.insert(ret);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseProgram(program);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_programs.erase(program);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_kernel CL_API_CALL dllclCreateKernel(cl_program program, const char *kernel_name, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_kernel ret = clCreateKernel(program, kernel_name, errcode_ret);
+		if (ret)
+		{
+			g_cl_kernels.insert(ret);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseKernel(cl_kernel kernel) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseKernel(kernel);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_kernels.erase(kernel);
+		}
+		return ret;
+	}
+
+
+
+	/////////////////////////////////////////
 
 	class __sigill :public std::exception
 	{
@@ -344,6 +478,32 @@ extern "C"
 		//		_freea(ptr);
 		//	}
 		//	g__malloca_allocations.clear();
+
+		for (std::hash_set<cl_mem>::iterator iter = g_cl_mem_objects.begin(); iter != g_cl_mem_objects.end(); iter++)
+		{
+			cl_mem mem = *iter;
+			clReleaseMemObject(mem);
+		}
+		for (std::hash_set<cl_kernel>::iterator iter = g_cl_kernels.begin(); iter != g_cl_kernels.end(); iter++)
+		{
+			cl_kernel kernel = *iter;
+			clReleaseKernel(kernel);
+		}
+		for (std::hash_set<cl_program>::iterator iter = g_cl_programs.begin(); iter != g_cl_programs.end(); iter++)
+		{
+			cl_program program = *iter;
+			clReleaseProgram(program);
+		}
+		for (std::hash_set<cl_command_queue>::iterator iter = g_cl_command_queues.begin(); iter != g_cl_command_queues.begin(); iter++)
+		{
+			cl_command_queue command_queue = *iter;
+			clReleaseCommandQueue(command_queue);
+		}
+		for (std::hash_set<cl_context>::iterator iter = g_cl_contexts.begin(); iter != g_cl_contexts.end(); iter++)
+		{
+			cl_context context = *iter;
+			clReleaseContext(context);
+		}
 	}
 
 
