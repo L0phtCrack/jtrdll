@@ -1,23 +1,80 @@
 #include<string>
+#include<iostream>
 #include<vector>
 #include<stdio.h>
 #ifdef _WIN32
 #include<windows.h>
 #endif
 #include"cpuinformation.h"
+#include"jtrexe.h"
+#include"processhost.h"
 
-typedef int (*TYPEOF_jtrdll_main)(int argc, char **argv, void *hooks);
+/////////////////////////////////////////////////////////////////////////////
+
+HMODULE jtrdll=NULL;
+TYPEOF_jtrdll_main *jtrdll_main = NULL;
+TYPEOF_jtrdll_abort *jtrdll_abort = NULL;
+TYPEOF_jtrdll_get_status *jtrdll_get_status = NULL;
+TYPEOF_jtrdll_get_charset_info *jtrdll_get_charset_info = NULL;
+TYPEOF_jtrdll_cleanup *jtrdll_cleanup = NULL;
+
+/////////////////////////////////////////////////////////////////////////////
+
+bool LoadJTRDLL(std::string jtrdllversion)
+{
+#ifdef _WIN32
+	jtrdll = LoadLibrary((std::string("jtrdll_") + jtrdllversion + ".dll").c_str());
+	if (!jtrdll)
+	{
+		fprintf(stderr, "Missing jtrdll\n");
+		return false;
+	}
+
+	jtrdll_main = (TYPEOF_jtrdll_main *)GetProcAddress(jtrdll, "jtrdll_main");
+	jtrdll_abort = (TYPEOF_jtrdll_abort *)GetProcAddress(jtrdll, "jtrdll_abort");
+	jtrdll_get_status = (TYPEOF_jtrdll_get_status *)GetProcAddress(jtrdll, "jtrdll_get_status");
+	jtrdll_get_charset_info = (TYPEOF_jtrdll_get_charset_info *)GetProcAddress(jtrdll, "jtrdll_get_charset_info");
+	jtrdll_cleanup = (TYPEOF_jtrdll_cleanup *)GetProcAddress(jtrdll, "jtrdll_cleanup");
+
+	if (!jtrdll_main || !jtrdll_abort || !jtrdll_get_status || !jtrdll_get_charset_info || !jtrdll_cleanup)
+	{
+		fprintf(stderr, "Malformed jtrdll\n");
+		FreeLibrary(jtrdll);
+		return false;
+	}
+
+#else
+#error "to do"
+#endif
+	return true;
+}
+
+void UnloadJTRDLL(void)
+{
+#ifdef _WIN32
+	FreeLibrary(jtrdll);
+#else
+#error "to do"
+#endif
+}
+
+/////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char **argv)
 {
 	CPUInformation cpu;
 	std::string jtrdllversion, force_jtrdllversion;
 	std::vector<char *> args;
+	bool processhost = false;
 	for (int arg = 0; arg < argc; arg++)
 	{
 		if (std::string(argv[arg]).compare(0, 8, "--force-") == 0)
 		{
 			force_jtrdllversion = argv[arg] + 8;
+		}
+		if (std::string(argv[arg]) == "--processhost")
+		{
+			processhost = true;
 		}
 		else
 		{
@@ -26,17 +83,17 @@ int main(int argc, char **argv)
 	}
 	args.push_back(NULL);
 
-	jtrdllversion  = "sse2";
-	if (jtrdllversion!=force_jtrdllversion && cpu.SSSE3())
+	jtrdllversion = "sse2";
+	if (jtrdllversion != force_jtrdllversion && cpu.SSSE3())
 	{
 		jtrdllversion = "ssse3";
 		if (jtrdllversion != force_jtrdllversion && cpu.SSE41())
 		{
 			jtrdllversion = "sse41";
-				
+
 			if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
-				jtrdllversion = "avx";				
+				jtrdllversion = "avx";
 			}
 
 			if (jtrdllversion != force_jtrdllversion && cpu.XOP())
@@ -51,42 +108,33 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (force_jtrdllversion.length()!=0 && jtrdllversion != force_jtrdllversion)
+	if (force_jtrdllversion.length() != 0 && jtrdllversion != force_jtrdllversion)
 	{
 		fprintf(stderr, "Incompatible instruction set\n");
-		exit(1);
+		return 1;
 	}
 	
-#ifdef _WIN32
-	printf("%s\n", (std::string("jtrdll_") + jtrdllversion + ".dll").c_str());
-	HMODULE jtrdll = LoadLibrary((std::string("jtrdll_")+jtrdllversion+".dll").c_str());
-	if(!jtrdll)
+	if (force_jtrdllversion.length() != 0)
 	{
-		fprintf(stderr,"Missing jtrdll\n");
-		exit(1);
+		fprintf(stderr, "Detected %s instruction set\n", jtrdllversion.c_str());
 	}
-
-	TYPEOF_jtrdll_main jtrdll_main = (TYPEOF_jtrdll_main) GetProcAddress(jtrdll,"jtrdll_main");
-
-	if(!jtrdll_main)
+	
+	if (!LoadJTRDLL(jtrdllversion))
 	{
-		fprintf(stderr,"Malformed jtrdll\n");
-		FreeLibrary(jtrdll);
-		exit(1);
+		return 1;
 	}
-#else
-#error "to do"
-#endif
-
-	printf("Detected %s instruction set\n", jtrdllversion.c_str());
 	
-	int ret = jtrdll_main(args.size()-1,&(args[0]),NULL);
-	
-#ifdef _WIN32
-	FreeLibrary(jtrdll);
-#else
-#error "to do"
-#endif
+	int ret;
+	if (processhost)
+	{
+		ret = run_processhost();
+	}
+	else
+	{
+		ret = jtrdll_main((int)args.size() - 1, &(args[0]), NULL);
+	}
 
-	return ret;
+	UnloadJTRDLL();
+
+	return 0;
 }

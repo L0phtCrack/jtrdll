@@ -51,6 +51,29 @@ CL_API_ENTRY cl_program CL_API_CALL dllclCreateProgramWithBinary(cl_context cont
 CL_API_ENTRY cl_int CL_API_CALL dllclReleaseProgram(cl_program program) CL_API_SUFFIX__VERSION_1_0;
 CL_API_ENTRY cl_kernel CL_API_CALL dllclCreateKernel(cl_program program, const char *kernel_name, cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0;
 CL_API_ENTRY cl_int CL_API_CALL dllclReleaseKernel(cl_kernel kernel) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_read, size_t offset, size_t cb, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadBufferRect(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_read, const size_t * buffer_origin, const size_t * host_origin, const size_t * region, size_t buffer_row_pitch, size_t buffer_slice_pitch, size_t host_row_pitch, size_t host_slice_pitch, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_write, size_t offset, size_t cb, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteBufferRect(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_write, const size_t * buffer_origin, const size_t * host_origin, const size_t * region, size_t buffer_row_pitch, size_t buffer_slice_pitch, size_t host_row_pitch, size_t host_slice_pitch, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBuffer(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_buffer, size_t src_offset, size_t dst_offset, size_t cb, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBufferRect(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_buffer, const size_t * src_origin, const size_t * dst_origin, const size_t * region, size_t src_row_pitch, size_t src_slice_pitch, size_t dst_row_pitch, size_t dst_slice_pitch, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_read, const size_t * origin[], const size_t * region[], size_t row_pitch, size_t slice_pitch, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_write, const size_t * origin[], const size_t * region[], size_t input_row_pitch, size_t input_slice_pitch, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyImage(cl_command_queue command_queue, cl_mem src_image, cl_mem dst_image, const size_t * src_origin[], const size_t * dst_origin[], const size_t * region[], cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyImageToBuffer(cl_command_queue command_queue, cl_mem src_image, cl_mem dst_buffer, const size_t * src_origin[], const size_t * region[], size_t dst_offset, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBufferToImage(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_image, size_t src_offset, const size_t * dst_origin[], const size_t * region[], cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY void * CL_API_CALL dllclEnqueueMapBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_map, cl_map_flags map_flags, size_t offset, size_t cb, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event, cl_int * errcode_ret) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY void * CL_API_CALL dllclEnqueueMapImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_map, cl_map_flags map_flags, const size_t * origin[], const size_t * region[], size_t * image_row_pitch, size_t * image_slice_pitch, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event, cl_int * errcode_ret) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueUnmapMemObject(cl_command_queue command_queue, cl_mem memobj, void * mapped_ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueNDRangeKernel(cl_command_queue command_queue, cl_kernel kernel, cl_uint work_dim, const size_t * global_work_offset, const size_t * global_work_size, const size_t * local_work_size, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueTask(cl_command_queue command_queue, cl_kernel kernel, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueNativeKernel(cl_command_queue command_queue, void (CL_CALLBACK *user_func)(void *), void * args, size_t cb_args, cl_uint num_mem_objects, const cl_mem * mem_list, const void ** args_mem_loc, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueMarker(cl_command_queue command_queue, cl_event * event) CL_API_SUFFIX__VERSION_1_0;
+//CL_API_ENTRY cl_int CL_API_CALL clEnqueueWaitForEvents(cl_command_queue command_queue, cl_uint num_events, const cl_event * event_list) CL_API_SUFFIX__VERSION_1_0;
+//CL_API_ENTRY cl_int CL_API_CALL clEnqueueBarrier(cl_command_queue command_queue) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL dllclReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0;
+
+////////////////////////////////////////////////////////////////////////
 
 #ifdef _CRT_TERMINATE_DEFINED
 #undef _CRT_TERMINATE_DEFINED
@@ -99,6 +122,25 @@ int dllsetexithook(void);
 #define clReleaseProgram dllclReleaseProgram
 #define clCreateKernel dllclCreateKernel
 #define clReleaseKernel dllclReleaseKernel
+#define clEnqueueReadBuffer dllclEnqueueReadBuffer
+#define clEnqueueReadBufferRect dllclEnqueueReadBufferRect
+#define clEnqueueWriteBuffer dllclEnqueueWriteBuffer
+#define clEnqueueWriteBufferRect dllclEnqueueWriteBufferRect
+#define clEnqueueCopyBuffer dllclEnqueueCopyBuffer
+#define clEnqueueCopyBufferRect dllclEnqueueCopyBufferRect
+#define clEnqueueReadImage dllclEnqueueReadImage
+#define clEnqueueWriteImage dllclEnqueueWriteImage
+#define clEnqueueCopyImage dllclEnqueueCopyImage
+#define clEnqueueCopyImageToBuffer dllclEnqueueCopyImageToBuffer
+#define clEnqueueCopyBufferToImage dllclEnqueueCopyBufferToImage
+#define clEnqueueMapBuffer dllclEnqueueMapBuffer
+#define clEnqueueMapImage dllclEnqueueMapImage
+#define clEnqueueUnmapMemObject dllclEnqueueUnmapMemObject
+#define clEnqueueNDRangeKernel dllclEnqueueNDRangeKernel
+#define clEnqueueTask dllclEnqueueTask
+#define clEnqueueNativeKernel dllclEnqueueNativeKernel
+#define clEnqueueMarker dllclEnqueueMarker
+#define clReleaseEvent dllclReleaseEvent
 
 extern FILE *dllstdout;
 extern FILE *dllstderr;

@@ -2059,11 +2059,14 @@ cl_ulong get_max_mem_alloc_size(int sequential_id)
 	                               &max_alloc_size, NULL),
 	               "Error querying CL_DEVICE_MAX_MEM_ALLOC_SIZE");
 
-	// XXX: hack, prevent memory explosion
-//	if (max_alloc_size > (1024 * 1024 * 128))
-//	{
-		//max_alloc_size = (1024 * 1024 * 128);
-	//}
+#ifdef JTRDLL
+	// Tack this on so that GPUs that are running in parallel with shared memory
+	// such as HD 7990/Tahiti, won't autotune and end up blowing the memory for the other node
+	if (options.node_count)
+	{
+		return max_alloc_size * (options.node_max - options.node_min + 1) / options.node_count;
+	}
+#endif
 
 	return max_alloc_size;
 }

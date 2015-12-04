@@ -1,3 +1,9 @@
+#ifdef _WIN32
+#include<Windows.h>
+#include<delayimp.h>
+#undef MEM_FREE
+#endif
+
 #include<stdio.h>
 #include<stdarg.h>
 #include<signal.h>
@@ -13,6 +19,8 @@
 #endif
 #include<exception>
 #include<hash_set>
+
+
 
 extern "C"
 {
@@ -33,6 +41,7 @@ extern "C"
 std::hash_set<void *> g_malloc_allocations;
 std::hash_set<void *> g__aligned_malloc_allocations;
 //std::hash_set<void *> g__malloca_allocations;
+std::hash_set<cl_event> g_cl_events;
 std::hash_set<cl_mem> g_cl_mem_objects;
 std::hash_set<cl_context> g_cl_contexts;
 std::hash_set<cl_command_queue> g_cl_command_queues;
@@ -438,7 +447,195 @@ extern "C"
 		return ret;
 	}
 
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_read, size_t offset, size_t cb, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueReadBuffer(command_queue, buffer, blocking_read, offset, cb, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
 
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadBufferRect(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_read, const size_t * buffer_origin, const size_t * host_origin, const size_t * region, size_t buffer_row_pitch, size_t buffer_slice_pitch, size_t host_row_pitch, size_t host_slice_pitch, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1
+	{
+		cl_int ret = clEnqueueReadBufferRect(command_queue, buffer, blocking_read, buffer_origin, host_origin, region, buffer_row_pitch, buffer_slice_pitch, host_row_pitch, host_slice_pitch, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_write, size_t offset, size_t cb, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueWriteBuffer(command_queue, buffer, blocking_write, offset, cb, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteBufferRect(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_write, const size_t * buffer_origin, const size_t * host_origin, const size_t * region, size_t buffer_row_pitch, size_t buffer_slice_pitch, size_t host_row_pitch, size_t host_slice_pitch, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1
+	{
+		cl_int ret = clEnqueueWriteBufferRect(command_queue, buffer, blocking_write, buffer_origin, host_origin, region, buffer_row_pitch, buffer_slice_pitch, host_row_pitch, host_slice_pitch, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBuffer(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_buffer, size_t src_offset, size_t dst_offset, size_t cb, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueCopyBuffer(command_queue, src_buffer, dst_buffer, src_offset, dst_offset, cb, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBufferRect(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_buffer, const size_t * src_origin, const size_t * dst_origin, const size_t * region, size_t src_row_pitch, size_t src_slice_pitch, size_t dst_row_pitch, size_t dst_slice_pitch, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_1
+	{
+		cl_int ret = clEnqueueCopyBufferRect(command_queue, src_buffer, dst_buffer, src_origin, dst_origin, region, src_row_pitch, src_slice_pitch, dst_row_pitch, dst_slice_pitch, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueReadImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_read, const size_t * origin, const size_t * region, size_t row_pitch, size_t slice_pitch, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueReadImage(command_queue, image, blocking_read, origin, region, row_pitch, slice_pitch, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueWriteImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_write, const size_t * origin, const size_t * region, size_t input_row_pitch, size_t input_slice_pitch, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueWriteImage(command_queue, image, blocking_write, origin, region, input_row_pitch, input_slice_pitch, ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyImage(cl_command_queue command_queue, cl_mem src_image, cl_mem dst_image, const size_t * src_origin, const size_t * dst_origin, const size_t * region, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueCopyImage(command_queue, src_image, dst_image, src_origin, dst_origin, region, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyImageToBuffer(cl_command_queue command_queue, cl_mem src_image, cl_mem dst_buffer, const size_t * src_origin, const size_t * region, size_t dst_offset, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueCopyImageToBuffer(command_queue, src_image, dst_buffer, src_origin, region, dst_offset, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueCopyBufferToImage(cl_command_queue command_queue, cl_mem src_buffer, cl_mem dst_image, size_t src_offset, const size_t * dst_origin, const size_t * region, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueCopyBufferToImage(command_queue, src_buffer, dst_image, src_offset, dst_origin, region, num_events_in_wait_list, event_wait_list, event);
+		if (ret == CL_SUCCESS && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY void * CL_API_CALL dllclEnqueueMapBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_map, cl_map_flags map_flags, size_t offset, size_t cb, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event, cl_int * errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		void *ret = clEnqueueMapBuffer(command_queue, buffer, blocking_map, map_flags, offset, cb, num_events_in_wait_list, event_wait_list, event, errcode_ret);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY void * CL_API_CALL dllclEnqueueMapImage(cl_command_queue command_queue, cl_mem image, cl_bool blocking_map, cl_map_flags map_flags, const size_t * origin, const size_t * region, size_t * image_row_pitch, size_t * image_slice_pitch, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event, cl_int * errcode_ret) CL_API_SUFFIX__VERSION_1_0
+	{
+		void *ret = clEnqueueMapImage(command_queue, image, blocking_map, map_flags, origin, region, image_row_pitch, image_slice_pitch, num_events_in_wait_list, event_wait_list, event, errcode_ret);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueUnmapMemObject(cl_command_queue command_queue, cl_mem memobj, void * mapped_ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueUnmapMemObject(command_queue, memobj, mapped_ptr, num_events_in_wait_list, event_wait_list, event);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueNDRangeKernel(cl_command_queue command_queue, cl_kernel kernel, cl_uint work_dim, const size_t * global_work_offset, const size_t * global_work_size, const size_t * local_work_size, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueNDRangeKernel(command_queue, kernel, work_dim, global_work_offset, global_work_size, local_work_size, num_events_in_wait_list, event_wait_list, event);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueTask(cl_command_queue command_queue, cl_kernel kernel, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueTask(command_queue, kernel, num_events_in_wait_list, event_wait_list, event);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueNativeKernel(cl_command_queue command_queue, void (CL_CALLBACK *user_func)(void *), void * args, size_t cb_args, cl_uint num_mem_objects, const cl_mem * mem_list, const void ** args_mem_loc, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueNativeKernel(command_queue, user_func, args, cb_args, num_mem_objects, mem_list, args_mem_loc, num_events_in_wait_list, event_wait_list, event);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclEnqueueMarker(cl_command_queue command_queue, cl_event * event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clEnqueueMarker(command_queue, event);
+		if (ret && event != NULL)
+		{
+			g_cl_events.insert(*event);
+		}
+		return ret;
+	}
+
+	CL_API_ENTRY cl_int CL_API_CALL dllclReleaseEvent(cl_event event) CL_API_SUFFIX__VERSION_1_0
+	{
+		cl_int ret = clReleaseEvent(event);
+		if (ret == CL_SUCCESS)
+		{
+			g_cl_events.erase(event);
+		}
+		return ret;
+	}
 
 	/////////////////////////////////////////
 
@@ -479,31 +676,59 @@ extern "C"
 		//	}
 		//	g__malloca_allocations.clear();
 
+		for (std::hash_set<cl_event>::iterator iter = g_cl_events.begin(); iter != g_cl_events.end(); iter++)
+		{
+			cl_event event = *iter;
+			clReleaseEvent(event);
+		}
+		g_cl_events.clear();
+
 		for (std::hash_set<cl_mem>::iterator iter = g_cl_mem_objects.begin(); iter != g_cl_mem_objects.end(); iter++)
 		{
 			cl_mem mem = *iter;
 			clReleaseMemObject(mem);
 		}
+		g_cl_mem_objects.clear();
+
 		for (std::hash_set<cl_kernel>::iterator iter = g_cl_kernels.begin(); iter != g_cl_kernels.end(); iter++)
 		{
 			cl_kernel kernel = *iter;
 			clReleaseKernel(kernel);
 		}
+		g_cl_kernels.clear();
+
 		for (std::hash_set<cl_program>::iterator iter = g_cl_programs.begin(); iter != g_cl_programs.end(); iter++)
 		{
 			cl_program program = *iter;
 			clReleaseProgram(program);
 		}
+		g_cl_programs.clear();
+
 		for (std::hash_set<cl_command_queue>::iterator iter = g_cl_command_queues.begin(); iter != g_cl_command_queues.begin(); iter++)
 		{
 			cl_command_queue command_queue = *iter;
 			clReleaseCommandQueue(command_queue);
 		}
+		g_cl_command_queues.clear();
+
 		for (std::hash_set<cl_context>::iterator iter = g_cl_contexts.begin(); iter != g_cl_contexts.end(); iter++)
 		{
 			cl_context context = *iter;
 			clReleaseContext(context);
 		}
+		g_cl_contexts.clear();
+
+#ifdef WIN32
+		if (GetModuleHandleA("OpenCL.dll")!=NULL)
+		{
+			clUnloadCompiler();
+			BOOL ret = __FUnloadDelayLoadedDLL2("OpenCL.dll");
+			if (!ret)
+			{
+				fprintf(stderr,"unable to unload OpenCL.dll\n");
+			}
+		}
+#endif
 	}
 
 
