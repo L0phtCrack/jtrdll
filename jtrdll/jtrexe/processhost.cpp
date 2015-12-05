@@ -421,13 +421,22 @@ THREADCALL jtrdll_get_charset_info_thread(THREADPARAMS_JTRDLL_GET_CHARSET_INFO *
 int run_processhost(void)
 {
 	bool done = false;
-	std::string line;
+	std::string cmdidstr, line;
 	int ret = 0;
 
-	while (!done && std::getline(std::cin, line))
+	while (!done && std::getline(std::cin, cmdidstr, ':'))
 	{
 		try
 		{
+			if (!std::getline(std::cin, line))
+			{
+				ret = 1;
+				break;
+			}
+
+			// get the command id
+			int cmdid = atoi(cmdidstr.c_str());
+
 			// jtrdll_main / appdatadir / argc / arguments *
 			if (line == "jtrdll_main")
 			{
@@ -453,18 +462,21 @@ int run_processhost(void)
 				tp_jtrdll_main->argv[tp_jtrdll_main->argc] = NULL;
 
 				tp_jtrdll_main->ctlpipe_handle = create_control_pipe(tp_jtrdll_main->ctlpipe_name);
-				writeStdOut("pipe=%s\n", tp_jtrdll_main->ctlpipe_name.c_str());
+				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_main->ctlpipe_name.c_str());
 
 				create_command_thread(jtrdll_main_thread, tp_jtrdll_main);
 			}
 			else if (line == "jtrdll_abort")
 			{
 				create_command_thread(jtrdll_abort_thread, NULL);
+				writeStdOut("%u:aborted\n", cmdid);
+
 			}
 			else if (line == "jtrdll_get_status")
 			{
 				THREADPARAMS_JTRDLL_GET_STATUS * tp_jtrdll_get_status = new THREADPARAMS_JTRDLL_GET_STATUS;
 				tp_jtrdll_get_status->ctlpipe_handle = create_control_pipe(tp_jtrdll_get_status->ctlpipe_name);
+				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_get_status->ctlpipe_name.c_str());
 
 				create_command_thread(jtrdll_get_status_thread, tp_jtrdll_get_status);
 			}
@@ -476,7 +488,7 @@ int run_processhost(void)
 				strcpy_s(tp_jtrdll_get_charset_info->path, sizeof(tp_jtrdll_get_charset_info->path), line.c_str());
 
 				tp_jtrdll_get_charset_info->ctlpipe_handle = create_control_pipe(tp_jtrdll_get_charset_info->ctlpipe_name);
-				writeStdOut("pipe=%s\n", tp_jtrdll_get_charset_info->ctlpipe_name.c_str());
+				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_get_charset_info->ctlpipe_name.c_str());
 
 				create_command_thread(jtrdll_get_charset_info_thread, tp_jtrdll_get_charset_info);
 			}
