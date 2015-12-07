@@ -1616,15 +1616,16 @@ static void john_run(void)
 		}
 
 		if (!(options.flags & FLG_STDOUT)) {
-			if (!(options.flags & FLG_NOTESTS))
-			{
+// XXX: WHY DOES THIS NOT WORK??
+// 			if (!(options.flags & FLG_NOTESTS))
+//			{
 				char *where = fmt_self_test(database.format, &database);
 				if (where) {
 					fprintf(stderr, "Self test failed (%s)\n",
 					where);
 					error();
 				}
-			}
+//			}
 
 			trigger_reset = 1;
 			log_init(LOG_NAME, options.activepot,
