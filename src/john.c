@@ -1427,7 +1427,20 @@ static void john_init(char *name, int argc, char **argv)
 	}
 
 #if (!AC_BUILT || HAVE_LOCALE_H)
+#ifdef _WIN32
+#if HAVE_OPENCL || HAVE_CUDA
+	if(GetConsoleCP()==437)
+	{
+		sprintf(gpu_degree_sign, "%ls", DEGREE_SIGN_CP437);
+	}
+	else if(GetConsoleCP()==1252)
+	{
+		sprintf(gpu_degree_sign, "%ls", DEGREE_SIGN_CP1252);
+	}
+#endif
+#else
 	if (setlocale(LC_ALL, "")) {
+
 		john_terminal_locale = str_alloc_copy(setlocale(LC_ALL, NULL));
 #if HAVE_OPENCL || HAVE_CUDA
 		if (strchr(john_terminal_locale, '.'))
@@ -1436,6 +1449,7 @@ static void john_init(char *name, int argc, char **argv)
 		/* We misuse ctype macros so this must be reset */
 		setlocale(LC_CTYPE, "C");
 	}
+#endif
 #endif
 
 	status_init(NULL, 1);

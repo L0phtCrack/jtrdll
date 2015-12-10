@@ -657,6 +657,25 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 		}
 	}
 
+
+	if (dev_get_temp[gpu_id]) 
+	{
+		int fan = -1, temp = -1, util = -1;
+		int dev = gpu_id;
+		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util);
+		
+		jtrdllstatus->temperature = temp;
+		jtrdllstatus->fanspeed = fan;
+		jtrdllstatus->utilization = util;
+	}
+	else
+	{
+		jtrdllstatus->temperature = -1;
+		jtrdllstatus->fanspeed = -1;
+		jtrdllstatus->utilization = -1;
+	}
+
+
 	/* record last status : This will recalculte stats only from the last time this was called */
 /* 
 	have_last_status = 1;

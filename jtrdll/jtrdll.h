@@ -29,6 +29,9 @@ struct JTRDLL_STATUS
 	unsigned long long candidates_per_second;
 	unsigned long long crypts_per_second;
 	unsigned long long combinations_per_second;
+	int temperature;
+	int fanspeed;
+	int utilization;
 	char word1[0x80];
 	char word2[0x80];
 };

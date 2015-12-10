@@ -62,7 +62,7 @@ NVMLDEVICEGETINDEX nvmlDeviceGetIndex = NULL;
 
 void *adl_lib;
 
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 static int amd = 0;
 int amd2adl[MAX_GPU_DEVICES];
 int adl2od[MAX_GPU_DEVICES];
@@ -94,7 +94,7 @@ static void* ADL_Main_Memory_Alloc(int iSize)
 	return lpBuffer;
 }
 
-#endif /* __linux__ && HAVE_LIBDL */
+#endif /* (__linux__ && HAVE_LIBDL) || JTRDLL */
 
 void advance_cursor()
 {
@@ -117,12 +117,32 @@ unsigned int temp_dev_id[MAX_GPU_DEVICES];
 
 void nvidia_probe(void)
 {
-#if HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 	if (nvml_lib)
 		return;
 
-	if (!(nvml_lib = dlopen("libnvidia-ml.so", RTLD_LAZY|RTLD_GLOBAL)))
+#ifdef _WIN32
+	HKEY hknvsmi=NULL;
+	if (RegOpenKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\NVIDIA Corporation\\Global\\NVSMI", &hknvsmi)!=ERROR_SUCCESS || hknvsmi==NULL)
+	{
 		return;
+	}
+	DWORD type;
+	char path[MAX_PATH + 1];
+	DWORD pathsize = sizeof(path);
+	if (RegQueryValueEx(hknvsmi, "NVSMIPATH", NULL, &type, path, &pathsize) != ERROR_SUCCESS)
+	{
+		RegCloseKey(hknvsmi);
+		return;
+	}
+	RegCloseKey(hknvsmi);
+	strncat_s(path, sizeof(path), "\\nvml.dll", _TRUNCATE);
+	if (!(nvml_lib = dlopen(path, RTLD_LAZY | RTLD_GLOBAL)))
+		return;
+#else
+	if (!(nvml_lib = dlopen("libnvidia-ml.so", RTLD_LAZY | RTLD_GLOBAL)))
+		return;
+#endif
 
 	nvmlInit = (NVMLINIT) dlsym(nvml_lib, "nvmlInit");
 	nvmlShutdown = (NVMLSHUTDOWN) dlsym(nvml_lib, "nvmlShutdown");
@@ -141,7 +161,7 @@ void nvidia_probe(void)
 
 void amd_probe(void)
 {
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 	LPAdapterInfo lpAdapterInfo = NULL;
 	int i, ret;
 	int iNumberAdapters = 0;
@@ -153,8 +173,13 @@ void amd_probe(void)
 	if (adl_lib)
 		return;
 
-	if (!(adl_lib = dlopen("libatiadlxx.so", RTLD_LAZY|RTLD_GLOBAL)))
+#ifdef _WIN32
+	if (!(adl_lib = dlopen("atiadlxx.dll", RTLD_LAZY|RTLD_GLOBAL)))
 		return;
+#else
+	if (!(adl_lib = dlopen("libatiadlxx.so", RTLD_LAZY | RTLD_GLOBAL)))
+		return;
+#endif
 
 	env = getenv("COMPUTE");
 	if (env && *env)
@@ -276,7 +301,7 @@ void nvidia_get_temp(int nvml_id, int *temp, int *fanspeed, int *util)
 		sprintf(name, "[error querying for name]");
 }
 
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 static void get_temp_od5(int adl_id, int *temp, int *fanspeed, int *util)
 {
 	int ADL_Err = ADL_ERR;
@@ -381,7 +406,7 @@ static void get_temp_od6(int adl_id, int *temp, int *fanspeed, int *util)
 
 void amd_get_temp(int amd_id, int *temp, int *fanspeed, int *util)
 {
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 	int adl_id = amd_id;
 
 	if (adl2od[adl_id] == 5) {
@@ -394,7 +419,7 @@ void amd_get_temp(int amd_id, int *temp, int *fanspeed, int *util)
 }
 
 int id2nvml(const hw_bus busInfo) {
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 	nvmlDevice_t dev;
 
 	if (nvmlDeviceGetHandleByPciBusId &&
@@ -411,7 +436,7 @@ int id2nvml(const hw_bus busInfo) {
 }
 
 int id2adl(const hw_bus busInfo) {
-#if __linux__ && HAVE_LIBDL
+#if (__linux__ && HAVE_LIBDL) || JTRDLL
 	int hardware_id = 0;
 
 	while (hardware_id < amd) {

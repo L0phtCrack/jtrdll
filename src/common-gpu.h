@@ -26,7 +26,7 @@ extern "C" {
 extern void *nvml_lib;
 extern void *adl_lib;
 
-#if __linux__ && HAVE_LIBDL
+#if  (__linux__ && HAVE_LIBDL) || JTRDLL
 #include <wchar.h>
 #include "adl_sdk.h"
 
@@ -69,7 +69,9 @@ extern int gpu_device_list[MAX_GPU_DEVICES];
 extern hw_bus gpu_device_bus[MAX_GPU_DEVICES];
 
 extern int gpu_temp_limit;
-#define DEGREE_SIGN L"\xb0" // Degree sign as wchar_t
+#define DEGREE_SIGN L"\xB0" // Degree sign as wchar_t
+#define DEGREE_SIGN_CP437 L"\xF8" // Degree sign as wchar_t
+#define DEGREE_SIGN_CP1252 L"\xB0" // Degree sign as wchar_t
 
 extern char gpu_degree_sign[8];
 
