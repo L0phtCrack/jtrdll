@@ -62,7 +62,7 @@ NVMLDEVICEGETINDEX nvmlDeviceGetIndex = NULL;
 
 void *adl_lib;
 
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 static int amd = 0;
 int amd2adl[MAX_GPU_DEVICES];
 int adl2od[MAX_GPU_DEVICES];
@@ -94,7 +94,7 @@ static void* ADL_Main_Memory_Alloc(int iSize)
 	return lpBuffer;
 }
 
-#endif /* (__linux__ && HAVE_LIBDL) || JTRDLL */
+#endif /* (__linux__ && HAVE_LIBDL) */
 
 void advance_cursor()
 {
@@ -117,7 +117,7 @@ unsigned int temp_dev_id[MAX_GPU_DEVICES];
 
 void nvidia_probe(void)
 {
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 	if (nvml_lib)
 		return;
 
@@ -161,7 +161,7 @@ void nvidia_probe(void)
 
 void amd_probe(void)
 {
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 	LPAdapterInfo lpAdapterInfo = NULL;
 	int i, ret;
 	int iNumberAdapters = 0;
@@ -301,7 +301,7 @@ void nvidia_get_temp(int nvml_id, int *temp, int *fanspeed, int *util)
 		sprintf(name, "[error querying for name]");
 }
 
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 static void get_temp_od5(int adl_id, int *temp, int *fanspeed, int *util)
 {
 	int ADL_Err = ADL_ERR;
@@ -406,7 +406,7 @@ static void get_temp_od6(int adl_id, int *temp, int *fanspeed, int *util)
 
 void amd_get_temp(int amd_id, int *temp, int *fanspeed, int *util)
 {
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 	int adl_id = amd_id;
 
 	if (adl2od[adl_id] == 5) {
@@ -419,7 +419,7 @@ void amd_get_temp(int amd_id, int *temp, int *fanspeed, int *util)
 }
 
 int id2nvml(const hw_bus busInfo) {
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 	nvmlDevice_t dev;
 
 	if (nvmlDeviceGetHandleByPciBusId &&
@@ -436,7 +436,7 @@ int id2nvml(const hw_bus busInfo) {
 }
 
 int id2adl(const hw_bus busInfo) {
-#if (__linux__ && HAVE_LIBDL) || JTRDLL
+#if (__linux__ && HAVE_LIBDL)
 	int hardware_id = 0;
 
 	while (hardware_id < amd) {
@@ -500,10 +500,10 @@ void gpu_log_temp(void)
 {
 #if HAVE_LIBDL
 	int i;
-
+	
 	for (i = 0; i < MAX_GPU_DEVICES && gpu_device_list[i] != -1; i++)
 	if (dev_get_temp[gpu_device_list[i]]) {
-		char s_gpu[32] = "";
+		char s_gpu[256] = "";
 		int n, fan, temp, util;
 		int dev = gpu_device_list[i];
 

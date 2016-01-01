@@ -83,6 +83,10 @@
 #include "pseudo_intrinsics.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 #define _STR_VALUE(arg)         #arg
 #define STR_MACRO(n)            _STR_VALUE(n)
 
@@ -1125,6 +1129,16 @@ REDO_AFTER_LMLOOP:
 				prerule = NULL;
 		}
 	}
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		jtrdll_preflight_wordlist_rule_count = rule_count;
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
 
 	if (prerule)
 	do {

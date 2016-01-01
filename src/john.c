@@ -146,6 +146,10 @@ static int john_omp_threads_new;
 #endif
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include"jtrdll.h"
+#endif
+
 #if CPU_DETECT
 extern int CPU_detect(void);
 #endif
@@ -199,6 +203,9 @@ static struct db_main database;
 static struct fmt_main dummy_format;
 
 static int exit_status = 0;
+
+
+
 
 static void john_register_one(struct fmt_main *format)
 {
@@ -1596,14 +1603,18 @@ static void john_init(char *name, int argc, char **argv)
 	}
 }
 
+#ifdef JTRDLL
 int jtrdll_stage = 0;
+#endif
 
 static void john_run(void)
 {
 	struct stat trigger_stat;
 	int trigger_reset = 0;
 
+#ifdef JTRDLL
 	jtrdll_stage=1;
+#endif
 
 	if (options.flags & FLG_TEST_CHK)
 		exit_status = benchmark_all() ? 1 : 0;
@@ -1630,17 +1641,17 @@ static void john_run(void)
 		}
 
 		if (!(options.flags & FLG_STDOUT)) {
-// XXX: WHY DOES THIS NOT WORK??
-// 			if (!(options.flags & FLG_NOTESTS))
-//			{
-				char *where = fmt_self_test(database.format, &database);
-				if (where) {
-					fprintf(stderr, "Self test failed (%s)\n",
-					where);
-					error();
-				}
-//			}
+			struct db_main *test_db;
+			char *where;
 
+			test_db = ldr_init_test_db(database.format, &database);
+			where = fmt_self_test(database.format, test_db);
+			ldr_free_test_db(test_db);
+			if (where) {
+				fprintf(stderr, "Self test failed (%s)\n",
+				    where);
+				error();
+			}
 			trigger_reset = 1;
 			log_init(LOG_NAME, options.activepot,
 			         options.session);
@@ -1702,7 +1713,9 @@ static void john_run(void)
 			}
 		}
 
+#ifdef JTRDLL
 		jtrdll_stage=2;
+#endif
 
 		if (options.flags & FLG_MASK_CHK)
 			mask_init(&database, options.mask);
@@ -1794,7 +1807,9 @@ static void john_run(void)
 
 static void john_done(void)
 {
+#ifdef JTRDLL
 	jtrdll_stage=3;
+#endif
 
 	if ((options.flags & (FLG_CRACKING_CHK | FLG_STDOUT)) ==
 	    FLG_CRACKING_CHK) {
@@ -1998,6 +2013,13 @@ int main(int argc, char **argv)
 #endif
 
 	john_init(name, argc, argv);
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		jtrdll_preflight_salt_count = database.salt_count;
+	}
+#endif
 
 	/* Placed here to disregard load time. */
 #if OS_TIMER

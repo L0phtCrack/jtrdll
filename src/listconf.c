@@ -335,16 +335,6 @@ void listconf_parse_early(void)
 		listEncodings(stdout);
 		exit(EXIT_SUCCESS);
 	}
-#if HAVE_OPENCL
-	if (!strcasecmp(options.listconf, "opencl-devices"))
-	{
-		//opencl_preinit();
-		opencl_preinit_no_devices();
-		opencl_list_devices();
-		opencl_done();
-		exit(EXIT_SUCCESS);
-	}
-#endif
 #if HAVE_CUDA
 	if (!strcasecmp(options.listconf, "cuda-devices"))
 	{
@@ -352,12 +342,6 @@ void listconf_parse_early(void)
 		exit(EXIT_SUCCESS);
 	}
 #endif
-	/* For other --list options that happen in listconf_parse_late()
-	   we want to mute some GPU output */
-	if (options.listconf) {
-		options.flags |= FLG_VERBOSITY;
-		options.verbosity = 1;
-	}
 }
 
 /*
@@ -429,7 +413,21 @@ void listconf_parse_late(void)
 		exit(EXIT_SUCCESS);
 	}
 #endif
-
+#if HAVE_OPENCL
+	if (!strcasecmp(options.listconf, "opencl-devices"))
+	{
+		opencl_preinit_no_devices();
+//		opencl_preinit();
+		opencl_list_devices();
+		exit(EXIT_SUCCESS);
+	}
+	/* For other --list options that happen in listconf_parse_late()
+	   we want to mute some GPU output */
+	if (options.listconf) {
+		options.flags |= FLG_VERBOSITY;
+		options.verbosity = 1;
+	}
+#endif
 	if (!strcasecmp(options.listconf, "inc-modes"))
 	{
 		cfg_print_subsections("Incremental", NULL, NULL, 0);
@@ -627,8 +625,11 @@ void listconf_parse_late(void)
 			printf(" Truncates at (our) max. length      %s\n", (format->params.flags & FMT_TRUNC) ? "yes" : "no");
 			printf(" Supports 8-bit characters           %s\n", (format->params.flags & FMT_8_BIT) ? "yes" : "no");
 			printf(" Converts 8859-1 to UTF-16/UCS-2     %s\n", (format->params.flags & FMT_UNICODE) ? "yes" : "no");
-			printf(" Honours --encoding=NAME             %s\n", (format->params.flags & FMT_UTF8) ? "yes" : "no");
-			printf(" False positives possible            %s\n", (format->params.flags & FMT_NOT_EXACT) ? "yes" : "no");
+			printf(" Honours --encoding=NAME             %s\n",
+			       (format->params.flags & FMT_UTF8) ? "yes" :
+			       (format->params.flags & FMT_UNICODE) ? "no" : "n/a");
+			printf(" Collisions possible (as in likely)  %s\n",
+			       (format->params.flags & FMT_NOT_EXACT) ? "yes" : "no");
 			printf(" Uses a bitslice implementation      %s\n", (format->params.flags & FMT_BS) ? "yes" : "no");
 			printf(" The split() method unifies case     %s\n", (format->params.flags & FMT_SPLIT_UNIFIES_CASE) ? "yes" : "no");
 

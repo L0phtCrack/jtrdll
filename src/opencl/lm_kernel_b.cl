@@ -233,7 +233,7 @@ __kernel void lm_bs_b(__global opencl_lm_transfer *lm_raw_keys,
 		s_lm_key[s_key_offset + GPU_LOC_0 + 6] = lm_int_keys[i * 8 + 6];
 		s_lm_key[s_key_offset + GPU_LOC_0 + 7] = lm_int_keys[i * 8 + 7];
 #if 1 < MASK_FMT_INT_PLHDR
-#if LOC_1 >= 0
+#if LOC_1 >= 077
 #define OFFSET 	(1 * ITER_COUNT * 8)
 		s_lm_key[s_key_offset + GPU_LOC_1] = lm_int_keys[OFFSET + i * 8];
 		s_lm_key[s_key_offset + GPU_LOC_1 + 1] = lm_int_keys[OFFSET + i * 8 + 1];

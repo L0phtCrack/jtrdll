@@ -735,6 +735,12 @@ extern "C"
 
 	JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
 	{
+
+//		int tmp = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+//		tmp |= _CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_CRT_DF | _CRTDBG_DELAY_FREE_MEM_DF | _CRTDBG_CHECK_EVERY_1024_DF;//|_CRTDBG_CHECK_ALWAYS_DF; //|_CRTDBG_LEAK_CHECK_DF;// | _CRTDBG_CHECK_EVERY_16_DF;
+//		_CrtSetDbgFlag(tmp);
+
+
 		SIGPTR oldhandler = signal(SIGILL, sigill_handler);
 
 		jtrdll_cleanup();
@@ -809,5 +815,51 @@ extern "C"
 
 		return 0;
 	}
+
+
+	int jtrdll_is_preflight = 0;
+	unsigned long jtrdll_preflight_salt_count;
+	unsigned long jtrdll_preflight_wordlist_rule_count;
+	//unsigned long long jtrdll_preflight_wordlist_candidates;
+	unsigned long long jtrdll_preflight_mask_candidates;
+	unsigned long long jtrdll_preflight_incremental_candidates;
+
+	void null_stdhook(void *, const char *)
+	{
+	}
+
+	JTRDLL_IMPEXP void jtrdll_preflight(int argc, char **argv, struct JTRDLL_PREFLIGHT *jtrdllpreflight)
+	{
+		JTRDLL_HOOKS null_hooks;
+		null_hooks.appdatadir[0] = 0;
+		null_hooks.caught_sigill = 0;
+		null_hooks.ctx = NULL;
+		null_hooks.stderr_hook = null_stdhook;
+		null_hooks.stdout_hook = null_stdhook;
+
+		// set preflight bit
+		jtrdll_is_preflight = 1;
+		memset(jtrdllpreflight, 0, sizeof(JTRDLL_PREFLIGHT));
+		jtrdll_preflight_salt_count = 0;
+		jtrdll_preflight_wordlist_rule_count = 0;
+		//jtrdll_preflight_wordlist_candidates = 0;
+		jtrdll_preflight_mask_candidates = 0;
+		jtrdll_preflight_incremental_candidates = 0;
+
+		// run with preflighting and null hooks
+		int ret = jtrdll_main(argc, argv, &null_hooks);
+
+		// reset preflight
+		jtrdll_is_preflight = 0;
+
+		if (ret == 0)
+		{
+			jtrdllpreflight->valid = 1;
+
+		}
+	}
+
+
+
 
 }

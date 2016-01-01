@@ -21,6 +21,10 @@
 #include "inc.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 static void do_single_pass(struct db_main *db)
 {
 	do_single_crack(db);
@@ -45,6 +49,16 @@ static void do_incremental_pass(struct db_main *db)
 
 void do_batch_crack(struct db_main *db)
 {
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
+
+
 	switch (status.pass) {
 	case 0:
 	case 1:

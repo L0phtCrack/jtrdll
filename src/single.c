@@ -28,6 +28,10 @@
 #include "config.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 static double progress = 0;
 static int rec_rule;
 
@@ -531,6 +535,15 @@ static void single_done(void)
 void do_single_crack(struct db_main *db)
 {
 	struct rpp_context ctx;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
 
 	single_db = db;
 	rule_ctx = &ctx;

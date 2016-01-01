@@ -136,6 +136,7 @@ extern size_t local_work_size;
 extern size_t global_work_size;
 extern size_t max_group_size;
 extern unsigned int ocl_v_width;
+extern unsigned long long global_speed;
 
 extern cl_event *profilingEvent, *firstEvent, *lastEvent;
 extern cl_event *multi_profilingEvent[MAX_EVENTS];
@@ -332,7 +333,8 @@ void opencl_init_auto_setup(int p_default_value, int p_hash_loops,
                             int *p_split_events, const char **p_warnings,
                             int p_main_opencl_event, struct fmt_main *p_self,
                             void (*p_create_clobj)(size_t gws, struct fmt_main *self),
-                            void (*p_release_clobj)(void), int p_buffer_size, size_t p_gws_limit);
+                            void (*p_release_clobj)(void), int p_buffer_size, size_t p_gws_limit,
+                            struct db_main *db);
 
 /*
  * Shared function to get the OpenCL driver number.

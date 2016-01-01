@@ -33,6 +33,10 @@
 #include "regex.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 extern struct fmt_main fmt_LM;
 
 static double cand;
@@ -749,6 +753,17 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		for (pos = 0; pos < max_length - 2; pos++)
 			chars[pos] = (chars_table)mem_alloc(sizeof(*chars[0]));
 	}
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		jtrdll_preflight_incremental_candidates = cand;
+		
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
 
 	rec_entry = 0;
 	memset(rec_numbers, 0, sizeof(rec_numbers));

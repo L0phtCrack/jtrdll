@@ -31,6 +31,10 @@
 #include <ctype.h>
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 #define UNICODE
 #define _UNICODE
 
@@ -234,6 +238,15 @@ void do_regex_crack(struct db_main *db, const char *regex)
 	int ignore_case = 0;
 	char word[PLAINTEXT_BUFFER_SIZE];
 	int max_len = db->format->params.plaintext_length;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
 
 	if (options.req_maxlength)
 		max_len = options.req_maxlength;

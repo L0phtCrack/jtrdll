@@ -43,11 +43,6 @@ typedef struct dyna_salt_t {
 	host_size_t bitfield_and_offset;
 } dyna_salt;
 
-/* Needed for OSX. Doesn't help on stupid intel Linux driver */
-#ifndef typeof
-#define typeof __typeof__
-#endif
-
 #ifndef MIN
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #endif
@@ -55,13 +50,21 @@ typedef struct dyna_salt_t {
 #define MAX(a,b) ((a)>(b)?(a):(b))
 #endif
 
-/* host code may pass -DV_WIDTH=2 or some other width */
+/*
+ * host code may pass -DV_WIDTH=2 or some other width.
+ *
+ * I wish they'd make typeof() an OpenCL requirement. The only devices I've
+ * seen not supporting it is recent Intel but they also never want vectorized
+ * code so this workaround works fine for current use.
+ */
 #if V_WIDTH > 1
 #define MAYBE_VECTOR_UINT	VECTOR(uint, V_WIDTH)
 #define MAYBE_VECTOR_ULONG	VECTOR(ulong, V_WIDTH)
+#define typeof __typeof__
 #else
 #define MAYBE_VECTOR_UINT	uint
 #define MAYBE_VECTOR_ULONG	ulong
+#define typeof(a) uint
 #define SCALAR 1
 #endif
 
@@ -265,7 +268,8 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 
 /* Use with some caution... */
 #define memcpy_macro(dst, src, count) do {	  \
-		for (uint _i = 0; _i < count; _i++) \
+		uint c = count; \
+		for (uint _i = 0; _i < c; _i++) \
 			(dst)[_i] = (src)[_i]; \
 	} while (0)
 
@@ -273,7 +277,7 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define dump_stuff_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < size/4; ii++) \
+		for (ii = 0; ii < (size)/4; ii++) \
 			printf("%08x ", SWAP32(x[ii])); \
 		printf("\n"); \
 	} while (0)
@@ -282,7 +286,7 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define dump_stuff_be_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < size/4; ii++) \
+		for (ii = 0; ii < (size)/4; ii++) \
 			printf("%08x ", x[ii]); \
 		printf("\n"); \
 	} while (0)

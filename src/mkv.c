@@ -31,6 +31,10 @@
 #include "regex.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 #define SUBSECTION_DEFAULT  "Default"
 
 extern struct fmt_main fmt_LM;
@@ -625,6 +629,16 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 	char *param = NULL;
 	unsigned int mkv_minlevel, mkv_level, mkv_maxlen, mkv_minlen;
 	unsigned long long mkv_start, mkv_end;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+//		exit(0);
+		return;
+	}
+#endif
+
 
 	if (mkv_param != NULL) {
 		param = str_alloc_copy(mkv_param);

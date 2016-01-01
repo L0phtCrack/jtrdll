@@ -33,6 +33,10 @@
 #include "unicode.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 static char int_word[PLAINTEXT_BUFFER_SIZE];
 static char rec_word[PLAINTEXT_BUFFER_SIZE];
 static char hybrid_rec_word[PLAINTEXT_BUFFER_SIZE];
@@ -372,6 +376,15 @@ void do_external_crack(struct db_main *db)
 	unsigned char *internal;
 	c_int *external;
 	int my_words, their_words;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
 
 	log_event("Proceeding with external mode: %.100s", ext_mode);
 

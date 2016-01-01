@@ -35,6 +35,10 @@
 #include "memdbg.h"
 #include "mask_ext.h"
 
+#ifdef JTRDLL
+#include"jtrdll.h"
+#endif
+
 extern void wordlist_hybrid_fix_state(void);
 extern void mkv_hybrid_fix_state(void);
 extern void inc_hybrid_fix_state(void);
@@ -217,186 +221,232 @@ static char* plhdr2string(char p, int fmt_case)
 	}
 
 	switch(p) {
+
 	case 'l': /* lower-case letters */
 		/* Rockyou character frequency */
 		add_string("aeionrlstmcdyhubkgpjvfwzxq");
 		break;
+
 	case 'L': /* lower-case letters, non-ASCII only */
 		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_LOWER_CP437
-			           CHARS_LOW_ONLY_CP437);
+			           CHARS_LOW_ONLY_CP437
+			           CHARS_NOCASE_CP437);
 			break;
 		case CP720:
 			add_string(CHARS_LOWER_CP720
-			           CHARS_LOW_ONLY_CP720);
+			           CHARS_LOW_ONLY_CP720
+			           CHARS_NOCASE_CP720);
 			break;
 		case CP737:
 			add_string(CHARS_LOWER_CP737
-			           CHARS_LOW_ONLY_CP737);
+			           CHARS_LOW_ONLY_CP737
+			           CHARS_NOCASE_CP737);
 			break;
 		case CP850:
 			add_string(CHARS_LOWER_CP850
-			           CHARS_LOW_ONLY_CP850);
+			           CHARS_LOW_ONLY_CP850
+			           CHARS_NOCASE_CP850);
 			break;
 		case CP852:
 			add_string(CHARS_LOWER_CP852
-			           CHARS_LOW_ONLY_CP852);
+			           CHARS_LOW_ONLY_CP852
+			           CHARS_NOCASE_CP852);
 			break;
 		case CP858:
 			add_string(CHARS_LOWER_CP858
-			           CHARS_LOW_ONLY_CP858);
+			           CHARS_LOW_ONLY_CP858
+			           CHARS_NOCASE_CP858);
 			break;
 		case CP866:
 			add_string(CHARS_LOWER_CP866
-			           CHARS_LOW_ONLY_CP866);
+			           CHARS_LOW_ONLY_CP866
+			           CHARS_NOCASE_CP866);
 			break;
 		case CP868:
 			add_string(CHARS_LOWER_CP868
-			           CHARS_LOW_ONLY_CP868);
+			           CHARS_LOW_ONLY_CP868
+			           CHARS_NOCASE_CP868);
 			break;
 		case CP1250:
 			add_string(CHARS_LOWER_CP1250
-			           CHARS_LOW_ONLY_CP1250);
+			           CHARS_LOW_ONLY_CP1250
+			           CHARS_NOCASE_CP1250);
 			break;
 		case CP1251:
 			add_string(CHARS_LOWER_CP1251
-			           CHARS_LOW_ONLY_CP1251);
+			           CHARS_LOW_ONLY_CP1251
+			           CHARS_NOCASE_CP1251);
 			break;
 		case CP1252:
 			add_string(CHARS_LOWER_CP1252
-			           CHARS_LOW_ONLY_CP1252);
+			           CHARS_LOW_ONLY_CP1252
+			           CHARS_NOCASE_CP1252);
 			break;
 		case CP1253:
 			add_string(CHARS_LOWER_CP1253
-			           CHARS_LOW_ONLY_CP1253);
+			           CHARS_LOW_ONLY_CP1253
+			           CHARS_NOCASE_CP1253);
 			break;
 		case CP1254:
 			add_string(CHARS_LOWER_CP1254
-			           CHARS_LOW_ONLY_CP1254);
+			           CHARS_LOW_ONLY_CP1254
+			           CHARS_NOCASE_CP1254);
 			break;
 		case CP1255:
 			add_string(CHARS_LOWER_CP1255
-			           CHARS_LOW_ONLY_CP1255);
+			           CHARS_LOW_ONLY_CP1255
+			           CHARS_NOCASE_CP1255);
 			break;
 		case CP1256:
 			add_string(CHARS_LOWER_CP1256
-			           CHARS_LOW_ONLY_CP1256);
+			           CHARS_LOW_ONLY_CP1256
+			           CHARS_NOCASE_CP1256);
 			break;
 		case ISO_8859_1:
 			add_string(CHARS_LOWER_ISO_8859_1
-			           CHARS_LOW_ONLY_ISO_8859_1);
+			           CHARS_LOW_ONLY_ISO_8859_1
+			           CHARS_NOCASE_ISO_8859_1);
 			break;
 		case ISO_8859_2:
 			add_string(CHARS_LOWER_ISO_8859_2
-			           CHARS_LOW_ONLY_ISO_8859_2);
+			           CHARS_LOW_ONLY_ISO_8859_2
+			           CHARS_NOCASE_ISO_8859_2);
 			break;
 		case ISO_8859_7:
 			add_string(CHARS_LOWER_ISO_8859_7
-			           CHARS_LOW_ONLY_ISO_8859_7);
+			           CHARS_LOW_ONLY_ISO_8859_7
+			           CHARS_NOCASE_ISO_8859_7);
 			break;
 		case ISO_8859_15:
 			add_string(CHARS_LOWER_ISO_8859_15
-			           CHARS_LOW_ONLY_ISO_8859_15);
+			           CHARS_LOW_ONLY_ISO_8859_15
+			           CHARS_NOCASE_ISO_8859_15);
 			break;
 		case KOI8_R:
 			add_string(CHARS_LOWER_KOI8_R
-			           CHARS_LOW_ONLY_KOI8_R);
+			           CHARS_LOW_ONLY_KOI8_R
+			           CHARS_NOCASE_KOI8_R);
 			break;
 		}
 		break;
+
 	case 'u': /* upper-case letters */
 		/* Rockyou character frequency */
 		add_string("AEIOLRNSTMCDBYHUPKGJVFWZXQ");
 		break;
+
 	case 'U': /* upper-case letters, non-ASCII only */
 		switch (options.internal_cp) {
 		case CP437:
 			add_string(CHARS_UPPER_CP437
-			           CHARS_UP_ONLY_CP437);
+			           CHARS_UP_ONLY_CP437
+			           CHARS_NOCASE_CP437);
 			break;
 		case CP720:
 			add_string(CHARS_UPPER_CP720
-			           CHARS_UP_ONLY_CP720);
+			           CHARS_UP_ONLY_CP720
+			           CHARS_NOCASE_CP720);
 			break;
 		case CP737:
 			add_string(CHARS_UPPER_CP737
-			           CHARS_UP_ONLY_CP737);
+			           CHARS_UP_ONLY_CP737
+			           CHARS_NOCASE_CP737);
 			break;
 		case CP850:
 			add_string(CHARS_UPPER_CP850
-			           CHARS_UP_ONLY_CP850);
+			           CHARS_UP_ONLY_CP850
+			           CHARS_NOCASE_CP850);
 			break;
 		case CP852:
 			add_string(CHARS_UPPER_CP852
-			           CHARS_UP_ONLY_CP852);
+			           CHARS_UP_ONLY_CP852
+			           CHARS_NOCASE_CP852);
 			break;
 		case CP858:
 			add_string(CHARS_UPPER_CP858
-			           CHARS_UP_ONLY_CP858);
+			           CHARS_UP_ONLY_CP858
+			           CHARS_NOCASE_CP858);
 			break;
 		case CP866:
 			add_string(CHARS_UPPER_CP866
-			           CHARS_UP_ONLY_CP866);
+			           CHARS_UP_ONLY_CP866
+			           CHARS_NOCASE_CP866);
 			break;
 		case CP868:
 			add_string(CHARS_UPPER_CP868
-			           CHARS_UP_ONLY_CP868);
+			           CHARS_UP_ONLY_CP868
+			           CHARS_NOCASE_CP868);
 			break;
 		case CP1250:
 			add_string(CHARS_UPPER_CP1250
-			           CHARS_UP_ONLY_CP1250);
+			           CHARS_UP_ONLY_CP1250
+			           CHARS_NOCASE_CP1250);
 			break;
 		case CP1251:
 			add_string(CHARS_UPPER_CP1251
-			           CHARS_UP_ONLY_CP1251);
+			           CHARS_UP_ONLY_CP1251
+			           CHARS_NOCASE_CP1251);
 			break;
 		case CP1252:
 			add_string(CHARS_UPPER_CP1252
-			           CHARS_UP_ONLY_CP1252);
+			           CHARS_UP_ONLY_CP1252
+			           CHARS_NOCASE_CP1252);
 			break;
 		case CP1253:
 			add_string(CHARS_UPPER_CP1253
-			           CHARS_UP_ONLY_CP1253);
+			           CHARS_UP_ONLY_CP1253
+			           CHARS_NOCASE_CP1253);
 			break;
 		case CP1254:
 			add_string(CHARS_UPPER_CP1254
-			           CHARS_UP_ONLY_CP1254);
+			           CHARS_UP_ONLY_CP1254
+			           CHARS_NOCASE_CP1254);
 			break;
 		case CP1255:
 			add_string(CHARS_UPPER_CP1255
-			           CHARS_UP_ONLY_CP1255);
+			           CHARS_UP_ONLY_CP1255
+			           CHARS_NOCASE_CP1255);
 			break;
 		case CP1256:
 			add_string(CHARS_UPPER_CP1256
-			           CHARS_UP_ONLY_CP1256);
+			           CHARS_UP_ONLY_CP1256
+			           CHARS_NOCASE_CP1256);
 			break;
 		case ISO_8859_1:
 			add_string(CHARS_UPPER_ISO_8859_1
-			           CHARS_UP_ONLY_ISO_8859_1);
+			           CHARS_UP_ONLY_ISO_8859_1
+			           CHARS_NOCASE_ISO_8859_1);
 			break;
 		case ISO_8859_2:
 			add_string(CHARS_UPPER_ISO_8859_2
-			           CHARS_UP_ONLY_ISO_8859_2);
+			           CHARS_UP_ONLY_ISO_8859_2
+			           CHARS_NOCASE_ISO_8859_2);
 			break;
 		case ISO_8859_7:
 			add_string(CHARS_UPPER_ISO_8859_7
-			           CHARS_UP_ONLY_ISO_8859_7);
+			           CHARS_UP_ONLY_ISO_8859_7
+			           CHARS_NOCASE_ISO_8859_7);
 			break;
 		case ISO_8859_15:
 			add_string(CHARS_UPPER_ISO_8859_15
-			           CHARS_UP_ONLY_ISO_8859_15);
+			           CHARS_UP_ONLY_ISO_8859_15
+			           CHARS_NOCASE_ISO_8859_15);
 			break;
 		case KOI8_R:
 			add_string(CHARS_UPPER_KOI8_R
-			           CHARS_UP_ONLY_KOI8_R);
+			           CHARS_UP_ONLY_KOI8_R
+			           CHARS_NOCASE_KOI8_R);
 			break;
 		}
 		break;
+
 	case 'd': /* digits */
 		/* Rockyou character frequency */
 		add_string("1023985467");
 		break;
+
 	case 'D': /* digits, non-ASCII only */
 		switch (options.internal_cp) {
 		case CP437:
@@ -461,10 +511,12 @@ static char* plhdr2string(char p, int fmt_case)
 			break;
 		}
 		break;
+
 	case 's': /* specials */
 		/* Rockyou character frequency */
 		add_string("._!-* @#/$,\\&+=?)(';<%\"]~:[^`>{}|");
 		break;
+
 	case 'S': /* specials, non-ASCII only */
 		switch (options.internal_cp) {
 		case CP437:
@@ -569,14 +621,19 @@ static char* plhdr2string(char p, int fmt_case)
 			break;
 		}
 		break;
+
 	case 'B': /* All high-bit */
+
 	case 'h': /* deprecated alias for B */
 		add_range(0x80, 0xff);
 		break;
+
 	case 'b': /* All (except NULL which we can't handle) */
+
 	case 'H': /* deprecated alias for b */
 		add_range(0x01, 0xff);
 		break;
+
 	case 'a': /* Printable ASCII */
 		/* Rockyou ASCII character frequency */
 		if (fmt_case)
@@ -584,6 +641,7 @@ static char* plhdr2string(char p, int fmt_case)
 		else
 			add_string("ae1ionrls02tm3c98dy54hu6b7kgpjvfwzxq._!-* @#/$,\\&+=?)(';<%\"]~:[^`>{}|");
 		break;
+
 	case 'A': /* All valid chars in codepage (including ASCII) */
 		/* Rockyou ASCII character frequency */
 		if (fmt_case)
@@ -596,7 +654,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP437);
 			else
 				add_string(CHARS_LOWER_CP437
-				           CHARS_LOW_ONLY_CP437);
+				           CHARS_LOW_ONLY_CP437
+				           CHARS_NOCASE_CP437);
 			add_string(CHARS_DIGITS_CP437
 			           CHARS_PUNCTUATION_CP437
 			           CHARS_SPECIALS_CP437
@@ -607,7 +666,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP720);
 			else
 				add_string(CHARS_LOWER_CP720
-				           CHARS_LOW_ONLY_CP720);
+				           CHARS_LOW_ONLY_CP720
+				           CHARS_NOCASE_CP720);
 			add_string(CHARS_DIGITS_CP720
 			           CHARS_PUNCTUATION_CP720
 			           CHARS_SPECIALS_CP720
@@ -618,7 +678,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP737);
 			else
 				add_string(CHARS_LOWER_CP737
-				           CHARS_LOW_ONLY_CP737);
+				           CHARS_LOW_ONLY_CP737
+				           CHARS_NOCASE_CP737);
 			add_string(CHARS_DIGITS_CP737
 			           CHARS_PUNCTUATION_CP737
 			           CHARS_SPECIALS_CP737
@@ -629,7 +690,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP850);
 			else
 				add_string(CHARS_LOWER_CP850
-				           CHARS_LOW_ONLY_CP850);
+				           CHARS_LOW_ONLY_CP850
+				           CHARS_NOCASE_CP850);
 			add_string(CHARS_DIGITS_CP850
 			           CHARS_PUNCTUATION_CP850
 			           CHARS_SPECIALS_CP850
@@ -640,7 +702,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP852);
 			else
 				add_string(CHARS_LOWER_CP852
-				           CHARS_LOW_ONLY_CP852);
+				           CHARS_LOW_ONLY_CP852
+				           CHARS_NOCASE_CP852);
 			add_string(CHARS_DIGITS_CP852
 			           CHARS_PUNCTUATION_CP852
 			           CHARS_SPECIALS_CP852
@@ -651,7 +714,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP858);
 			else
 				add_string(CHARS_LOWER_CP858
-				           CHARS_LOW_ONLY_CP858);
+				           CHARS_LOW_ONLY_CP858
+				           CHARS_NOCASE_CP858);
 			add_string(CHARS_DIGITS_CP858
 			           CHARS_PUNCTUATION_CP858
 			           CHARS_SPECIALS_CP858
@@ -662,7 +726,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP866);
 			else
 				add_string(CHARS_LOWER_CP866
-				           CHARS_LOW_ONLY_CP866);
+				           CHARS_LOW_ONLY_CP866
+				           CHARS_NOCASE_CP866);
 			add_string(CHARS_DIGITS_CP866
 			           CHARS_PUNCTUATION_CP866
 			           CHARS_SPECIALS_CP866
@@ -673,7 +738,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP868);
 			else
 				add_string(CHARS_LOWER_CP868
-				           CHARS_LOW_ONLY_CP868);
+				           CHARS_LOW_ONLY_CP868
+				           CHARS_NOCASE_CP868);
 			add_string(CHARS_DIGITS_CP868
 			           CHARS_PUNCTUATION_CP868
 			           CHARS_SPECIALS_CP868
@@ -684,7 +750,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1250);
 			else
 				add_string(CHARS_LOWER_CP1250
-				           CHARS_LOW_ONLY_CP1250);
+				           CHARS_LOW_ONLY_CP1250
+				           CHARS_NOCASE_CP1250);
 			add_string(CHARS_DIGITS_CP1250
 			           CHARS_PUNCTUATION_CP1250
 			           CHARS_SPECIALS_CP1250
@@ -695,7 +762,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1251);
 			else
 				add_string(CHARS_LOWER_CP1251
-				           CHARS_LOW_ONLY_CP1251);
+				           CHARS_LOW_ONLY_CP1251
+				           CHARS_NOCASE_CP1251);
 			add_string(CHARS_DIGITS_CP1251
 			           CHARS_PUNCTUATION_CP1251
 			           CHARS_SPECIALS_CP1251
@@ -706,7 +774,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1252);
 			else
 				add_string(CHARS_LOWER_CP1252
-				           CHARS_LOW_ONLY_CP1252);
+				           CHARS_LOW_ONLY_CP1252
+				           CHARS_NOCASE_CP1252);
 			add_string(CHARS_DIGITS_CP1252
 			           CHARS_PUNCTUATION_CP1252
 			           CHARS_SPECIALS_CP1252
@@ -717,7 +786,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1253);
 			else
 				add_string(CHARS_LOWER_CP1253
-				           CHARS_LOW_ONLY_CP1253);
+				           CHARS_LOW_ONLY_CP1253
+				           CHARS_NOCASE_CP1253);
 			add_string(CHARS_DIGITS_CP1253
 			           CHARS_PUNCTUATION_CP1253
 			           CHARS_SPECIALS_CP1253
@@ -728,7 +798,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1254);
 			else
 				add_string(CHARS_LOWER_CP1254
-				           CHARS_LOW_ONLY_CP1254);
+				           CHARS_LOW_ONLY_CP1254
+				           CHARS_NOCASE_CP1254);
 			add_string(CHARS_DIGITS_CP1254
 			           CHARS_PUNCTUATION_CP1254
 			           CHARS_SPECIALS_CP1254
@@ -739,7 +810,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1255);
 			else
 				add_string(CHARS_LOWER_CP1255
-				           CHARS_LOW_ONLY_CP1255);
+				           CHARS_LOW_ONLY_CP1255
+				           CHARS_NOCASE_CP1255);
 			add_string(CHARS_DIGITS_CP1255
 			           CHARS_PUNCTUATION_CP1255
 			           CHARS_SPECIALS_CP1255
@@ -750,7 +822,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_CP1256);
 			else
 				add_string(CHARS_LOWER_CP1256
-				           CHARS_LOW_ONLY_CP1256);
+				           CHARS_LOW_ONLY_CP1256
+				           CHARS_NOCASE_CP1256);
 			add_string(CHARS_DIGITS_CP1256
 			           CHARS_PUNCTUATION_CP1256
 			           CHARS_SPECIALS_CP1256
@@ -761,7 +834,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_ISO_8859_1);
 			else
 				add_string(CHARS_LOWER_ISO_8859_1
-				           CHARS_LOW_ONLY_ISO_8859_1);
+				           CHARS_LOW_ONLY_ISO_8859_1
+				           CHARS_NOCASE_ISO_8859_1);
 			add_string(CHARS_DIGITS_ISO_8859_1
 			           CHARS_PUNCTUATION_ISO_8859_1
 			           CHARS_SPECIALS_ISO_8859_1
@@ -772,7 +846,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_ISO_8859_2);
 			else
 				add_string(CHARS_LOWER_ISO_8859_2
-				           CHARS_LOW_ONLY_ISO_8859_2);
+				           CHARS_LOW_ONLY_ISO_8859_2
+				           CHARS_NOCASE_ISO_8859_2);
 			add_string(CHARS_DIGITS_ISO_8859_2
 			           CHARS_PUNCTUATION_ISO_8859_2
 			           CHARS_SPECIALS_ISO_8859_2
@@ -783,7 +858,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_ISO_8859_7);
 			else
 				add_string(CHARS_LOWER_ISO_8859_7
-				           CHARS_LOW_ONLY_ISO_8859_7);
+				           CHARS_LOW_ONLY_ISO_8859_7
+				           CHARS_NOCASE_ISO_8859_7);
 			add_string(CHARS_DIGITS_ISO_8859_7
 			           CHARS_PUNCTUATION_ISO_8859_7
 			           CHARS_SPECIALS_ISO_8859_7
@@ -794,7 +870,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_ISO_8859_15);
 			else
 				add_string(CHARS_LOWER_ISO_8859_15
-				           CHARS_LOW_ONLY_ISO_8859_15);
+				           CHARS_LOW_ONLY_ISO_8859_15
+				           CHARS_NOCASE_ISO_8859_15);
 			add_string(CHARS_DIGITS_ISO_8859_15
 			           CHARS_PUNCTUATION_ISO_8859_15
 			           CHARS_SPECIALS_ISO_8859_15
@@ -805,7 +882,8 @@ static char* plhdr2string(char p, int fmt_case)
 				add_string(CHARS_ALPHA_KOI8_R);
 			else
 				add_string(CHARS_LOWER_KOI8_R
-				           CHARS_LOW_ONLY_KOI8_R);
+				           CHARS_LOW_ONLY_KOI8_R
+				           CHARS_NOCASE_KOI8_R);
 			add_string(CHARS_DIGITS_KOI8_R
 			           CHARS_PUNCTUATION_KOI8_R
 			           CHARS_SPECIALS_KOI8_R
@@ -1697,10 +1775,13 @@ int mask_restore_state(FILE *file)
 	}
 
 	for (i = 0; i < cpu_mask_ctx.count; i++)
-	if (fscanf(file, "%hhu\n", &uc) == 1)
-		cpu_mask_ctx.ranges[i].iter = uc;
-	else
-		return fail;
+	{
+		unsigned int ui;
+		if (fscanf(file, "%u\n", &ui) == 1)
+			cpu_mask_ctx.ranges[i].iter = (unsigned char)ui;
+		else
+			return fail;
+	}
 	restored = 0;
 	return 0;
 }
@@ -1825,6 +1906,12 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	mask_fmt = db->format;
 
 	fmt_maxlen = mask_fmt->params.plaintext_length;
+
+	if (options.req_minlength >= 0 && !options.req_maxlength)
+		options.req_maxlength = fmt_maxlen;
+	else if (options.req_maxlength > 0 && options.req_minlength == -1)
+		options.req_minlength = mask_fmt->params.plaintext_min_length;
+
 	max_keylen = options.req_maxlength ?
 		options.req_maxlength : fmt_maxlen;
 
@@ -2043,6 +2130,14 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 				cand *= cpu_mask_ctx.ranges[i].count;
 	}
 	mask_tot_cand = cand * mask_int_cand.num_int_cand;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		jtrdll_preflight_mask_candidates = mask_tot_cand;
+	}
+#endif
+
 }
 
 void mask_crk_init(struct db_main *db)
@@ -2094,6 +2189,15 @@ int do_mask_crack(const char *extern_key)
 {
 	int key_len = extern_key ? strlen(extern_key) : 0;
 	int i;
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Stop here if we're just preflighting
+//		exit(0);
+		return;
+	}
+#endif
 
 #ifdef MASK_DEBUG
 	fprintf(stderr, "%s(%s)\n", __FUNCTION__, extern_key);
