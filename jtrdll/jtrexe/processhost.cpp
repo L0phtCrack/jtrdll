@@ -416,6 +416,45 @@ THREADCALL jtrdll_get_charset_info_thread(THREADPARAMS_JTRDLL_GET_CHARSET_INFO *
 	return 0;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+
+struct THREADPARAMS_JTRDLL_PREFLIGHT {
+	std::string ctlpipe_name;
+	PIPETYPE ctlpipe_handle;
+
+	int argc;
+	std::vector<char *> argv;
+	JTRDLL_HOOKS hooks;
+};
+
+THREADCALL jtrdll_preflight_thread(THREADPARAMS_JTRDLL_PREFLIGHT *tparam)
+{
+	if (!wait_for_pipe_client(tparam->ctlpipe_handle))
+	{
+		destroy_control_pipe(tparam->ctlpipe_handle);
+		delete tparam;
+		return -1;
+	}
+
+	JTRDLL_PREFLIGHT preflight;
+	
+	jtrdll_preflight(tparam->argc, &(tparam->argv[0]), &(tparam->hooks), &preflight);
+	if (tparam->hooks.caught_sigill)
+	{
+		send_command(tparam->ctlpipe_handle, "sigill");
+	}
+	else
+	{
+		send_command(tparam->ctlpipe_handle, "preflight", sizeof(preflight), &preflight);
+	}
+	
+	destroy_control_pipe(tparam->ctlpipe_handle);
+	delete tparam;
+	return 0;
+}
+
+
 ////////////////////////////////////////////////////////////////////////
 
 int run_processhost(void)
@@ -470,7 +509,6 @@ int run_processhost(void)
 			{
 				create_command_thread(jtrdll_abort_thread, NULL);
 				writeStdOut("%u:aborted\n", cmdid);
-
 			}
 			else if (line == "jtrdll_get_status")
 			{
@@ -491,6 +529,34 @@ int run_processhost(void)
 				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_get_charset_info->ctlpipe_name.c_str());
 
 				create_command_thread(jtrdll_get_charset_info_thread, tp_jtrdll_get_charset_info);
+			}
+			if (line == "jtrdll_preflight")
+			{
+				THREADPARAMS_JTRDLL_PREFLIGHT * tp_jtrdll_preflight = new THREADPARAMS_JTRDLL_PREFLIGHT;
+
+				std::getline(std::cin, line);
+				strcpy_s(tp_jtrdll_preflight->hooks.appdatadir, sizeof(tp_jtrdll_preflight->hooks.appdatadir), line.c_str());
+
+				tp_jtrdll_preflight->hooks.caught_sigill = false;
+				tp_jtrdll_preflight->hooks.ctx = tp_jtrdll_preflight;
+				tp_jtrdll_preflight->hooks.stderr_hook = jtrdll_main_stderr_hook;
+				tp_jtrdll_preflight->hooks.stdout_hook = jtrdll_main_stdout_hook;
+
+				std::getline(std::cin, line);
+				tp_jtrdll_preflight->argc = atoi(line.c_str());
+
+				tp_jtrdll_preflight->argv.resize(tp_jtrdll_preflight->argc + 1);
+				for (int arg = 0; arg < tp_jtrdll_preflight->argc; arg++)
+				{
+					std::getline(std::cin, line);
+					tp_jtrdll_preflight->argv[arg] = _strdup(line.c_str());
+				}
+				tp_jtrdll_preflight->argv[tp_jtrdll_preflight->argc] = NULL;
+
+				tp_jtrdll_preflight->ctlpipe_handle = create_control_pipe(tp_jtrdll_preflight->ctlpipe_name);
+				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_preflight->ctlpipe_name.c_str());
+
+				create_command_thread(jtrdll_preflight_thread, tp_jtrdll_preflight);
 			}
 			else if (line == "exit")
 			{

@@ -730,7 +730,7 @@ extern "C"
 		}
 #endif
 	}
-
+	 
 
 
 	JTRDLL_IMPEXP int jtrdll_main(int argc, char **argv, struct JTRDLL_HOOKS *hooks)
@@ -828,15 +828,9 @@ extern "C"
 	{
 	}
 
-	JTRDLL_IMPEXP void jtrdll_preflight(int argc, char **argv, struct JTRDLL_PREFLIGHT *jtrdllpreflight)
+	JTRDLL_IMPEXP void jtrdll_preflight(int argc, char **argv, struct JTRDLL_HOOKS *hooks, struct JTRDLL_PREFLIGHT *jtrdllpreflight)
 	{
-		JTRDLL_HOOKS null_hooks;
-		null_hooks.appdatadir[0] = 0;
-		null_hooks.caught_sigill = 0;
-		null_hooks.ctx = NULL;
-		null_hooks.stderr_hook = null_stdhook;
-		null_hooks.stdout_hook = null_stdhook;
-
+	
 		// set preflight bit
 		jtrdll_is_preflight = 1;
 		memset(jtrdllpreflight, 0, sizeof(JTRDLL_PREFLIGHT));
@@ -846,8 +840,8 @@ extern "C"
 		jtrdll_preflight_mask_candidates = 0;
 		jtrdll_preflight_incremental_candidates = 0;
 
-		// run with preflighting and null hooks
-		int ret = jtrdll_main(argc, argv, &null_hooks);
+		// run with preflighting
+		int ret = jtrdll_main(argc, argv, hooks);
 
 		// reset preflight
 		jtrdll_is_preflight = 0;
@@ -855,7 +849,10 @@ extern "C"
 		if (ret == 0)
 		{
 			jtrdllpreflight->valid = 1;
-
+			jtrdllpreflight->incremental_candidates = jtrdll_preflight_incremental_candidates;
+			jtrdllpreflight->mask_candidates = jtrdll_preflight_mask_candidates;
+			jtrdllpreflight->salt_count = jtrdll_preflight_salt_count;
+			jtrdllpreflight->wordlist_rule_count = jtrdll_preflight_wordlist_rule_count;
 		}
 	}
 

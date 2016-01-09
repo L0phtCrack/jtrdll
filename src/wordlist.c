@@ -782,12 +782,14 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 					        "fread: Unexpected EOF\n");
 					error();
 				}
+#ifndef JTRDLL
 				if (memchr(word_file_str, 0, (size_t)file_len)) {
 					fprintf(stderr,
 					        "Error: wordlist contains NULL"
 					        " bytes - aborting\n");
 					error();
 				}
+#endif
 			}
 			aep = word_file_str + file_len;
 			*aep = 0;
@@ -1342,6 +1344,10 @@ process_word:
 					}
 				}
 next_word:
+				if (event_abort)
+				{
+					break;
+				}
 				if (--my_words_left)
 					continue;
 				if (skip_lines(their_words, line))

@@ -723,6 +723,19 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	for (pos = min_length; pos <= max_length; pos++)
 		cand += pow(real_count, pos);
+
+#ifdef JTRDLL
+	if (jtrdll_is_preflight)
+	{
+		// Return candidate total for all nodes, not just this one
+		jtrdll_preflight_incremental_candidates = cand;
+
+		// Stop here if we're just preflighting
+		//exit(0);
+		return;
+	}
+#endif
+
 	if (options.node_count)
 		cand *= (double)(options.node_max - options.node_min + 1) /
 			options.node_count;
@@ -753,17 +766,6 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		for (pos = 0; pos < max_length - 2; pos++)
 			chars[pos] = (chars_table)mem_alloc(sizeof(*chars[0]));
 	}
-
-#ifdef JTRDLL
-	if (jtrdll_is_preflight)
-	{
-		jtrdll_preflight_incremental_candidates = cand;
-		
-		// Stop here if we're just preflighting
-		//exit(0);
-		return;
-	}
-#endif
 
 	rec_entry = 0;
 	memset(rec_numbers, 0, sizeof(rec_numbers));

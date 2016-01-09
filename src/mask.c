@@ -2195,7 +2195,7 @@ int do_mask_crack(const char *extern_key)
 	{
 		// Stop here if we're just preflighting
 //		exit(0);
-		return;
+		return 1;
 	}
 #endif
 

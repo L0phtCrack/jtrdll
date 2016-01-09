@@ -14,5 +14,6 @@ extern TYPEOF_jtrdll_abort *jtrdll_abort;
 extern TYPEOF_jtrdll_get_status *jtrdll_get_status;
 extern TYPEOF_jtrdll_get_charset_info *jtrdll_get_charset_info;
 extern TYPEOF_jtrdll_cleanup *jtrdll_cleanup;
+extern TYPEOF_jtrdll_preflight *jtrdll_preflight;
 
 #endif

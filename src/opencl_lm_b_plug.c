@@ -1223,7 +1223,7 @@ static void reset(struct db_main *db)
 
 static void init_global_variables(void)
 {
-	mask_int_cand_target = opencl_speed_index(gpu_id) / 300;
+	mask_int_cand_target = opencl_speed_index(gpu_id) / 200; // xxx:300;
 }
 
 static char *get_key(int index)
