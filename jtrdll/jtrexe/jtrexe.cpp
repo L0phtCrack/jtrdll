@@ -93,6 +93,8 @@ int main(int argc, char **argv)
 		{
 			jtrdllversion = "sse41";
 
+
+#ifdef _WIN64
 			if (jtrdllversion != force_jtrdllversion && cpu.AVX() && cpu.XSAVE() && cpu.OSXSAVE() && cpu.XMM_SAVED() && cpu.YMM_SAVED())
 			{
 				jtrdllversion = "avx";
@@ -107,6 +109,7 @@ int main(int argc, char **argv)
 			{
 				jtrdllversion = "avx2";
 			}
+#endif
 		}
 	}
 
@@ -116,7 +119,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	
-	if (force_jtrdllversion.length() != 0)
+	if (force_jtrdllversion.length() == 0)
 	{
 		fprintf(stderr, "Detected %s instruction set\n", jtrdllversion.c_str());
 	}
