@@ -136,7 +136,20 @@ int main(int argc, char **argv)
 	}
 	else
 	{
-		ret = jtrdll_main((int)args.size() - 1, &(args[0]), NULL);
+		JTRDLL_HOOKS hooks;
+#ifdef _WIN32
+		memset(&hooks, 0, sizeof(hooks));
+		GetTempPath(sizeof(hooks.appdatadir), hooks.appdatadir);
+		if (hooks.appdatadir[strlen(hooks.appdatadir) - 1] == '\\')
+		{
+			hooks.appdatadir[strlen(hooks.appdatadir) - 1] = 0;
+		}
+		char kernelsdir[MAX_PATH];
+		strcpy_s(kernelsdir, sizeof(kernelsdir), hooks.appdatadir);
+		strcat_s(kernelsdir, sizeof(kernelsdir), "\\kernels");
+		CreateDirectory(kernelsdir, NULL);
+#endif
+		ret = jtrdll_main((int)args.size() - 1, &(args[0]), &hooks);
 	}
 
 	UnloadJTRDLL();
