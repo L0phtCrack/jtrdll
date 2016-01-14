@@ -1711,8 +1711,7 @@ static unsigned long long divide_work(mask_cpu_context *cpu_mask_ctx)
 static double get_progress(void)
 {
 	double try;
-	int num_nodes = options.node_count ? options.node_count : 1;
-
+	
 	emms();
 
 	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
@@ -1723,7 +1722,7 @@ static double get_progress(void)
 	if (cand_length)
 		try -= cand_length;
 
-	return 100.0 * try / (double)(mask_tot_cand / num_nodes);
+	return 100.0 * try / (double)mask_tot_cand;
 }
 
 void mask_save_state(FILE *file)
