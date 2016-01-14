@@ -2162,10 +2162,8 @@ void mask_done()
 			MEM_FREE(mask);
 		// For reporting DONE regardless of rounding errors
 		if (!event_abort) {
-			int num_nodes = options.node_count ?
-				options.node_count : 1;
 			mask_tot_cand = (((unsigned long long)status.cands.hi << 32) +
-				status.cands.lo) * num_nodes;
+				status.cands.lo);
 			cand_length = 0;
 		}
 		if (!(options.flags & FLG_TEST_CHK)) {
