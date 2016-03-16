@@ -625,7 +625,7 @@ static void gws_tune(size_t gws_init, long double kernel_run_ms, int gws_tune_fl
 
 #ifdef JTRDLL
 	// Prevent huge host memory allocation
-	gws_limit = 100000;
+	gws_limit = 0x20000+PADDING;
 #endif
 
 	if (gws_limit > PADDING)

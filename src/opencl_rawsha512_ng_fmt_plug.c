@@ -117,7 +117,8 @@ static uint32_t get_bitmap_size_bits(uint32_t num_elements, int sequential_id)
 	//On super: 128MB , 1GB, 2GB
 	cl_ulong memory_available = get_max_mem_alloc_size(sequential_id);
 
-	elements = (get_power_of_two(elements)) + 1;
+	get_power_of_two(elements);
+	elements++;
 
 	size = (elements * 8);
 
@@ -131,7 +132,10 @@ static uint32_t get_bitmap_size_bits(uint32_t num_elements, int sequential_id)
 		size *= 256;
 
 	if (size > memory_available)
-		size = (get_power_of_two(memory_available));
+	{
+		size = memory_available; 
+		get_power_of_two(size);
+	}
 
 	if (!size || size > INT_MAX)
 		size = (uint)INT_MAX + 1U;
