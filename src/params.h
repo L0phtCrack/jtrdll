@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2015 by Solar Designer
+ * Copyright (c) 1996-2016 by Solar Designer
  *
  * ...with changes in the jumbo patch, by various authors
  *
@@ -26,7 +26,7 @@
 /*
  * John's version number.
  */
-#define JOHN_VERSION			"1.8.0.6-jumbo-1-bleeding"
+#define JOHN_VERSION			"1.8.0.7-jumbo-1-bleeding"
 
 /*
  * Define this for release tarballs after updating the string above.
@@ -305,7 +305,7 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
  * How many bitmap entries should the cracker prefetch at once.  Set this to 0
  * to disable prefetching.
  */
-#ifdef __SSE2__
+#ifdef __SSE__
 #define CRK_PREFETCH			64
 #else
 #define CRK_PREFETCH			0
@@ -400,6 +400,10 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
 #define WORDLIST_BUFFER_DEFAULT		0x40000000
 
 /* Number of custom Mask placeholders */
-#define MAX_NUM_CUST_PLHDR 9
+#define MAX_NUM_CUST_PLHDR		9
+
+/* Verbosity level */
+#define VERB_MAX			5
+#define VERB_DEFAULT		3
 
 #endif

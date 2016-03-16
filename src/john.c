@@ -500,7 +500,7 @@ static void john_omp_maybe_adjust_or_fallback(char **argv)
 
 static void john_omp_show_info(void)
 {
-	if (options.verbosity > 2)
+	if (options.verbosity >= VERB_DEFAULT)
 #if HAVE_MPI
 	if (mpi_p == 1)
 #endif
@@ -592,7 +592,7 @@ static void john_omp_show_info(void)
 	}
 
 	if (john_omp_threads_orig == 1)
-	if (options.verbosity > 2)
+	if (options.verbosity >= VERB_DEFAULT)
 	if (john_main_process)
 		fputs("Warning: OpenMP is disabled; "
 		    "a non-OpenMP build may be faster\n", stderr);
@@ -804,16 +804,16 @@ static void john_mpi_wait(void)
 static char *john_loaded_counts(void)
 {
 	static char s_loaded_counts[80];
+	char nbuf[24];
 
 	if (database.password_count == 1)
 		return "1 password hash";
 
 	sprintf(s_loaded_counts,
-		database.salt_count > 1 ?
-		"%d password hashes with %d different salts" :
-		"%d password hashes with no different salts",
+		"%d password hashes with %s different salts",
 		database.password_count,
-		database.salt_count);
+		database.salt_count > 1 ?
+		jtr_itoa(database.salt_count, nbuf, 24, 10) : "no");
 
 	return s_loaded_counts;
 }
@@ -828,9 +828,9 @@ static void john_load_conf(void)
 
 		/* If it doesn't exist in john.conf it ends up as -1 */
 		if (options.verbosity == -1)
-			options.verbosity = 3;
+			options.verbosity = VERB_DEFAULT;
 
-		if (options.verbosity < 1 || options.verbosity > 5) {
+		if (options.verbosity < 1 || options.verbosity > VERB_MAX) {
 			if (john_main_process)
 				fprintf(stderr, "Invalid verbosity "
 				        "level in config file, use 1-5\n");
@@ -1255,7 +1255,8 @@ static void john_load(void)
 				log_event("Cost %d (%s) is %u for all loaded hashes",
 				          i+1, database.format->params.tunable_cost_name[i],
 				          database.min_cost[i]);
-				if (options.verbosity > 3 && john_main_process)
+				if (options.verbosity > VERB_DEFAULT &&
+				    john_main_process)
 				printf("Cost %d (%s) is %u for all loaded "
 				       "hashes\n", i+1,
 				       database.format->params.tunable_cost_name[i],
@@ -1304,7 +1305,8 @@ static void john_load(void)
 		if (loop_db.plaintexts->count) {
 			log_event("- Reassembled %d split passwords for "
 			          "loopback", loop_db.plaintexts->count);
-			if (john_main_process && options.verbosity > 3)
+			if (john_main_process &&
+			    options.verbosity > VERB_DEFAULT)
 				fprintf(stderr,
 				        "Reassembled %d split passwords for "
 				        "loopback\n",
@@ -1505,8 +1507,8 @@ static void john_init(char *name, int argc, char **argv)
 #ifdef _OPENMP
 	john_omp_maybe_adjust_or_fallback(argv);
 #endif
-
-	john_register_all(); /* maybe restricted to one format by options */
+	if(!(options.flags & FLG_STDOUT))
+		john_register_all(); /* maybe restricted to one format by options */
 	common_init();
 	sig_init();
 
@@ -1641,10 +1643,11 @@ static void john_run(void)
 		}
 
 		if (!(options.flags & FLG_STDOUT)) {
-			struct db_main *test_db;
+			struct db_main *test_db = 0;
 			char *where;
 
-			test_db = ldr_init_test_db(database.format, &database);
+			if ( (options.flags & FLG_NOTESTS) == 0)
+				test_db = ldr_init_test_db(database.format, &database);
 			where = fmt_self_test(database.format, test_db);
 			ldr_free_test_db(test_db);
 			if (where) {

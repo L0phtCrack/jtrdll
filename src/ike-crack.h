@@ -49,6 +49,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include "misc.h"	// error()
 #include "john_stdint.h"
 #include "md5.h"
 #include <openssl/sha.h>

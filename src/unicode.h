@@ -108,7 +108,11 @@ extern const char opt_trailingBytesUTF8[64];
  */
 extern int utf8_to_utf16(UTF16 *target, unsigned int maxtargetlen,
                          const UTF8 *source, unsigned int sourcelen);
-
+/*
+ * same utf8 to utf16 convertion, but to BE format output
+ */
+extern int utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
+                            unsigned int sourceLen);
 /*
  * Convert to UTF-16LE from whatever encoding is used (--encoding aware).
  * 'maxdstlen' is max. number of characters (as opposed to bytes) in output,
@@ -171,7 +175,25 @@ extern unsigned int strlen16(const UTF16 * str);
  */
 extern unsigned int strlen8(const UTF8 *source);
 
-/* Check if a string is valid UTF-8 */
+/*
+ * Check if a string is valid UTF-8.  Returns true if the string is valid
+ * UTF-8 encoding, including pure 7-bit data or an empty string.
+ *
+ * The probability of a random string of bytes which is not pure ASCII being
+ * valid UTF-8 is 3.9% for a two-byte sequence, and decreases exponentially
+ * for longer sequences.  ISO/IEC 8859-1 is even less likely to be
+ * mis-recognized as UTF-8:  The only non-ASCII characters in it would have
+ * to be in sequences starting with either an accented letter or the
+ * multiplication symbol and ending with a symbol.
+ *
+ * returns   0 if data is not valid UTF-8
+ * returns   1 if data is pure ASCII (which is obviously valid)
+ * returns > 1 if data is valid and in fact contains UTF-8 sequences
+ *
+ * Actually in the last case, the return is the number of proper UTF-8
+ * sequences, so it can be used as a quality measure. A low number might be
+ * a false positive, a high number most probably isn't.
+ */
 extern int valid_utf8(const UTF8 *source);
 
 /* Create an NT hash from a ISO-8859 or UTF-8 string (--encoding= aware) */

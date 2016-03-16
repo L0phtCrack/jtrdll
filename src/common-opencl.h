@@ -91,6 +91,10 @@ typedef union {
 #define CL_DEVICE_BOARD_NAME_AMD                    0x4038
 #endif
 
+#ifndef CL_DEVICE_SIMD_WIDTH_AMD
+#define CL_DEVICE_SIMD_WIDTH_AMD                    0x4041
+#endif
+
 #ifndef CL_DEVICE_WAVEFRONT_WIDTH_AMD
 #define CL_DEVICE_WAVEFRONT_WIDTH_AMD               0x4043
 #endif
@@ -107,12 +111,6 @@ john_clCreateBuffer(int l, char *f, cl_context context, cl_mem_flags flags,
 #define clCreateBuffer(a, b, c, d, e)   john_clCreateBuffer(__LINE__, \
                 __FILE__, a, b, c, d, e)
 #endif
-
-typedef struct {
-	cl_platform_id platform;
-	int num_devices;
-} cl_platform;
-cl_platform platforms[MAX_PLATFORMS];
 
 typedef struct {
 	int device_info;
@@ -253,6 +251,15 @@ void opencl_process_event(void);
 			fprintf(stderr, "OpenCL %s error in %s:%d - %s\n", \
 			    get_error_name(__err), __FILE__, __LINE__, (message)); \
 			error(); \
+		} \
+	} while (0)
+
+/* Non-fatal alternative */
+#define SOFT_CLERROR(cl_error, message)	  \
+	do { cl_int __err = (cl_error); \
+		if (__err != CL_SUCCESS) { \
+			fprintf(stderr, "OpenCL %s error in %s:%d - %s\n", \
+			    get_error_name(__err), __FILE__, __LINE__, (message)); \
 		} \
 	} while (0)
 

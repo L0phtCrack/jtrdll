@@ -310,11 +310,23 @@ static int restore_state(FILE *file)
 		if (mem_map) {
 			char line[LINE_BUFFER_SIZE];
 			skip_lines(rec_line, line);
+			rec_pos = 0;
+		} else if (rec_line && !rec_pos) {
+			/* from mem_map build does not have rec_pos */
+			int64_t i = rec_line;
+			char line[LINE_BUFFER_SIZE];
+			jtr_fseek64(word_file, 0, SEEK_SET);
+			while (i--)
+				if (!fgetl(line, sizeof(line), word_file))
+					pexit(STR_MACRO(jtr_fseek64));
+			rec_pos = jtr_ftell64(word_file);
 		} else
 		if (jtr_fseek64(word_file, rec_pos, SEEK_SET))
 			pexit(STR_MACRO(jtr_fseek64));
 		line_number = rec_line;
 	}
+	else
+		line_number = rec_line;
 
 	return 0;
 }
@@ -345,7 +357,8 @@ static void fix_state(void)
 	if (word_file == stdin)
 		rec_pos = line_number;
 	else
-	if ((rec_pos = jtr_ftell64(word_file)) < 0) {
+	if (!mem_map && !nWordFileLines &&
+	    (rec_pos = jtr_ftell64(word_file)) < 0) {
 #ifdef __DJGPP__
 		if (rec_pos != -1)
 			rec_pos = 0;
@@ -363,7 +376,8 @@ void wordlist_hybrid_fix_state(void)
 	if (word_file == stdin)
 		hybrid_rec_pos = line_number;
 	else
-	if ((hybrid_rec_pos = jtr_ftell64(word_file)) < 0) {
+	if (!mem_map && !nWordFileLines &&
+	    (hybrid_rec_pos = jtr_ftell64(word_file)) < 0) {
 #ifdef __DJGPP__
 		if (hybrid_rec_pos != -1)
 			hybrid_rec_pos = 0;
@@ -824,7 +838,7 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 					hash_log++;
 				hash_size = (1 << hash_log);
 				hash_mask = (hash_size - 1);
-				if (options.verbosity > 3)
+				if (options.verbosity > VERB_DEFAULT)
 				log_event("- dupe suppression: hash size %u, "
 					"temporarily allocating "LLd" bytes",
 					hash_size,
@@ -950,7 +964,7 @@ GRAB_NEXT_PIPE_LOAD:
 			{
 				char *cpi, *cpe;
 
-				if (options.verbosity > 3)
+				if (options.verbosity > VERB_DEFAULT)
 				log_event("- Reading next block of candidate passwords from stdin pipe");
 
 				rules = rules_keep;
@@ -994,7 +1008,7 @@ GRAB_NEXT_PIPE_LOAD:
 						}
 					}
 				}
-				if (options.verbosity > 3) {
+				if (options.verbosity > VERB_DEFAULT) {
 					sprintf(msg_buf, "- Read block of "LLd" "
 					        "candidate passwords from pipe",
 					        (long long)nWordFileLines);
@@ -1006,7 +1020,7 @@ GRAB_NEXT_PIPE_LOAD:
 MEM_MAP_LOAD:
 			rules = rules_keep;
 			nWordFileLines = 0;
-			if (options.verbosity > 3)
+			if (options.verbosity > VERB_DEFAULT)
 				log_event("- Reading next block of candidate from the memory mapped file");
 			release_sharedmem_object(pIPC);
 			pIPC = next_sharedmem_object();
@@ -1156,18 +1170,18 @@ REDO_AFTER_LMLOOP:
 			}
 			if ((rule = rules_reject(prerule, -1, last, db))) {
 				if (strcmp(prerule, rule)) {
-					if (options.verbosity > 3)
+					if (options.verbosity > VERB_DEFAULT)
 					log_event("- Rule #%d: '%.100s'"
 						" accepted as '%.100s'",
 						rule_number + 1, prerule, rule);
 				} else {
-					if (options.verbosity > 3)
+					if (options.verbosity > VERB_DEFAULT)
 					log_event("- Rule #%d: '%.100s'"
 						" accepted",
 						rule_number + 1, prerule);
 				}
 			} else {
-				if (options.verbosity > 3)
+				if (options.verbosity > VERB_DEFAULT)
 				log_event("- Rule #%d: '%.100s' rejected",
 					rule_number + 1, prerule);
 				goto next_rule;
@@ -1207,6 +1221,17 @@ REDO_AFTER_LMLOOP:
 					wordlist_hybrid_fix_state();
 				} else
 #endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, word))
+					{
+						rule = NULL;
+						rules = 0;
+						pipe_input = 0;
+						do_lmloop = 0;
+						break;
+					}
+					wordlist_hybrid_fix_state();
+				} else
 				if (options.mask) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
@@ -1264,6 +1289,16 @@ REDO_AFTER_LMLOOP:
 					wordlist_hybrid_fix_state();
 				} else
 #endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, word))
+					{
+						rule = NULL;
+						rules = 0;
+						pipe_input = 0;
+						break;
+					}
+					wordlist_hybrid_fix_state();
+				} else
 				if (options.mask) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
@@ -1328,6 +1363,16 @@ process_word:
 						wordlist_hybrid_fix_state();
 					} else
 #endif
+					if (f_new) {
+						if (do_external_hybrid_crack(db, word))
+						{
+							rule = NULL;
+							rules = 0;
+							pipe_input = 0;
+							break;
+						}
+						wordlist_hybrid_fix_state();
+					} else
 					if (options.mask) {
 						if (do_mask_crack(word)) {
 							rule = NULL;

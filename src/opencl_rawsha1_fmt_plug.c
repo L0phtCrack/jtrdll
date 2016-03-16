@@ -311,11 +311,11 @@ static void init(struct fmt_main *_self)
 
 static void *get_binary(char *ciphertext)
 {
-	static ARCH_WORD_32 full[DIGEST_SIZE / 4 + 1];
+	static ARCH_WORD_32 full[DIGEST_SIZE / 4];
 	unsigned char *realcipher = (unsigned char*)full;
 
 	ciphertext += TAG_LENGTH;
-	base64_convert(ciphertext, e_b64_mime, 28, realcipher, e_b64_raw, DIGEST_SIZE, flg_Base64_MIME_TRAIL_EQ);
+	base64_convert(ciphertext, e_b64_mime, 28, realcipher, e_b64_raw, sizeof(full), flg_Base64_MIME_TRAIL_EQ);
 
 	return (void*)realcipher;
 }
@@ -930,7 +930,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	assert(global_work_size <= gws_limit);
 
 	self->params.max_keys_per_crypt = global_work_size;
-	if (options.verbosity > 3)
+	if (options.verbosity > VERB_DEFAULT)
 	fprintf(stdout, "%s GWS: "Zu", LWS: "Zu"\n", db ? "Cracking" : "Self test",
 			global_work_size, local_work_size);
 #undef calc_ms

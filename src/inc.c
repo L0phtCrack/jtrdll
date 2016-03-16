@@ -183,7 +183,7 @@ static void inc_new_length(unsigned int length,
 	char *buffer;
 	int count;
 
-	if (options.verbosity > 3)
+	if (options.verbosity > VERB_DEFAULT)
 	log_event("- Switching to length %d", length + 1);
 
 	char1[0] = 0;
@@ -325,7 +325,7 @@ static void inc_new_count(unsigned int length, int count, char *charset,
 	int size;
 	int error;
 
-	if (options.verbosity > 3)
+	if (options.verbosity > VERB_DEFAULT)
 	log_event("- Expanding tables for length %d to character count %d",
 	    length + 1, count + 1);
 
@@ -417,6 +417,11 @@ update_last:
 		inc_hybrid_fix_state();
 	} else
 #endif
+	if (f_new) {
+		if (do_external_hybrid_crack(db, key))
+			return 1;
+		inc_hybrid_fix_state();
+	} else
 	if (options.mask) {
 		if (do_mask_crack(key))
 			return 1;
@@ -872,6 +877,11 @@ void do_incremental_crack(struct db_main *db, char *mode)
 				inc_hybrid_fix_state();
 			} else
 #endif
+			if (f_new) {
+				if (!skip && do_external_hybrid_crack(db, fmt_null_key))
+					break;
+				inc_hybrid_fix_state();
+			} else
 			if (options.mask) {
 				if (!skip && do_mask_crack(fmt_null_key))
 					break;
@@ -894,7 +904,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		if (skip)
 			continue;
 
-		if (options.verbosity > 3)
+		if (options.verbosity > VERB_DEFAULT)
 		log_event("- Trying length %d, fixed @%d, character count %d",
 		    length + 1, fixed + 1, counts[length][fixed] + 1);
 

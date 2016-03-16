@@ -482,6 +482,7 @@ linux-x86-64-clang:
 		CFLAGS="-Wall -c -O2 -I/usr/include -msse2 -DHAVE_CRYPT -DHAVE_LIBDL $(HAVE_LIBGMP) $(JOHN_CFLAGS)" \
 		LDFLAGS="$(LDFLAGS) -lcrypt -ldl" \
 		CPP="clang" CC="clang" AS="clang" LD="clang" CXX="clang++" \
+		OPT_INLINE="$(OPT_NORMAL)" \
 		AESNI_ARCH=64 YASM_FORMAT="elf64"
 	@echo "Failing after this point just means some helper tools did not build:"
 	$(MAKE_ORIG) $(PROJ_PCAP) CC="clang"
@@ -727,6 +728,7 @@ linux-x86-clang:
 		CFLAGS="-Wall -c -O2 -I/usr/include -msse2 -DHAVE_CRYPT -DHAVE_LIBDL -D_LARGEFILE64_SOURCE $(HAVE_LIBGMP) $(OMPFLAGS) $(JOHN_CFLAGS)" \
 		LDFLAGS="$(LDFLAGS) -lcrypt -ldl" \
 		CPP="clang" CC="clang" AS="clang" LD="clang" CXX="clang++" \
+		OPT_INLINE="$(OPT_NORMAL)" \
 		AESNI_ARCH=86 YASM_FORMAT="elf32"
 	@echo "Failing after this point just means some helper tools did not build:"
 	$(MAKE_ORIG) $(PROJ_PCAP) CC="clang"
@@ -2093,8 +2095,8 @@ john.com: john.asm
 ../run/uaf2john: uaf2john.o uaf_encode.o
 	$(LD) $(LDFLAGS) uaf2john.o uaf_encode.o memdbg.o $(OMPFLAGS) -o ../run/uaf2john
 
-../run/wpapcap2john: wpapcap2john.o
-	$(LD) $(LDFLAGS) wpapcap2john.o memdbg.o $(OMPFLAGS) -o ../run/wpapcap2john
+../run/wpapcap2john: wpapcap2john.o jumbo.o memdbg.o
+	$(LD) $(LDFLAGS) wpapcap2john.o jumbo.o memdbg.o $(OMPFLAGS) -o ../run/wpapcap2john
 
 ../run/luks2john: luks2john.c
 	$(CC) -D_JOHN_MISC_NO_LOG luks2john.c base64_convert.c common.c memory.c memdbg.c misc.c base64.c jumbo.c -o ../run/luks2john

@@ -230,7 +230,7 @@ static
 #ifndef __SUNPRO_C
 inline
 #endif
-int utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
+int _utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
                             unsigned int sourceLen)
 {
 	const UTF16 *targetStart = target;
@@ -329,6 +329,11 @@ int utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
 	return (target - targetStart);
 }
 
+/* external function */
+int utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
+                            unsigned int sourceLen) {
+	return _utf8_to_utf16_be(target, len, source, sourceLen);
+}
 /*
  * Convert from current encoding to UTF-16LE regardless of system arch
  *
@@ -418,7 +423,7 @@ int enc_to_utf16_be(UTF16 *dst, unsigned int maxdstlen, const UTF8 *src,
 			return i;
 	} else {
 #endif
-		return utf8_to_utf16_be(dst, maxdstlen, src, srclen);
+		return _utf8_to_utf16_be(dst, maxdstlen, src, srclen);
 #ifndef UNICODE_NO_OPTIONS
 	}
 #endif
@@ -472,25 +477,7 @@ inline unsigned int strlen8(const UTF8 *source)
 	return targetLen;
 }
 
-/*
- * Check if a string is valid UTF-8.  Returns true if the string is valid
- * UTF-8 encoding, including pure 7-bit data or an empty string.
- *
- * The probability of a random string of bytes which is not pure ASCII being
- * valid UTF-8 is 3.9% for a two-byte sequence, and decreases exponentially
- * for longer sequences.  ISO/IEC 8859-1 is even less likely to be
- * mis-recognized as UTF-8:  The only non-ASCII characters in it would have
- * to be in sequences starting with either an accented letter or the
- * multiplication symbol and ending with a symbol.
- *
- * returns   0 if data is not valid UTF-8
- * returns   1 if data is pure ASCII (which is obviously valid)
- * returns > 1 if data is valid and in fact contains UTF-8 sequences
- *
- * Actually in the last case, the return is the number of proper UTF-8
- * sequences, so it can be used as a quality measure. A low number might be
- * a false positive, a high number most probably isn't.
- */
+/* Check if a string is valid UTF-8 */
 int valid_utf8(const UTF8 *source)
 {
 	UTF8 a;
@@ -515,15 +502,14 @@ int valid_utf8(const UTF8 *source)
 		case 3:
 			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
 		case 2:
-			if ((a = (*--srcptr)) > 0xBF) return 0;
+			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
 
 			switch (*source) {
 				/* no fall-through in this inner switch */
 			case 0xE0: if (a < 0xA0) return 0; break;
 			case 0xED: if (a > 0x9F) return 0; break;
 			case 0xF0: if (a < 0x90) return 0; break;
-			case 0xF4: if (a > 0x8F) return 0; break;
-			default:   if (a < 0x80) return 0;
+			case 0xF4: if (a > 0x8F) return 0;
 			}
 
 		case 1:
@@ -1078,7 +1064,7 @@ void initUnicode(int type)
 	if (UnicodeType == type && UnicodeInited == options.unicode_cp)
 		return;
 
-	if (options.verbosity >= 5) {
+	if (options.verbosity == VERB_MAX) {
 		fprintf(stderr, "%s(%s, %s/%s)\n", __FUNCTION__,
 		        type == 1 ? "MS_OLD" :
 		        type == 2 ? "MS_NEW" : "UNICODE",

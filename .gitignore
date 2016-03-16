@@ -5,6 +5,7 @@
 *.pot
 *.rec
 *.rej
+*.tmp
 *~
 
 *.o
@@ -71,6 +72,7 @@ src/dyna-comp.in
 src/dyna-comp.pot
 src/dyna-comp.rec
 src/dynamic_big_crypt.c
+src/escrypt/tests
 src/fmt_externs.h
 src/fmt_registers.h
 src/generic.h
@@ -79,5 +81,6 @@ src/memdbg_defines.h
 src/stamp-h1
 src/version.h
 src/version.h.new
+src/restore_tester_fmt_plug.c
 
 test/

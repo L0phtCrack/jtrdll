@@ -67,7 +67,7 @@
 #if __AVX512F__
 #define MD5_I(x,y,z)                            \
     tmp[i] = vternarylogic(x[i], y[i], z[i], 0x39);
-#elif __ARM_NEON__
+#elif __ARM_NEON
 #define MD5_I(x,y,z)                            \
     tmp[i] = vorn((x[i]), (z[i]));              \
     tmp[i] = vxor((tmp[i]), (y[i]));
@@ -131,7 +131,7 @@ void SIMDmd5body(vtype* _data, unsigned int *out,
 	unsigned int i;
 	vtype *data;
 
-#if !__AVX512F__ && !__ARM_NEON__
+#if !__AVX512F__ && !__ARM_NEON
 	vtype mask;
 	mask = vset1_epi32(0xffffffff);
 #endif
@@ -435,7 +435,7 @@ static MAYBE_INLINE void mmxput2(void *buf, unsigned int bid, void *src)
 		memcpy( nbuf+i*64*VS32, ((unsigned char*)src)+i*16*VS32, 16*VS32);
 }
 
-#if (ARCH_SIZE >= 8) || defined(__i386__) || defined(__ARM_NEON__)
+#if (ARCH_SIZE >= 8) || defined(__i386__) || defined(__ARM_NEON)
 #define BITALIGN(hi, lo, s) ((((uint64_t)(hi) << 32) | (lo)) >> (s))
 #else
 #define BITALIGN(hi, lo, s) (((hi) << (32 - (s))) | ((lo) >> (s)))
@@ -1193,7 +1193,7 @@ void SIMDmd4body(vtype* _data, unsigned int *out, ARCH_WORD_32 *reload_state,
         e[i] = vadd_epi32( e[i], w[i*16+(t&0xF)] ); \
         b[i] = vroti_epi32(b[i], 30);               \
     }
-
+#define INIT_D 0x10325476
 #define INIT_E 0xC3D2E1F0
 
 void sha1_reverse(uint32_t *hash)
@@ -1208,6 +1208,19 @@ void sha1_unreverse(uint32_t *hash)
 	hash[4] += INIT_E;
 }
 
+void sha1_reverse3(uint32_t *hash)
+{
+	hash[3] -= INIT_D;
+	hash[3]  = (hash[3] << 2) | (hash[3] >> 30);
+}
+
+void sha1_unreverse3(uint32_t *hash)
+{
+	hash[3]  = (hash[3] << 30) | (hash[3] >> 2);
+	hash[3] += INIT_D;
+}
+
+#undef INIT_D
 #undef INIT_E
 
 void SIMDSHA1body(vtype* _data, ARCH_WORD_32 *out, ARCH_WORD_32 *reload_state,
@@ -1436,6 +1449,16 @@ void SIMDSHA1body(vtype* _data, ARCH_WORD_32 *out, ARCH_WORD_32 *reload_state,
 	}
 
 	SHA1_ROUND2x( e, a, b, c, d, SHA1_I, 76 );
+
+	if (SSEi_flags & SSEi_REVERSE_3STEPS)
+	{
+		SHA1_PARA_DO(i)
+		{
+			vstore((vtype*)&out[i*5*VS32+3*VS32], d[i]);
+		}
+		return;
+	}
+
 	SHA1_ROUND2x( d, e, a, b, c, SHA1_I, 77 );
 	SHA1_ROUND2x( c, d, e, a, b, SHA1_I, 78 );
 	SHA1_ROUND2x( b, c, d, e, a, SHA1_I, 79 );

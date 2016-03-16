@@ -29,9 +29,14 @@
 #endif
 
 #include "arch.h"
+#include "params.h"
+
+#if CRK_PREFETCH && defined(__SSE__)
+#include <xmmintrin.h>
+#endif
+
 #include "misc.h"
 #include "jtrmath.h"
-#include "params.h"
 #include "memory.h"
 #include "signals.h"
 #include "idle.h"
@@ -55,9 +60,6 @@
 #include "jumbo.h"
 #if HAVE_LIBDL && defined(HAVE_CUDA) || defined(HAVE_OPENCL)
 #include "common-gpu.h"
-#endif
-#if CRK_PREFETCH && defined(__SSE2__)
-#include <emmintrin.h>
 #endif
 #include "memdbg.h"
 
@@ -425,6 +427,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 static char *crk_loaded_counts(void)
 {
 	static char s_loaded_counts[80];
+	char nbuf[24];
 
 	if (crk_db->password_count == 0)
 		return "No remaining hashes";
@@ -433,11 +436,10 @@ static char *crk_loaded_counts(void)
 		return "Remaining 1 hash";
 
 	sprintf(s_loaded_counts,
-		crk_db->salt_count > 1 ?
-		"Remaining %d hashes with %d different salts" :
-		"Remaining %d hashes with no different salts",
+		"Remaining %d hashes with %s different salts",
 		crk_db->password_count,
-		crk_db->salt_count);
+		crk_db->salt_count > 1 ?
+		jtr_itoa(crk_db->salt_count, nbuf, 24, 10) : "no");
 
 	return s_loaded_counts;
 }
@@ -593,7 +595,7 @@ int crk_reload_pot(void)
 		log_event("+ pot sync removed %d hashes; %s",
 		          others, crk_loaded_counts());
 
-	if (others && options.verbosity > 3) {
+	if (others && options.verbosity > VERB_DEFAULT) {
 		if (options.node_count)
 			fprintf(stderr, "%u: %s\n",
 			        options.node_min, crk_loaded_counts());
@@ -722,6 +724,7 @@ static int crk_process_event(void)
 
 static int crk_password_loop(struct db_salt *salt)
 {
+	void ext_hybrid_fix_state(void);
 	int count;
 	unsigned int match, index;
 #if CRK_PREFETCH
@@ -736,6 +739,8 @@ static int crk_password_loop(struct db_salt *salt)
 
 	if (event_pending && crk_process_event())
 		return -1;
+
+	ext_hybrid_fix_state();
 
 	count = crk_key_index;
 	match = crk_methods.crypt_all(&count, salt);
@@ -788,7 +793,7 @@ static int crk_password_loop(struct db_salt *salt)
 			unsigned int *b = &salt->bitmap[h / (sizeof(*salt->bitmap) * 8)];
 			a[slot].i = h;
 			a[slot].u.b = b;
-#ifdef __SSE2__
+#ifdef __SSE__
 			_mm_prefetch((const char *)b, _MM_HINT_NTA);
 #else
 			*(volatile unsigned int *)b;
@@ -799,7 +804,7 @@ static int crk_password_loop(struct db_salt *salt)
 			unsigned int h = a[slot].i;
 			if (*a[slot].u.b & (1U << (h % (sizeof(*salt->bitmap) * 8)))) {
 				struct db_password **pwp = &salt->hash[h >> PASSWORD_HASH_SHR];
-#ifdef __SSE2__
+#ifdef __SSE__
 				_mm_prefetch((const char *)pwp, _MM_HINT_NTA);
 #else
 				*(void * volatile *)pwp;
@@ -816,9 +821,9 @@ static int crk_password_loop(struct db_salt *salt)
 /*
  * Chances are this will also prefetch the next_hash field and the actual
  * binary (pointed to by the binary field, but likely located right after
- * this struct.
+ * this struct).
  */
-#ifdef __SSE2__
+#ifdef __SSE__
 			_mm_prefetch((const char *)&pw->binary, _MM_HINT_NTA);
 #else
 			*(void * volatile *)&pw->binary;

@@ -6260,8 +6260,8 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
    # clang warnings
      if test "1" = 1; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -Wno-format-extra-args" >&5
-$as_echo_n "checking if $CC supports -Wno-format-extra-args... " >&6; }
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports -Wformat-extra-args" >&5
+$as_echo_n "checking if $CC supports -Wformat-extra-args... " >&6; }
 fi
   ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
@@ -6270,7 +6270,7 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
   ac_saved_cflags="$CFLAGS"
-  CFLAGS="-Werror -Wno-format-extra-args"
+  CFLAGS="-Werror -Wformat-extra-args"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -6287,7 +6287,53 @@ if ac_fn_c_try_compile "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 fi
-      CFLAGS_EX="$CFLAGS_EX -Wno-format-extra-args"
+      CFLAGS_EX="$CFLAGS_EX -Wformat-extra-args"
+
+else
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+  CFLAGS="$ac_saved_cflags"
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+
+     if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking if $CC supports  -Wunused-but-set-variable" >&5
+$as_echo_n "checking if $CC supports  -Wunused-but-set-variable... " >&6; }
+fi
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+  ac_saved_cflags="$CFLAGS"
+  CFLAGS="-Werror  -Wunused-but-set-variable"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  if test "1" = 1; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+fi
+      CFLAGS_EX="$CFLAGS_EX  -Wunused-but-set-variable"
 
 else
   if test "1" = 1; then :
@@ -10069,11 +10115,11 @@ LIBS=""
 using_rexgen=no
 # Check for rexgen only if rexgen wanted
 if test "x$enable_rexgen" != xno ; then
-	ac_fn_c_check_header_mongrel "$LINENO" "librexgen/c/librexgen.h" "ac_cv_header_librexgen_c_librexgen_h" "$ac_includes_default"
-if test "x$ac_cv_header_librexgen_c_librexgen_h" = xyes; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing c_simplestring_new" >&5
-$as_echo_n "checking for library containing c_simplestring_new... " >&6; }
-if ${ac_cv_search_c_simplestring_new+:} false; then :
+  ac_fn_c_check_header_mongrel "$LINENO" "librexgen/version.h" "ac_cv_header_librexgen_version_h" "$ac_includes_default"
+if test "x$ac_cv_header_librexgen_version_h" = xyes; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing rexgen_version_int" >&5
+$as_echo_n "checking for library containing rexgen_version_int... " >&6; }
+if ${ac_cv_search_rexgen_version_int+:} false; then :
   $as_echo_n "(cached) " >&6
 else
   ac_func_search_save_LIBS=$LIBS
@@ -10086,11 +10132,11 @@ cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 #ifdef __cplusplus
 extern "C"
 #endif
-char c_simplestring_new ();
+char rexgen_version_int ();
 int
 main ()
 {
-return c_simplestring_new ();
+return rexgen_version_int ();
   ;
   return 0;
 }
@@ -10103,37 +10149,57 @@ for ac_lib in '' rexgen librexgen; do
     LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
   fi
   if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_c_simplestring_new=$ac_res
+  ac_cv_search_rexgen_version_int=$ac_res
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext
-  if ${ac_cv_search_c_simplestring_new+:} false; then :
+  if ${ac_cv_search_rexgen_version_int+:} false; then :
   break
 fi
 done
-if ${ac_cv_search_c_simplestring_new+:} false; then :
+if ${ac_cv_search_rexgen_version_int+:} false; then :
 
 else
-  ac_cv_search_c_simplestring_new=no
+  ac_cv_search_rexgen_version_int=no
 fi
 rm conftest.$ac_ext
 LIBS=$ac_func_search_save_LIBS
 fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_c_simplestring_new" >&5
-$as_echo "$ac_cv_search_c_simplestring_new" >&6; }
-ac_res=$ac_cv_search_c_simplestring_new
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_rexgen_version_int" >&5
+$as_echo "$ac_cv_search_rexgen_version_int" >&6; }
+ac_res=$ac_cv_search_rexgen_version_int
 if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  if test "$cross_compiling" = yes; then :
+  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error $? "cannot run test program while cross compiling
+See \`config.log' for more details" "$LINENO" 5; }
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+int main() { return ! (rexgen_version_int() >= 0x010300); }
+_ACEOF
+if ac_fn_c_try_run "$LINENO"; then :
   using_rexgen=yes
+fi
+rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+  conftest.$ac_objext conftest.beam conftest.$ac_ext
+fi
+
+
+fi
+
+
+fi
+
+
+  if test "x$using_rexgen" == "xyes" ; then
 
 $as_echo "#define HAVE_LIBREXGEN 1" >>confdefs.h
 
-fi
-
-fi
-
-
-	REXGEN_LIBS=$LIBS
+  fi
+  REXGEN_LIBS=$LIBS
 
 else
   { $as_echo "$as_me:${as_lineno-$LINENO}: rexgen check not enabled" >&5
@@ -13739,9 +13805,11 @@ fi
 M4_INCLUDES=`echo m4/*.m4`
 
 
-# Handle --prefix -> JOHN_SYSTEMWIDE_EXEC
+# Handle --prefix -> JOHN_SYSTEMWIDE
+# A prefix of /usr/local will mean execs in /usr/local/bin and the rest
+# in /usr/local/share/john
 if test $prefix != "../run" && test $prefix != "NONE" ; then :
-  CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix\"'"
+  CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix/bin\"' -DJOHN_SYSTEMWIDE_HOME='\"$prefix/share/john\"'"
 else
   if test $with_systemwide != no; then :
   CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE"

@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-99,2003,2005,2009,2010,2012 by Solar Designer
+ * Copyright (c) 1996-99,2003,2005,2009,2010,2015 by Solar Designer
  *
  * With heavy changes in Jumbo, by JimF and magnum
  */
@@ -1309,72 +1309,6 @@ accept:
 	return out_rule;
 }
 
-static MAYBE_INLINE int rules_valid_utf8(UTF8 *source)
-{
-	UTF8 a;
-	int length;
-	const UTF8 *srcptr;
-
-	while (*source) {
-		if (*source < 0x80) {
-			source++;
-			continue;
-		}
-
-		length = opt_trailingBytesUTF8[*source & 0x3f] + 1;
-		srcptr = source + length;
-
-		switch (length) {
-		default:
-			return 0;
-			/* Everything else falls through when valid */
-		case 4:
-			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-		case 3:
-			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-		case 2:
-			if ((a = (*--srcptr)) > 0xBF) return 0;
-
-			switch (*source) {
-				/* no fall-through in this inner switch */
-			case 0xE0:
-				if (a < 0xA0) return 0;
-				break;
-			case 0xED:
-				if (a > 0x9F) return 0;
-				break;
-			case 0xF0:
-				if (a < 0x90) return 0;
-				break;
-			case 0xF4:
-				if (a > 0x8F) return 0;
-				break;
-			default:
-				if (a < 0x80) return 0;
-			}
-
-		case 1:
-			if (*source >= 0x80 && *source < 0xC2) return 0;
-		}
-		if (*source > 0xF4)
-			return 0;
-
-		source += length;
-	}
-	return 1;
-}
-
-static char* rules_cp_to_utf8(char *in)
-{
-	static char out[PLAINTEXT_BUFFER_SIZE + 1];
-
-	if (!(options.flags & FLG_MASK_STACKED) &&
-	    options.internal_cp != UTF_8 && options.target_enc == UTF_8)
-		return cp_to_utf8_r(in, out, rules_max_length);
-
-	return in;
-}
-
 char *rules_apply(char *word_in, char *rule, int split, char *last)
 {
 	char cpword[PLAINTEXT_BUFFER_SIZE + 1];
@@ -1925,7 +1859,7 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 			break;
 
 		case 'U':
-			if (!rules_valid_utf8((UTF8*)in))
+			if (!valid_utf8((UTF8*)in))
 				REJECT
 			break;
 
@@ -2052,23 +1986,31 @@ out_OK:
 	if (maxlength)
 		if (length > maxlength)
 			return NULL;
+	if (!(options.flags & FLG_MASK_STACKED) &&
+	    options.internal_cp != UTF_8 && options.target_enc == UTF_8) {
+		char out[PLAINTEXT_BUFFER_SIZE + 1];
+
+		strcpy(in, cp_to_utf8_r(in, out, rules_max_length));
+		length = strlen(in);
+	}
+
 	if (last) {
 		if (length > rules_max_length)
 			length = rules_max_length;
 		if (length >= ARCH_SIZE - 1) {
 			if (*(ARCH_WORD *)in != *(ARCH_WORD *)last)
-				return rules_cp_to_utf8(in);
+				return in;
 			if (strcmp(&in[ARCH_SIZE - 1], &last[ARCH_SIZE - 1]))
-				return rules_cp_to_utf8(in);
+				return in;
 			return NULL;
 		}
 		if (last[length])
-			return rules_cp_to_utf8(in);
+			return in;
 		if (memcmp(in, last, length))
-			return rules_cp_to_utf8(in);
+			return in;
 		return NULL;
 	}
-	return rules_cp_to_utf8(in);
+	return in;
 
 out_which:
 	if (which == 1) {

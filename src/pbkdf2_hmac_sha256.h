@@ -130,11 +130,7 @@ static void pbkdf2_sha256(const unsigned char *K, int KL, unsigned char *S, int 
 	while (loop <= loops) {
 		_pbkdf2_sha256(S,SL,R,tmp.x32,loop,&ipad,&opad);
 		for (i = skip_bytes%SHA256_DIGEST_LENGTH; i < SHA256_DIGEST_LENGTH && accum < outlen; i++) {
-#if ARCH_LITTLE_ENDIAN
 			out[accum++] = ((uint8_t*)tmp.out)[i];
-#else
-			out[accum++] = ((uint8_t*)tmp.out)[i^3];
-#endif
 		}
 		loop++;
 		skip_bytes = 0;
@@ -143,7 +139,7 @@ static void pbkdf2_sha256(const unsigned char *K, int KL, unsigned char *S, int 
 
 #endif
 
-#ifdef SIMD_COEF_32
+#if defined (SIMD_COEF_32) && !defined(OPENCL_FORMAT)
 
 #ifndef __JTR_SHA2___H_
 // we MUST call our sha2.c functions, to know the layout.  Since it is possible that apple's CommonCrypto lib could
@@ -292,7 +288,7 @@ static void pbkdf2_sha256_sse(const unsigned char *K[SSE_GROUP_SZ_SHA256], int K
 		}
 
 		// Here is the inner loop.  We loop from 1 to count.  iteration 0 was done in the ipad/opad computation.
-		for(i = 1; i < R; i++) {
+		for(i = 1; i < (unsigned)R; i++) {
 			unsigned int k;
 			SIMDSHA256body(o1,o1,i1, SSEi_MIXED_IN|SSEi_RELOAD|SSEi_OUTPUT_AS_INP_FMT);
 			SIMDSHA256body(o1,o1,i2, SSEi_MIXED_IN|SSEi_RELOAD|SSEi_OUTPUT_AS_INP_FMT);

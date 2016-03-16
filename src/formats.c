@@ -198,7 +198,7 @@ static char* is_key_right(struct fmt_main *format, int index,
 	void *binary, char *ciphertext, char *plaintext,
 	int is_test_fmt_case, struct db_salt *dbsalt)
 {
-	static char err_buf[100];
+	static char err_buf[200];
 	int i, size, count, match, len;
 	char *key;
 
@@ -210,7 +210,10 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if ((match && !format->methods.cmp_all(binary, match)) ||
 	    (!match && format->methods.cmp_all(binary, match))) {
-		sprintf(err_buf, "cmp_all(%d)", match);
+		if (options.verbosity > VERB_DEFAULT)
+			snprintf(err_buf, sizeof(err_buf), "cmp_all(%d) %s", match, ciphertext);
+		else
+			sprintf(err_buf, "cmp_all(%d)", match);
 		return err_buf;
 	}
 
@@ -220,7 +223,10 @@ static char* is_key_right(struct fmt_main *format, int index,
 	}
 
 	if (i == -1) {
-		sprintf(err_buf, "cmp_one(%d)", match);
+		if (options.verbosity > VERB_DEFAULT)
+			snprintf(err_buf, sizeof(err_buf), "cmp_one(%d) %s", match, ciphertext);
+		else
+			sprintf(err_buf, "cmp_one(%d)", match);
 		return err_buf;
 	}
 
@@ -228,35 +234,42 @@ static char* is_key_right(struct fmt_main *format, int index,
 	if (format->methods.binary_hash[size] &&
 	    format->methods.get_hash[size](i) !=
 	    format->methods.binary_hash[size](binary)) {
-#ifndef DEBUG
-		sprintf(err_buf, "get_hash[%d](%d) %x!=%x", size,
-			index, format->methods.get_hash[size](index),
-			format->methods.binary_hash[size](binary));
-#else
-		// Dump out as much as possible (up to 3 full bytes). This can
-		// help in trying to track down problems, like needing to SWAP
-		// the binary or other issues, when doing BE ports.  Here
-		// PASSWORD_HASH_SIZES is assumed to be 7. This loop will max
-		// out at 6, in that case (i.e. 3 full bytes).
-		int maxi=size;
-		while (maxi+2 < PASSWORD_HASH_SIZES && format->methods.binary_hash[maxi]) {
-			if (format->methods.binary_hash[++maxi] == NULL) {
-				--maxi;
-				break;
+    		if (options.verbosity > VERB_DEFAULT) {
+			// Dump out as much as possible (up to 3 full bytes). This can
+			// help in trying to track down problems, like needing to SWAP
+			// the binary or other issues, when doing BE ports.  Here
+			// PASSWORD_HASH_SIZES is assumed to be 7. This loop will max
+			// out at 6, in that case (i.e. 3 full bytes).
+			int maxi=size;
+			while (maxi+2 < PASSWORD_HASH_SIZES && format->methods.binary_hash[maxi]) {
+				if (format->methods.binary_hash[++maxi] == NULL) {
+					--maxi;
+					break;
+				}
 			}
-		}
-		if (format->methods.get_hash[maxi] && format->methods.binary_hash[maxi])
-			sprintf(err_buf, "get_hash[%d](%d) %x!=%x", size, index,
-			        format->methods.get_hash[maxi](index),
-			        format->methods.binary_hash[maxi](binary));
+			if (format->methods.get_hash[maxi] && format->methods.binary_hash[maxi])
+				sprintf(err_buf, "get_hash[%d](%d) %x!=%x %s", size, index,
+					format->methods.get_hash[maxi](index),
+					format->methods.binary_hash[maxi](binary),
+					ciphertext);
 			else
-				sprintf(err_buf, "get_hash[%d](%d)", size, index);
-#endif
-			return err_buf;
+				sprintf(err_buf, "get_hash[%d](%d) %x!=%x %s", size,
+					index, format->methods.get_hash[size](index),
+					format->methods.binary_hash[size](binary),
+					ciphertext);
+		} else {
+			sprintf(err_buf, "get_hash[%d](%d) %x!=%x", size,
+				index, format->methods.get_hash[size](index),
+				format->methods.binary_hash[size](binary));
+		}
+		return err_buf;
 	}
 
 	if (!format->methods.cmp_exact(ciphertext, i)) {
-		sprintf(err_buf, "cmp_exact(%d)", i);
+		if (options.verbosity > VERB_DEFAULT)
+			snprintf(err_buf, sizeof(err_buf), "cmp_exact(%d) %s", match, ciphertext);
+		else
+			sprintf(err_buf, "cmp_exact(%d)", i);
 		return err_buf;
 	}
 
@@ -265,6 +278,12 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if (len < format->params.plaintext_min_length ||
 		len > format->params.plaintext_length) {
+		if (options.verbosity > VERB_DEFAULT)
+		snprintf(err_buf, sizeof(err_buf), "The length of string returned by get_key() is %d"
+			"which should be between plaintext_min_length=%d and plaintext_length=%d %s",
+			len, format->params.plaintext_min_length,
+			format->params.plaintext_length, key);
+		else
 		sprintf(err_buf, "The length of string returned by get_key() is %d"
 			"which should be between plaintext_min_length=%d and plaintext_length=%d",
 			len, format->params.plaintext_min_length,
@@ -277,17 +296,21 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if (format->params.flags & FMT_CASE) {
 		// Case-sensitive passwords
-		if (strncmp(key, plaintext, format->params.plaintext_length)) 
-		{
-			sprintf(err_buf, "get_key(%d)", i);
+		if (strncmp(key, plaintext, format->params.plaintext_length)) {
+			if (options.verbosity > VERB_DEFAULT)
+				snprintf(err_buf, sizeof(err_buf), "get_key(%d) (case) %s %s", i, key, plaintext);
+			else
+				sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
 	} else {
 		// Case-insensitive passwords
 		if (strncasecmp(key, plaintext,
-			format->params.plaintext_length)) 
-		{
-			sprintf(err_buf, "get_key(%d)", i);
+			format->params.plaintext_length)) {
+			if (options.verbosity > VERB_DEFAULT)
+				snprintf(err_buf, sizeof(err_buf), "get_key(%d) (no case) %s %s", i, key, plaintext);
+			else
+				sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
 	}
@@ -370,7 +393,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	while ((current++)->ciphertext)
 		ntests++;
 	current = format->params.tests;
-#ifdef _MSC_VER
+#if defined (_MSC_VER) && !defined (BENCH_BUILD)
 	if (current->ciphertext[0] == 0 &&
 	    !strcasecmp(format->params.label, "LUKS")) {
 		// luks has a string that is longer than the 64k max string length of
@@ -516,7 +539,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 						*p = 0;
 						// $tag$ only
 						if (format->methods.valid(k, format)) {
-							sprintf(s_size, "promiscuous valid (%s)", k);
+							snprintf(s_size, sizeof(s_size), "promiscuous valid (%s)", k);
 							return s_size;
 						}
 						*p = '$';
@@ -711,6 +734,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		    format->methods.source(ciphertext, binary))) {
 			return "source";
 		}
+#ifndef BENCH_BUILD
 		if ((dbsalt = db->salts))
 		do {
 			if (!dyna_salt_cmp(salt, dbsalt->salt,
@@ -720,6 +744,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		if (db->salts && !dbsalt) {
 			return "Could not find salt in db - salt() return inconsistent?";
 		}
+#endif
 #endif
 #ifndef JUMBO_JTR
 		format->methods.set_key(current->plaintext, index);
@@ -1163,7 +1188,7 @@ static void get_longest_common_string(char *fstr, char *sstr, int *first_index,
  */
 static void test_fmt_split_unifies_case(struct fmt_main *format, char *ciphertext, int *is_split_unifies_case, int call_cnt)
 {
-	char *cipher_copy, *ret, *bin_hex, *ret_copy=0;
+	char *cipher_copy, *ret, *bin_hex=0, *ret_copy=0;
 	void *bin;
 	int first_index, second_index, size, index;
 	int change_count = 0;
@@ -1189,7 +1214,7 @@ static void test_fmt_split_unifies_case(struct fmt_main *format, char *ciphertex
 		ret_copy = strdup(ret);
 		bin = format->methods.binary(ret_copy);
 		if (format->params.binary_size>4) {
-			bin_hex = mem_alloc(format->params.binary_size*2 + 4);
+			bin_hex = mem_alloc(format->params.binary_size*2+1);
 			base64_convert(bin, e_b64_raw, format->params.binary_size, bin_hex, e_b64_hex, format->params.binary_size*2+1, 0);
 			cp = strstr(ret_copy, bin_hex);
 			strupr(bin_hex);
@@ -1213,7 +1238,7 @@ static void test_fmt_split_unifies_case(struct fmt_main *format, char *ciphertex
 			MEM_FREE(bin_hex);
 		}
 		if (format->params.salt_size>4 && format->params.salt_size < strlen(ret_copy)-10) {
-			bin_hex = mem_alloc(format->params.salt_size*2 + 4);
+			bin_hex = mem_alloc(format->params.salt_size*2+1);
 			bin = format->methods.salt(ret_copy);
 			dyna_salt_create(bin);
 			base64_convert(bin, e_b64_raw, format->params.salt_size, bin_hex, e_b64_hex, format->params.salt_size*2+1, 0);

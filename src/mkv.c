@@ -109,6 +109,11 @@ static int show_pwd_rnbs(struct db_main *db, struct s_pwd *pwd)
 				mkv_hybrid_fix_state();
 			} else
 #endif
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
 			if (options.mask) {
 				if (do_mask_crack(pass))
 					return 1;
@@ -170,6 +175,11 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 				mkv_hybrid_fix_state();
 			} else
 #endif
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
 			if (options.mask) {
 				if (do_mask_crack(pass))
 					return 1;
@@ -205,6 +215,11 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 				mkv_hybrid_fix_state();
 			} else
 #endif
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
 			if (options.mask) {
 				if (do_mask_crack(pass))
 					return 1;
@@ -256,6 +271,11 @@ static int show_pwd(struct db_main *db, unsigned long long start)
 					mkv_hybrid_fix_state();
 				} else
 #endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				} else
 				if (options.mask) {
 					if (do_mask_crack(pass))
 						return 1;
@@ -288,6 +308,11 @@ static int show_pwd(struct db_main *db, unsigned long long start)
 				mkv_hybrid_fix_state();
 			} else
 #endif
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
 			if (options.mask) {
 				if (do_mask_crack(pass))
 					return 1;

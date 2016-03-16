@@ -15,6 +15,7 @@
 #include <unistd.h>
 #endif
 
+#include "params.h"
 #include "unicode.h"
 #include "memdbg.h"
 
@@ -47,73 +48,6 @@ static inline char *skip_bom(char *string)
 	if (!memcmp(string, "\xEF\xBB\xBF", 3))
 		string += 3;
 	return string;
-}
-
-/*
- * Check if a string is valid UTF-8.  Returns true if the string is valid
- * UTF-8 encoding, including pure 7-bit data or an empty string.
- *
- * The probability of a random string of bytes which is not pure ASCII being
- * valid UTF-8 is 3.9% for a two-byte sequence, and decreases exponentially
- * for longer sequences.  ISO/IEC 8859-1 is even less likely to be
- * mis-recognized as UTF-8:  The only non-ASCII characters in it would have
- * to be in sequences starting with either an accented letter or the
- * multiplication symbol and ending with a symbol.
- *
- * returns 0 if data is not valid UTF-8
- * returns 1 if data is pure ASCII (which is obviously valid)
- * returns >1 if data is valid and in fact contains UTF-8 sequences
- *
- * Actually in the last case, the return is the number of proper UTF-8
- * sequences, so it can be used as a quality measure. A low number might be
- * a false positive, a high number most probably isn't.
- */
-#define valid_utf8 _validut8
-static inline int valid_utf8(const UTF8 *source)
-{
-	UTF8 a;
-	int length, ret = 1;
-	const UTF8 *srcptr;
-
-	while (*source) {
-		if (*source < 0x80) {
-			source++;
-			continue;
-		}
-
-		length = opt_trailingBytesUTF8[*source & 0x3f] + 1;
-		srcptr = source + length;
-
-		switch (length) {
-		default:
-			return 0;
-			/* Everything else falls through when valid */
-		case 4:
-			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-		case 3:
-			if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-		case 2:
-			if ((a = (*--srcptr)) > 0xBF) return 0;
-
-			switch (*source) {
-				/* no fall-through in this inner switch */
-			case 0xE0: if (a < 0xA0) return 0; break;
-			case 0xED: if (a > 0x9F) return 0; break;
-			case 0xF0: if (a < 0x90) return 0; break;
-			case 0xF4: if (a > 0x8F) return 0; break;
-			default:   if (a < 0x80) return 0;
-			}
-
-		case 1:
-			if (*source >= 0x80 && *source < 0xC2) return 0;
-		}
-		if (*source > 0xF4)
-			return 0;
-
-		source += length;
-		ret++;
-	}
-	return ret;
 }
 
 static inline int valid_ansi(const UTF16 *source)
@@ -192,14 +126,14 @@ static int process_file(char *name)
 				}
 			}
 
-			if (options.verbosity > 4)
+			if (options.verbosity == VERB_MAX)
 				dump_stuff_msg(orig, orig, len);
 
 			plain = strchr(orig, ':');
 			if (potfile && plain) {
 				len -= (++plain - orig);
 				convin = plain;
-				if (options.verbosity > 4)
+				if (options.verbosity == VERB_MAX)
 					dump_stuff_msg(convin, convin, len);
 			} else
 				convin = skip_bom(orig);
@@ -224,7 +158,8 @@ static int process_file(char *name)
 
 					enc_to_utf16(u16, sizeof(u16), (UTF8*)convin, len);
 					out = (char*)utf16_to_utf8_r(u8buf, sizeof(u8buf), u16);
-					if (options.verbosity > 3 && strcmp(convin, out))
+					if (options.verbosity > VERB_DEFAULT &&
+					    strcmp(convin, out))
 						printf("%s -> ", orig);
 				}
 			} else if (valid > 1) {
@@ -248,11 +183,11 @@ static int process_file(char *name)
 					    !valid_utf8(u8))
 						break;
 					strcpy(dd, (char*)u8);
-					if (options.verbosity > 4)
+					if (options.verbosity == VERB_MAX)
 						fprintf(stderr, "Double-encoding\n");
 				}
 
-				if (options.verbosity > 3 &&
+				if (options.verbosity > VERB_DEFAULT &&
 				    strcmp(convin, out))
 					printf("%s => ", convin);
 			}
@@ -275,7 +210,7 @@ int main(int argc, char **argv)
 {
 	signed char c;
 
-	options.verbosity = 3;
+	options.verbosity = VERB_DEFAULT;
 
 	while ((c = getopt(argc, argv, "si:f:hldpn")) != -1) {
 		switch (c) {
@@ -327,7 +262,7 @@ int main(int argc, char **argv)
 	while (*argv) {
 		int ret;
 
-		if (options.verbosity > 3)
+		if (options.verbosity > VERB_DEFAULT)
 			printf("filename: %s\n", *argv);
 		ret = process_file(*argv++);
 		if (ret != EXIT_SUCCESS)

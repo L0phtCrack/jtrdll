@@ -392,7 +392,7 @@ static void episerver_set_key(char *_key, int index)
 		len += 2;
 		keybuf_word += SIMD_COEF_32;
 	}
-	*keybuf_word = (0x80 << 24);
+	*keybuf_word = (0x80U << 24);
 
 key_cleaning:
 	keybuf_word += SIMD_COEF_32;
@@ -432,7 +432,7 @@ static void episerver_set_key_CP(char *_key, int index)
 		len += 2;
 		keybuf_word += SIMD_COEF_32;
 	}
-	*keybuf_word = (0x80 << 24);
+	*keybuf_word = (0x80U << 24);
 
 key_cleaning:
 	keybuf_word += SIMD_COEF_32;
@@ -551,7 +551,7 @@ static void episerver_set_key_utf8(char *_key, int index)
 		keybuf_word += SIMD_COEF_32;
 	}
 	if (chh != 0x80 || len == (EFFECTIVE_SALT_SIZE>>1)) {
-		*keybuf_word = (0x80 << 24);
+		*keybuf_word = (0x80U << 24);
 		keybuf_word += SIMD_COEF_32;
 	}
 
@@ -584,10 +584,8 @@ static char *get_key(int index)
 /* report hash type: 1 SHA1, 2 SHA256 */
 static unsigned int hash_type(void *salt)
 {
-	struct custom_salt *my_salt;
+	struct custom_salt *my_salt = salt;
 
-	memset(&my_salt, 0, sizeof(my_salt));
-	my_salt = salt;
 	return (unsigned int) (1 + my_salt->version);
 }
 struct fmt_main fmt_episerver = {

@@ -231,7 +231,8 @@ fi
    # Silly OSX warnings
    JTR_FLAG_CHECK([-Wno-deprecated-declarations], 1)
    # clang warnings
-   JTR_FLAG_CHECK([-Wno-format-extra-args], 1)
+   JTR_FLAG_CHECK([-Wformat-extra-args], 1)
+   JTR_FLAG_CHECK([ -Wunused-but-set-variable], 1)
    #JTR_FLAG_CHECK([-Wno-unneeded-internal-declaration], 1)
    AS_IF([test "x$JTR_FLAG_Q_CHECK_WORKS" = xyes], [JTR_FLAG_CHECK([-Qunused-arguments],1)])
    # Justified and Ancient (see #1093)
@@ -476,11 +477,16 @@ LIBS=""
 using_rexgen=no
 # Check for rexgen only if rexgen wanted
 if test "x$enable_rexgen" != xno ; then
-	AC_CHECK_HEADER([librexgen/c/librexgen.h],
-	  [AC_SEARCH_LIBS([c_simplestring_new],[rexgen librexgen],
-		using_rexgen=yes
-		[AC_DEFINE(HAVE_LIBREXGEN,1,[Define to 1 if you have the `rexgen' library (-lrexgen).])])])
-	AC_SUBST(REXGEN_LIBS, [$LIBS])
+  AC_CHECK_HEADER([librexgen/version.h],
+    [AC_SEARCH_LIBS([rexgen_version_int],[rexgen librexgen],
+      [AC_TRY_RUN([int main() { return ! (rexgen_version_int() >= 0x010300); }],
+        [using_rexgen=yes])]
+    )]
+  )
+  if test "x$using_rexgen" == "xyes" ; then
+    AC_DEFINE(HAVE_LIBREXGEN,1,[Define to 1 if you have the `rexgen' library (-lrexgen).])
+  fi
+  AC_SUBST(REXGEN_LIBS, [$LIBS])
 else
   AC_MSG_NOTICE([rexgen check not enabled])
 fi
@@ -830,9 +836,11 @@ fi
 # code to create M4_INCLUDES (all ./m4/*.m4 )
 AC_SUBST([M4_INCLUDES],[`echo m4/*.m4`])
 
-# Handle --prefix -> JOHN_SYSTEMWIDE_EXEC
+# Handle --prefix -> JOHN_SYSTEMWIDE
+# A prefix of /usr/local will mean execs in /usr/local/bin and the rest
+# in /usr/local/share/john
 AS_IF([test $prefix != "../run" && test $prefix != "NONE" ],
-   [CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix\"'"],
+   [CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE -DJOHN_SYSTEMWIDE_EXEC='\"$prefix/bin\"' -DJOHN_SYSTEMWIDE_HOME='\"$prefix/share/john\"'"],
    [AS_IF([test $with_systemwide != no], [CFLAGS="$CFLAGS -DJOHN_SYSTEMWIDE"
    prefix=/usr/libexec/john])]
 )

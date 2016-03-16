@@ -11,6 +11,7 @@
 
 #include <ctype.h>
 
+#include "misc.h"	// error()
 #include "cuda_common.h"
 #include "options.h"
 #include "john.h"
@@ -82,8 +83,10 @@ void cuda_init()
 
 void cuda_done(void)
 {
+#if __linux__ && HAVE_LIBDL
 	if (nvml_lib)
 		nvmlShutdown();
+#endif
 }
 
 #endif

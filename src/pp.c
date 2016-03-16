@@ -940,53 +940,6 @@ static MAYBE_INLINE char *skip_bom(char *string)
   return string;
 }
 
-static MAYBE_INLINE int pp_valid_utf8(const UTF8 *source, const UTF8 *source_end)
-{
-  UTF8 a;
-  int length, ret = 1;
-  const UTF8 *srcptr;
-
-  while (source < source_end) {
-    if (*source < 0x80) {
-      source++;
-      continue;
-    }
-
-    length = opt_trailingBytesUTF8[*source & 0x3f] + 1;
-    srcptr = source + length;
-
-    switch (length) {
-    default:
-      return 0;
-      /* Everything else falls through when valid */
-    case 4:
-      if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-    case 3:
-      if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-    case 2:
-      if ((a = (*--srcptr)) > 0xBF) return 0;
-
-      switch (*source) {
-        /* no fall-through in this inner switch */
-      case 0xE0: if (a < 0xA0) return 0; break;
-      case 0xED: if (a > 0x9F) return 0; break;
-      case 0xF0: if (a < 0x90) return 0; break;
-      case 0xF4: if (a > 0x8F) return 0; break;
-      default:   if (a < 0x80) return 0;
-      }
-
-    case 1:
-      if (*source >= 0x80 && *source < 0xC2) return 0;
-    }
-    if (*source > 0xF4)
-      return 0;
-
-    source += length;
-    ret++;
-  }
-  return ret;
-}
-
 /* Sort-of fgets() but for a memory-mapped file. Updates len, returns pointer to string */
 static MAYBE_INLINE char *mgets(int *len)
 {
@@ -1369,7 +1322,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
         list_add(rule_list, rule);
         active_rules++;
 
-        if (options.verbosity > 3)
+        if (options.verbosity > VERB_DEFAULT)
         {
           if (strcmp(prerule, rule))
             log_event("- Rule #%d: '%.100s' accepted as '%.100s'",
@@ -1379,7 +1332,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                       rule_number + 1, prerule);
         }
       } else {
-        if (options.verbosity > 3)
+        if (options.verbosity > VERB_DEFAULT)
           log_event("- Rule #%d: '%.100s' rejected",
                     rule_number + 1, prerule);
       }
@@ -1574,7 +1527,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
     while (((1 << hash_log) < size) && hash_log < 27)
       hash_log++;
 
-    if (john_main_process && options.verbosity < 5)
+    if (john_main_process && options.verbosity < VERB_MAX)
       log_event("- Suppressing dupes");
 
     int in_max = MIN(IN_LEN_MAX, pw_max);
@@ -1598,7 +1551,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
       db_entry->uniq = uniq;
 
-      if (john_main_process && options.verbosity > 3)
+      if (john_main_process && options.verbosity > VERB_DEFAULT)
         log_event("- Dupe suppression len %d: hash size %u, "
                   "temporarily allocating "Zu" bytes", pw_len,
                   hash_size, sizeof(uniq_t) + hash_alloc * sizeof(uniq_data_t) +
@@ -1647,13 +1600,12 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
       input_len = in_superchop (input_buf);
 
     if (warn) {
-      const UTF8 *ep = (UTF8*)line + input_len;
       if (options.input_enc == UTF_8) {
-        if (!pp_valid_utf8((UTF8*)line, ep)) {
+        if (!valid_utf8((UTF8*)line)) {
           warn = 0;
           fprintf(stderr, "Warning: invalid UTF-8 seen reading %s\n", wordlist);
         }
-      } else if (line != input_buf || pp_valid_utf8((UTF8*)line, ep) > 1) {
+      } else if (line != input_buf || valid_utf8((UTF8*)line) > 1) {
         warn = 0;
         fprintf(stderr, "Warning: UTF-8 seen reading %s\n", wordlist);
       }
@@ -2281,6 +2233,11 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                 pp_hybrid_fix_state();
               } else
 #endif
+              if (f_new) {
+                if ((jtr_done = do_external_hybrid_crack(db, pw_buf)))
+                  break;
+                pp_hybrid_fix_state();
+              } else
               if (options.mask) {
                 if ((jtr_done = do_mask_crack(pw_buf)))
                   break;
@@ -2309,6 +2266,11 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                     pp_hybrid_fix_state();
                   } else
 #endif
+                  if (f_new) {
+                    if (do_external_hybrid_crack(db, word))
+                      break;
+                    pp_hybrid_fix_state();
+                  } else
                   if (options.mask) {
                     if ((jtr_done = do_mask_crack(word)))
                       break;

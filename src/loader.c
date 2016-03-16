@@ -58,6 +58,11 @@ extern struct fmt_main fmt_crypt;
 int ldr_in_pot = 0;
 
 /*
+ * If this is set, we are populating the test db
+ */
+static int ldr_loading_testdb = 0;
+
+/*
  * Flags for read_file().
  */
 #define RF_ALLOW_MISSING		1
@@ -209,26 +214,27 @@ void ldr_init_database(struct db_main *db, struct db_options *db_options)
 static void ldr_init_password_hash(struct db_main *db)
 {
 	int (*func)(void *binary);
-	int size = PASSWORD_HASH_SIZE_FOR_LDR;
-	size_t sz;
+	int size_num = PASSWORD_HASH_SIZE_FOR_LDR;
+	size_t size;
 
-	if (size >= 2 && mem_saving_level >= 2) {
-		size--;
+	if (size_num >= 2 && mem_saving_level >= 2) {
+		size_num--;
 		if (mem_saving_level >= 3)
-			size--;
+			size_num--;
 	}
 
 	do {
-		func = db->format->methods.binary_hash[size];
+		func = db->format->methods.binary_hash[size_num];
 		if (func && func != fmt_default_binary_hash)
 			break;
-	} while (--size >= 0);
-	if (size < 0)
-		size = 0;
+	} while (--size_num >= 0);
+	if (size_num < 0)
+		size_num = 0;
 	db->password_hash_func = func;
-	sz = (size_t)password_hash_sizes[size] * sizeof(struct db_password *);
-	db->password_hash = mem_alloc(sz);
-	memset(db->password_hash, 0, sz);
+	size = (size_t)password_hash_sizes[size_num] *
+		sizeof(struct db_password *);
+	db->password_hash = mem_alloc(size);
+	memset(db->password_hash, 0, size);
 }
 
 static char *ldr_get_field(char **ptr, char field_sep_char)
@@ -652,6 +658,10 @@ find_format:
 			if (alt->params.flags & FMT_WARNED)
 				continue;
 #ifdef HAVE_CRYPT
+#if 1 /* Jumbo has "all" crypt(3) formats implemented */
+			if (alt == &fmt_crypt)
+				continue;
+#else
 			if (alt == &fmt_crypt &&
 #ifdef __sun
 			    strncmp(*ciphertext, "$md5$", 5) &&
@@ -660,6 +670,7 @@ find_format:
 			    strncmp(*ciphertext, "$5$", 3) &&
 			    strncmp(*ciphertext, "$6$", 3))
 				continue;
+#endif
 #endif
 			prepared = alt->methods.prepare(fields, alt);
 			if (alt->methods.valid(prepared, alt)) {
@@ -693,6 +704,10 @@ find_format:
  * those that are only supported in that way.  Avoid the probe in other cases
  * because it may be slow and undesirable (false detection is possible).
  */
+#if 1 /* Jumbo has "all" crypt(3) formats implemented */
+		if (alt == &fmt_crypt && fmt_list != &fmt_crypt)
+			continue;
+#else
 		if (alt == &fmt_crypt &&
 		    fmt_list != &fmt_crypt /* not forced */ &&
 #ifdef __sun
@@ -702,6 +717,7 @@ find_format:
 		    strncmp(*ciphertext, "$5$", 3) &&
 		    strncmp(*ciphertext, "$6$", 3))
 			continue;
+#endif
 #endif
 
 		prepared = alt->methods.prepare(fields, alt);
@@ -1060,6 +1076,7 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	struct fmt_main fake_list;
 	struct db_main *testdb;
 	struct fmt_tests *current;
+	extern volatile int bench_running;
 
 	if (!(current = format->params.tests))
 		return NULL;
@@ -1071,12 +1088,14 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	testdb = mem_alloc(sizeof(struct db_main));
 
 	fmt_init(format);
+	dyna_salt_init(format);
 	ldr_init_database(testdb, &options.loader);
 	testdb->options->field_sep_char = ':';
 	testdb->real = real;
 	testdb->format = format;
 	ldr_init_password_hash(testdb);
 
+	bench_running++;
 	while (current->ciphertext) {
 		char line[LINE_BUFFER_SIZE];
 		int i, pos = 0;
@@ -1094,11 +1113,16 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 		ldr_load_pw_line(testdb, line);
 		current++;
 	}
+	bench_running--;
 
+	ldr_loading_testdb = 1;
 	ldr_fix_database(testdb);
+	ldr_loading_testdb = 0;
 
-	if (options.verbosity > 3)
-	fprintf(stderr, "Loaded %d hashes with %d different salts to test db from test vectors\n", testdb->password_count, testdb->salt_count);
+	if (options.verbosity == VERB_MAX)
+		fprintf(stderr,
+		        "Loaded %d hashes with %d different salts to test db from test vectors\n",
+		        testdb->password_count, testdb->salt_count);
 
 	fmt_list = real_list;
 	return testdb;
@@ -1627,12 +1651,13 @@ void ldr_fix_database(struct db_main *db)
 	    mem_saving_level >= 2) /* Otherwise kept for faster pot sync */
 		MEM_FREE(db->salt_hash);
 
-	ldr_filter_salts(db);
-	ldr_filter_costs(db);
-	ldr_remove_marked(db);
-	ldr_cost_ranges(db);
+	if (!ldr_loading_testdb) {
+		ldr_filter_salts(db);
+		ldr_filter_costs(db);
+		ldr_remove_marked(db);
+		ldr_cost_ranges(db);
+	}
 	ldr_sort_salts(db);
-
 	ldr_init_hash(db);
 
 	ldr_init_sqid(db);
@@ -1714,12 +1739,15 @@ static void ldr_show_pot_line(struct db_main *db, char *line)
 		if (!strncmp(ciphertext, "$dynamic_26$", 12))
 			memset(ciphertext + 12, '0', 5);
 		else if (!strncmp(ciphertext, "{SHA}", 5)) {
-			char out[41+3];
+			char out[40+1];
+			static char tmp[40+5+1]; // larger than needed, but we know its big enough.
 			base64_convert(ciphertext + 5, e_b64_mime,
-			    strlen(ciphertext) - 5, out, e_b64_hex, 41, 0);
+			    strlen(ciphertext) - 5, out, e_b64_hex, sizeof(out), 0);
 			memcpy(out, "00000", 5);
+			ciphertext = tmp;
+			strcpy(tmp, "{SHA}");
 			base64_convert(out, e_b64_hex, 40, ciphertext + 5,
-			    e_b64_mime, strlen(out), flg_Base64_MIME_TRAIL_EQ);
+			    e_b64_mime, sizeof(tmp)-5, flg_Base64_MIME_TRAIL_EQ);
 		}
 	}
 #ifndef DYNAMIC_DISABLED

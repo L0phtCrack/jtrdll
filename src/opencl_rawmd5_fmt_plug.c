@@ -291,12 +291,17 @@ static int valid(char *ciphertext, struct fmt_main *self)
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	static char out[TAG_LENGTH + CIPHERTEXT_LENGTH + 1];
+	int len;
 
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		return ciphertext;
 
+	memset(out, 0, sizeof(out));
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
-	memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
+	len = strlen(ciphertext)+1;
+	if (len > CIPHERTEXT_LENGTH + 1)
+		len = CIPHERTEXT_LENGTH + 1;
+	memcpy(out + TAG_LENGTH, ciphertext, len);
 	return out;
 }
 
@@ -588,7 +593,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	assert(global_work_size <= gws_limit);
 
 	self->params.max_keys_per_crypt = global_work_size;
-	if (options.verbosity > 3)
+	if (options.verbosity > VERB_DEFAULT)
 	fprintf(stdout, "%s GWS: "Zu", LWS: "Zu"\n", db ? "Cracking" : "Self test",
 			global_work_size, local_work_size);
 #undef calc_ms
