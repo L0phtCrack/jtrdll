@@ -1262,6 +1262,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	if (!self->params.tests[0].fields[1])
 		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
 	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+	ciphertext = self->methods.split(ciphertext, 0, self);
 	salt = self->methods.salt(ciphertext);
 	if (salt)
 		dyna_salt_create(salt);
@@ -1474,6 +1475,7 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	if (!self->params.tests[0].fields[1])
 		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
 	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+	ciphertext = self->methods.split(ciphertext, 0, self);
 	salt = self->methods.salt(ciphertext);
 	if (salt)
 		dyna_salt_create(salt);
@@ -1627,6 +1629,36 @@ static char *human_speed(unsigned long long int speed)
 		snprintf(out, sizeof(out), LLu"c/s", speed);
 
 	return out;
+}
+
+uint32_t get_bitmap_size_bits(uint32_t num_elements, int sequential_id)
+{
+	uint32_t size, elements = num_elements;
+	//On super: 128MB , 1GB, 2GB
+	cl_ulong memory_available = get_max_mem_alloc_size(sequential_id);
+
+	get_power_of_two(elements);
+
+	size = (elements * 8);
+
+	if (num_elements < (16))
+		size = (16 * 1024 * 8); //Cache?
+	else if (num_elements < (128))
+		size = (1024 * 1024 * 8 * 16);
+	else if (num_elements < (16 * 1024))
+		size *= 1024 * 4;
+	else
+		size *= 256;
+
+	if (size > memory_available) {
+		size = memory_available;
+		get_power_of_two(size);
+
+	}
+	if (!size || size > INT_MAX)
+		size = (uint)INT_MAX + 1U;
+
+	return size;
 }
 
 unsigned int lcm(unsigned int x, unsigned int y)

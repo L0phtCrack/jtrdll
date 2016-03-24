@@ -21,7 +21,7 @@
 #include "compiler.h"
 #include "memdbg.h"
 
-#undef PRINT_INSNS
+#define PRINT_INSNS
 
 char *c_errors[] = {
 	NULL,	/* No error */
