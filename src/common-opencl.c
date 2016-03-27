@@ -1041,7 +1041,10 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	        opencl_driver_ver(sequential_id),
 	        opts ? opts : "");
 #if I_REALPATH
+#define __saved_free free
+#undef free
 	libc_free(full_path);
+#define free __saved_free
 #else
 	MEM_FREE(full_path);
 #endif
