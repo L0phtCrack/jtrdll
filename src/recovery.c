@@ -389,6 +389,8 @@ void rec_save(void)
 	if (fflush(rec_file)) pexit("fflush");
 #ifndef _MSC_VER
 	if (ftruncate(rec_fd, size)) pexit("ftruncate");
+#else
+	if (_chsize(rec_fd, size)) pexit("ftruncate");
 #endif
 #if HAVE_WINDOWS_H==0
 	if (!options.fork && fsync(rec_fd))

@@ -632,7 +632,7 @@ int do_external_hybrid_crack(struct db_main *db, const char *base_word) {
 		first = 0;
 		just_restored = rec_restored;
 		if (rec_restored) {
-			ext_hybrid_resume = hybrid_resume;
+			++ext_hybrid_resume;
 			if (!hybrid_resume)
 				do_load = 0;
 		}
@@ -705,7 +705,6 @@ int do_external_hybrid_crack(struct db_main *db, const char *base_word) {
 		/* gets the next word */
 		++ext_hybrid_resume;
 		c_execute_fast(f_next);
-
 	}
 out:;
 
