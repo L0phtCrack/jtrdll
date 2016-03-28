@@ -387,6 +387,7 @@ static void save_state_hybrid(FILE *file)
 	        hybrid_actual_completed_total, (unsigned)strlen((char*)ptr));
 	while (*ptr)
 		fprintf(file, "%d ", (int)*ptr++);
+	fprintf(file, "\n");
 }
 
 static int restore_state(FILE *file)
@@ -439,11 +440,16 @@ int ext_restore_state_hybrid(const char *sig, FILE *file)
 					break;
 				return 1;
 			}
-			if (++count >= PLAINTEXT_BUFFER_SIZE) return 1;
-		} while ((*internal++ = *external++ = *cp++ = c));
+			if (++count >= PLAINTEXT_BUFFER_SIZE) 
+				return 1;
+
+			*internal++ = *external++ = *cp++ = c;
+		} while ((c != 0) && (cnt != count));
+
 		*internal = 0;
 		*external = 0;
-		if (cnt != count) return 1;
+		if (cnt != count) 
+			return 1;
 		if (ext_utf32)
 			enc_to_utf32((UTF32*)ext_word, PLAINTEXT_BUFFER_SIZE,
 				     (UTF8*)int_word, strlen(int_word));
