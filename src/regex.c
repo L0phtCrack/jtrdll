@@ -132,6 +132,19 @@ void SetupAlpha(const char *regex_alpha)
 	}
 }
 
+
+extern void(*crk_fix_state)(void);
+static void(*saved_crk_fix_state)(void); 
+static void save_fix_state(void(*new_crk_fix_state)(void))
+{
+	saved_crk_fix_state = crk_fix_state;
+	crk_fix_state = new_crk_fix_state;
+}
+static void restore_fix_state(void)
+{
+	crk_fix_state = saved_crk_fix_state;
+}
+
 int do_regex_hybrid_crack(struct db_main *db, const char *regex,
                           const char *base_word, int regex_case, const char *regex_alpha)
 {
@@ -143,6 +156,9 @@ int do_regex_hybrid_crack(struct db_main *db, const char *regex,
 	static int bALPHA = 0;
 	int max_len = db->format->params.plaintext_length;
 	int retval;
+
+	/* Save off fix_state to use hybrid fix state */
+	save_fix_state(fix_state);
 
 	if (options.req_maxlength)
 		max_len = options.req_maxlength;
@@ -199,6 +215,7 @@ int do_regex_hybrid_crack(struct db_main *db, const char *regex,
 				retval = 1;
 				goto out;
 			}
+			fix_state();
 		} else
 		if (ext_filter(fmt_null_key)) {
 			if (crk_process_key(fmt_null_key)) {
@@ -228,6 +245,7 @@ int do_regex_hybrid_crack(struct db_main *db, const char *regex,
 				retval = 1;
 				goto out;
 			}
+			fix_state();
 		} else
 		if (ext_filter((char *)word)) {
 			word[max_len] = 0;
@@ -241,6 +259,8 @@ int do_regex_hybrid_crack(struct db_main *db, const char *regex,
 	goto out;
 
 out:
+	restore_fix_state();
+
 	c_simplestring_delete(buffer);
 	c_regex_delete(regex_ptr);
 	c_iterator_delete(iter);
@@ -290,6 +310,7 @@ void do_regex_crack(struct db_main *db, const char *regex)
 		if (options.mask) {
 			if (do_mask_crack(word))
 				break;
+			fix_state();
 		} else
 		if (ext_filter((char *)word)) {
 			word[max_len] = 0;

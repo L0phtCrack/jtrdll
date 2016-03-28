@@ -842,7 +842,6 @@ int main (int argc, char *argv[])
 #else
 static mpf_t count;
 static mpz_t rec_pos;
-static mpz_t hybrid_rec_pos;
 static int rec_pos_destroyed;
 static int rule_count;
 static struct list_main *rule_list;
@@ -879,17 +878,7 @@ static int restore_state(FILE *file)
 
 static void fix_state(void)
 {
-  if (mpz_cmp_ui(hybrid_rec_pos, 0)) {
-    mpz_set(rec_pos, hybrid_rec_pos);
-    mpz_set_ui(hybrid_rec_pos, 0);
-  } else {
     mpz_set(rec_pos, save);
-  }
-}
-
-void pp_hybrid_fix_state(void)
-{
-  mpz_set(hybrid_rec_pos, save);
 }
 
 static double get_progress(void)
@@ -980,7 +969,6 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 #else
   mpf_init_set_ui(count,     1);
   mpz_init_set_ui(rec_pos,   0);
-  mpz_init_set_ui(hybrid_rec_pos,   0);
 #endif
   int     keyspace      = 0;
   int     pw_min        = PW_MIN;
@@ -2230,18 +2218,19 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                 if ((jtr_done = do_regex_hybrid_crack(db, regex, pw_buf,
                                                       regex_case, regex_alpha)))
                   break;
-                pp_hybrid_fix_state();
+                fix_state();
               } else
 #endif
               if (f_new) {
                 if ((jtr_done = do_external_hybrid_crack(db, pw_buf)))
                   break;
-                pp_hybrid_fix_state();
+				fix_state();
               } else
               if (options.mask) {
                 if ((jtr_done = do_mask_crack(pw_buf)))
                   break;
-              } else
+				fix_state();
+			  } else
               {
                 key = pw_buf;
                 if (!f_filter || ext_filter_body(pw_buf, key = key_e))
@@ -2263,18 +2252,19 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                                                           regex_case,
                                                           regex_alpha)))
                       break;
-                    pp_hybrid_fix_state();
+					fix_state();
                   } else
 #endif
                   if (f_new) {
                     if (do_external_hybrid_crack(db, word))
                       break;
-                    pp_hybrid_fix_state();
+					fix_state();
                   } else
                   if (options.mask) {
                     if ((jtr_done = do_mask_crack(word)))
                       break;
-                  } else
+					fix_state();
+				  } else
                   {
                     key = word;
                     if (!f_filter || ext_filter_body(word, key = key_e))
