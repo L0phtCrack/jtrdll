@@ -1013,8 +1013,18 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		pexit("realpath()");
 
 	MEM_FREE(pex);
+
+#ifdef _MSC_VER
+	/* Hack to eliminate spaces in pathname, other platforms may want quoted string instead to keep spaces */
+	GetShortPathName(full_path, full_path, strlen(full_path));
+#endif
+
 #else
 	full_path = path_expand_safe(pathname);
+#endif
+
+#ifdef _MSC_VER
+
 #endif
 
 	include = (char *) mem_calloc(PATH_BUFFER_SIZE, sizeof(char));
@@ -1024,7 +1034,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		    SUBSECTION_OPENCL, "GlobalBuildOpts")))
 			global_opts = OPENCLBUILDOPTIONS;
 
-	sprintf(include, "-I \"%s\" %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
+	sprintf(include, "-I %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
 	        full_path,
 	        global_opts,
 	        get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
