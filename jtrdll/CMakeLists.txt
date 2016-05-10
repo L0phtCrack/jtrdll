@@ -2,6 +2,49 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
 
 PROJECT(jtrdll)
 
+## 
+## MACROS
+##
+
+MACRO(COPY_IF_DIFFERENT FROM_DIR TO_DIR FILES TARGETS TAGS)
+   # Macro to implement copy_if_different for a list of files
+   # Arguments - 
+   #   FROM_DIR - this is the source directory
+   #   TO_DIR   - this is the destination directory
+   #   FILES    - names of the files to copy 
+   #              TODO: add globing. 
+   #   TARGETS  - List of targets
+   #   TAGS     - Since only the file name is used
+   #              to generate rules, pre-pend a user 
+   #              supplied tag to prevent duplicate rule errors. 
+   SET(AddTargets "")
+   FOREACH(SRC ${FILES})
+	   MESSAGE("FILE: ${SRC}")
+       GET_FILENAME_COMPONENT(SRCFILE ${SRC} NAME) 
+       # Command to copy the files to ${STEP1}/src, if changed.
+       SET(TARGET  "${TAGS}/${SRCFILE}")
+       IF("${FROM_DIR}" STREQUAL "")
+           SET(FROM ${SRC})
+       ELSE("${FROM_DIR}" STREQUAL "")
+           SET(FROM ${FROM_DIR}/${SRC})
+       ENDIF("${FROM_DIR}" STREQUAL "")        
+       IF("${TO_DIR}" STREQUAL "")
+           SET(TO ${SRCFILE})
+       ELSE("${TO_DIR}" STREQUAL "")
+           SET(TO   ${TO_DIR}/${SRCFILE})
+       ENDIF("${TO_DIR}" STREQUAL "")
+       ADD_CUSTOM_COMMAND(
+           OUTPUT  ${TARGET}
+           COMMAND ${CMAKE_COMMAND}
+           ARGS    -E copy_if_different ${FROM} $<TARGET_FILE_DIR:jtrexe>/${TO}
+           COMMENT "Copying ${SRCFILE} $<TARGET_FILE_DIR:jtrexe>/${TO_DIR}"
+           )
+       SET(AddTargets ${AddTargets} ${TARGET})
+   ENDFOREACH(SRC ${FILES})
+   SET(${TARGETS} ${AddTargets})
+ENDMACRO(COPY_IF_DIFFERENT FROM_DIR TO_DIR FILES TARGETS TAGS)
+
+
 ##
 ## CUDA SDKS
 ##
@@ -457,5 +500,52 @@ IF(MSVC)
 	SET_TARGET_PROPERTIES(jtrexe PROPERTIES LINK_FLAGS "Rpcrt4.lib")
 ENDIF()
 
+# copy kernel files and configuration files to proper output location
+FILE(GLOB jtrdll_run_KERNEL_FILES
+	RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl"
+    "../src/opencl/*.cl"
+)
 
+FILE(GLOB jtrdll_run_KERNEL_HEADER_FILES
+	RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+    "../src/opencl*.h"
+)
 
+SET(jtrdll_run_RUNTIME_FILES
+	"alnum.chr"
+	"alnumspace.chr"
+	"alpha.chr"
+	"ascii.chr"
+	"best64.conf"
+	"dictionary.rfc2865"
+	"digits.chr"
+	"dumb16.conf"
+	"dumb32.conf"
+	"dynamic.conf"
+	"dynamic_disabled.conf"
+	"dynamic_flat_sse_formats.conf"
+	"fuzz.dic"
+	"hybrid.conf"
+	"hybrid_new.inc.conf"
+	"john.conf"
+	"korelogic.conf"
+	"lanman.chr"
+	"latin1.chr"
+	"lm_ascii.chr"
+	"lower.chr"
+	"lowernum.chr"
+	"lowerspace.chr"
+	"password.lst"
+	"regex_alphabets.conf"
+	"repeats16.conf"
+	"repeats32.conf"
+	"stats"
+	"upper.chr"
+	"uppernum.chr"
+	"utf8.chr"
+)
+
+COPY_IF_DIFFERENT( "${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl" "kernels" "${jtrdll_run_KERNEL_FILES}" KernelTargets "KernelTargets")
+COPY_IF_DIFFERENT( "${CMAKE_CURRENT_SOURCE_DIR}/../src" "kernels" "${jtrdll_run_KERNEL_HEADER_FILES}" KernelHeaderTargets "KernelHeaderTargets")
+COPY_IF_DIFFERENT( "${CMAKE_CURRENT_SOURCE_DIR}/../run" "." "${jtrdll_run_RUNTIME_FILES}" RuntimeTargets "RuntimeTargets")
+ADD_CUSTOM_TARGET(jtrdll_files ALL DEPENDS ${KernelTargets} ${KernelHeaderTargets} ${RuntimeTargets})
