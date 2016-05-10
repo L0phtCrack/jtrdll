@@ -1766,7 +1766,8 @@ void mask_save_state(FILE *file)
 int mask_restore_state(FILE *file)
 {
 	int i, d;
-	unsigned char uc;
+	unsigned cu;
+	int fixed = 0;
 	unsigned long long ull;
 	int fail = !(options.flags & FLG_MASK_STACKED);
 
@@ -1796,14 +1797,26 @@ int mask_restore_state(FILE *file)
 			return fail;
 	}
 
+	/* vc and mingw can not handle %hhu and blow the stack
+	   and fail to restart properly */
 	for (i = 0; i < cpu_mask_ctx.count; i++)
-	{
-		unsigned int ui;
-		if (fscanf(file, "%u\n", &ui) == 1)
-			cpu_mask_ctx.ranges[i].iter = (unsigned char)ui;
-		else
-			return fail;
+	if (fscanf(file, "%u\n", &cu) == 1) {
+		cpu_mask_ctx.ranges[i].iter = cu;
+		/*
+		 * Code was starting off with the last value. So increment
+		 * things by 1 so we start at the next mask value.
+		 */
+		if (!fixed) {
+			if (++cpu_mask_ctx.ranges[i].iter <
+			    cpu_mask_ctx.ranges[i].count) {
+				fixed = 1;
+			} else {
+				cpu_mask_ctx.ranges[i].iter = 0;
+			}
+		}
 	}
+	else
+		return fail;
 	restored = 1;
 	return 0;
 }

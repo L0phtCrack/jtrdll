@@ -67,9 +67,11 @@ static void rexgen_setlocale()
 	if ((sysLocale = getenv("LC_CTYPE")) != NULL) {
 		setlocale(LC_CTYPE, sysLocale);
 	}
+#if !defined _MSC_VER
 	if ((sysLocale = getenv("LC_MESSAGES")) != NULL) {
 		setlocale(LC_MESSAGES, sysLocale);
 	}
+#endif
 	if ((sysLocale = getenv("LC_ALL")) != NULL) {
 		setlocale(LC_ALL, sysLocale);
 	}
@@ -82,15 +84,15 @@ static char BaseWord[1024];
 
 size_t callback(char* dst, const size_t buffer_size)
 {
-	const char* last = NULL;
+	int len;
 
 	if (!BaseWord[0]) {
 		*dst = 0;
 	}
-	last = stpcpy(dst, BaseWord);
+	len =  strnzcpyn(dst, BaseWord, 1024);
 	*BaseWord = 0;
 	if (*dst) {
-		return (last - dst);
+		return len;
 	}
 	return 0;
 }

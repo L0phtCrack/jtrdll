@@ -23,6 +23,10 @@ typedef struct {
 	unsigned char *pxkeys[DES_BS_DEPTH]; /* Pointers into xkeys.c */
 } des_combined;
 
+#ifdef JTRDLL
+extern char appdatadir[_MAX_PATH];
+#endif
+
 static cl_kernel **cmp_kernel = NULL;
 static cl_kernel kernel_high = 0, kernel_low = 0;
 static cl_mem buffer_hash_ids, buffer_bitmap_dupe, *buffer_uncracked_hashes = NULL, *buffer_hash_tables = NULL, *buffer_offset_tables = NULL, *buffer_bitmaps = NULL;
@@ -1230,11 +1234,25 @@ char *get_device_name(int id)
 void save_lws_config(const char* config_file, int id_gpu, size_t lws, unsigned int forced_global_key)
 {
 	FILE *file;
-	char config_file_name[500];
+	char config_file_name[512];
 	char *d_name;
 
 	sprintf(config_file_name, config_file, d_name = get_device_name(id_gpu));
 	MEM_FREE(d_name);
+
+#ifdef JTRDLL
+	// Replace $JOHN with app data directory
+	if (appdatadir[0] != 0 && !strncmp(config_file_name, "$JOHN/", 6))
+	{
+		char buf[512];
+		strncpy(buf, appdatadir, _MAX_PATH);
+		buf[_MAX_PATH - 1] = 0;
+		strncat(buf, config_file_name + 5, 512 - strlen(buf));
+		buf[511] = 0;
+		memcpy(config_file_name, buf, 512);
+	}
+#endif
+
 
 	file = fopen(path_expand(config_file_name), "r");
 	if (file != NULL) {
@@ -1269,12 +1287,26 @@ void save_lws_config(const char* config_file, int id_gpu, size_t lws, unsigned i
 int restore_lws_config(const char *config_file, int id_gpu, size_t *lws, size_t extern_lws_limit, unsigned int *forced_global_key)
 {
 	FILE *file;
-	char config_file_name[500];
+	char config_file_name[512];
 	char *d_name;
 	unsigned int param;
 
 	sprintf(config_file_name, config_file, d_name = get_device_name(id_gpu));
 	MEM_FREE(d_name);
+
+#ifdef JTRDLL
+	// Replace $JOHN with app data directory
+	if (appdatadir[0] != 0 && !strncmp(config_file_name, "$JOHN/", 6))
+	{
+		char buf[512];
+		strncpy(buf, appdatadir, _MAX_PATH);
+		buf[_MAX_PATH - 1] = 0;
+		strncat(buf, config_file_name + 5, 512 - strlen(buf));
+		buf[511] = 0;
+		memcpy(config_file_name, buf, 512);
+	}
+#endif
+
 
 	file = fopen(path_expand(config_file_name), "r");
 	if (file == NULL)

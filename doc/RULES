@@ -20,6 +20,12 @@ will have to escape that character (or the config file loader will bail
 out, listing a bugus . directive). At this time, it is not valid for a
 john rule to start with a period, so at this time, this is not a problem.
 
+See RULES-HashCat for information about additional rules added to
+1.8-jumbo-2 to allow john to utilize HashCat/InsidePro rules files
+natively. NOTE, there are additional rules commands added to allow
+HashCat rules to be utilized. These additional rules are documented in
+that RULES-HashCat file.
+
 
 	Rule reject flags.
 
@@ -266,6 +272,10 @@ s?CY	replace all characters of class C in the word with Y
 %NX	reject the word unless it contains at least N instances of X
 %N?C	reject the word unless it contains at least N characters of class C
 U       reject the word unless it is valid UTF-8 (use with -u rule reject)
+eC	title case, where C is the separation character
+e?C	title case, with chars from class C as separation characters.
+	NOTE, see hashcat specific 'E' rule which is generic title case for space
+	only characters.  The 'e' rule extendeded more powerful version.
 
 Note that U will accept plain ASCII. It will only reject words that contain
 8-bit characters but can't be parsed as UTF-8. It can be used to reject
