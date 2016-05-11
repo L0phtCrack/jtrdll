@@ -61,9 +61,15 @@ void UnloadJTRDLL(void)
 }
 
 /////////////////////////////////////////////////////////////////////////////
+#ifdef JTREXE_USE_CRASHDUMP
+#include"jtrexe_crashdump.h"
+#endif
 
 int main(int argc, char **argv)
 {
+#ifdef JTREXE_USE_CRASHDUMP
+	JTREXE_INSTALL_CRASHDUMP();
+#endif
 	CPUInformation cpu;
 	std::string jtrdllversion, force_jtrdllversion;
 	std::vector<char *> args;
@@ -116,6 +122,9 @@ int main(int argc, char **argv)
 	if (force_jtrdllversion.length() != 0 && jtrdllversion != force_jtrdllversion)
 	{
 		fprintf(stderr, "Incompatible instruction set\n");
+#ifdef JTREXE_USE_CRASHDUMP
+		JTREXE_UNINSTALL_CRASHDUMP();
+#endif
 		return 1;
 	}
 	
@@ -126,6 +135,9 @@ int main(int argc, char **argv)
 	
 	if (!LoadJTRDLL(jtrdllversion))
 	{
+#ifdef JTREXE_USE_CRASHDUMP
+		JTREXE_UNINSTALL_CRASHDUMP();
+#endif
 		return 1;
 	}
 	
@@ -153,6 +165,10 @@ int main(int argc, char **argv)
 	}
 
 	UnloadJTRDLL();
+
+#ifdef JTREXE_USE_CRASHDUMP
+	JTREXE_UNINSTALL_CRASHDUMP();
+#endif
 
 	return 0;
 }
