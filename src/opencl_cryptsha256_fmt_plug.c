@@ -35,10 +35,8 @@ john_register_one(&fmt_opencl_cryptsha256);
 
 //Checks for source code to pick (parameters, sizes, kernels to execute, etc.)
 #define _USE_CPU_SOURCE         (cpu(source_in_use))
-//#define _USE_GPU_SOURCE         (gpu(source_in_use))
-#define _USE_GPU_SOURCE 0
-//#define _SPLIT_KERNEL_IN_USE        (gpu(source_in_use))
-#define _SPLIT_KERNEL_IN_USE 0
+#define _USE_GPU_SOURCE         (gpu(source_in_use))
+#define _SPLIT_KERNEL_IN_USE        (gpu(source_in_use))
 
 static sha256_salt *salt;
 static sha256_password *plaintext;  // plaintext ciphertexts

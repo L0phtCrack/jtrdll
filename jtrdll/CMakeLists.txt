@@ -19,8 +19,7 @@ MACRO(COPY_IF_DIFFERENT FROM_DIR TO_DIR FILES TARGETS TAGS)
    #              supplied tag to prevent duplicate rule errors. 
    SET(AddTargets "")
    FOREACH(SRC ${FILES})
-	   MESSAGE("FILE: ${SRC}")
-       GET_FILENAME_COMPONENT(SRCFILE ${SRC} NAME) 
+	   GET_FILENAME_COMPONENT(SRCFILE ${SRC} NAME) 
        # Command to copy the files to ${STEP1}/src, if changed.
        SET(TARGET  "${TAGS}/${SRCFILE}")
        IF("${FROM_DIR}" STREQUAL "")
@@ -37,7 +36,7 @@ MACRO(COPY_IF_DIFFERENT FROM_DIR TO_DIR FILES TARGETS TAGS)
            OUTPUT  ${TARGET}
            COMMAND ${CMAKE_COMMAND}
            ARGS    -E copy_if_different ${FROM} $<TARGET_FILE_DIR:jtrexe>/${TO}
-           COMMENT "Copying ${SRCFILE} $<TARGET_FILE_DIR:jtrexe>/${TO_DIR}"
+           # COMMENT "Copying ${SRCFILE} $<TARGET_FILE_DIR:jtrexe>/${TO_DIR}"
            )
        SET(AddTargets ${AddTargets} ${TARGET})
    ENDFOREACH(SRC ${FILES})
@@ -487,12 +486,16 @@ ENDFOREACH()
 
 
 # build jtrexe
+FILE(GLOB EXTRA_KERNEL_FILES
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl/*.cl"
+)
 ADD_EXECUTABLE( jtrexe 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/jtrexe.cpp 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/cpuinformation.cpp 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/cpuinformation.h
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/processhost.cpp 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/processhost.h
+	${EXTRA_KERNEL_FILES}
 	)
 IF(MSVC)
 	SET_PROPERTY(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/jtrexe.cpp APPEND_STRING PROPERTY COMPILE_FLAGS " /EHsc ")
