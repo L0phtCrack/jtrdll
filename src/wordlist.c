@@ -117,6 +117,24 @@ static char *mem_map, *map_pos, *map_end, *map_scan_end;
 static char *word_file_str, **words;
 static int64_t nWordFileLines;
 
+static inline clean_bom(char *line)
+{
+	if (options.input_enc == UTF_8)
+	{
+		static int checkbomfirst = 1;
+
+		/* Remove UTF-8 BOM from first word */
+		if (checkbomfirst)
+		{
+			if (line_number == 0 && strlen(line) > 3 && ((unsigned char *)line)[0] == 0xEF && ((unsigned char *)line)[1] == 0xBB && ((unsigned char *)line)[2] == 0xBF)
+			{
+				memmove(line, line + 3, strlen(line) - 2);
+			}
+			checkbomfirst = 0;
+		}
+	}
+}
+
 static void save_state(FILE *file)
 {
 	fprintf(file, "%d\n" LLd "\n" LLd "\n",
@@ -1240,6 +1258,8 @@ REDO_AFTER_LMLOOP:
 #else
 			strcpy(line, words[line_number]);
 #endif
+			clean_bom(line);
+
 			line_number++;
 
 			if ((word = apply(line, rule, -1, last))) {
@@ -1291,6 +1311,9 @@ REDO_AFTER_LMLOOP:
 		else if (rule)
 		while (mem_map ? mgetl(line) :
 		       fgetl(line, LINE_BUFFER_SIZE, word_file)) {
+
+			clean_bom(line);
+
 			line_number++;
 
 			if (line[0] != '#') {
