@@ -230,7 +230,7 @@ static struct opt_entry opt_list[] = {
 	{"max-length", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.req_maxlength},
 	{"max-run-time", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
-		"%u", &options.max_run_time},
+		"%d", &options.max_run_time},
 	{"progress-every", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
 		"%u", &options.status_interval},
 	{"regen-lost-salts", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
@@ -392,7 +392,8 @@ void opt_print_hidden_usage(void)
 	puts("--crack-status            emit a status line whenever a password is cracked");
 	puts("--keep-guessing           try more candidates for cracked hashes (ie. search");
 	puts("                          for plaintext collisions)");
-	puts("--max-run-time=N          gracefully exit after this many seconds");
+	puts("--max-run-time=[-]N       gracefully exit after this many seconds. If");
+	puts("                          negative, reset timer on each crack");
 	puts("--regen-lost-salts=N      brute force unknown salts (see doc/OPTIONS)");
 	puts("--mkv-stats=FILE          \"Markov\" stats file (see doc/MARKOV)");
 	puts("--reject-printable        reject printable binaries");

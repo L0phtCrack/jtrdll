@@ -328,7 +328,10 @@ struct options_main {
 /* Forced MaxLen (we will reject candidates longer than this) */
 	int force_maxlength;
 
-/* Graceful exit after this many seconds of cracking */
+/*
+ * Graceful exit after this many seconds of cracking. If the number is
+ * negative, we exit after that many seconds of not cracking anything.
+ */
 	int max_run_time;
 
 /* Emit a status line every N seconds */

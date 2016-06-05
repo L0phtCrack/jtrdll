@@ -776,6 +776,10 @@ void opencl_preinit(void)
 			default_gpu_selected = 1;
 		}
 
+		if (get_number_of_available_devices() == 0) {
+			fprintf(stderr, "No OpenCL devices found\n");
+			error();
+		}
 		build_device_list(device_list);
 
 		if (get_number_of_devices_in_use() == 0) {
@@ -2198,6 +2202,8 @@ cl_uint get_processors_count(int sequential_id)
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 192);
 		else if (major == 5)    // 5.x Maxwell
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
+		else if (major == 6)    // 6.x Pascal
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
 /*
  * Apple, VCL and some other environments don't expose get_compute_capability()
  * so we need this crap - which is incomplete.
@@ -2207,6 +2213,9 @@ cl_uint get_processors_count(int sequential_id)
  * often show a better guess, even under OSX.
  */
 
+		// Pascal
+		else if (strstr(dname, "GTX 10"))
+			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
 		// Maxwell
 		else if (strstr(dname, "GTX 9") || strstr(dname, "GTX TITAN X"))
 			core_count *= (ocl_device_list[sequential_id].cores_per_MP = 128);
@@ -2508,7 +2517,7 @@ void opencl_list_devices(void)
 			cl_bool boolean;
 			char *p;
 			int ret, cpu;
-			int fan, temp, util;
+			int fan, temp, util, cl, ml;
 
 /*
 			if (!default_gpu_selected && !get_if_device_is_in_use(sequence_nr))
@@ -2727,26 +2736,28 @@ void opencl_list_devices(void)
 				printf("    Kernel exec. timeout:   %s\n",
 				       boolean ? "yes" : "no");
 
-			if (ocl_device_list[sequence_nr].pci_info.bus >= 0) {
-				printf("    PCI device topology:    %s\n",
-				       ocl_device_list[sequence_nr].pci_info.busId);
-			}
-			fan = temp = util = -1;
+			fan = temp = util = cl = ml = -1;
 #if HAVE_LIBDL
 			if (nvml_lib && gpu_nvidia(device_info[sequence_nr]) &&
 			    id2nvml(ocl_device_list[sequence_nr].pci_info) >= 0) {
 				printf("    NVML id:                %d\n",
 				       id2nvml(ocl_device_list[sequence_nr].pci_info));
 				nvidia_get_temp(id2nvml(ocl_device_list[sequence_nr].pci_info),
-				                &temp, &fan, &util);
+				                &temp, &fan, &util, &cl, &ml);
 			} else if (adl_lib && gpu_amd(device_info[sequence_nr])) {
 				printf("    ADL:                    Overdrive%d, device id %d\n",
 				       adl2od[id2adl(ocl_device_list[sequence_nr].pci_info)],
 				       id2adl(ocl_device_list[sequence_nr].pci_info));
 				amd_get_temp(id2adl(ocl_device_list[sequence_nr].pci_info),
-				             &temp, &fan, &util);
+				             &temp, &fan, &util, &cl, &ml);
 			}
 #endif
+			if (ocl_device_list[sequence_nr].pci_info.bus >= 0) {
+				printf("    PCI device topology:    %s\n",
+				       ocl_device_list[sequence_nr].pci_info.busId);
+			}
+			if (cl >= 0)
+				printf("    PCI lanes:              %d/%d\n", cl, ml);
 			if (fan >= 0)
 				printf("    Fan speed:              %u%%\n", fan);
 			if (temp >= 0)

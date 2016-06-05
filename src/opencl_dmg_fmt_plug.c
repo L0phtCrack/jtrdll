@@ -45,6 +45,7 @@ john_register_one(&fmt_opencl_dmg);
 #include "stdint.h"
 #include "options.h"
 #include "jumbo.h"
+#include "loader.h"
 #include "common-opencl.h"
 
 #define FORMAT_LABEL		"dmg-opencl"
@@ -80,10 +81,11 @@ typedef struct {
 } dmg_hash;
 
 typedef struct {
-	int iterations;
-	int outlen;
-	uint8_t length;
-	uint8_t salt[20];
+	uint32_t iterations;
+	uint32_t outlen;
+	uint32_t skip_bytes;
+	uint8_t  length;
+	uint8_t  salt[64];
 } dmg_salt;
 
 static int *cracked;
@@ -314,6 +316,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if (strncmp(ciphertext, "$dmg$", 5) != 0)
 		return 0;
+	/* handle 'chopped' .pot lines */
+	if (ldr_isa_pot_source(ciphertext))
+		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += 5;	/* skip over "$dmg$" marker */
@@ -515,6 +520,8 @@ static void set_salt(void *salt)
 	currentsalt.length = 20;
 	currentsalt.outlen = 32;
 	currentsalt.iterations = cur_salt->iterations;
+	currentsalt.skip_bytes = 0;
+
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_setting,
         	CL_FALSE, 0, settingsize, &currentsalt, 0, NULL, NULL),
         	"Copy setting to gpu");

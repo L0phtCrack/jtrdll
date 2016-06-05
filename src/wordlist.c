@@ -117,24 +117,6 @@ static char *mem_map, *map_pos, *map_end, *map_scan_end;
 static char *word_file_str, **words;
 static int64_t nWordFileLines;
 
-static inline clean_bom(char *line)
-{
-	if (options.input_enc == UTF_8)
-	{
-		static int checkbomfirst = 1;
-
-		/* Remove UTF-8 BOM from first word */
-		if (checkbomfirst)
-		{
-			if (line_number == 0 && strlen(line) > 3 && ((unsigned char *)line)[0] == 0xEF && ((unsigned char *)line)[1] == 0xBB && ((unsigned char *)line)[2] == 0xBF)
-			{
-				memmove(line, line + 3, strlen(line) - 2);
-			}
-			checkbomfirst = 0;
-		}
-	}
-}
-
 static void save_state(FILE *file)
 {
 	fprintf(file, "%d\n" LLd "\n" LLd "\n",
@@ -421,6 +403,18 @@ static double get_progress(void)
 static char *dummy_rules_apply(char *word, char *rule, int split, char *last)
 {
 	return word;
+}
+
+static MAYBE_INLINE void clean_bom(char *line)
+{
+	static int checkbomfirst = 1;
+
+	if (line_number == 0 && checkbomfirst && options.input_enc == UTF_8) {
+		if (!strncmp("\xEF\xBB\xBF", line, 3)) {
+			memmove(line, line + 3, strlen(line) - 2);
+		}
+		checkbomfirst = 0;
+	}
 }
 
 /*
@@ -963,6 +957,7 @@ GRAB_NEXT_PIPE_LOAD:
 						pipe_input = 0;
 						break;
 					}
+					cpi = convert(cpi);
 					if (strncmp(cpi, "#!comment", 9)) {
 						int len = strlen(cpi);
 						if (!rules) {

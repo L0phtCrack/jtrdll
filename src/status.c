@@ -445,11 +445,11 @@ void status_print(void)
 			int dev = gpu_device_list[i];
 
 			if (dev_get_temp[dev]) {
-				int fan, temp, util;
+				int fan, temp, util, cl, ml;
 
-				fan = temp = util = -1;
+				fan = temp = util = cl = ml = -1;
 				dev_get_temp[dev](temp_dev_id[dev],
-				                  &temp, &fan, &util);
+				                  &temp, &fan, &util, &cl, &ml);
 				if (temp >= 0 &&
 				    (options.verbosity > VERB_DEFAULT ||
 				    cfg_get_bool(SECTION_OPTIONS,
@@ -666,7 +666,9 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	{
 		int fan = -1, temp = -1, util = -1;
 		int dev = gpu_id;
-		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util);
+		int cl = -1;
+		int ml = -1;
+		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util, &cl, &ml);
 		
 		jtrdllstatus->temperature = temp;
 		jtrdllstatus->fanspeed = fan;

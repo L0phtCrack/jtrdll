@@ -63,10 +63,11 @@ typedef struct {
 } blockchain_hash;
 
 typedef struct {
-	int iterations;
-	int outlen;
-	uint8_t length;
-	uint8_t salt[16];
+	uint32_t iterations;
+	uint32_t outlen;
+	uint32_t skip_bytes;
+	uint8_t  length;
+	uint8_t  salt[64];
 } blockchain_salt;
 
 static int *cracked;
@@ -211,7 +212,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH) != 0)
 		return 0;
-
+	/* handle 'chopped' .pot lines */
+	if (ldr_isa_pot_source(ciphertext))
+		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
@@ -282,6 +285,8 @@ static void set_salt(void *salt)
 	currentsalt.length = 16;
 	currentsalt.iterations = cur_salt->iter;
 	currentsalt.outlen = 32;
+	currentsalt.skip_bytes = 0;
+
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_setting,
 		CL_FALSE, 0, settingsize, &currentsalt, 0, NULL, NULL),
 	    "Copy salt to gpu");

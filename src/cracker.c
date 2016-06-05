@@ -30,6 +30,7 @@
 
 #include "arch.h"
 #include "params.h"
+#include "base64_convert.h"
 
 #if CRK_PREFETCH && defined(__SSE__)
 #include <xmmintrin.h>
@@ -394,10 +395,26 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 
 	/* If we got this crack from a pot sync, don't report or count */
 	if (index >= 0) {
+		const char *ct;
+		char buffer[LINE_BUFFER_SIZE + 1];
+
+		if (options.max_run_time < 0) {
+#if OS_TIMER
+			timer_abort = 0 - options.max_run_time;
+#else
+			timer_abort = status_get_time() - options.max_run_time;
+#endif
+		}
+
+		if (dupe)
+			ct = NULL;
+		else
+			ct = ldr_pot_source(
+				crk_methods.source(pw->source, pw->binary),
+				buffer);
 		log_guess(crk_db->options->flags & DB_LOGIN ? replogin : "?",
 		          crk_db->options->flags & DB_LOGIN ? repuid : "",
-		          dupe ?
-		          NULL : crk_methods.source(pw->source, pw->binary),
+		          (char*)ct,
 		          repkey, key, crk_db->options->field_sep_char, index);
 
 		if (options.flags & FLG_CRKSTAT)
@@ -463,7 +480,7 @@ static int crk_remove_pot_entry(char *ciphertext)
 	 * that function again and compare the results. Thanks to
 	 * Christien Rioux for pointing this out.
 	 */
-	ciphertext = strncpy(argcopy, ciphertext, sizeof(argcopy));
+	ciphertext = strnzcpy(argcopy, ciphertext, sizeof(argcopy));
 	pot_salt = crk_methods.salt(ciphertext);
 	dyna_salt_create(pot_salt);
 
