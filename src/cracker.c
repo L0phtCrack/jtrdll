@@ -1078,14 +1078,18 @@ char *crk_get_key1(void)
 
 char *crk_get_key2(void)
 {
+	/* Snapshot these to avoid multithreaded race condition in jtrdll_get_status */
+	volatile int index = crk_key_index;
+	volatile int last_key = crk_last_key;
+
 	if (options.secure)
 		return NULL;
 	else
-	if (crk_key_index > 1 && crk_key_index < crk_last_key)
-		return crk_methods.get_key(crk_key_index - 1);
+	if (index > 1 && index < last_key)
+		return crk_methods.get_key(index - 1);
 	else
-	if (crk_last_key > 1)
-		return crk_methods.get_key(crk_last_key - 1);
+	if (last_key > 1)
+		return crk_methods.get_key(last_key - 1);
 	else
 		return NULL;
 }
