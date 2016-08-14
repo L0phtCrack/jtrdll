@@ -1041,7 +1041,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
 	        full_path,
 	        global_opts,
-			gpu_amd(device_info[sequential_id]) ? "-frontend=edg" : "",
+			gpu_amd(device_info[sequential_id]) ? "-frontend=edg " : "",
 	        get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
 	            "-D__MESA__" : opencl_get_dev_info(sequential_id),
 #ifdef __APPLE__
@@ -1952,9 +1952,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 	char hash_str[33];
 	uint64_t startTime, runtime;
 
-	if ((!gpu_amd(device_info[sequential_id]) &&
-	        !platform_apple(platform_id)) ||
-	        stat(path_expand(kernel_filename), &source_stat))
+	if (stat(path_expand(kernel_filename), &source_stat))
 		opencl_build_kernel_opt(kernel_filename, sequential_id, opts);
 	else {
 		int i;
