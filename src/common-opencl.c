@@ -1041,7 +1041,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
 	        full_path,
 	        global_opts,
-			gpu_amd(device_info[sequential_id]) ? "-frontend=edg" : "",
+			gpu_amd(device_info[sequential_id]) ? "-frontend=edg " : "",
 	        get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
 	            "-D__MESA__" : opencl_get_dev_info(sequential_id),
 #ifdef __APPLE__
