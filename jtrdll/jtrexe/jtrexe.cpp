@@ -18,6 +18,7 @@ TYPEOF_jtrdll_get_status *jtrdll_get_status = NULL;
 TYPEOF_jtrdll_get_charset_info *jtrdll_get_charset_info = NULL;
 TYPEOF_jtrdll_cleanup *jtrdll_cleanup = NULL;
 TYPEOF_jtrdll_preflight *jtrdll_preflight = NULL;
+TYPEOF_jtrdll_set_extra_opencl_kernel_args *jtrdll_set_extra_opencl_kernel_args = NULL;
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -37,8 +38,9 @@ bool LoadJTRDLL(std::string jtrdllversion)
 	jtrdll_get_charset_info = (TYPEOF_jtrdll_get_charset_info *)GetProcAddress(jtrdll, "jtrdll_get_charset_info");
 	jtrdll_cleanup = (TYPEOF_jtrdll_cleanup *)GetProcAddress(jtrdll, "jtrdll_cleanup");
 	jtrdll_preflight = (TYPEOF_jtrdll_preflight *)GetProcAddress(jtrdll, "jtrdll_preflight");
+	jtrdll_set_extra_opencl_kernel_args = (TYPEOF_jtrdll_set_extra_opencl_kernel_args *)GetProcAddress(jtrdll, "jtrdll_set_extra_opencl_kernel_args");
 
-	if (!jtrdll_main || !jtrdll_abort || !jtrdll_get_status || !jtrdll_get_charset_info || !jtrdll_cleanup || !jtrdll_preflight)
+	if (!jtrdll_main || !jtrdll_abort || !jtrdll_get_status || !jtrdll_get_charset_info || !jtrdll_cleanup || !jtrdll_preflight || !jtrdll_set_extra_opencl_kernel_args)
 	{
 		fprintf(stderr, "Malformed jtrdll\n");
 		FreeLibrary(jtrdll);

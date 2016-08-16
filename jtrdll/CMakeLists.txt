@@ -491,6 +491,7 @@ FILE(GLOB EXTRA_KERNEL_FILES
 )
 ADD_EXECUTABLE( jtrexe 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/jtrexe.cpp 
+	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/jtrexe.h
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/cpuinformation.cpp 
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/cpuinformation.h
 	${CMAKE_CURRENT_SOURCE_DIR}/jtrexe/processhost.cpp 

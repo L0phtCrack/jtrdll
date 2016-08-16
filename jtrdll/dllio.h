@@ -146,5 +146,4 @@ extern FILE *dllstdout;
 extern FILE *dllstderr;
 extern int dllexitcode;
 
-
 #endif

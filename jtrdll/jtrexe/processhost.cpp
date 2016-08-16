@@ -457,6 +457,33 @@ THREADCALL jtrdll_preflight_thread(THREADPARAMS_JTRDLL_PREFLIGHT *tparam)
 
 ////////////////////////////////////////////////////////////////////////
 
+struct THREADPARAMS_JTRDLL_SET_EXTRA_OPENCL_KERNEL_ARGS {
+	std::string ctlpipe_name;
+	PIPETYPE ctlpipe_handle; 
+	char extra_opencl_kernel_args[1024];
+};
+
+THREADCALL jtrdll_set_extra_opencl_kernel_args_thread(THREADPARAMS_JTRDLL_SET_EXTRA_OPENCL_KERNEL_ARGS *tparam)
+{
+	if (!wait_for_pipe_client(tparam->ctlpipe_handle))
+	{
+		destroy_control_pipe(tparam->ctlpipe_handle);
+		delete tparam;
+		return -1;
+	}
+
+	jtrdll_set_extra_opencl_kernel_args(tparam->extra_opencl_kernel_args);
+	
+	destroy_control_pipe(tparam->ctlpipe_handle);
+	delete tparam;
+	return 0;
+
+}
+
+
+
+////////////////////////////////////////////////////////////////////////
+
 int run_processhost(void)
 {
 	bool done = false;
@@ -557,6 +584,18 @@ int run_processhost(void)
 				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_preflight->ctlpipe_name.c_str());
 
 				create_command_thread(jtrdll_preflight_thread, tp_jtrdll_preflight);
+			}
+			else if (line == "jtrdll_set_extra_opencl_kernel_args")
+			{
+				THREADPARAMS_JTRDLL_SET_EXTRA_OPENCL_KERNEL_ARGS * tp_jtrdll_set_extra_opencl_kernel_args = new THREADPARAMS_JTRDLL_SET_EXTRA_OPENCL_KERNEL_ARGS;
+
+				std::getline(std::cin, line);
+				strcpy_s(tp_jtrdll_set_extra_opencl_kernel_args->extra_opencl_kernel_args, sizeof(tp_jtrdll_set_extra_opencl_kernel_args->extra_opencl_kernel_args), line.c_str());
+
+				tp_jtrdll_set_extra_opencl_kernel_args->ctlpipe_handle = create_control_pipe(tp_jtrdll_set_extra_opencl_kernel_args->ctlpipe_name);
+				writeStdOut("%u:pipe=%s\n", cmdid, tp_jtrdll_set_extra_opencl_kernel_args->ctlpipe_name.c_str());
+
+				create_command_thread(jtrdll_set_extra_opencl_kernel_args_thread, tp_jtrdll_set_extra_opencl_kernel_args);
 			}
 			else if (line == "exit")
 			{

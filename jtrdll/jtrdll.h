@@ -75,8 +75,10 @@ typedef void (TYPEOF_jtrdll_get_status)(struct JTRDLL_STATUS *jtrdllstatus);
 typedef int (TYPEOF_jtrdll_get_charset_info)(const char *path, unsigned char * charmin, unsigned char *charmax, unsigned char *len, unsigned char *count, unsigned char allchars[256]);
 typedef void (TYPEOF_jtrdll_cleanup)(void);
 typedef void (TYPEOF_jtrdll_preflight)(int argc, char **argv, struct JTRDLL_HOOKS *hooks, struct JTRDLL_PREFLIGHT *jtrdllpreflight);
+typedef void (TYPEOF_jtrdll_set_extra_opencl_kernel_args)(const char *args);
 
 #ifdef JTRDLL
+extern char extra_opencl_kernel_args[1024];
 extern int jtrdll_is_preflight;
 extern unsigned long jtrdll_preflight_salt_count;
 extern unsigned long jtrdll_preflight_wordlist_rule_count;

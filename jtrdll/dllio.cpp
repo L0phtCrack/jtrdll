@@ -62,6 +62,7 @@ extern "C"
 	void(*stderr_hook)(void *ctx, const char *str) = NULL;
 	int dllexitcode = 0;
 	int dllexited = 0;
+	char extra_opencl_kernel_args[1024]="";
 
 	int strprintf(char **psz, const char *szFmt, va_list args)
 	{
@@ -826,6 +827,12 @@ extern "C"
 
 	void null_stdhook(void *, const char *)
 	{
+	}
+
+	JTRDLL_IMPEXP void jtrdll_set_extra_opencl_kernel_args(const char *args)
+	{
+		strncpy(extra_opencl_kernel_args, args, 1024);
+		extra_opencl_kernel_args[1023] = 0;
 	}
 
 	JTRDLL_IMPEXP void jtrdll_preflight(int argc, char **argv, struct JTRDLL_HOOKS *hooks, struct JTRDLL_PREFLIGHT *jtrdllpreflight)

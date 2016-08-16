@@ -91,6 +91,7 @@ static int opencl_initialized;
 
 #ifdef JTRDLL
 extern char appdatadir[_MAX_PATH];
+extern char extra_opencl_kernel_args[1024];
 #endif
 
 extern volatile int bench_running;
@@ -1038,7 +1039,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		    SUBSECTION_OPENCL, "GlobalBuildOpts")))
 			global_opts = OPENCLBUILDOPTIONS;
 
-	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
+	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
 	        full_path,
 	        global_opts,
 			gpu_amd(device_info[sequential_id]) ? "-frontend=edg " : "",
@@ -1054,7 +1055,13 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	        "-DDEVICE_INFO=", device_info[sequential_id],
 	        "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
 	        opencl_driver_ver(sequential_id),
-	        opts ? opts : "");
+	        opts ? opts : "",
+#ifdef JTRDLL
+			extra_opencl_kernel_args
+#else
+			""
+#endif
+			);
 #if I_REALPATH
 #define __saved_free free
 #undef free
@@ -1982,6 +1989,9 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 		opencl_read_source(kernel_filename, &kernel_source);
 		md5add(kernel_source);
 		md5add(global_opts);
+#ifdef JTRDLL
+		md5add(extra_opencl_kernel_args);
+#endif
 		if (opts)
 			md5add(opts);
 		md5add(opencl_driver_ver(sequential_id));
