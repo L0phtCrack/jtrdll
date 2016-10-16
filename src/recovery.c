@@ -242,7 +242,7 @@ void rec_init(struct db_main *db, void (*save_mode)(FILE *file))
 
 	if ((rec_fd = open(path_expand(rec_name), O_RDWR | O_CREAT, 0600)) < 0)
 		pexit("open: %s", path_expand(rec_name));
-#if __DJGPP__ || _MSC_VER || __MINGW32__ || __MINGW64__ || __CYGWIN__ || HAVE_WINDOWS_H
+#if __DJGPP__ || __MINGW32__ || __MINGW64__ || __CYGWIN__ 
 	// works around bug in cygwin, that has file locking problems with a handle
 	// from a just created file.  If we close and reopen, cygwin does not seem
 	// to have any locking problems.  Go figure???

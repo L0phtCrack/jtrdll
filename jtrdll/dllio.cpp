@@ -10,6 +10,8 @@
 #include<string.h>
 #include<memory.h>
 #include<malloc.h>
+#include<sys/stat.h>
+#include<io.h>
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #include <OpenCL/cl_ext.h>
@@ -726,7 +728,7 @@ extern "C"
 			BOOL ret = __FUnloadDelayLoadedDLL2("OpenCL.dll");
 			if (!ret)
 			{
-				fprintf(stderr,"unable to unload OpenCL.dll\n");
+				//fprintf(stderr,"unable to unload OpenCL.dll\n");
 			}
 		}
 #endif
@@ -863,6 +865,131 @@ extern "C"
 		}
 	}
 
+
+	// utf8 libc functions
+	int utf8_stat(const char * _Filename, struct stat * _Stat)
+	{
+#if defined(JTRDLL) && defined(_WIN32)
+		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
+		wchar_t *wchfname = (wchar_t *)malloc((reqlen+1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
+		wchfname[reqlen] = 0;
+
+#ifndef _USE_32BIT_TIME_T
+		int ret = _wstat(wchfname, (struct _stat64i32 *)_Stat);
+#else
+		int ret = _wstat(wchfname, (struct _stat32 *)_Stat);
+#endif
+		free(wchfname);
+
+		if (ret==0)
+		{
+			return ret;
+		}
+		return stat(_Filename, _Stat);
+#else
+		return stat(_Filename, _Stat);
+#endif
+	}
+	
+	FILE * utf8_fopen(const char * _Filename, const char * _Mode)
+	{
+#if defined(JTRDLL) && defined(_WIN32)
+		
+		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
+		wchar_t *wchfname = (wchar_t *)malloc((reqlen+1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
+		wchfname[reqlen] = 0;
+
+		reqlen = MultiByteToWideChar(CP_UTF8, 0, _Mode, (int)strlen(_Mode), NULL, 0);
+		wchar_t *wchmode = (wchar_t *)malloc((reqlen+1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Mode, (int)strlen(_Mode), wchmode, reqlen);
+		wchmode[reqlen] = 0;
+		/*
+		for (wchar_t *ch = wchfname; *ch; ch++)
+		{
+			if (*ch == L'/')
+				*ch = L'\\';
+		}
+		*/
+		FILE *ret = _wfopen(wchfname, wchmode);
+
+		free(wchfname);
+		free(wchmode);
+
+		if(ret)
+			return ret;
+
+		return fopen(_Filename, _Mode);
+#else
+		return fopen(_Filename, _Mode);
+#endif
+	}
+
+	int utf8_chmod(const char * _Filename, int _AccessMode)
+	{
+#if defined(JTRDLL) && defined(_WIN32)
+		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
+		wchar_t *wchfname = (wchar_t *)malloc((reqlen + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
+		wchfname[reqlen] = 0;
+
+		int ret = _wchmod(wchfname, _AccessMode);
+		free(wchfname);
+
+		if (ret != -1)
+		{
+			return ret;
+		}
+		return chmod(_Filename, _AccessMode);
+#else
+		return chmod(_Filename, _AccessMode);
+#endif
+	}
+
+	int utf8__open(const char * _Filename, int _OpenFlag, ...)
+	{
+#if defined(JTRDLL) && defined(_WIN32)
+		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
+		wchar_t *wchfname = (wchar_t *)malloc((reqlen + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
+		wchfname[reqlen] = 0;
+
+		int ret = _wopen(wchfname, _OpenFlag);
+		free(wchfname);
+
+		if (ret != -1)
+		{
+			return ret;
+		}
+		return _open(_Filename, _OpenFlag);
+#else
+		return _open(_Filename, _OpenFlag);
+#endif
+	}
+
+	int utf8__unlink(const char * _Filename)
+	{
+#if defined(JTRDLL) && defined(_WIN32)
+		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
+		wchar_t *wchfname = (wchar_t *)malloc((reqlen + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
+		wchfname[reqlen] = 0;
+
+		SetFileAttributesW(wchfname, GetFileAttributesW(wchfname) & ~FILE_ATTRIBUTE_READONLY);
+		
+		int ret = _wunlink(wchfname);
+		free(wchfname);
+
+		if (ret != -1)
+		{
+			return ret;
+		}
+ 		return _unlink(_Filename);
+#else
+		return _unlink(_Filename);
+#endif
+	}
 
 
 
