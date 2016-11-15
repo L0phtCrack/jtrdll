@@ -8,7 +8,12 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<malloc.h>
-
+#include<sys/stat.h>
+#include<io.h>
+#ifdef _WIN32
+#include<wchar.h>
+#include<tchar.h>
+#endif
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #include <OpenCL/cl_ext.h>
@@ -145,5 +150,32 @@ int dllsetexithook(void);
 extern FILE *dllstdout;
 extern FILE *dllstderr;
 extern int dllexitcode;
+
+/* utf 8 functions */
+int utf8_stat(const char * _Filename, struct stat * _Stat);
+FILE * utf8_fopen(const char * _Filename, const char * _Mode);
+int utf8_chmod(const char * _Filename, int _AccessMode);
+int utf8__open(const char * _Filename, int _OpenFlag, ...);
+int utf8__unlink(const char * _Filename);
+
+struct utf8_stat {
+	_dev_t     st_dev;
+	_ino_t     st_ino;
+	unsigned short st_mode;
+	short      st_nlink;
+	short      st_uid;
+	short      st_gid;
+	_dev_t     st_rdev;
+	_off_t     st_size;
+	time_t st_atime;
+	time_t st_mtime;
+	time_t st_ctime;
+};
+
+#define fopen utf8_fopen
+#define stat utf8_stat
+#define _open utf8__open
+#define _unlink utf8__unlink
+#define chmod utf8_chmod
 
 #endif

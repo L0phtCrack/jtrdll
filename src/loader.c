@@ -183,7 +183,7 @@ static void read_file(struct db_main *db, char *name, int flags,
 		cfg_get_bool(SECTION_OPTIONS, NULL, "WarnEncoding", 0);
 
 	if (flags & RF_ALLOW_DIR) {
-		if (stat(name, &file_stat)) {
+		if (utf8_stat(name, &file_stat)) {
 			if (flags & RF_ALLOW_MISSING)
 				if (errno == ENOENT) return;
 			pexit("stat: %s", path_expand(name));
