@@ -212,7 +212,7 @@ static int is_default(char *name)
 	}
 }
 
-void rec_init(struct db_main *db, void (*save_mode)(FILE *file))
+void rec_init(struct db_main *db, void(*save_mode)(FILE *file))
 {
 	static int check_done;
 	const char *protect;
@@ -224,23 +224,23 @@ void rec_init(struct db_main *db, void (*save_mode)(FILE *file))
 	rec_name_complete();
 
 	if (!(protect = cfg_get_param(SECTION_OPTIONS, NULL,
-	    "SessionFileProtect")))
+		"SessionFileProtect")))
 		protect = "Disabled";
 
 	if (!rec_restored && !check_done++ &&
-	    (((!strcasecmp(protect, "Named")) && !is_default(rec_name)) ||
-	    (!strcasecmp(protect, "Always")))) {
+		(((!strcasecmp(protect, "Named")) && !is_default(rec_name)) ||
+		(!strcasecmp(protect, "Always")))) {
 		struct stat st;
 
 		if (!stat(path_expand(rec_name), &st)) {
 			fprintf(stderr,
-			    "ERROR: SessionFileProtect enabled in john.conf, and %s exists\n",
-			    path_expand(rec_name));
+				"ERROR: SessionFileProtect enabled in john.conf, and %s exists\n",
+				path_expand(rec_name));
 			error();
 		}
 	}
 
-	if ((rec_fd = open(path_expand(rec_name), O_RDWR | O_CREAT, 0600)) < 0)
+	if ((rec_fd = open(path_expand(rec_name), O_RDWR | O_CREAT, _S_IREAD | _S_IWRITE)) < 0)
 		pexit("open: %s", path_expand(rec_name));
 #if __DJGPP__ || __MINGW32__ || __MINGW64__ || __CYGWIN__ 
 	// works around bug in cygwin, that has file locking problems with a handle
@@ -249,11 +249,12 @@ void rec_init(struct db_main *db, void (*save_mode)(FILE *file))
 	// Note, changed from just __CYGWIN__ to all 'Dos/Windows' as the OS environments
 	// likely this is a Win32 'issue'
 	close(rec_fd);
-	if ((rec_fd = open(path_expand(rec_name), O_RDWR | O_CREAT, 0600)) < 0)
+	if ((rec_fd = open(path_expand(rec_name), O_RDWR | O_CREAT, _S_IREAD | _S_IWRITE)) < 0)
 		pexit("open: %s", path_expand(rec_name));
 #endif
 	rec_lock(1);
-	if (!(rec_file = fdopen(rec_fd, "w"))) pexit("fdopen");
+	if (!(rec_file = fdopen(rec_fd, "w"))) 
+		pexit("fdopen");
 
 	rec_db = db;
 	rec_save_mode = save_mode;

@@ -155,7 +155,7 @@ extern int dllexitcode;
 int utf8_stat(const char * _Filename, struct stat * _Stat);
 FILE * utf8_fopen(const char * _Filename, const char * _Mode);
 int utf8_chmod(const char * _Filename, int _AccessMode);
-int utf8__open(const char * _Filename, int _OpenFlag, ...);
+int utf8__open(const char * _Filename, int _OpenFlag, int _PMode);
 int utf8__unlink(const char * _Filename);
 
 struct utf8_stat {

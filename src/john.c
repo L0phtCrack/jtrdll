@@ -1076,6 +1076,9 @@ static void john_load(void)
 
 #ifndef _MSC_VER
 	umask(077);
+#else
+	int oldmode;
+	_umask_s(0, &oldmode);
 #endif
 
 	if (options.flags & FLG_EXTERNAL_CHK)

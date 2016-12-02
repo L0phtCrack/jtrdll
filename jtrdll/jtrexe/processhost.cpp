@@ -341,9 +341,14 @@ THREADCALL jtrdll_main_thread(THREADPARAMS_JTRDLL_MAIN *tparam)
 
 ////////////////////////////////////////////////////////////////////////
 
-THREADCALL jtrdll_abort_thread(void *)
+
+struct THREADPARAMS_JTRDLL_ABORT {
+	int timeout;
+};
+
+THREADCALL jtrdll_abort_thread(THREADPARAMS_JTRDLL_ABORT *tparam)
 {
-	jtrdll_abort();
+	jtrdll_abort(tparam->timeout);
 	return 0;
 }
 
@@ -534,6 +539,11 @@ int run_processhost(void)
 			}
 			else if (line == "jtrdll_abort")
 			{
+				THREADPARAMS_JTRDLL_ABORT *tp_jtrdll_abort = new THREADPARAMS_JTRDLL_ABORT;
+
+				std::getline(std::cin, line);
+				tp_jtrdll_abort->timeout = atoi(line.c_str());
+
 				create_command_thread(jtrdll_abort_thread, NULL);
 				writeStdOut("%u:aborted\n", cmdid);
 			}

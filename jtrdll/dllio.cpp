@@ -784,8 +784,12 @@ extern "C"
 		}
 	}
 
-	JTRDLL_IMPEXP void jtrdll_abort(void)
+	JTRDLL_IMPEXP void jtrdll_abort(int timeout)
 	{
+		if (timeout)
+		{
+			aborted_by_timer = 1;
+		}
 		sig_handle_abort(SIGINT);
 	}
 
@@ -947,7 +951,7 @@ extern "C"
 #endif
 	}
 
-	int utf8__open(const char * _Filename, int _OpenFlag, ...)
+	int utf8__open(const char * _Filename, int _OpenFlag, int _PMode)
 	{
 #if defined(JTRDLL) && defined(_WIN32)
 		int reqlen = MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), NULL, 0);
@@ -955,16 +959,16 @@ extern "C"
 		MultiByteToWideChar(CP_UTF8, 0, _Filename, (int)strlen(_Filename), wchfname, reqlen);
 		wchfname[reqlen] = 0;
 
-		int ret = _wopen(wchfname, _OpenFlag);
+		int ret = _wopen(wchfname, _OpenFlag, _PMode);
 		free(wchfname);
 
 		if (ret != -1)
 		{
 			return ret;
 		}
-		return _open(_Filename, _OpenFlag);
+		return _open(_Filename, _OpenFlag, _PMode);
 #else
-		return _open(_Filename, _OpenFlag);
+		return _open(_Filename, _OpenFlag, _PMode);
 #endif
 	}
 
