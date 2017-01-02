@@ -202,7 +202,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 #ifndef JOHN_OCL_WPAPSK
 static MAYBE_INLINE void prf_512(uint32_t * key, uint8_t * data, uint32_t * ret)
 {
-	HMAC_CTX ctx;
+	HMAC_CTX *ctx = HMAC_CTX_new();
 	char *text = (char*)"Pairwise key expansion";
 	unsigned char buff[100];
 
@@ -210,10 +210,10 @@ static MAYBE_INLINE void prf_512(uint32_t * key, uint8_t * data, uint32_t * ret)
 	memcpy(buff + 23, data, 76);
 	buff[22] = 0;
 	buff[76 + 23] = 0;
-	HMAC_Init(&ctx, key, 32, EVP_sha1());
-	HMAC_Update(&ctx, buff, 100);
-	HMAC_Final(&ctx, (unsigned char *) ret, NULL);
-	HMAC_CTX_cleanup(&ctx);
+	HMAC_Init(ctx, key, 32, EVP_sha1());
+	HMAC_Update(ctx, buff, 100);
+	HMAC_Final(ctx, (unsigned char *) ret, NULL);
+	HMAC_CTX_free(ctx);
 }
 #endif
 

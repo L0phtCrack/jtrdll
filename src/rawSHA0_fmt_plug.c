@@ -116,9 +116,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
 
-	SHA_Init( &ctx );
-	SHA_Update( &ctx, (unsigned char *) saved_key, strlen( saved_key ) );
-	SHA_Final( (unsigned char *) crypt_key, &ctx);
+	SHA1_Init( &ctx );
+	SHA0_Update( &ctx, (unsigned char *) saved_key, strlen( saved_key ) );
+	SHA0_Final( (unsigned char *) crypt_key, &ctx);
 
 	return count;
 }

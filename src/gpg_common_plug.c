@@ -876,6 +876,9 @@ static int check_dsa_secret_key(DSA *dsa)
 {
 	int error;
 	int rc = -1;
+	BIGNUM *g, *q, *p;
+	BIGNUM *pub_key, *priv_key;
+	
 	BIGNUM *res = BN_new();
 	BN_CTX *ctx = BN_CTX_new();
 	if (!res) {
@@ -887,22 +890,26 @@ static int check_dsa_secret_key(DSA *dsa)
 		error();
 	}
 
-	error = BN_mod_exp(res, dsa->g, dsa->priv_key, dsa->p, ctx);
+	DSA_get0_pqg(dsa, &p, &q, &g);
+	DSA_get0_key(dsa, &pub_key, &priv_key);
+
+	error = BN_mod_exp(res, g, priv_key, p, ctx);
 	if ( error == 0 ) {
 		goto freestuff;
 	}
 
-	rc = BN_cmp(res, dsa->pub_key);
+	rc = BN_cmp(res, pub_key);
 
 freestuff:
 
 	BN_CTX_free(ctx);
 	BN_free(res);
-	BN_free(dsa->g);
-	BN_free(dsa->q);
-	BN_free(dsa->p);
-	BN_free(dsa->pub_key);
-	BN_free(dsa->priv_key);
+	BN_free(g);
+	BN_free(q);
+	BN_free(p);
+	BN_free(pub_key);
+	BN_free(priv_key);
+	DSA_free(dsa);
 
 	return rc;
 }
@@ -1169,7 +1176,6 @@ int gpg_common_check(unsigned char *keydata, int ks)
 			return 0;
 		if (blen < gpg_common_cur_salt->datalen && ((b = BN_bin2bn(out + 2, blen, NULL)) != NULL)) {
 			char *str = BN_bn2hex(b);
-			DSA dsa;
 			ElGamal_secret_key elg;
 			RSA_secret_key rsa;
 			if (strlen(str) != blen * 2) { /* verifier 2 */
@@ -1180,19 +1186,19 @@ int gpg_common_check(unsigned char *keydata, int ks)
 			OPENSSL_free(str);
 
 			if (gpg_common_cur_salt->pk_algorithm == PKA_DSA) { /* DSA check */
-				dsa.p = BN_bin2bn(gpg_common_cur_salt->p, gpg_common_cur_salt->pl, NULL);
-				// puts(BN_bn2hex(dsa.p));
-				dsa.q = BN_bin2bn(gpg_common_cur_salt->q, gpg_common_cur_salt->ql, NULL);
-				// puts(BN_bn2hex(dsa.q));
-				dsa.g = BN_bin2bn(gpg_common_cur_salt->g, gpg_common_cur_salt->gl, NULL);
-				// puts(BN_bn2hex(dsa.g));
-				dsa.priv_key = b;
-				dsa.pub_key = BN_bin2bn(gpg_common_cur_salt->y, gpg_common_cur_salt->yl, NULL);
-				// puts(BN_bn2hex(dsa.pub_key));
-				ret = check_dsa_secret_key(&dsa); /* verifier 3 */
+				DSA *dsa = DSA_new();
+				DSA_set0_pqg(dsa, BN_bin2bn(gpg_common_cur_salt->p, gpg_common_cur_salt->pl, NULL),
+					BN_bin2bn(gpg_common_cur_salt->q, gpg_common_cur_salt->ql, NULL),
+					BN_bin2bn(gpg_common_cur_salt->g, gpg_common_cur_salt->gl, NULL));
+				DSA_set0_key(dsa, BN_bin2bn(gpg_common_cur_salt->y, gpg_common_cur_salt->yl, NULL), b);
+				ret = check_dsa_secret_key(dsa); /* verifier 3 */
+				DSA_free(dsa);
 				if (ret != 0)
+				{
 					return 0;
+				}
 			}
+
 			if (gpg_common_cur_salt->pk_algorithm == PKA_ELGAMAL || gpg_common_cur_salt->pk_algorithm == PKA_EG) { /* ElGamal check */
 				elg.p = BN_bin2bn(gpg_common_cur_salt->p, gpg_common_cur_salt->pl, NULL);
 				// puts(BN_bn2hex(elg.p));
