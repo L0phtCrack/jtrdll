@@ -305,11 +305,11 @@ ENDIF()
 
 # remove non-working formats
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/stribog_fmt_plug.c)
-LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/ztex_descrypt.c)
 
 # remove non-working files
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/KeccakF-1600-reference32BI.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/stribog_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ztex_descrypt.c)
 
 # remove #included programs
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/haval_helper.c)

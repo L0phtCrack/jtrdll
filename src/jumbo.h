@@ -328,7 +328,7 @@ extern int fileno(FILE *);
 // blindly use these for VC.  For VC, they are used to work around many
 // red-herring compiler warnings
 #undef snprintf
-#define snprintf(str, size, ...) vc_fixed_snprintf((str), (size), __VA_ARGS__)
+#define snprintf vc_fixed_snprintf
 #ifdef __cplusplus
 extern "C"
 {

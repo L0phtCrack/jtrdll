@@ -276,8 +276,8 @@ static void reset(struct db_main *db)
 	         PLAINTEXT_LENGTH,
 	         (unsigned long long)const_cache_size,
 	         cp_id2macro(options.internal_cp),
-	         options.internal_cp == UTF_8 ? cp_id2macro(ASCII) :
-	         cp_id2macro(options.internal_cp), static_gpu_locations[0],
+	         options.internal_cp == UTF_8 ? cp_id2macro(ASCII) : cp_id2macro(options.internal_cp), 
+			 static_gpu_locations[0],
 #if MASK_FMT_INT_PLHDR > 1
 	         static_gpu_locations[1],
 #endif

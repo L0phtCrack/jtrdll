@@ -12,6 +12,10 @@
 #include <x86intrin.h>
 #endif
 
+#ifdef _MSC_VER
+#include<intrin.h>
+#endif
+
 #if !defined(__XOP__)
 #if defined(__SSSE3__)
 #define r16                                                                    \

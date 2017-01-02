@@ -17,7 +17,12 @@ john_register_one(&FMT_STRUCT);
 
 #include <string.h>
 #include <assert.h>
+#if defined(_MSC_VER) && defined(JTRDLL)
+#include <time.h>
+#include "gettimeofday.h"
+#else
 #include <sys/time.h>
+#endif
 
 #include "arch.h"
 #include "params.h"
