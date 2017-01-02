@@ -18,7 +18,7 @@ void device_format_init(struct fmt_main *fmt_main, struct device_bitstream *bits
 
 void device_format_done();
 
-void device_format_reset();
+void device_format_reset(struct db_main *db);
 
 void device_format_set_salt(void *salt);
 

@@ -10,7 +10,10 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#ifdef _MSC_VER
+#else
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <libusb-1.0/libusb.h>
 

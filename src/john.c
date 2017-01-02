@@ -166,13 +166,6 @@ extern struct fmt_main fmt_ztex_descrypt;
 
 #include "fmt_externs.h"
 
-#ifndef JTRDLL
-#if HAVE_CUDA
-extern struct fmt_main fmt_cuda_rawsha224;
-extern struct fmt_main fmt_cuda_rawsha256;
-#endif
-#endif
-
 extern int unshadow(int argc, char **argv);
 extern int unafs(int argc, char **argv);
 extern int unique(int argc, char **argv);
@@ -399,13 +392,6 @@ static void john_register_all(void)
 
 	// This format is deprecated so now registers after plug-in NT format.
 	john_register_one(&fmt_NT);
-
-#ifndef JTRDLL
-#if HAVE_CUDA
-	john_register_one(&fmt_cuda_rawsha224);
-	john_register_one(&fmt_cuda_rawsha256);
-#endif
-#endif
 
 	john_register_one(&fmt_dummy);
 #if HAVE_CRYPT
@@ -1438,7 +1424,7 @@ static void john_init(char *name, int argc, char **argv)
 
 #if (!AC_BUILT || HAVE_LOCALE_H)
 #ifdef _WIN32
-#if HAVE_OPENCL || HAVE_CUDA
+#if HAVE_OPENCL
 	if(GetConsoleCP()==437)
 	{
 		sprintf(gpu_degree_sign, "%ls", DEGREE_SIGN_CP437);

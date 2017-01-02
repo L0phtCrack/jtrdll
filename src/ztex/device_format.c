@@ -8,7 +8,13 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(_MSC_VER) && defined(JTRDLL)
+#include <Windows.h>
+#include <time.h>
+#include "gettimeofday.h"
+#else
 #include <sys/time.h>
+#endif
 
 #include "../loader.h"
 #include "../formats.h"
@@ -215,7 +221,11 @@ int device_format_crypt_all(int *pcount, struct db_salt *salt)
 		// There was no data transfer on devices.
 		// Don't use 100% CPU in a loop.
 		if (!rw_result)
+#if defined(_MSC_VER) && defined(JTRDLL)
+			Sleep(1);
+#else
 			usleep(1000);
+#endif
 		
 	}
 
