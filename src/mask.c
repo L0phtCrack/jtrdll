@@ -637,15 +637,21 @@ static char* plhdr2string(char p, int fmt_case)
 		break;
 
 	case 'B': /* All high-bit */
-
-	case 'h': /* deprecated alias for B */
 		add_range(0x80, 0xff);
 		break;
 
 	case 'b': /* All (except NULL which we can't handle) */
-
-	case 'H': /* deprecated alias for b */
 		add_range(0x01, 0xff);
+		break;
+
+	case 'h': /* Lower-case hex */
+		add_range('0', '9');
+		add_range('a', 'f');
+		break;
+
+	case 'H': /* Upper-case hex */
+		add_range('0', '9');
+		add_range('A', 'F');
 		break;
 
 	case 'a': /* Printable ASCII */
@@ -1399,6 +1405,11 @@ static void truncate_mask(mask_cpu_context *cpu_mask_ctx, int range_idx)
 			if (cpu_mask_ctx->ranges[i].next == MAX_NUM_MASK_PLHDR)
 				break;
 		}
+
+	if (options.node_count && !(options.flags & FLG_MASK_STACKED))
+		mask_tot_cand = mask_tot_cand *
+			(options.node_max + 1 - options.node_min) /
+			options.node_count;
 }
 
 /*
@@ -1792,6 +1803,11 @@ static double get_progress(void)
 	if (!mask_tot_cand)
 		return -1;
 
+#ifdef MASK_DEBUG
+	fprintf(stderr, "%s() try %.0f candlen %llu tot %llu\n", __FUNCTION__,
+	        try, cand_length, total);
+#endif
+
 	if (cand_length)
 		total += cand_length;
 
@@ -1805,7 +1821,7 @@ void mask_save_state(FILE *file)
 	fprintf(file, ""LLu"\n", rec_cand + 1);
 	fprintf(file, "%d\n", rec_ctx.count);
 	fprintf(file, "%d\n", rec_ctx.offset);
-	if (options.req_minlength >= 0) {
+	if (!(options.flags & FLG_MASK_STACKED) && options.req_minlength >= 0) {
 		fprintf(file, "%d\n", rec_len);
 		fprintf(file, ""LLu"\n", cand_length + 1);
 	}
@@ -1817,7 +1833,6 @@ int mask_restore_state(FILE *file)
 {
 	int i, d;
 	unsigned cu;
-	int fixed = 0;
 	unsigned long long ull;
 	int fail = !(options.flags & FLG_MASK_STACKED);
 
@@ -1836,7 +1851,7 @@ int mask_restore_state(FILE *file)
 	else
 		return fail;
 
-	if (options.req_minlength >= 0) {
+	if (!(options.flags & FLG_MASK_STACKED) && options.req_minlength >= 0) {
 		if (fscanf(file, "%d\n", &d) == 1)
 			restored_len = d;
 		else
@@ -1847,24 +1862,10 @@ int mask_restore_state(FILE *file)
 			return fail;
 	}
 
-	/* vc and mingw can not handle %hhu and blow the stack
-	   and fail to restart properly */
+	/* vc and mingw can not handle %hhu */
 	for (i = 0; i < cpu_mask_ctx.count; i++)
-	if (fscanf(file, "%u\n", &cu) == 1) {
+	if (fscanf(file, "%u\n", &cu) == 1)
 		cpu_mask_ctx.ranges[i].iter = cu;
-		/*
-		 * Code was starting off with the last value. So increment
-		 * things by 1 so we start at the next mask value.
-		 */
-		if (!fixed) {
-			if (++cpu_mask_ctx.ranges[i].iter <
-			    cpu_mask_ctx.ranges[i].count) {
-				fixed = 1;
-			} else {
-				cpu_mask_ctx.ranges[i].iter = 0;
-			}
-		}
-	}
 	else
 		return fail;
 	restored = 1;
@@ -1878,7 +1879,7 @@ void mask_fix_state(void)
 	rec_cand = cand;
 	rec_ctx.count = cpu_mask_ctx.count;
 	rec_ctx.offset = cpu_mask_ctx.offset;
-	rec_len = max_keylen;
+	rec_len = mask_cur_len;
 	for (i = 0; i < rec_ctx.count; i++)
 		rec_ctx.ranges[i].iter = cpu_mask_ctx.ranges[i].iter;
 }
@@ -1993,6 +1994,7 @@ char *stretch_mask(char *mask, mask_parsed_ctx *parsed_mask)
  */
 void mask_init(struct db_main *db, char *unprocessed_mask)
 {
+	static char test_mask[] = "?a?a?l?u?d?d?s?s";
 	int i, max_static_range;
 
 	mask_fmt = db->format;
@@ -2021,18 +2023,27 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	fprintf(stderr, "%s(%s) maxlen %d\n", __FUNCTION__, unprocessed_mask,
 	        max_keylen);
 #endif
-	if (!(options.flags & FLG_MASK_STACKED))
-		log_event("Proceeding with mask mode");
-
 	/* Load defaults from john.conf */
-	if (options.flags & FLG_MASK_STACKED) {
-		if (!options.mask && !(options.mask =
-		   cfg_get_param("Mask", NULL, "DefaultHybridMask")))
+	if (!options.mask) {
+		if (options.flags & FLG_TEST_CHK)
+			options.mask = test_mask;
+		else if (options.flags & FLG_MASK_STACKED)
+			options.mask = cfg_get_param("Mask", NULL, "DefaultHybridMask");
+		else
+			options.mask = cfg_get_param("Mask", NULL, "DefaultMask");
+
+		if (!options.mask)
 			options.mask = "";
-	} else
-		if (!options.mask && !(options.mask =
-		   cfg_get_param("Mask", NULL, "DefaultMask")))
-			options.mask = "";
+
+		if (2 * max_keylen < strlen(options.mask))
+			options.mask[2 * max_keylen] = 0;
+	}
+
+	if (!(options.flags & FLG_MASK_STACKED)) {
+		log_event("Proceeding with mask mode");
+		if (rec_restored && john_main_process)
+			fprintf(stderr, "Proceeding with mask:%s\n", options.mask);
+	}
 
 	/* Load defaults for custom placeholders ?1..?9 from john.conf */
 	for (i = 0; i < MAX_NUM_CUST_PLHDR; i++) {
@@ -2312,8 +2323,7 @@ int do_mask_crack(const char *extern_key)
 	mask_parent_keys++;
 
 	/* If --min-len is used, we iterate max_keylen */
-	if (!(options.flags & FLG_MASK_STACKED) &&
-	    options.req_minlength >= 0) {
+	if (!(options.flags & FLG_MASK_STACKED) && options.req_minlength >= 0) {
 		int template_key_len = -1;
 		int max_len = max_keylen;
 
@@ -2346,9 +2356,6 @@ int do_mask_crack(const char *extern_key)
 
 			if (options.node_count && !(options.flags & FLG_MASK_STACKED)) {
 				if (restored) {
-					mask_tot_cand = mask_tot_cand *
-						(options.node_max + 1 - options.node_min) /
-						options.node_count;
 					restored = 0;
 				}
 				else {

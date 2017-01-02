@@ -2393,7 +2393,7 @@ def find_rc4_passinfo_xls(filename, stream):
                 verifier = data[16:32]
                 verifierHash = data[32:48]
                 return (salt, verifier, verifierHash)
-            elif data[0:4] == b'\x01\x00\x02\x00' or data[0:4] == b'\x01\x00\x03\x00':
+            elif data[0:4] == b'\x01\x00\x02\x00' or data[0:4] == b'\x01\x00\x03\x00' or data[0:4] == b'\x01\x00\x04\x00':
                 # If RC4 CryptoAPI encryption is used, certain storages and streams are stored in Encryption Stream
                 stm = StringIO(data)
                 stm.read(2)  # unused
@@ -2583,7 +2583,11 @@ def find_rc4_passinfo_ppt(filename, stream, offset):
     stream.read(4)  # unused
     while i < encryptSessionPersistIdRef:
         i += 1
-        persistOffset = unpack("<L", stream.read(4))[0]
+        try:
+            persistOffset = unpack("<L", stream.read(4))[0]
+        except:
+            sys.stderr.write("%s : Document is corrupt, or %s has a bug\n" % (filename, sys.argv[0]))
+            return
     # print persistOffset
     # go to the offset of encryption header
     stream.seek(persistOffset, 0)

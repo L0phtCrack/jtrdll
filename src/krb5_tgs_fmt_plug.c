@@ -45,6 +45,8 @@ john_register_one(&fmt_krb5tgs);
 
 #define FORMAT_LABEL		"krb5tgs"
 #define FORMAT_NAME		"Kerberos 5 TGS etype 23"
+#define FORMAT_TAG           "$krb5tgs$23$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"MD4 HMAC-MD5 RC4"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1000
@@ -92,12 +94,14 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	static char *ptr, *keeptr;
 	int i;
 
-	ptr = mem_alloc_tiny(strlen(ciphertext) + 12 + 1, MEM_ALIGN_NONE);
+	if (strstr(ciphertext, "$SOURCE_HASH$"))
+		return ciphertext;
+	ptr = mem_alloc_tiny(strlen(ciphertext) + FORMAT_TAG_LEN + 1, MEM_ALIGN_NONE);
 	keeptr = ptr;
 
-	if (strncmp(ciphertext, "$krb5tgs$23$", 12) != 0) {
-		memcpy(ptr, "$krb5tgs$23$", 12);
-		ptr += 12;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0) {
+		memcpy(ptr, FORMAT_TAG, FORMAT_TAG_LEN);
+		ptr += FORMAT_TAG_LEN;
 	}
 
 	for (i = 0; i < strlen(ciphertext) + 1; i++)
@@ -111,22 +115,20 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *p;
 	char *ctcopy;
 	char *keeptr;
+	int extra;
 
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 
-	if (strncmp(ciphertext, "$krb5tgs$23$", 12) == 0) {
-		/* handle 'chopped' .pot lines (they always have the tag!) */
-		if (ldr_isa_pot_source(ciphertext)) {
-			MEM_FREE(keeptr);
-			return 1;
-		}
-
-		ctcopy += 12;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) == 0) {
+		ctcopy += FORMAT_TAG_LEN;
 		if (ctcopy[0] == '*') {			/* assume account's info provided */
 			ctcopy++;
 			p = strtokm(ctcopy, "*");
-			ctcopy += strlen(p) + 2;	/* set after '$' */
+			ctcopy  = strtokm(NULL, "");
+			if (!ctcopy || *ctcopy != '$')
+				goto err;
+			++ctcopy;	/* set after '$' */
 			goto edata;
 		}
 		if (ctcopy[0] == '$')
@@ -137,8 +139,15 @@ edata:
 	/* assume checksum */
 	if (((p = strtokm(ctcopy, "$")) == NULL) || strlen(p) != 32)
 		goto err;
-		/* assume edata2 following */
 
+	/* assume edata2 following */
+	if (((p = strtokm(NULL, "$")) == NULL))
+		goto err;
+	if (!ishex(p) && (hexlen(p, &extra) < 64 || extra))
+		goto err;
+
+	if ((strtokm(NULL, "$") != NULL))
+		goto err;
 	MEM_FREE(keeptr);
 	return 1;
 
@@ -190,8 +199,8 @@ static void *get_salt(char *ciphertext)
 	memset(&cs, 0, sizeof(cs));
 	cs.edata2 = NULL;
 
-	if (strncmp(ciphertext, "$krb5tgs$23$", 12) == 0) {
-		ctcopy += 12;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) == 0) {
+		ctcopy += FORMAT_TAG_LEN;
 		if (ctcopy[0] == '*') {
 			ctcopy++;
 			p = strtokm(ctcopy, "*");
@@ -375,6 +384,7 @@ struct fmt_main fmt_krb5tgs = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT,
 		{NULL},
+		{ FORMAT_TAG },
 		tests
 	}, {
 		init,

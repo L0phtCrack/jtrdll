@@ -46,6 +46,8 @@ john_register_one(&fmt_KeePass);
 
 #define FORMAT_LABEL		"KeePass"
 #define FORMAT_NAME		""
+#define FORMAT_TAG           "$keepass$*"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"SHA256 AES 32/" ARCH_BITS_STR " " SHA2_LIB
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
@@ -197,19 +199,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	int version, res, contentsize;
+	int version, res, contentsize, extra;
 
-	if (strncmp(ciphertext, "$keepass$*", 10))
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 10;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* version */
-		goto err;
-	if (!isdec(p))
 		goto err;
 	version = atoi(p);
 	if (version != 1 && version != 2)
@@ -220,48 +217,38 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* offset */
 		goto err;
-	if (!isdec(p))
+	if (!isdec(p))  /* TODO: what values are 'valid' here, and can we check something ? */
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* final random seed */
 		goto err;
-	res = hexlenl(p);
-	if (res != 32 && res != 64)
+	res = hexlenl(p, &extra);
+	if (extra || (res != 32 && res != 64))
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* transf random seed */
 		goto err;
-	if (hexlenl(p) != 64)
+	if (hexlenl(p, &extra) != 64 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* env_iv */
 		goto err;
-	if (hexlenl(p) != 32)
+	if (hexlenl(p, &extra) != 32 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* hash or expected bytes*/
 		goto err;
-	if (hexlenl(p) != 64)
+	if (hexlenl(p, &extra) != 64 || extra)
 		goto err;
 	if (version == 1) {
 		if ((p = strtokm(NULL, "*")) == NULL)	/* inline flag */
 			goto err;
-		if(!isdec(p))
-			goto err;
 		res = atoi(p);
-		if (res != 1 && res != 2) {
-			fprintf(stderr, "[!] Support for non-inlined data is currently missing from the " \
-					FORMAT_LABEL " format.\n");
-			fprintf(stderr, "See https://github.com/magnumripper/JohnTheRipper/issues/1026\n");
-			error();
-		}
-		if (res == 1) {
-			if ((p = strtokm(NULL, "*")) == NULL)	/* content size */
-				goto err;
-			if (!isdec(p))
-				goto err;
-			contentsize = atoi(p);
-			if ((p = strtokm(NULL, "*")) == NULL)	/* content */
-				goto err;
-			if (hexlenl(p) / 2 != contentsize)
-				goto err;
-		}
+		if (res != 1)
+			goto err;
+		if ((p = strtokm(NULL, "*")) == NULL)	/* content size */
+			goto err;
+		contentsize = atoi(p);
+		if ((p = strtokm(NULL, "*")) == NULL)	/* content */
+			goto err;
+		if (!contentsize || hexlenl(p, &extra) / 2 != contentsize || extra)
+			goto err;
 		p = strtokm(NULL, "*");
 		// keyfile handling
 		if (p) {
@@ -272,16 +259,18 @@ static int valid(char *ciphertext, struct fmt_main *self)
 				res = atoi(p);
 				if ((p = strtokm(NULL, "*")) == NULL)
 					goto err;
-				if (res != 64 &&  strlen(p) != 64)
+				if (res != 64 || strlen(p) != 64 || !ishexlc(p))
 					goto err;
 			}
+			else
+				goto err;
 		}
 	}
 	else {
 		if ((p = strtokm(NULL, "*")) == NULL)
 			/* content */
 			goto err;
-		if (hexlenl(p) != 64)
+		if (hexlenl(p, &extra) != 64 || extra)
 			goto err;
 		p = strtokm(NULL, "*");
 		// keyfile handling
@@ -293,9 +282,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 				res = atoi(p);
 				if ((p = strtokm(NULL, "*")) == NULL)
 					goto err;
-				if (res != 64 &&  strlen(p) != 64)
+				if (res != 64 || strlen(p) != 64 || !ishexlc(p))
 					goto err;
 			}
+			else
+				goto err;
 		}
 	}
 
@@ -315,7 +306,7 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 10;	/* skip over "$keepass$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$keepass$*" */
 	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
 	if(cs.version == 1) {
@@ -571,6 +562,7 @@ struct fmt_main fmt_KeePass = {
 			"iteration count",
 			"version",
 		},
+		{ FORMAT_TAG },
 		KeePass_tests
 	}, {
 		init,
@@ -587,7 +579,7 @@ struct fmt_main fmt_KeePass = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -597,7 +589,7 @@ struct fmt_main fmt_KeePass = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

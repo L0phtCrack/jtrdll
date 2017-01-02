@@ -75,7 +75,7 @@
 // If we are a release build, only output OpenCL build log if
 // there was a fatal error (or --verbosity was increased).
 #ifdef JTR_RELEASE_BUILD
-#define LOG_VERB (VERB_DEFAULT + 1)
+#define LOG_VERB VERB_LEGACY
 #else
 #define LOG_VERB VERB_DEFAULT
 #endif
@@ -432,7 +432,7 @@ static void start_opencl_environment()
 	cl_platform_id platform_list[MAX_PLATFORMS];
 	char opencl_data[LOG_SIZE];
 	cl_uint num_platforms, device_num, device_pos = 0;
-	int i;
+	int i, ret;
 
 	/* Find OpenCL enabled devices. We ignore error here, in case
 	 * there is no platform and we'd like to run a non-OpenCL format. */
@@ -461,9 +461,15 @@ static void start_opencl_environment()
 		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform,
 		                                 CL_PLATFORM_NAME, sizeof(opencl_data), opencl_data, NULL),
 		               "Error querying PLATFORM_NAME");
-		HANDLE_CLERROR(clGetDeviceIDs(platforms[i].platform,
-		                              CL_DEVICE_TYPE_ALL, MAX_GPU_DEVICES, &devices[device_pos],
-		                              &device_num), "No OpenCL device of that type exist");
+
+		// It is possible to have a platform without any devices
+		ret = clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
+		                     MAX_GPU_DEVICES, &devices[device_pos],
+		                     &device_num);
+
+		if ((ret != CL_SUCCESS || device_num < 1) &&
+		        options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "No OpenCL devices was found on platform #%d\n", i);
 
 		// Save platform and devices information
 		platforms[i].num_devices = device_num;
@@ -984,9 +990,15 @@ static void dev_init(int sequential_id)
 			len--;
 		opencl_log[len] = '\0';
 
-		if (options.verbosity >= 2 && !printed[sequential_id]++)
-			fprintf(stderr, "Device %d: %s [%s]\n",
-			        sequential_id, device_name, opencl_log);
+		if (options.verbosity > 1 && !printed[sequential_id]++)
+			fprintf(stderr, "Device %d%s%s: %s [%s]\n",
+			        sequential_id,
+#if HAVE_MPI
+			        "@", mpi_name,
+#else
+			        "", "",
+#endif
+			        device_name, opencl_log);
 		log_event("Device %d: %s [%s]", sequential_id, device_name, opencl_log);
 	} else {
 		char *dname = device_name;
@@ -995,10 +1007,37 @@ static void dev_init(int sequential_id)
 		while (*dname == ' ')
 			dname++;
 
-		if (options.verbosity >= 2 && !printed[sequential_id]++)
-			fprintf(stderr, "Device %d: %s\n", sequential_id, dname);
+		if (options.verbosity > 1 && !printed[sequential_id]++)
+			fprintf(stderr, "Device %d%s%s: %s\n", sequential_id,
+#if HAVE_MPI
+			        "@", mpi_name,
+#else
+			        "", "",
+#endif
+			        dname);
 		log_event("Device %d: %s", sequential_id, dname);
 	}
+}
+
+/*
+ * Given a string, return a newly allocated string that is a copy of
+ * the original but quoted. The old string is freed.
+ */
+static char *quote_str(char *orig)
+{
+	char *new = mem_alloc(strlen(orig) + 3);
+	char *s = orig;
+	char *d = new;
+
+	*d++ = '"';
+	while (*s)
+		*d++ = *s++;
+	*d++ = '"';
+	*d = 0;
+
+	MEM_FREE(orig);
+
+	return new;
 }
 
 static char *include_source(char *pathname, int sequential_id, char *opts)
@@ -1039,29 +1078,37 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		    SUBSECTION_OPENCL, "GlobalBuildOpts")))
 			global_opts = OPENCLBUILDOPTIONS;
 
-	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
-	        full_path,
-	        global_opts,
-			gpu_amd(device_info[sequential_id]) ? "-frontend=edg " : "",
-	        get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
-	            "-D__MESA__" : opencl_get_dev_info(sequential_id),
-#ifdef __APPLE__
-	        "-D__OS_X__ ",
-#else
-	        gpu_nvidia(device_info[sequential_id]) ? "-cl-nv-verbose " : "",
-#endif
-	        get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
-	        : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
-	        "-DDEVICE_INFO=", device_info[sequential_id],
-	        "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
-	        opencl_driver_ver(sequential_id),
-	        opts ? opts : "",
+	if (strchr(full_path, ' ')) {
+		full_path = quote_str(full_path);
+	}
+
 #ifdef JTRDLL
-			extra_opencl_kernel_args
+	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
 #else
-			""
+	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
 #endif
-			);
+	    full_path,
+	    global_opts,
+		gpu_amd(device_info[sequential_id]) ? "-frontend=edg " : "",
+	    get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
+	        "-D__MESA__" : opencl_get_dev_info(sequential_id),
+#ifdef __APPLE__
+		"-D__OS_X__ ",
+#else
+	    gpu_nvidia(device_info[sequential_id]) ? "-cl-nv-verbose " : "",
+#endif
+	    get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
+	    : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
+	    "-DDEVICE_INFO=", device_info[sequential_id],
+	    "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
+	    opencl_driver_ver(sequential_id),
+	    opts ? opts : "",
+#ifdef JTRDLL
+		extra_opencl_kernel_args
+#else
+		""
+#endif
+	);
 #if I_REALPATH
 #define __saved_free free
 #undef free
@@ -1100,7 +1147,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 	// include source is thread safe.
 	build_opts = include_source("$JOHN/kernels", sequential_id, opts);
 
-	if (options.verbosity > VERB_DEFAULT)
+	if (options.verbosity > VERB_LEGACY)
 		fprintf(stderr, "Options used: %s %s\n", build_opts, kernel_source_file);
 
 	build_code = clBuildProgram(*program, 0, NULL,
@@ -1120,7 +1167,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 	// Report build errors and warnings
 	if ((build_code != CL_SUCCESS)) {
 		// Give us much info about error and exit
-		if (options.verbosity <= VERB_DEFAULT)
+		if (options.verbosity <= VERB_LEGACY)
 			fprintf(stderr, "Options used: %s %s\n", build_opts, kernel_source_file);
 		fprintf(stderr, "Build log: %s\n", build_log);
 		fprintf(stderr, "Error %d building kernel %s. DEVICE_INFO=%d\n",
@@ -1302,7 +1349,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	if (self->methods.crypt_all(&count, autotune_salts) < 0) {
 		runtime = looptime = 0;
 
-		if (options.verbosity > VERB_DEFAULT)
+		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, " (error occurred)");
 		clear_profiling_events();
 		release_clobj();
@@ -1435,7 +1482,7 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 
 	gws = global_work_size;
 
-	if (options.verbosity > VERB_DEFAULT)
+	if (options.verbosity > VERB_LEGACY)
 		fprintf(stderr, "Calculating best LWS for GWS="Zu"\n", gws);
 
 	if (get_device_version(sequential_id) < 110) {
@@ -1552,7 +1599,7 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 			global_work_size = GET_EXACT_MULTIPLE(gws, my_work_group);
 		}
 
-		if (options.verbosity > VERB_DEFAULT)
+		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, "Testing LWS=" Zu " GWS=" Zu " ...", my_work_group, global_work_size);
 
 		sumStartTime = 0;
@@ -1591,7 +1638,7 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 		}
 		if (!endTime)
 			break;
-		if (options.verbosity > VERB_DEFAULT)
+		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, " %s%s\n", ns2string(sumEndTime - sumStartTime),
 			    ((double)(sumEndTime - sumStartTime) / kernelExecTimeNs < 0.997)
 			        ? "+" : "");
@@ -1726,16 +1773,20 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 	 */
 
 	/* Does format specify max. single duration? */
-	if (max_run_time <= 1000 &&
-	        (!duration_time || duration_time > max_run_time * 1000000)) {
-		duration_time = max_run_time * 1000000;
+	if (max_run_time <= 1000) {
+		max_run_time *= 1000000;
+		if (!duration_time || duration_time > max_run_time)
+			duration_time = max_run_time;
 		max_run_time = 0;
 	}
 
-	if (options.verbosity > VERB_DEFAULT) {
-		if (!printed_mask++ && mask_int_cand.num_int_cand > 1)
+	if (options.verbosity > VERB_LEGACY) {
+		if (mask_int_cand.num_int_cand > 1 && !printed_mask++)
 			fprintf(stderr, "Internal mask, multiplier: %u (target: %u)\n",
 			        mask_int_cand.num_int_cand, mask_int_cand_target);
+		else if (mask_int_cand_target > 1 && !printed_mask)
+			fprintf(stderr, "Internal mask not utilized (target: %u)\n",
+			        mask_int_cand_target);
 		if (!max_run_time)
 			fprintf(stderr, "Calculating best GWS for LWS="Zu"; "
 			        "max. %s single kernel invocation.\n",
@@ -1780,7 +1831,7 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 		if (!(run_time = gws_test(num, rounds, sequential_id)))
 			break;
 
-		if (options.verbosity <= VERB_DEFAULT)
+		if (options.verbosity <= VERB_LEGACY)
 			advance_cursor();
 
 		raw_speed = (kpc / (run_time / 1E9)) * mask_int_cand.num_int_cand;
@@ -1789,8 +1840,8 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 		if (run_time < min_time)
 			min_time = run_time;
 
-		if (options.verbosity > VERB_DEFAULT)
-			fprintf(stderr, "gws: "Zu"\t%10s"LLu" "
+		if (options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "gws: %9"Zu"\t%10s%12"LLu" "
 			        "rounds/s%10s per crypt_all()",
 			        num, human_speed(raw_speed), speed, ns2string(run_time));
 
@@ -1799,19 +1850,19 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 			if (!optimal_gws)
 				optimal_gws = num;
 
-			if (options.verbosity > VERB_DEFAULT)
+			if (options.verbosity > VERB_LEGACY)
 				fprintf(stderr, " - too slow\n");
 			break;
 		}
 
 		if (speed > (1.01 * best_speed)) {
-			if (options.verbosity > VERB_DEFAULT)
+			if (options.verbosity > VERB_LEGACY)
 				fprintf(stderr, (speed > 2 * best_speed) ? "!" : "+");
 			best_speed = speed;
 			global_speed = raw_speed;
 			optimal_gws = num;
 		}
-		if (options.verbosity > VERB_DEFAULT)
+		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, "\n");
 	}
 	// Release profiling queue and create new with profiling disabled
@@ -1859,7 +1910,8 @@ static char* opencl_get_dev_info(int sequential_id)
 		    (major == 3 && minor == 2 ? DEV_NV_C32 : 0);
 		device_info[sequential_id] +=
 		    (major == 3 && minor == 5 ? DEV_NV_C35 : 0);
-		device_info[sequential_id] += (major == 5 ? DEV_NV_C5X : 0);
+		device_info[sequential_id] += (major == 5 ? DEV_NV_MAXWELL : 0);
+		device_info[sequential_id] += (major == 6 ? DEV_NV_PASCAL : 0);
 	}
 
 	return ret;
@@ -1939,6 +1991,27 @@ size_t opencl_read_source(char *kernel_filename, char **kernel_source)
 	return source_size;
 }
 
+#if JOHN_SYSTEMWIDE
+static char *replace_str(char *string, char *from, char *to)
+{
+	static char buffer[512];
+	char *p;
+	int len;
+
+	if(!(p = strstr(string, from)))
+		return string;
+
+	len = p - string;
+	strncpy(buffer, string, len);
+	buffer[len] = '\0';
+
+	sprintf(buffer + len, "%s%s", to, p + strlen(from));
+
+	return buffer;
+}
+#endif
+
+
 void opencl_build_kernel_opt(char *kernel_filename, int sequential_id,
                              char *opts)
 {
@@ -1954,7 +2027,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
                          int warn)
 {
 	struct stat source_stat, bin_stat;
-	char dev_name[512], bin_name[512];
+	char dev_name[512], bin_name[512], *tmp_name;
 	unsigned char hash[16];
 	char hash_str[33];
 	uint64_t startTime, runtime;
@@ -2005,8 +2078,13 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 		}
 		hash_str[32] = 0;
 
+#if JOHN_SYSTEMWIDE
+		tmp_name = replace_str(kernel_filename, "$JOHN", JOHN_PRIVATE_HOME);
+#else
+		tmp_name = kernel_filename;
+#endif
 		snprintf(bin_name, sizeof(bin_name), "%s_%s.bin",
-		         kernel_filename, hash_str);
+		         tmp_name, hash_str);
 
 #ifdef JTRDLL
 		// Replace $JOHN with app data directory
@@ -2027,7 +2105,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 			size_t program_size = opencl_read_source(bin_name, &kernel_source);
 			opencl_build_from_binary(sequential_id, &program[sequential_id], kernel_source, program_size);
 		} else {
-			if (warn && options.verbosity >= VERB_DEFAULT) {
+			if (warn && options.verbosity > VERB_DEFAULT) {
 				fprintf(stderr, "Building the kernel, this "
 				        "could take a while\n");
 				fflush(stdout);
@@ -2035,7 +2113,7 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 			opencl_read_source(kernel_filename, &kernel_source);
 			opencl_build(sequential_id, opts, 1, bin_name, &program[sequential_id], kernel_filename, kernel_source);
 		}
-		if (warn && options.verbosity >= VERB_DEFAULT) {
+		if (warn && options.verbosity > VERB_DEFAULT) {
 			if ((runtime = (unsigned long)(time(NULL) - startTime))
 			        > 2UL)
 				fprintf(stderr, "Build time: %lu seconds\n",
@@ -2219,8 +2297,7 @@ cl_uint get_processors_count(int sequential_id)
  * so we need this crap - which is incomplete.
  * http://en.wikipedia.org/wiki/Comparison_of_Nvidia_graphics_processing_units
  *
- * This will produce a *guessed* figure: Note that --list=cuda-devices will
- * often show a better guess, even under OSX.
+ * This will produce a *guessed* figure
  */
 
 		// Pascal
@@ -2276,6 +2353,10 @@ cl_uint get_processor_family(int sequential_id)
 	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id], CL_DEVICE_NAME,
 	                               sizeof(dname), dname, NULL), "Error querying CL_DEVICE_NAME");
 
+	/* Workaround for MESA. */
+	if (*dname)
+		strlwr(&dname[1]);
+
 	if gpu_amd
 	(device_info[sequential_id]) {
 
@@ -2286,7 +2367,7 @@ cl_uint get_processor_family(int sequential_id)
 		        strstr(dname, "Turks") || strstr(dname, "Barts") ||
 		        strstr(dname, "Wrestler")
 		        || strstr(dname, "Ontario") || strstr(dname, "Zacate")
-		        || strstr(dname, "WinterPark") || strstr(dname, "BeaverCreek")
+		        || strstr(dname, "Winterpark") || strstr(dname, "Beavercreek")
 		        || strstr(dname, "Cayman") ||   //AMD Radeon VLIW4
 		        strstr(dname, "Antilles") || strstr(dname, "Devastator")
 		        || strstr(dname, "R7")  //AMD Radeon VLIW4
@@ -2349,14 +2430,14 @@ int get_vendor_id(int sequential_id)
 	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id], CL_DEVICE_VENDOR,
 	                               sizeof(dname), dname, NULL), "Error querying CL_DEVICE_VENDOR");
 
-	if (strstr(dname, "NVIDIA") != NULL)
+	if (strstr(dname, "NVIDIA"))
 		return DEV_NVIDIA;
 
-	if (strstr(dname, "Intel") != NULL)
+	if (strstr(dname, "Intel"))
 		return DEV_INTEL;
 
-	if (strstr(dname, "Advanced Micro") != NULL ||
-	        strstr(dname, "AMD") != NULL || strstr(dname, "ATI") != NULL)
+	if (strstr(dname, "Advanced Micro") ||
+	        strstr(dname, "AMD") || strstr(dname, "ATI"))
 		return DEV_AMD;
 
 	return DEV_UNKNOWN;
@@ -2374,20 +2455,26 @@ int get_platform_vendor_id(int platform_id)
 	HANDLE_CLERROR(clGetPlatformInfo(platform[platform_id], CL_PLATFORM_NAME,
 	                                 sizeof(dname), dname, NULL), "Error querying CL_PLATFORM_NAME");
 
-	if (strstr(dname, "NVIDIA") != NULL)
+	if (strstr(dname, "NVIDIA"))
 		return DEV_NVIDIA;
 
-	if (strstr(dname, "Apple") != NULL)
+	if (strstr(dname, "Apple"))
 		return PLATFORM_APPLE;
 
-	if (strstr(dname, "Intel") != NULL)
+	if (strstr(dname, "Intel"))
 		return DEV_INTEL;
 
-	if (strstr(dname, "Advanced Micro") != NULL ||
-	        strstr(dname, "AMD") != NULL || strstr(dname, "ATI") != NULL)
+	if (strstr(dname, "Advanced Micro") ||
+	        strstr(dname, "AMD") || strstr(dname, "ATI"))
 		return DEV_AMD;
 
-	if (strstr(dname, "MESA") != NULL)
+	if ((strstr(dname, "MESA")) || (strstr(dname, "Mesa")))
+		return DEV_MESA;
+
+	HANDLE_CLERROR(clGetPlatformInfo(platform[platform_id], CL_PLATFORM_VERSION,
+	                                 sizeof(dname), dname, NULL), "Error querying CL_PLATFORM_VERSION");
+
+	if ((strstr(dname, "MESA")) || (strstr(dname, "Mesa")))
 		return DEV_MESA;
 
 	return DEV_UNKNOWN;
@@ -2546,7 +2633,7 @@ void opencl_list_devices(void)
 
 				clGetPlatformInfo(platforms[i].platform,
 				                  CL_PLATFORM_EXTENSIONS, sizeof(dname), dname, NULL);
-				if (options.verbosity > VERB_DEFAULT)
+				if (options.verbosity > VERB_LEGACY)
 					printf("    Platform extensions:    %s\n", dname);
 
 				/* Obtain a list of devices available */
@@ -2653,7 +2740,7 @@ void opencl_list_devices(void)
 
 			clGetDeviceInfo(devices[sequence_nr],
 			                CL_DEVICE_EXTENSIONS, sizeof(dname), dname, NULL);
-			if (options.verbosity > VERB_DEFAULT)
+			if (options.verbosity > VERB_LEGACY)
 				printf("    Device extensions:      %s\n", dname);
 
 			clGetDeviceInfo(devices[sequence_nr],

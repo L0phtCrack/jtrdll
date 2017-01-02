@@ -34,6 +34,8 @@ john_register_one(&fmt_opencl_sxc);
 
 #define FORMAT_LABEL		"sxc-opencl"
 #define FORMAT_NAME		"StarOffice .sxc"
+#define FORMAT_TAG           "$sxc$*"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"PBKDF2-SHA1 OpenCL Blowfish"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
@@ -63,7 +65,7 @@ typedef struct {
 } sxc_salt;
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[32 / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[32 / sizeof(uint32_t)];
 
 typedef struct {
 	int cipher_type;
@@ -211,15 +213,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	int res;
-	if (strncmp(ciphertext, "$sxc$*", 6))
+	int res, extra;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 6;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* cipher type */
 		goto err;
 	res = atoi(p);
@@ -242,7 +241,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum field (skipped) */
 		goto err;
-	if (hexlenl(p) != BINARY_SIZE * 2)
+	if (hexlenl(p, &extra) != BINARY_SIZE * 2 || extra)
 		goto err;
 	if (!ishex(p))
 		goto err;
@@ -253,7 +252,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
-	if (hexlenl(p) != res * 2)
+	if (hexlenl(p, &extra) != res * 2 || extra)
 		goto err;
 	if (!ishex(p))
 		goto err;
@@ -264,7 +263,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if (hexlenl(p) != res * 2)
+	if (hexlenl(p, &extra) != res * 2 || extra)
 		goto err;
 	if (!ishex(p))
 		goto err;
@@ -280,7 +279,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* content */
 		goto err;
-	if (hexlenl(p) != res * 2)
+	if (hexlenl(p, &extra) != res * 2 || extra)
 		goto err;
 	if (strtokm(NULL, "*") != NULL)	        /* the end */
 		goto err;
@@ -350,7 +349,7 @@ static void *get_binary(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 
-	ctcopy += 6;	/* skip over "$sxc$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$sxc$*" */
 	strtokm(ctcopy, "*");
 	strtokm(NULL, "*");
 	strtokm(NULL, "*");
@@ -380,14 +379,6 @@ static void set_salt(void *salt)
 		CL_FALSE, 0, settingsize, &currentsalt, 0, NULL, NULL),
 	    "Copy salt to gpu");
 }
-
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 #undef set_key
 static void set_key(char *key, int index)
@@ -511,6 +502,7 @@ struct fmt_main fmt_opencl_sxc = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		sxc_tests
 	}, {
 		init,
@@ -526,13 +518,7 @@ struct fmt_main fmt_opencl_sxc = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -542,13 +528,7 @@ struct fmt_main fmt_opencl_sxc = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

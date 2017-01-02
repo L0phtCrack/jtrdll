@@ -52,6 +52,7 @@
 #include "mask_ext.h"
 #include "mask.h"
 #include "unicode.h"
+#include "cracker.h"
 #include "john.h"
 #include "fake_salts.h"
 #include "sha.h"
@@ -60,7 +61,7 @@
 #endif
 #include "path.h"
 #include "jumbo.h"
-#if HAVE_LIBDL && defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if HAVE_LIBDL && defined(HAVE_OPENCL)
 #include "common-gpu.h"
 #endif
 #include "memdbg.h"
@@ -77,6 +78,7 @@
 static clock_t salt_time = 0;
 #endif
 
+static fix_state_fp fp_fix_state;
 static struct db_main *crk_db;
 static struct fmt_params crk_params;
 static struct fmt_methods crk_methods;
@@ -250,7 +252,7 @@ static void crk_remove_salt(struct db_salt *salt)
 		}
 	}
 #ifdef POTSYNC_DEBUG
-	if (options.verbosity >= 2 && crk_params.binary_size &&
+	if (options.verbosity > 1 && crk_params.binary_size &&
 	    crk_db->salt_count < crk_db->password_count)
 		log_event("- got rid of a salt, %d left", crk_db->salt_count);
 #endif
@@ -381,7 +383,7 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 		}
 		if (options.report_utf8) {
 			repkey = utf8key;
-			if (options.target_enc != UTF_8)
+			if (options.internal_cp != UTF_8)
 				replogin = cp_to_utf8_r(replogin,
 					      utf8login, PLAINTEXT_BUFFER_SIZE);
 		}
@@ -473,6 +475,37 @@ static int crk_remove_pot_entry(char *ciphertext)
 	struct tms buffer;
 	clock_t start = times(&buffer), end;
 #endif
+
+	/*
+	 * If the pot entry is truncated from a huge ciphertext, we have
+	 * this alternate code path that's slower but aware of the magic.
+	 */
+	if (ldr_isa_pot_source(ciphertext)) {
+		if ((salt = crk_db->salts))
+		do {
+			if ((pw = salt->list))
+			do {
+				char *source;
+
+				source = crk_methods.source(pw->source,
+				                            pw->binary);
+
+				if (!ldr_pot_source_cmp(ciphertext, source)) {
+					if (crk_process_guess(salt, pw, -1))
+						return 1;
+
+					if (!(crk_db->options->flags & DB_WORDS))
+						break;
+				}
+			} while ((pw = pw->next));
+		}  while ((salt = salt->next));
+
+#ifdef POTSYNC_DEBUG
+		end = times(&buffer);
+		salt_time += (end - start);
+#endif
+		return 0;
+	}
 
 	/*
 	 * We need to copy ciphertext, because the one we got actually
@@ -587,7 +620,7 @@ int crk_reload_pot(void)
 
 		fields[1] = ciphertext;
 		ciphertext = crk_methods.prepare(fields, crk_db->format);
-		if (crk_methods.valid(ciphertext, crk_db->format)) {
+		if (ldr_trunc_valid(ciphertext, crk_db->format)) {
 			ciphertext = crk_methods.split(ciphertext, 0,
 			                               crk_db->format);
 			char *dup_ciphertext = strdup(ciphertext);
@@ -613,7 +646,7 @@ int crk_reload_pot(void)
 		log_event("+ pot sync removed %d hashes; %s",
 		          others, crk_loaded_counts());
 
-	if (others && options.verbosity > VERB_DEFAULT) {
+	if (others && options.verbosity > VERB_LEGACY) {
 		if (options.node_count)
 			fprintf(stderr, "%u: %s\n",
 			        options.node_min, crk_loaded_counts());
@@ -731,13 +764,18 @@ static int crk_process_event(void)
 
 	if (event_poll_files) {
 		event_poll_files = 0;
-#if HAVE_LIBDL && defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if HAVE_LIBDL && defined(HAVE_OPENCL)
 		gpu_check_temp();
 #endif
 		crk_poll_files();
 	}
 
 	return event_abort;
+}
+
+void crk_set_hybrid_fix_state_func_ptr(fix_state_fp fp)
+{
+	fp_fix_state = fp;
 }
 
 static int crk_password_loop(struct db_salt *salt)
@@ -756,6 +794,9 @@ static int crk_password_loop(struct db_salt *salt)
 
 	if (event_pending && crk_process_event())
 		return -1;
+
+	if (fp_fix_state)
+		fp_fix_state();
 
 	count = crk_key_index;
 	match = crk_methods.crypt_all(&count, salt);
@@ -922,12 +963,13 @@ static int crk_salt_loop(void)
 	}
 	do {
 		crk_methods.set_salt(salt->salt);
-		status.resume_salt_md5 = salt->salt_md5;
+		status.resume_salt_md5 = (crk_db->salt_count > 1) ?
+			salt->salt_md5 : NULL;
 		if ((done = crk_password_loop(salt)))
 			break;
 	} while ((salt = salt->next));
-	if (!salt || salt->count < 2)
-		status.resume_salt_md5 = 0;
+	if (!salt || crk_db->salt_count < 2)
+		status.resume_salt_md5 = NULL;
 
 	if (done >= 0) {
 #if !HAVE_OPENCL
@@ -1059,6 +1101,7 @@ int crk_process_salt(struct db_salt *salt)
 			if (!salt->list)
 				return 0;
 			index = 0;
+			crk_methods.clear_keys();
 		}
 	}
 

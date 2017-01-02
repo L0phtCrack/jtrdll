@@ -49,7 +49,7 @@ john_register_one(&fmt_hmacMD5);
 #define PAD_SIZE                64
 #define PAD_SIZE_W              (PAD_SIZE/4)
 #define BINARY_SIZE             16
-#define BINARY_ALIGN            sizeof(ARCH_WORD_32)
+#define BINARY_ALIGN            sizeof(uint32_t)
 #ifdef SIMD_COEF_32
 #define SALT_LIMBS              3  /* 3 limbs, 183 bytes */
 #define SALT_LENGTH             (SALT_LIMBS * PAD_SIZE - 9)
@@ -100,7 +100,7 @@ static cur_salt_t *cur_salt;
 static int bufsize;
 #define SALT_SIZE               sizeof(cur_salt_t)
 #else
-static ARCH_WORD_32 (*crypt_key)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_key)[BINARY_SIZE / sizeof(uint32_t)];
 static unsigned char (*ipad)[PAD_SIZE];
 static unsigned char (*opad)[PAD_SIZE];
 static unsigned char cur_salt[SALT_LENGTH+1];
@@ -181,7 +181,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 
 	if (!strncmp(p, "$cram_md5$", 10)) {
 		static char out[256];
-		int len;
+		int len, len2;
 		char *d, *o = out;
 
 		p += 10;
@@ -191,14 +191,19 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 		len = base64_convert(p, e_b64_mime, (int)(d - p - 1),
 		                     o, e_b64_raw,
 		                     sizeof(out),
-		                     flg_Base64_MIME_TRAIL_EQ);
+		                     flg_Base64_MIME_TRAIL_EQ, 0);
+		if (len > sizeof(out)-2)
+			return split_fields[1];
 		o += len;
 		*o++ = '#';
 		d++;
-		len = base64_convert(d, e_b64_mime, strlen(d),
+		len2 = base64_convert(d, e_b64_mime, strlen(d),
 		                     o, e_b64_raw,
 		                     sizeof(out) - len - 2,
-		                     flg_Base64_MIME_TRAIL_EQ);
+		                     flg_Base64_MIME_TRAIL_EQ, 0);
+		if (len2 > sizeof(out) - len - 3)
+			return split_fields[1];
+		len = len2;
 		if (!(p = strchr(o, ' ')))
 			return split_fields[1];
 		p++;
@@ -214,6 +219,9 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	static char out[CIPHERTEXT_LENGTH + 1];
+
+	if (strstr(ciphertext, "$SOURCE_HASH$"))
+		return ciphertext;
 
 	strnzcpy(out, ciphertext, CIPHERTEXT_LENGTH + 1);
 	strlwr(strrchr(out, '#'));
@@ -267,9 +275,9 @@ static void set_key(char *key, int index)
 {
 	int len;
 #ifdef SIMD_COEF_32
-	ARCH_WORD_32 *ipadp = (ARCH_WORD_32*)&ipad[GETPOS(0, index)];
-	ARCH_WORD_32 *opadp = (ARCH_WORD_32*)&opad[GETPOS(0, index)];
-	const ARCH_WORD_32 *keyp = (ARCH_WORD_32*)key;
+	uint32_t *ipadp = (uint32_t*)&ipad[GETPOS(0, index)];
+	uint32_t *opadp = (uint32_t*)&opad[GETPOS(0, index)];
+	const uint32_t *keyp = (uint32_t*)key;
 	unsigned int temp;
 
 	len = strlen(key);
@@ -358,7 +366,7 @@ static int cmp_all(void *binary, int count)
 		for(x = 0; x < SIMD_COEF_32; x++)
 		{
 			// NOTE crypt_key is in input format (PAD_SIZE * SIMD_COEF_32)
-			if (((ARCH_WORD_32*)binary)[0] == ((ARCH_WORD_32*)crypt_key)[x + y * SIMD_COEF_32 * PAD_SIZE_W])
+			if (((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32 * PAD_SIZE_W])
 				return 1;
 		}
 	return 0;
@@ -368,7 +376,7 @@ static int cmp_all(void *binary, int count)
 #if defined(_OPENMP) || (MAX_KEYS_PER_CRYPT > 1)
 	for (index = 0; index < count; index++)
 #endif
-		if (((ARCH_WORD_32*)binary)[0] == crypt_key[index][0])
+		if (((uint32_t*)binary)[0] == crypt_key[index][0])
 			return 1;
 	return 0;
 #endif
@@ -380,7 +388,7 @@ static int cmp_one(void *binary, int index)
 	int i;
 	for(i = 0; i < (BINARY_SIZE/4); i++)
 		// NOTE crypt_key is in input format (PAD_SIZE * SIMD_COEF_32)
-		if (((ARCH_WORD_32*)binary)[i] != ((ARCH_WORD_32*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE_W * SIMD_COEF_32])
+		if (((uint32_t*)binary)[i] != ((uint32_t*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE_W * SIMD_COEF_32])
 			return 0;
 	return 1;
 #else
@@ -455,7 +463,7 @@ static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[BINARY_SIZE];
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} buf;
 	unsigned char *out = buf.c;
 	char *p;
@@ -506,26 +514,6 @@ static void *get_salt(char *ciphertext)
 #endif
 }
 
-#ifdef SIMD_COEF_32
-// NOTE crypt_key is in input format (PAD_SIZE * SIMD_COEF_32)
-#define HASH_OFFSET (index & (SIMD_COEF_32 - 1)) + ((unsigned int)index / SIMD_COEF_32) * SIMD_COEF_32 * PAD_SIZE_W
-static int get_hash_0(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((ARCH_WORD_32*)crypt_key)[HASH_OFFSET] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
-#endif
-
 struct fmt_main fmt_hmacMD5 = {
 	{
 		FORMAT_LABEL,
@@ -544,6 +532,7 @@ struct fmt_main fmt_hmacMD5 = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD |
 		FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
+		{ NULL },
 		tests
 	}, {
 		init,
@@ -557,13 +546,7 @@ struct fmt_main fmt_hmacMD5 = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -577,13 +560,7 @@ struct fmt_main fmt_hmacMD5 = {
 #endif
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

@@ -28,6 +28,8 @@
 #define SALT_ALIGN		MEM_ALIGN_NONE
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
+#define FORMAT_TAG           "$WPAPSK$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 
 /** if you want to change hccap_t structure is also defined in hccap2john.c **/
 typedef struct
@@ -67,7 +69,6 @@ typedef struct {
 	uint8_t  salt[36]; // essid
 } wpapsk_salt;
 
-#ifndef _WPAPSK_CUDA_KERNEL
 static struct fmt_tests tests[] = {
 	/* WPA2 testcase from http://wiki.wireshark.org/SampleCaptures */
 	{"$WPAPSK$Coherer#..l/Uf7J..qHUXMunTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosMyXdNxfBZUAYmgKqeb6GBPxLiIZr56NtWTGR/Cp5ldAk61.5I0.Ec.2...........nTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosM.................................................................3X.I.E..1uk0.E..1uk2.E..1uk0....................................................................................................................................................................................../t.....U...8FWdk8OpPckhewBwt4MXYI", "Induction"},
@@ -78,9 +79,8 @@ static struct fmt_tests tests[] = {
 	{"$WPAPSK$Greased Lighting#kA5.CDNB.07cofsOMXEEUwFTkO/RX2sQUaW9eteI8ynpFMwRgFZC6kk7bGqgvfcXnuF1f7L5fgn4fQMLmDrKjdBNjb6LClRmfLiTYk21.5I0.Ec............7MXEEUwFTkO/RX2sQUaW9eteI8ynpFMwRgFZC6kk7bGo.................................................................3X.I.E..1uk2.E..1uk2.E..1uk00...................................................................................................................................................................................../t.....U...D06LUdWVfGPaP1Oa3AV9Hg", "W*A5z&1?op2_L&Hla-OA$#5i_Lu@F+6d?je?u5!6+6766eluu7-l+jOEkIwLe90"},
 	{NULL}
 };
-#endif
 
-/** Below are common variables used by wpapsk_fmt.c cuda_wpapsk_fmt.c and opencl_wpapsk_fmt.c **/
+/** Below are common variables used by wpapsk_fmt.c and opencl_wpapsk_fmt.c **/
 
 static hccap_t hccap;			///structure with hccap data
 static wpapsk_salt currentsalt;		///structure for essid
@@ -89,17 +89,16 @@ static mic_t *mic;			///table for MIC keys
 static wpapsk_password *inbuffer;	///table for candidate passwords
 static wpapsk_hash *outbuffer;		///table for PMK calculated by GPU
 #endif
-static const char wpapsk_prefix[] = "$WPAPSK$";
 
 static int new_keys = 1;
 static char last_ssid[sizeof(hccap.essid)];
 
-/** Below are common functions used by wpapsk_fmt.c cuda_wpapsk_fmt.c and opencl_wpapsk_fmt.c **/
+/** Below are common functions used by wpapsk_fmt.c and opencl_wpapsk_fmt.c **/
 
 static hccap_t *decode_hccap(char *ciphertext)
 {
 	static hccap_t hccap;
-	char *essid = ciphertext + strlen(wpapsk_prefix);
+	char *essid = ciphertext + FORMAT_TAG_LEN;
 	char *hash = strrchr(ciphertext, '#');
 	char *d = hccap.essid;
 	char *cap = hash + 1;
@@ -151,7 +150,7 @@ static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[BINARY_SIZE];
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} binary;
 	hccap_t *hccap = decode_hccap(ciphertext);
 
@@ -173,11 +172,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	int hashlength = 0;
 	hccap_t *hccap;
 
-	if (strncmp(ciphertext, wpapsk_prefix, strlen(wpapsk_prefix)) != 0)
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 
 	hash = strrchr(ciphertext, '#');
-	if (hash == NULL || hash - (ciphertext + strlen(wpapsk_prefix)) > 32)
+	if (hash == NULL || hash - (ciphertext + FORMAT_TAG_LEN) > 32)
 		return 0;
 	hash++;
 	while (hash < ciphertext + strlen(ciphertext)) {
@@ -324,6 +323,7 @@ static void set_key(char *key, int index)
 		length = PLAINTEXT_LENGTH;
 	inbuffer[index].length = length;
 	memcpy(inbuffer[index].v, key, length);
+	new_keys = 1;
 }
 
 static char *get_key(int index)

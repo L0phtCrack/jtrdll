@@ -96,7 +96,7 @@ static struct fmt_tests ecryptfs_tests[] = {
 };
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static struct custom_salt {
 	int iterations; // really really unused (even in the original code)
@@ -127,6 +127,7 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *p;
+	int extra;
 
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LENGTH) != 0)
 		return 0;
@@ -139,12 +140,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (*p == '1' && *(p + 1) == '$') {
 		// handle salted variety
 		p += 2;
-		if ( abs(hexlenl(p)) != HEX_BINARY_SIZE || p[HEX_BINARY_SIZE] != '$')
+		if (hexlenl(p, 0) != HEX_BINARY_SIZE || p[HEX_BINARY_SIZE] != '$')
 			return 0;
 		p += (HEX_BINARY_SIZE+1);
 	}
 
-	return hexlenl(p) == HEX_BINARY_SIZE && !p[HEX_BINARY_SIZE];
+	return hexlenl(p, &extra) == HEX_BINARY_SIZE && !extra;
 }
 
 static void *get_salt(char *ciphertext)
@@ -177,7 +178,7 @@ static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char c[REAL_BINARY_SIZE];
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} buf;
 	unsigned char *out = buf.c;
 	int i;
@@ -221,10 +222,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		unsigned char tmpBuf[64];
 		unsigned int i;
 		unsigned char _IBuf[128*MAX_KEYS_PER_CRYPT+MEM_ALIGN_CACHE], *keys;
-		ARCH_WORD_64 *keys64;
+		uint64_t *keys64;
 
 		keys = (unsigned char*)mem_align(_IBuf, MEM_ALIGN_CACHE);
-		keys64 = (ARCH_WORD_64*)keys;
+		keys64 = (uint64_t*)keys;
 		memset(keys, 0, 128*MAX_KEYS_PER_CRYPT);
 
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
@@ -241,7 +242,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		for (j = 1; j < ECRYPTFS_DEFAULT_NUM_HASH_ITERATIONS; j++)
 			SIMDSHA512body(keys, keys64, NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT);
 		// Last one with FLAT_OUT
-		SIMDSHA512body(keys, (ARCH_WORD_64*)crypt_out[index], NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT|SSEi_FLAT_OUT);
+		SIMDSHA512body(keys, (uint64_t*)crypt_out[index], NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT|SSEi_FLAT_OUT);
 #else
 		SHA512_Init(&ctx);
 		SHA512_Update(&ctx, cur_salt->salt, ECRYPTFS_SALT_SIZE);
@@ -309,6 +310,7 @@ struct fmt_main fmt_ecryptfs1 = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{ NULL },
+		{ FORMAT_TAG },
 		ecryptfs_tests
 	}, {
 		init,

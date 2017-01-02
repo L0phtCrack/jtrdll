@@ -34,6 +34,9 @@
 #include <string.h>
 #endif
 
+#if !AC_BUILT && (_MSC_VER || __MINGW32__ || __MINGW64__)
+#define HAVE__ATOI64 1
+#endif
 #include "john_stdint.h"
 
 /******************************************/
@@ -273,7 +276,9 @@ extern char *strupr(char *s);
 #define atoll _atoi64
 #else
 #define NEED_ATOLL_NATIVE 1
-extern long long atoll(const char *);
+#undef atoll
+#define atoll jtr_atoll
+extern long long jtr_atoll(const char *);
 #endif
 #endif
 

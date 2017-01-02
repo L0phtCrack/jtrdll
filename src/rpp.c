@@ -9,17 +9,22 @@
 #include "params.h"
 #include "config.h"
 #include "rpp.h"
+#include "logger.h"
 #include "common.h" /* for atoi16 */
+#include "misc.h"   /* for strtokm */
 #include "memdbg.h"
+
+int rpp_real_run = 0;
 
 int rpp_init(struct rpp_context *ctx, char *subsection)
 {
 	struct cfg_list *list;
 
+	ctx->refs_count = 0;
 	if (*subsection == ':') {
 		char *p, *buf;
-		const int sz = sizeof(struct cfg_line);
-		struct cfg_line *cfg_cur = mem_calloc_tiny(sz, 8);
+		const int sz = sizeof(struct cfg_line), al = sizeof(struct cfg_line *);
+		struct cfg_line *cfg_cur = mem_calloc_tiny(sz, al);
 
 		buf = str_alloc_copy(subsection+1);
 		cfg_cur->cfg_name = "Command Line Rule";
@@ -31,13 +36,43 @@ int rpp_init(struct rpp_context *ctx, char *subsection)
 		while (p && *p) {
 			*p++ = 0;
 			if (!p[0]) continue;
-			cfg_cur->next = mem_calloc_tiny(sz, 8);
+			cfg_cur->next = mem_calloc_tiny(sz, al);
 			cfg_cur = cfg_cur->next;
 			cfg_cur->cfg_name = "Command Line Rule";
 			cfg_cur->data = p;
 			p = strchr(p, ';');
 			while (p && p > buf && p[-1] == '\\')
 				p = strchr(p+1, ';');
+		}
+		ctx->count = -1;
+		return 0;
+	} else if (strchr(subsection, ',')) {
+		char *buf = str_alloc_copy(subsection), *cp;
+		int id = 0;
+		const int sz = sizeof(struct cfg_line), al = sizeof(struct cfg_line *);
+		struct cfg_line *cfg_cur = mem_calloc_tiny(sz, al);
+		int first = 1;
+
+		ctx->input = cfg_cur;
+		cp = strtokm(buf, ",");
+		while (cp) {
+			struct cfg_line *lp;
+			if ((list = cfg_get_list(SECTION_RULES, cp))==NULL)
+				return 1;
+			lp = list->head;
+			while (lp) {
+				if (!first) {
+					cfg_cur->next = mem_calloc_tiny(sz, al);
+					cfg_cur = cfg_cur->next;
+				}
+				first = 0;
+				cfg_cur->cfg_name = cp;
+				cfg_cur->data = lp->data;
+				cfg_cur->number = lp->number;
+				cfg_cur->id = ++id;
+				lp = lp->next;
+			}
+			cp = strtokm(NULL, ",");
 		}
 		ctx->count = -1;
 		return 0;
@@ -259,6 +294,27 @@ char *rpp_next(struct rpp_context *ctx)
 	if (done) {
 		ctx->input = ctx->input->next;
 		ctx->count = -1;
+
+		if (ctx->output[0] == '.' &&
+		    !strncmp(ctx->output, ".log ", 5)) {
+			char *cp = strchr(ctx->output, '\"');
+			int len;
+			if (!rpp_real_run)
+				return rpp_next(ctx);
+			if (!cp) {
+				// warn about unknown/invalid .log directive
+				return rpp_next(ctx);
+			}
+			++cp;
+			len = strlen(cp)-1;
+			if (!strncmp(ctx->output, ".log both ", 10) ||
+			    !strncmp(ctx->output, ".log screen ", 11))
+				fprintf (stderr, "%*.*s\n", len,len, cp);
+			if (strncmp(ctx->output, ".log screen ", 11))
+				log_event ("%*.*s\n", len, len, cp);
+			return rpp_next(ctx);
+		}
+
 	}
 
 	return ctx->output;

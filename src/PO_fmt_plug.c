@@ -38,7 +38,7 @@ john_register_one(&fmt_PO);
 #include "md5.h"
 #include "memdbg.h"
 
-typedef ARCH_WORD_32 MD5_word;
+typedef uint32_t MD5_word;
 typedef MD5_word MD5_binary[4];
 
 #define FORMAT_LABEL			"po"
@@ -70,7 +70,7 @@ static struct fmt_tests tests[] = {
 static char saved_key[PLAINTEXT_LENGTH + 1];
 static int saved_key_len;
 static char po_buf[SALT_SIZE * 2 + 2 + PLAINTEXT_LENGTH + 128 /* MD5 scratch space */];
-static ARCH_WORD_32 MD5_out[4];
+static uint32_t MD5_out[4];
 
 static void po_init(struct fmt_main *self) {
 	/* Do nothing */
@@ -219,6 +219,7 @@ struct fmt_main fmt_PO = {
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT,
+		{ NULL },
 		{ NULL },
 		tests
 	}, {

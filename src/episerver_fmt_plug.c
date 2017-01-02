@@ -68,6 +68,8 @@ john_register_one(&fmt_episerver);
 
 #define FORMAT_LABEL		"EPiServer"
 #define FORMAT_NAME		""
+#define FORMAT_TAG		"$episerver$*"
+#define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	0
 #define BINARY_SIZE		32 /* larger of the two */
@@ -120,7 +122,7 @@ static uint32_t *saved_key;
 static uint32_t *crypt_out;
 #else
 static char (*saved_key)[3 * PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 #endif
 
 static struct custom_salt {
@@ -181,12 +183,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ptr, *ctcopy, *keeptr;
 
-	if (strncmp(ciphertext, "$episerver$*", 12))
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	ctcopy += 12;	/* skip leading '$episerver$*' */
+	ctcopy += FORMAT_TAG_LEN;	/* skip leading '$episerver$*' */
 	if (strlen(ciphertext) > 255)
 		goto error;
 	if (!(ptr = strtokm(ctcopy, "*")))
@@ -220,7 +222,7 @@ static void *get_salt(char *ciphertext)
 	memset(&cs, 0, sizeof(cs));
 	strncpy(ctcopy, ciphertext, 255);
 	ctcopy[255] = 0;
-	ctcopy += 12;	/* skip over "$episerver$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$episerver$*" */
 	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
 	p = strtokm(NULL, "*");
@@ -331,7 +333,7 @@ static int cmp_all(void *binary, int count)
 #ifdef SIMD_COEF_32
 		if (*((uint32_t*)binary) == crypt_out[HASH_IDX_OUT])
 #else
-		if (*((ARCH_WORD_32*)binary) == crypt_out[index][0])
+		if (*((uint32_t*)binary) == crypt_out[index][0])
 #endif
 			return 1;
 	}
@@ -343,7 +345,7 @@ static int cmp_one(void *binary, int index)
 #if SIMD_COEF_32
 	return *((uint32_t*)binary) == crypt_out[HASH_IDX_OUT];
 #else
-	return (*((ARCH_WORD_32*)binary) == crypt_out[index][0]);
+	return (*((uint32_t*)binary) == crypt_out[index][0]);
 #endif
 }
 
@@ -610,6 +612,7 @@ struct fmt_main fmt_episerver = {
 		{
 			"hash type [1: SHA1 2:SHA256]",
 		},
+		{ FORMAT_TAG },
 		episerver_tests
 	}, {
 		init,

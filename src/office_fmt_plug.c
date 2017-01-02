@@ -113,7 +113,7 @@ static int omp_t = 1;
 static UTF16 (*saved_key)[PLAINTEXT_LENGTH + 1];
 /* UCS-2 password length, in octets */
 static int *saved_len;
-static ARCH_WORD_32 (*crypt_key)[4];
+static uint32_t (*crypt_key)[4];
 static int *cracked;
 
 /* Office 2010/2013 */
@@ -321,7 +321,7 @@ static void GenerateAgileEncryptionKey(int idx, unsigned char hashBuf[SHA1_LOOP_
 		// 28 bytes of crypt data (192 bits).
 		keys[GETPOS_1(63, i)] = 224;
 	}
-	SIMDSHA1body(keys, (ARCH_WORD_32*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
+	SIMDSHA1body(keys, (uint32_t*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
 	for (i = 0; i < SHA1_LOOP_CNT; ++i)
 		memcpy(hashBuf[i], crypt[i], 20);
 
@@ -330,7 +330,7 @@ static void GenerateAgileEncryptionKey(int idx, unsigned char hashBuf[SHA1_LOOP_
 		for (j = 0; j < 8; ++j)
 			keys[GETPOS_1(20+j, i)] = encryptedVerifierHashValueBlockKey[j];
 	}
-	SIMDSHA1body(keys, (ARCH_WORD_32*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
+	SIMDSHA1body(keys, (uint32_t*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
 	for (i = 0; i < SHA1_LOOP_CNT; ++i)
 		memcpy(&hashBuf[i][32], crypt[i], 20);
 
@@ -410,12 +410,12 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 	SHA512_CTX ctx;
 	unsigned char _IBuf[128*SHA512_LOOP_CNT+MEM_ALIGN_CACHE], *keys,
 	              _OBuf[64*SHA512_LOOP_CNT+MEM_ALIGN_CACHE];
-	ARCH_WORD_64 *keys64, (*crypt)[64/8];
+	uint64_t *keys64, (*crypt)[64/8];
 	uint32_t *keys32, *crypt32;
 
 	crypt = (void*)mem_align(_OBuf, MEM_ALIGN_CACHE);
 	keys = (unsigned char*)mem_align(_IBuf, MEM_ALIGN_CACHE);
-	keys64 = (ARCH_WORD_64*)keys;
+	keys64 = (uint64_t*)keys;
 	keys32 = (uint32_t*)keys;
 	crypt32 = (uint32_t*)crypt;
 
@@ -441,7 +441,7 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 		for (j = 0; j < SHA512_LOOP_CNT; j++)
 			keys32[(j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*SHA_BUF_SIZ*SIMD_COEF_64 + 1] = i_be;
 
-		SIMDSHA512body(keys, (ARCH_WORD_64*)crypt, NULL, SSEi_MIXED_IN);
+		SIMDSHA512body(keys, (uint64_t*)crypt, NULL, SSEi_MIXED_IN);
 
 		// Then we output to 4 bytes past start of input buffer.
 		for (j = 0; j < SHA512_LOOP_CNT; j++) {
@@ -473,19 +473,19 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 		// 72 bytes of crypt data (0x240  we already have 0x220 here)
 		keys[GETPOS_512(127, i)] = 0x40;
 	}
-	SIMDSHA512body(keys, (ARCH_WORD_64*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
+	SIMDSHA512body(keys, (uint64_t*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
 	for (i = 0; i < SHA512_LOOP_CNT; ++i)
-		memcpy((ARCH_WORD_64*)(hashBuf[i]), crypt[i], 64);
+		memcpy((uint64_t*)(hashBuf[i]), crypt[i], 64);
 
 	// And second "block" (0) to H(n)
 	for (i = 0; i < SHA512_LOOP_CNT; ++i) {
 		for (j = 0; j < 8; ++j)
 			keys[GETPOS_512(64+j, i)] = encryptedVerifierHashValueBlockKey[j];
 	}
-	SIMDSHA512body(keys, (ARCH_WORD_64*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
+	SIMDSHA512body(keys, (uint64_t*)crypt, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
 
 	for (i = 0; i < SHA512_LOOP_CNT; ++i)
-		memcpy((ARCH_WORD_64*)(&hashBuf[i][64]), crypt[i], 64);
+		memcpy((uint64_t*)(&hashBuf[i][64]), crypt[i], 64);
 }
 #else
 static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_LOOP_CNT][128])
@@ -615,7 +615,7 @@ static int cmp_all(void *binary, int count)
 	int index;
 	if (cur_salt->version == 2007) {
 		for (index = 0; index < count; index++) {
-			if ( ((ARCH_WORD_32*)binary)[0] == crypt_key[index][0] )
+			if ( ((uint32_t*)binary)[0] == crypt_key[index][0] )
 				return 1;
 		}
 		return 0;
@@ -691,6 +691,7 @@ struct fmt_main fmt_office = {
 			"MS Office version",
 			"iteration count",
 		},
+		{ FORMAT_TAG_OFFICE },
 		office_tests
 	}, {
 		init,

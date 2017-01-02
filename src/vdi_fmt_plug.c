@@ -56,6 +56,8 @@ john_register_one(&fmt_vdi);
 
 #define FORMAT_LABEL		"vdi"
 #define FORMAT_NAME		"VirtualBox-VDI AES_XTS"
+#define FORMAT_TAG           "$vdi$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME          "PBKDF2-SHA256 " SHA256_ALGORITHM_NAME " + AES_XTS"
 
 #if SSE_GROUP_SZ_SHA256
@@ -68,9 +70,6 @@ john_register_one(&fmt_vdi);
 
 static unsigned char (*key_buffer)[PLAINTEXT_LENGTH + 1];
 static unsigned char (*crypt_out)[MAX_SALT_LEN];
-
-#define FORMAT_TAG      "$vdi$"
-#define FORMAT_TAG_LEN  (sizeof(FORMAT_TAG)-1)
 
 static struct fmt_tests tests[] = {
 	// The 'jtr' test hashed were made with VirtualBox. The others were made with pass_gen.pl
@@ -225,11 +224,11 @@ static void* get_salt(char *ciphertext)
 	p = strtokm(NULL, "$");	/* salt length */
 	s->saltlen = atoi(p);
 	p = strtokm(NULL, "$");	/* salt1 */
-	base64_convert(p, e_b64_hex, s->saltlen*2, s->salt1, e_b64_raw, s->saltlen, 0);
+	base64_convert(p, e_b64_hex, s->saltlen*2, s->salt1, e_b64_raw, s->saltlen, 0, 0);
 	p = strtokm(NULL, "$");	/* salt2 */
-	base64_convert(p, e_b64_hex, s->saltlen*2, s->salt2, e_b64_raw, s->saltlen, 0);
+	base64_convert(p, e_b64_hex, s->saltlen*2, s->salt2, e_b64_raw, s->saltlen, 0, 0);
 	p = strtokm(NULL, "$");	/* encr_key */
-	base64_convert(p, e_b64_hex, s->keylen*2, s->encr, e_b64_raw, s->keylen, 0);
+	base64_convert(p, e_b64_hex, s->keylen*2, s->encr, e_b64_raw, s->keylen, 0, 0);
 
 	MEM_FREE(keeptr);
 	return s;
@@ -339,11 +338,11 @@ static int salt_hash(void *salt)
 }
 
 static void *binary(char *ciphertext) {
-	static ARCH_WORD_32 full[MAX_SALT_LEN / 4];
+	static uint32_t full[MAX_SALT_LEN / 4];
 	unsigned char *realcipher = (unsigned char*)full;
 
 	ciphertext = strrchr(ciphertext, '$') + 1;
-	base64_convert(ciphertext, e_b64_hex, strlen(ciphertext), realcipher, e_b64_raw, MAX_SALT_LEN, 0);
+	base64_convert(ciphertext, e_b64_hex, strlen(ciphertext), realcipher, e_b64_raw, MAX_SALT_LEN, 0, 0);
 	return (void*)realcipher;
 }
 
@@ -364,6 +363,7 @@ struct fmt_main fmt_vdi = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{ NULL },
+		{ FORMAT_TAG },
 		tests
 	}, {
 		init,

@@ -75,7 +75,7 @@ john_register_one(&fmt_AzureAD);
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static char (*saved_nt)[64];
 static int dirty;
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
@@ -112,7 +112,7 @@ static void *salt(char *ciphertext) {
 	ctcopy += TAG_LENGTH;
 	p = strtokm(ctcopy, ",");
 	cs.salt_len = strlen(p)/2;
-	base64_convert(p, e_b64_hex, cs.salt_len*2, cs.salt, e_b64_raw, cs.salt_len, 0);
+	base64_convert(p, e_b64_hex, cs.salt_len*2, cs.salt, e_b64_raw, cs.salt_len, 0, 0);
 	p = strtokm(NULL, ",");
 	cs.iterations = atoi(p);
 	p = strtokm(Buf, ",");
@@ -163,7 +163,7 @@ static int crypt_all(int *pcount, struct db_salt *salt) {
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
 		union {
-			ARCH_WORD_32 *pout[MAX_KEYS_PER_CRYPT];
+			uint32_t *pout[MAX_KEYS_PER_CRYPT];
 			unsigned char *poutc;
 		} x;
 		cnt = MAX_KEYS_PER_CRYPT;
@@ -177,7 +177,7 @@ static int crypt_all(int *pcount, struct db_salt *salt) {
 			MD4_Init(&ctx);
 			MD4_Update(&ctx, Buf, len*2);
 			MD4_Final(hash, &ctx);
-			base64_convert(hash, e_b64_raw, 16, hex, e_b64_hex, sizeof(hex), flg_Base64_HEX_UPCASE);
+			base64_convert(hash, e_b64_raw, 16, hex, e_b64_hex, sizeof(hex), flg_Base64_HEX_UPCASE, 0);
 			for (len = 0; len < 32; ++len)
 				saved_nt[index+i][len<<1] = hex[len];
 		}
@@ -237,6 +237,7 @@ struct fmt_main fmt_AzureAD = {
 #endif
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8,
 		{ NULL },
+		{ FORMAT_TAG },
 		AzureAD_common_tests
 	}, {
 		init,

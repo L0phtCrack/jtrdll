@@ -128,7 +128,7 @@ int sha512_common_valid(char *ciphertext, struct fmt_main *self)
 
 	p = ciphertext;
 	if (!strncmp(p, FORMAT_TAG, TAG_LENGTH))
-		p += 8;
+		p += TAG_LENGTH;
 
 	q = p;
 	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
@@ -144,7 +144,7 @@ int sha512_common_valid_xsha512(char *ciphertext, struct fmt_main *self)
 	pos = ciphertext;
 	if (strncmp(pos, XSHA512_FORMAT_TAG, XSHA512_TAG_LENGTH))
 		return 0;
-	pos += 6;
+	pos += XSHA512_TAG_LENGTH;
 	while (atoi16[ARCH_INDEX(*pos)] != 0x7F && (*pos <= '9' || *pos >= 'a'))
 		pos++;
 	return !*pos && pos - ciphertext == XSHA512_CIPHERTEXT_LENGTH+6;
@@ -196,12 +196,14 @@ void * sha512_common_binary(char *ciphertext)
 
 void *sha512_common_binary_rev(char *ciphertext)
 {
-	static unsigned char * out;
+	static union {
+		unsigned char out[DIGEST_SIZE];
+		uint64_t x;
+	} x;
+	unsigned char *out = x.out;
 	char *p;
 	int i;
 	uint64_t *b;
-
-	if (!out) out = mem_calloc_tiny(DIGEST_SIZE, MEM_ALIGN_WORD);
 
 	p = ciphertext + TAG_LENGTH;
 	for (i = 0; i < DIGEST_SIZE; i++) {
@@ -221,13 +223,15 @@ void *sha512_common_binary_rev(char *ciphertext)
 
 void * sha512_common_binary_xsha512(char *ciphertext)
 {
-	static unsigned char * out;
+	static union {
+		unsigned char out[DIGEST_SIZE];
+		uint64_t x;
+	} x;
+	unsigned char *out = x.out;
 	char *p;
 	int i;
 
-	if (!out) out = mem_calloc_tiny(DIGEST_SIZE, MEM_ALIGN_WORD);
-
-	ciphertext += 6;
+	ciphertext += XSHA512_TAG_LENGTH;
 	p = ciphertext + 8;
 	for (i = 0; i < DIGEST_SIZE; i++) {
 		out[i] =
@@ -244,14 +248,16 @@ void * sha512_common_binary_xsha512(char *ciphertext)
 
 void * sha512_common_binary_xsha512_rev(char *ciphertext)
 {
-	static unsigned char * out;
+	static union {
+		unsigned char out[DIGEST_SIZE];
+		uint64_t x;
+	} x;
+	unsigned char *out = x.out;
 	char *p;
 	int i;
 	uint64_t *b;
 
-	if (!out) out = mem_calloc_tiny(DIGEST_SIZE, MEM_ALIGN_WORD);
-
-	ciphertext += 6;
+	ciphertext += XSHA512_TAG_LENGTH;
 	p = ciphertext + 8;
 	for (i = 0; i < DIGEST_SIZE; i++) {
 		out[i] =
@@ -268,12 +274,13 @@ void * sha512_common_binary_xsha512_rev(char *ciphertext)
 }
 
 void *sha512_common_binary_nsldap(char *ciphertext) {
-	static char *realcipher;
-
-	if (!realcipher) realcipher = mem_alloc_tiny(DIGEST_SIZE + 1 + NSLDAP_SALT_SIZE, 8);
+	static union {
+		char out[DIGEST_SIZE+8];
+		uint64_t x;
+	} x;
+	char *realcipher = x.out;
 
 	ciphertext += NSLDAP_TAG_LENGTH;
-	memset(realcipher, 0, DIGEST_SIZE);
 	base64_decode(ciphertext, strlen(ciphertext), realcipher);
 
 #ifdef SIMD_COEF_64
@@ -286,28 +293,16 @@ void *sha512_common_binary_nsldap(char *ciphertext) {
 /* Convert Cisco hashes to hex ones, so .pot entries are compatible */
 char * sha512_common_prepare_xsha512(char *split_fields[10], struct fmt_main *self)
 {
-	char Buf[200];
+	static char Buf[XSHA512_TAG_LENGTH + XSHA512_CIPHERTEXT_LENGTH + 1];
 	if (!strncmp(split_fields[1], XSHA512_FORMAT_TAG, XSHA512_TAG_LENGTH))
 		return split_fields[1];
-	if (split_fields[0] && strlen(split_fields[0]) == XSHA512_CIPHERTEXT_LENGTH) {
+	if (split_fields[0] && ishex(split_fields[0]) && strlen(split_fields[0]) == XSHA512_CIPHERTEXT_LENGTH) {
 		sprintf(Buf, "%s%s", XSHA512_FORMAT_TAG, split_fields[0]);
-
-		if (sha512_common_valid_xsha512(Buf, self)) {
-			static char *cp;
-			if (!cp) cp = mem_calloc_tiny(XSHA512_CIPHERTEXT_LENGTH+7, 1);
-			strcpy(cp, Buf);
-			return cp;
-		}
+		return Buf;
 	}
-	if (strlen(split_fields[1]) == XSHA512_CIPHERTEXT_LENGTH) {
+	if (ishex(split_fields[1]) && strlen(split_fields[1]) == XSHA512_CIPHERTEXT_LENGTH) {
 		sprintf(Buf, "%s%s", XSHA512_FORMAT_TAG, split_fields[1]);
-
-		if (sha512_common_valid_xsha512(Buf, self)) {
-			static char *cp;
-			if (!cp) cp = mem_calloc_tiny(XSHA512_CIPHERTEXT_LENGTH+7, 1);
-			strcpy(cp, Buf);
-			return cp;
-		}
+		return Buf;
 	}
 	return split_fields[1];
 }
@@ -328,9 +323,7 @@ char * sha512_common_split(char *ciphertext, int index, struct fmt_main *self)
 
 char * sha512_common_split_xsha512(char *ciphertext, int index, struct fmt_main *pFmt)
 {
-	static char * out;
-
-	if (!out) out = mem_calloc_tiny(8 + XSHA512_CIPHERTEXT_LENGTH + 1, MEM_ALIGN_WORD);
+	static char out[XSHA512_TAG_LENGTH + XSHA512_CIPHERTEXT_LENGTH + 1];
 
 	if (!strncmp(ciphertext, XSHA512_FORMAT_TAG, XSHA512_TAG_LENGTH))
 		return ciphertext;

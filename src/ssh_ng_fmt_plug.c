@@ -48,6 +48,8 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL        "SSH-ng"
 #define FORMAT_NAME         ""
+#define FORMAT_TAG          "$sshng$"
+#define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME      "RSA/DSA/EC/OPENSSH (SSH private keys) 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT   ""
 #define BENCHMARK_LENGTH    -1001
@@ -126,15 +128,12 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int len, cipher;
-	if (strncmp(ciphertext, "$sshng$", 7) != 0)
+	int len, cipher, extra;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 7;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "$")) == NULL)	/* cipher */
 		goto err;
 	if (!isdec(p))
@@ -149,7 +148,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (hexlen(p) != len * 2)
+	if (hexlen(p, &extra) != len * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext length */
 		goto err;
@@ -158,7 +157,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	len = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext */
 		goto err;
-	if (hexlen(p) / 2 != len)
+	if (hexlen(p, &extra) / 2 != len || extra)
 		goto err;
 	if (cipher == 2) {
 		if ((p = strtokm(NULL, "$")) == NULL)	/* rounds */
@@ -169,6 +168,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if (cipher != 0 && cipher != 1 && cipher != 2 && cipher != 3) {
 		fprintf(stderr, "[ssh-ng] cipher value of %d is not supported!\n", cipher);
+		goto err;
 	}
 
 	MEM_FREE(keeptr);
@@ -187,7 +187,7 @@ static void *get_salt(char *ciphertext)
 	int i;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(struct custom_salt));
-	ctcopy += 7;	/* skip over "$sshng$" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$sshng$" */
 	p = strtokm(ctcopy, "$");
 	cs.cipher = atoi(p);
 	p = strtokm(NULL, "$");
@@ -600,6 +600,7 @@ struct fmt_main fmt_sshng = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
+		{ FORMAT_TAG },
 		sshng_tests
 	}, {
 		init,
@@ -613,7 +614,7 @@ struct fmt_main fmt_sshng = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -623,7 +624,7 @@ struct fmt_main fmt_sshng = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

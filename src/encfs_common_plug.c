@@ -16,12 +16,12 @@ int encfs_common_valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	int res;
-	if (strncmp(ciphertext, "$encfs$", 7))
+	int res, extra;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 7;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* key size */
 		goto err;
 	if (!isdec(p))
@@ -46,7 +46,7 @@ int encfs_common_valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if (hexlenl(p)/2 != res)
+	if (hexlenl(p, &extra)/2 != res || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* data length */
 		goto err;
@@ -57,7 +57,7 @@ int encfs_common_valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
 		goto err;
-	if (hexlenl(p)/2 != res)
+	if (hexlenl(p, &extra)/2 != res || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -77,7 +77,7 @@ void *encfs_common_get_salt(char *ciphertext)
 	static encfs_common_custom_salt cs;
 
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 7;
+	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "*");
 	cs.keySize = atoi(p);
 	switch(cs.keySize)
@@ -229,7 +229,7 @@ int encfs_common_streamDecode(encfs_common_custom_salt *cur_salt, unsigned char 
 	EVP_DecryptUpdate( stream_dec, buf, &dstLen, buf, size );
 	EVP_DecryptFinal_ex( stream_dec, buf+dstLen, &tmpLen );
 	EVP_CIPHER_CTX_cleanup(stream_dec);
-
+	EVP_CIPHER_CTX_free(stream_dec);
 	unshuffleBytes( buf, size );
 	dstLen += tmpLen;
 	if(dstLen != size) {

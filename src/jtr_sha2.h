@@ -19,7 +19,7 @@
  * to make that code 'appear' like OpenSSL  It was done this
  * way, just in case there are versions of OSSL that have some
  * of this code, older than what we 'know' about. If we do not
- * use differnt names, (and #defines to map), we run the risk
+ * use different names, (and #defines to map), we run the risk
  * of having multiple defined functions/data.
  *
  * NOTE, if FORCE_GENERIC_SHA2 is defined before this header is
@@ -48,8 +48,8 @@
 // JtR this is MORE than enough.
 typedef struct
 {
-	ARCH_WORD_32 h[8];          // SHA256 state
-	ARCH_WORD_32 Nl,Nh;         // UNUSED but here to be compatible with oSSL
+	uint32_t h[8];          // SHA256 state
+	uint32_t Nl,Nh;         // UNUSED but here to be compatible with oSSL
 	unsigned char buffer[64];   // current/building data 'block'. It IS in alignment
 	unsigned int num,md_len;    // UNUSED but here to be compatible with oSSL
 	unsigned int total;         // number of bytes processed
@@ -81,8 +81,8 @@ extern void jtr_sha256_hash_block(jtr_sha256_ctx *ctx, const unsigned char data[
 // Does sha512 and sha384
 typedef struct
 {
-	ARCH_WORD_64 h[8];          // SHA512 state
-	ARCH_WORD_64 Nl,Nh;         // UNUSED but here to be compatible with oSSL
+	uint64_t h[8];          // SHA512 state
+	uint64_t Nl,Nh;         // UNUSED but here to be compatible with oSSL
 	unsigned char buffer[128];  // current/building data 'block'.  It IS in alignment
 	unsigned int num,md_len;    // UNUSED but here to be compatible with oSSL
 	unsigned int total;         // number of bytes processed
@@ -126,8 +126,8 @@ extern void jtr_sha512_hash_block(jtr_sha512_ctx *ctx, const unsigned char data[
 	} while(0)
 
 #else
-#define OUTBE32(n,b,i) *((ARCH_WORD_32*)&(b[i]))=n
-#define OUTBE64(n,b,i) *((ARCH_WORD_64*)&(b[i]))=n
+#define OUTBE32(n,b,i) *((uint32_t*)&(b[i]))=n
+#define OUTBE64(n,b,i) *((uint64_t*)&(b[i]))=n
 #endif
 
 #endif

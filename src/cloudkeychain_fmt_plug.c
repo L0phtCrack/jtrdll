@@ -43,6 +43,8 @@ john_register_one(&fmt_cloud_keychain);
 
 #define FORMAT_LABEL		"cloudkeychain"
 #define FORMAT_NAME		"1Password Cloud Keychain"
+#define FORMAT_TAG           "$cloudkeychain$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #ifdef SIMD_COEF_64
 #define ALGORITHM_NAME		"PBKDF2-SHA512 " SHA512_ALGORITHM_NAME
 #else
@@ -122,17 +124,14 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int len;
+	int len, extra;
 
-	if (strncmp(ciphertext,  "$cloudkeychain$", 15) != 0)
+	if (strncmp(ciphertext,  FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 15;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "$")) == NULL)	/* salt length */
 		goto err;
 	if (!isdec(p))
@@ -140,7 +139,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	len = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)	/* salt */
 		goto err;
-	if (hexlenl(p)/2 != len)
+	if (hexlenl(p, &extra)/2 != len || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* iterations */
 		goto err;
@@ -153,7 +152,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	len = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)	/* masterkey */
 		goto err;
-	if (hexlenl(p)/2 != len)
+	if (hexlenl(p, &extra)/2 != len || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* plaintext length */
 		goto err;
@@ -168,7 +167,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* iv */
 		goto err;
-	if (hexlenl(p) / 2 != len)
+	if (hexlenl(p, &extra) / 2 != len || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* cryptext length */
 		goto err;
@@ -179,7 +178,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* cryptext */
 		goto err;
-	if (hexlenl(p)/2 != len)
+	if (hexlenl(p, &extra)/2 != len || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* expectedhmac length */
 		goto err;
@@ -190,7 +189,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* expectedhmac */
 		goto err;
-	if (hexlenl(p)/2 != len)
+	if (hexlenl(p, &extra)/2 != len || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* hmacdata length */
 		goto err;
@@ -201,7 +200,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)	/* hmacdata */
 		goto err;
-	if (hexlenl(p)/2 != len)
+	if (hexlenl(p, &extra)/2 != len || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -220,7 +219,7 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 15;	/* skip over "$cloudkeychain$" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$cloudkeychain$" */
 	p = strtokm(ctcopy, "$");
 	cs.saltlen = atoi(p);
 	p = strtokm(NULL, "$");
@@ -327,13 +326,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		unsigned char *pin[SSE_GROUP_SZ_SHA512];
 		uint64_t key[SSE_GROUP_SZ_SHA512][8];
 		union {
-			ARCH_WORD_32 *pout[SSE_GROUP_SZ_SHA512];
+			uint32_t *pout[SSE_GROUP_SZ_SHA512];
 			unsigned char *poutc;
 		} x;
 		for (i = 0; i < SSE_GROUP_SZ_SHA512; ++i) {
 			lens[i] = strlen(saved_key[index+i]);
 			pin[i] = (unsigned char*)saved_key[index+i];
-			x.pout[i] = (ARCH_WORD_32*)(key[i]);
+			x.pout[i] = (uint32_t*)(key[i]);
 		}
 		pbkdf2_sha512_sse((const unsigned char **)pin, lens, cur_salt->salt, cur_salt->saltlen, cur_salt->iterations, &(x.poutc), HASH_LENGTH, 0);
 		for (i = 0; i < SSE_GROUP_SZ_SHA512; ++i)
@@ -409,6 +408,7 @@ struct fmt_main fmt_cloud_keychain = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		cloud_keychain_tests
 	}, {
 		init,
@@ -424,7 +424,7 @@ struct fmt_main fmt_cloud_keychain = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -434,7 +434,7 @@ struct fmt_main fmt_cloud_keychain = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

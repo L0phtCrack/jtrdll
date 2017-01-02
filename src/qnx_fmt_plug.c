@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker. Written to crack
- * QNX shadow hash passwords.  algorith is func(salt . pass x rounds+1)
+ * QNX shadow hash passwords.  algorithm is func(salt . pass x rounds+1)
  * func is md5, sha256 or sha512. rounds defaults to 1000, BUT can be specified
  * in the hash string and thus is not fixed.
  *
@@ -77,7 +77,7 @@ john_register_one(&fmt_qnx);
 
 static int (*saved_len);
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 #ifdef SIMD_COEF_32
 static int *(sk_by_len[PLAINTEXT_LENGTH+1]);
@@ -369,6 +369,7 @@ struct fmt_main fmt_qnx = {
 			"iteration count",
 			"algorithm (5=md5 256=sha256 512=sha512)",
 		},
+		{ NULL },
 		tests
 	}, {
 		init,

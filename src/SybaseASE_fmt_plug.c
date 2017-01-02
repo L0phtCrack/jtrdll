@@ -55,6 +55,8 @@ john_register_one(&fmt_SybaseASE);
 
 #define FORMAT_LABEL        "SybaseASE"
 #define FORMAT_NAME         "Sybase ASE"
+#define FORMAT_TAG          "0xc007"
+#define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 
 #define ALGORITHM_NAME      "SHA256 " SHA256_ALGORITHM_NAME
 
@@ -63,7 +65,6 @@ john_register_one(&fmt_SybaseASE);
 
 #define PLAINTEXT_LENGTH    64
 #define CIPHERTEXT_LENGTH   (6 + 16 + 64)
-#define PREFIX_LENGTH       6
 
 #define BINARY_SIZE         32
 #define BINARY_ALIGN        4
@@ -101,12 +102,12 @@ static struct fmt_tests SybaseASE_tests[] = {
 static UTF16 (*prep_key)[4][MAX_KEYS_PER_CRYPT][64 / sizeof(UTF16)];
 static unsigned char *NULL_LIMB;
 static int (*last_len);
-static ARCH_WORD_32 (*crypt_cache)[BINARY_SIZE/4];
+static uint32_t (*crypt_cache)[BINARY_SIZE/4];
 #else
 static UTF16 (*prep_key)[518 / sizeof(UTF16)];
 static SHA256_CTX (*prep_ctx);
 #endif
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE/4];
+static uint32_t (*crypt_out)[BINARY_SIZE/4];
 static int kpc, dirty;
 
 extern struct fmt_main fmt_SybaseASE;
@@ -164,9 +165,10 @@ static void done(void)
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
-    if(strncmp(ciphertext, "0xc007", 6)!=0)
+    int extra;
+    if(strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)!=0)
         return 0;
-    if(hexlen(&ciphertext[6]) != CIPHERTEXT_LENGTH - 6)
+    if(hexlen(&ciphertext[FORMAT_TAG_LEN], &extra) != CIPHERTEXT_LENGTH - FORMAT_TAG_LEN || extra)
         return 0;
     return 1;
 }
@@ -183,7 +185,7 @@ static void *get_binary(char *ciphertext)
 {
     static unsigned char *out;
     int i;
-    char *p = ciphertext + PREFIX_LENGTH + SALT_SIZE * 2;
+    char *p = ciphertext + FORMAT_TAG_LEN + SALT_SIZE * 2;
 
     if (!out) out = mem_alloc_tiny(BINARY_SIZE, MEM_ALIGN_WORD);
 
@@ -198,10 +200,10 @@ static void *get_salt(char *ciphertext)
 {
 	static union {
 		unsigned char u8[SALT_SIZE];
-		ARCH_WORD_32 u32;
+		uint32_t u32;
 	} out;
 	int i;
-	char *p = ciphertext + PREFIX_LENGTH;
+	char *p = ciphertext + FORMAT_TAG_LEN;
 
 	for (i = 0; i < sizeof(out.u8); i++) {
 		out.u8[i] = (atoi16[ARCH_INDEX(*p)] << 4) |atoi16[ARCH_INDEX(p[1])];
@@ -378,7 +380,7 @@ static int cmp_all(void *binary, int count)
     int index = 0;
 
     for (index = 0; index < count; index++)
-        if (*(ARCH_WORD_32 *)binary == *(ARCH_WORD_32 *)crypt_out[index])
+        if (*(uint32_t *)binary == *(uint32_t *)crypt_out[index])
             return 1;
     return 0;
 }
@@ -395,7 +397,7 @@ static int cmp_exact(char *source, int index)
 
 static int salt_hash(void *salt)
 {
-	return *(ARCH_WORD_32*)salt & (SALT_HASH_SIZE - 1);
+	return *(uint32_t*)salt & (SALT_HASH_SIZE - 1);
 }
 
 struct fmt_main fmt_SybaseASE = {
@@ -414,7 +416,8 @@ struct fmt_main fmt_SybaseASE = {
         MIN_KEYS_PER_CRYPT,
         MAX_KEYS_PER_CRYPT,
         FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE,
-		{ NULL },
+        { NULL },
+        { FORMAT_TAG },
         SybaseASE_tests
     }, {
         init,

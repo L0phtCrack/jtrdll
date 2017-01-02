@@ -117,6 +117,8 @@ static char *mem_map, *map_pos, *map_end, *map_scan_end;
 static char *word_file_str, **words;
 static int64_t nWordFileLines;
 
+extern int rpp_real_run; /* set to 1 when we really get into wordlist mode */
+
 static void save_state(FILE *file)
 {
 	fprintf(file, "%d\n" LLd "\n" LLd "\n",
@@ -429,12 +431,15 @@ static MAYBE_INLINE char *convert(char *line)
 {
 	char *p;
 
-	if ((options.flags & FLG_LOOPBACK_CHK) &&
-	    (p = strchr(line, options.loader.field_sep_char)))
-		line = p + 1;
+	if (options.flags & FLG_LOOPBACK_CHK) {
+		if ((p = strchr(line, options.loader.field_sep_char)))
+			line = p + 1;
+		else
+			line += strlen(line);
+	}
 
 	if (options.input_enc != options.target_enc) {
-		UTF16 u16[PLAINTEXT_BUFFER_SIZE + 1];
+		UTF16 u16[LINE_BUFFER_SIZE + 1];
 		char *cp, *s, *d;
 		char e;
 		int len;
@@ -442,7 +447,7 @@ static MAYBE_INLINE char *convert(char *line)
 		len = strcspn(line, "\n\r");
 		e = line[len];
 		line[len] = 0;
-		utf8_to_utf16(u16, PLAINTEXT_BUFFER_SIZE, (UTF8*)line, len);
+		utf8_to_utf16(u16, LINE_BUFFER_SIZE, (UTF8*)line, len);
 		line[len] = e;
 		cp = utf16_to_cp(u16);
 		d = &line[len];
@@ -607,6 +612,13 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	if (!(name = cfg_get_param(SECTION_OPTIONS, NULL, "Wordlist")))
 	if (!(name = cfg_get_param(SECTION_OPTIONS, NULL, "Wordfile")))
 		name = options.wordlist = WORDLIST_NAME;
+
+	if (rec_restored && john_main_process)
+		fprintf(stderr,
+		        "Proceeding with wordlist:%s and rules:%s\n",
+		        loopBack ? "loopback" : path_expand(name),
+		        options.activewordlistrules ?
+		        options.activewordlistrules : "none");
 
 	if (options.flags & FLG_STACKED)
 		options.max_fix_state_delay = 0;
@@ -819,7 +831,6 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 					hash_log++;
 				hash_size = (1 << hash_log);
 				hash_mask = (hash_size - 1);
-				if (options.verbosity > VERB_DEFAULT)
 				log_event("- dupe suppression: hash size %u, "
 					"temporarily allocating "LLd" bytes",
 					hash_size,
@@ -945,7 +956,7 @@ GRAB_NEXT_PIPE_LOAD:
 			{
 				char *cpi, *cpe;
 
-				if (options.verbosity > VERB_DEFAULT)
+				if (options.verbosity == VERB_MAX)
 				log_event("- Reading next block of candidate passwords from stdin pipe");
 
 				rules = rules_keep;
@@ -990,7 +1001,7 @@ GRAB_NEXT_PIPE_LOAD:
 						}
 					}
 				}
-				if (options.verbosity > VERB_DEFAULT) {
+				if (options.verbosity == VERB_MAX) {
 					sprintf(msg_buf, "- Read block of "LLd" "
 					        "candidate passwords from pipe",
 					        (long long)nWordFileLines);
@@ -1002,7 +1013,7 @@ GRAB_NEXT_PIPE_LOAD:
 MEM_MAP_LOAD:
 			rules = rules_keep;
 			nWordFileLines = 0;
-			if (options.verbosity > VERB_DEFAULT)
+			if (options.verbosity == VERB_MAX)
 				log_event("- Reading next block of candidate from the memory mapped file");
 			release_sharedmem_object(pIPC);
 			pIPC = next_sharedmem_object();
@@ -1060,6 +1071,7 @@ REDO_AFTER_LMLOOP:
 
 	if (init_once) {
 		init_once = 0;
+		rpp_real_run = 1;
 
 		status_init(get_progress, 0);
 
@@ -1152,18 +1164,18 @@ REDO_AFTER_LMLOOP:
 			}
 			if ((rule = rules_reject(prerule, -1, last, db))) {
 				if (strcmp(prerule, rule)) {
-					if (options.verbosity > VERB_DEFAULT)
+					if (options.verbosity >= VERB_LEGACY)
 					log_event("- Rule #%d: '%.100s'"
 						" accepted as '%.100s'",
 						rule_number + 1, prerule, rule);
 				} else {
-					if (options.verbosity > VERB_DEFAULT)
+					if (options.verbosity >= VERB_LEGACY)
 					log_event("- Rule #%d: '%.100s'"
 						" accepted",
 						rule_number + 1, prerule);
 				}
 			} else {
-				if (options.verbosity > VERB_DEFAULT)
+				if (options.verbosity >= VERB_LEGACY)
 				log_event("- Rule #%d: '%.100s' rejected",
 					rule_number + 1, prerule);
 				goto next_rule;

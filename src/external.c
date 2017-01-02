@@ -494,6 +494,10 @@ void do_external_crack(struct db_main *db)
 
 	log_event("Proceeding with external mode: %.100s", ext_mode);
 
+	if (rec_restored && john_main_process)
+		fprintf(stderr, "Proceeding with external:%s\n",
+		        ext_mode);
+
 	internal = (unsigned char *)int_word;
 	external = ext_word;
 	while (*external)
@@ -663,6 +667,7 @@ int do_external_hybrid_crack(struct db_main *db, const char *base_word) {
 	if (first) {
 		strcpy(int_hybrid_base_word, base_word);
 		rec_init_hybrid(save_state_hybrid);
+		crk_set_hybrid_fix_state_func_ptr(ext_hybrid_fix_state);
 		first = 0;
 		just_restored = rec_restored;
 		if (rec_restored) {

@@ -175,8 +175,10 @@ void ldr_free_test_db(struct db_main *db)
 #endif /* _OPENMP */
 #include "memdbg.h"
 
+#define MAX_COST_MSG_LEN 256
 #ifndef BENCH_BUILD
-static char cost_msg[128 * FMT_TUNABLE_COSTS];
+/* the + 24 is for a little 'extra' text wrapping each line */
+static char cost_msg[ (MAX_COST_MSG_LEN+24) * FMT_TUNABLE_COSTS];
 #endif
 
 long clk_tck = 0;
@@ -410,14 +412,14 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	*cost_msg = 0;
 	for (i = 0; i < FMT_TUNABLE_COSTS &&
 		     format->methods.tunable_cost_value[i] != NULL; i++) {
-		char msg[128];
+		char msg[MAX_COST_MSG_LEN];
 
 		if (t_cost[0][i] == t_cost[1][i])
-			sprintf(msg, "cost %d (%s) of %u", i + 1,
+			snprintf(msg, sizeof(msg), "cost %d (%s) of %u", i + 1,
 			        format->params.tunable_cost_name[i],
 			        t_cost[0][i]);
 		else
-			sprintf(msg, "cost %d (%s) of %u and %u",
+			snprintf(msg, sizeof(msg), "cost %d (%s) of %u and %u",
 			        i + 1, format->params.tunable_cost_name[i],
 			        t_cost[0][i], t_cost[1][i]);
 
@@ -509,7 +511,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	do {
 		int count = max;
 
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 		if (!bench_running)
 			advance_cursor();
 #endif
@@ -637,7 +639,7 @@ int benchmark_all(void)
 	char *result, *msg_1, *msg_m;
 	struct bench_results results_1, results_m;
 	char s_real[64], s_virtual[64];
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 	char s_gpu[16 * MAX_GPU_DEVICES] = "";
 	int i;
 #else
@@ -651,7 +653,7 @@ int benchmark_all(void)
 	int ompt_start = omp_get_max_threads();
 #endif
 
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 	if (!benchmark_time) {
 		/* This will make the majority of OpenCL formats
 		   also do "quick" benchmarking. But if LWS or
@@ -676,7 +678,7 @@ AGAIN:
 #endif
 	if ((format = fmt_list))
 	do {
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 		int n = 0;
 #endif
 		memHand = MEMDBG_getSnapshot(0);
@@ -816,7 +818,7 @@ AGAIN:
 			goto next;
 		}
 
-#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if defined(HAVE_OPENCL)
 		if (benchmark_time > 1)
 		for (i = 0; i < MAX_GPU_DEVICES &&
 			     gpu_device_list[i] != -1; i++) {

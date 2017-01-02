@@ -65,8 +65,6 @@ static unsigned int set_new_keys = 1;
 static struct fmt_main *self;
 static cl_uint *zero_buffer;
 
-static char mscash_prefix[] = "M$";
-
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
@@ -305,13 +303,13 @@ static void init_kernel(void)
 		" -DUCS_2"
 #endif
 		" -D CONST_CACHE_SIZE=%llu -D%s -D%s -DPLAINTEXT_LENGTH=%d -D LOC_0=%d"
-#if 1 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 1
 	" -D LOC_1=%d "
 #endif
-#if 2 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 2
 	"-D LOC_2=%d "
 #endif
-#if 3 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 3
 	"-D LOC_3=%d"
 #endif
 	, mask_int_cand.num_int_cand, mask_gpu_is_static,
@@ -319,13 +317,13 @@ static void init_kernel(void)
 	options.internal_cp == UTF_8 ? cp_id2macro(ASCII) :
 	cp_id2macro(options.internal_cp), PLAINTEXT_LENGTH,
 	static_gpu_locations[0]
-#if 1 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 1
 	, static_gpu_locations[1]
 #endif
-#if 2 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 2
 	, static_gpu_locations[2]
 #endif
-#if 3 < MASK_FMT_INT_PLHDR
+#if MASK_FMT_INT_PLHDR > 3
 	, static_gpu_locations[3]
 #endif
 	);
@@ -361,7 +359,7 @@ static void *salt(char *ciphertext)
 	UTF16 *login = usalt;
 	UTF8 csalt[3 * MSCASH1_MAX_SALT_LENGTH + 1];
 	int i, length = 0;
-	char *pos = ciphertext + strlen(mscash_prefix);
+	char *pos = ciphertext + FORMAT_TAG_LEN;
 
 	memset(nt_buffer.w, 0, sizeof(nt_buffer.w));
 	memset(usalt, 0, sizeof(usalt));
@@ -399,7 +397,7 @@ static void clear_keys(void)
 
 static void set_key(char *_key, int index)
 {
-	const ARCH_WORD_32 *key = (ARCH_WORD_32*)_key;
+	const uint32_t *key = (uint32_t*)_key;
 	int len = strlen(_key);
 
 	if (mask_int_cand.num_int_cand > 1 && !mask_gpu_is_static) {
@@ -445,7 +443,7 @@ static char *get_key(int index)
 
 	}
 
-	if (t > global_work_size) {
+	if (t >= global_work_size) {
 		//fprintf(stderr, "Get key error! %d %d\n", t, index);
 		t = 0;
 	}
@@ -774,10 +772,6 @@ static void reset(struct db_main *db)
 	current_salt = 0;
 	hash_ids[0] = 0;
 
-	// Forget the previous auto-tune
-	local_work_size = o_lws;
-	global_work_size = o_gws;
-
 	// If real crack run, don't auto-tune for self-tests
 	if (db->real && db != db->real)
 		opencl_get_sane_lws_gws_values();
@@ -808,6 +802,7 @@ struct fmt_main FMT_STRUCT = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8 | FMT_REMOVE,
 		{ NULL },
+		{ FORMAT_TAG },
 		mscash1_common_tests
 	}, {
 		init,

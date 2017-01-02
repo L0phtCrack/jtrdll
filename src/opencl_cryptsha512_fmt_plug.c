@@ -241,7 +241,7 @@ static void *get_salt(char *ciphertext)
 	int len;
 
 	out.rounds = ROUNDS_DEFAULT;
-	ciphertext += 3;
+	ciphertext += FORMAT_TAG_LEN;
 	if (!strncmp(ciphertext, ROUNDS_PREFIX, sizeof(ROUNDS_PREFIX) - 1)) {
 		const char *num = ciphertext + sizeof(ROUNDS_PREFIX) - 1;
 		char *endp;
@@ -442,7 +442,7 @@ static int calibrate()
 			best_gws = global_work_size;
 			best_opt = kernel_opt;
 
-			if (options.verbosity >= VERB_DEFAULT)
+			if (options.verbosity > VERB_LEGACY)
 				fprintf(stderr, "- Good configuration found: LWS="Zu", GWS="Zu", "
 				                "UNROLL_LOOP=%i, c/s: %llu\n", local_work_size,
 				                global_work_size, kernel_opt, global_speed);
@@ -721,6 +721,7 @@ struct fmt_main fmt_opencl_cryptsha512 = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		tests
 	}, {
 		init,

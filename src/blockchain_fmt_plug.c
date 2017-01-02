@@ -41,7 +41,7 @@ john_register_one(&fmt_blockchain);
 #define FORMAT_LABEL		"Blockchain"
 #define FORMAT_NAME		"My Wallet"
 #define FORMAT_TAG		"$blockchain$"
-#define TAG_LENGTH		12
+#define TAG_LENGTH		(sizeof(FORMAT_TAG)-1)
 
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA1 AES " SHA1_ALGORITHM_NAME
@@ -113,13 +113,10 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int len;
+	int len, extra;
 
 	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH) != 0)
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
 	ctcopy += TAG_LENGTH;
@@ -140,7 +137,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
-	if (hexlenl(p) != len * 2)
+	if (hexlenl(p, &extra) != len * 2 || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -160,7 +157,7 @@ static void *get_salt(char *ciphertext)
 
 	static union {
 		struct custom_salt _cs;
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} un;
 	struct custom_salt *cs = &(un._cs);
 
@@ -308,6 +305,7 @@ struct fmt_main fmt_blockchain = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{ NULL },
+		{ FORMAT_TAG },
 		agile_keychain_tests
 	}, {
 		init,
@@ -321,7 +319,7 @@ struct fmt_main fmt_blockchain = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -331,7 +329,7 @@ struct fmt_main fmt_blockchain = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

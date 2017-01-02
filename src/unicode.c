@@ -34,6 +34,7 @@
 #include "byteorder.h"
 #include "unicode.h"
 #include "UnicodeData.h"
+#define JTR_UNICODE_C	1
 #include "encoding_data.h"
 #include "misc.h"
 #include "config.h"
@@ -546,7 +547,7 @@ int E_md4hash(const UTF8 *passwd, unsigned int len, unsigned char *p16)
 		len = trunclen;
 
 	MD4_Init(&ctx);
-	MD4_Update(&ctx, (unsigned char *)wpwd, len * sizeof(UTF16));
+	MD4_Update(&ctx, (unsigned char*)wpwd, len * sizeof(UTF16));
 	MD4_Final(p16, &ctx);
 
 	return trunclen;
@@ -632,7 +633,7 @@ UTF8 *enc_to_utf8_r(char *src, UTF8 *dst, int dstlen)
 }
 
 /* Thread-safe conversion from UTF-8 to codepage */
-char * utf8_to_enc_r(UTF8 *src, char* dst, int dstlen)
+char *utf8_to_enc_r(UTF8 *src, char *dst, int dstlen)
 {
 	UTF16 tmp16[LINE_BUFFER_SIZE + 1];
 	utf8_to_utf16(tmp16, LINE_BUFFER_SIZE, (unsigned char*)src,
@@ -677,7 +678,7 @@ static inline UTF8 *utf16_to_cp_r(UTF8 *dst, int dst_len, const UTF16 *source)
 /*
  * Thread-safe conversion from UTF-8 to codepage
  */
-char *utf8_to_cp_r(char *src, char* dst, int dstlen)
+char *utf8_to_cp_r(char *src, char *dst, int dstlen)
 {
 	UTF16 tmp16[LINE_BUFFER_SIZE + 1];
 
@@ -839,28 +840,31 @@ static inline UTF8 *utf32_to_cp(UTF8 *dst, int dst_len, const UTF32 *source)
 	return dst;
 }
 
+static inline int cp_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
+                              unsigned int srclen)
+{
+	int i, trunclen = (int)srclen;
+	if (trunclen > maxdstlen)
+		trunclen = maxdstlen;
+
+	for (i = 0; i < trunclen; i++)
+		*dst++ = CP_to_Unicode[*src++];
+	*dst = 0;
+	if (i < srclen)
+		return -i;
+	else
+		return i;
+}
+
 int enc_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
                  unsigned int srclen)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8) {
-		int i, trunclen = (int)srclen;
-		if (trunclen > maxdstlen)
-			trunclen = maxdstlen;
-
-		for (i = 0; i < trunclen; i++)
-			*dst++ = CP_to_Unicode[*src++];
-		*dst = 0;
-		if (i < srclen)
-			return -i;
-		else
-			return i;
-	} else {
+	if (options.target_enc != UTF_8)
+		return cp_to_utf32(dst, maxdstlen, src, srclen);
+	else
 #endif
 		return utf8_to_utf32(dst, maxdstlen, src, srclen);
-#ifndef UNICODE_NO_OPTIONS
-	}
-#endif
 }
 
 UTF8 *utf32_to_enc(UTF8 *dst, int dst_len, const UTF32 *source)
@@ -872,6 +876,40 @@ UTF8 *utf32_to_enc(UTF8 *dst, int dst_len, const UTF32 *source)
 #ifndef UNICODE_NO_OPTIONS
 	else
 		return utf32_to_cp(dst, dst_len, source);
+#endif
+}
+
+char *wcs_to_enc(char *dest, size_t dst_sz, const wchar_t *src)
+{
+#if SIZEOF_WCHAR_T == 4
+	utf32_to_enc((UTF8*)dest, dst_sz, (UTF32*)src);
+#elif SIZEOF_WCHAR_T == 2 && ARCH_LITTLE_ENDIAN
+	utf16_to_enc_r((UTF8*)dest, dst_sz, (UTF16*)src);
+#else
+	wcstombs(dest, src, dst_sz);
+#endif
+	return dest;
+}
+
+int enc_to_wcs(wchar_t *dest, size_t dst_sz, const char *src)
+{
+#if SIZEOF_WCHAR_T == 4
+	return enc_to_utf32((UTF32*)dest, dst_sz, (UTF8*)src, strlen(src));
+#elif SIZEOF_WCHAR_T == 2 && ARCH_LITTLE_ENDIAN
+	return enc_to_utf16((UTF16*)dest, dst_sz, (UTF8*)src, strlen(src));
+#else
+	return mbstowcs(dest, src, dst_sz);
+#endif
+}
+
+int cp_to_wcs(wchar_t *dest, size_t dst_sz, const char *src)
+{
+#if SIZEOF_WCHAR_T == 4
+	return cp_to_utf32((UTF32*)dest, dst_sz, (UTF8*)src, strlen(src));
+#elif SIZEOF_WCHAR_T == 2 && ARCH_LITTLE_ENDIAN
+	return cp_to_utf16((UTF16*)dest, dst_sz, (UTF8*)src, strlen(src));
+#else
+	return mbstowcs(dest, src, dst_sz);
 #endif
 }
 
@@ -1725,7 +1763,7 @@ ucFallback:
 /* Encoding-aware strlwr(): Simple in-place lowercasing */
 char *enc_strlwr(char *s)
 {
-	unsigned char *ptr = (unsigned char *)s;
+	unsigned char *ptr = (unsigned char*)s;
 	int srclen = strlen(s);
 	enc_lc(ptr, srclen + 1, ptr, srclen);
 	return s;
@@ -1734,7 +1772,7 @@ char *enc_strlwr(char *s)
 /* Simple in-place uppercasing */
 char *enc_strupper(char *s)
 {
-	unsigned char *ptr = (unsigned char *)s;
+	unsigned char *ptr = (unsigned char*)s;
 	int srclen = strlen(s);
 	enc_uc(ptr, srclen + 1, ptr, srclen);
 	return s;

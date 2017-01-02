@@ -81,7 +81,7 @@ static struct custom_salt {
 } *cur_salt;
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[PBKDF2_SHA256_BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[PBKDF2_SHA256_BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
@@ -121,7 +121,7 @@ static void *get_salt(char *ciphertext)
 		salt.rounds = rounds;
 		return (void*)&salt;
 	}
-	salt.length = base64_convert(c, e_b64_mime, p-c, salt.salt, e_b64_raw, sizeof(salt.salt), flg_Base64_MIME_PLUS_TO_DOT);
+	salt.length = base64_convert(c, e_b64_mime, p-c, salt.salt, e_b64_raw, sizeof(salt.salt), flg_Base64_MIME_PLUS_TO_DOT, 0);
 	salt.rounds = rounds;
 	return (void *)&salt;
 }
@@ -153,7 +153,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		int lens[SSE_GROUP_SZ_SHA256], i;
 		unsigned char *pin[SSE_GROUP_SZ_SHA256];
 		union {
-			ARCH_WORD_32 *pout[SSE_GROUP_SZ_SHA256];
+			uint32_t *pout[SSE_GROUP_SZ_SHA256];
 			unsigned char *poutc;
 		} x;
 		for (i = 0; i < SSE_GROUP_SZ_SHA256; ++i) {
@@ -236,6 +236,7 @@ struct fmt_main fmt_pbkdf2_hmac_sha256 = {
 		{
 			"iteration count",
 		},
+		{ PBKDF2_SHA256_FORMAT_TAG, FORMAT_TAG_CISCO8 },
 		pbkdf2_hmac_sha256_common_tests
 	}, {
 		init,

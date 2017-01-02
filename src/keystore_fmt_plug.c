@@ -84,7 +84,7 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static int (*saved_len);
 static SHA_CTX (*saved_ctx);
 static int dirty;
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static int *MixOrder, MixOrderLen;
 
 #ifdef SIMD_COEF_32
@@ -94,8 +94,8 @@ static unsigned salt_mem_total;
 typedef struct preload_t {
 	// Only handle password lengths of 4 to 24 (21 elements) in this code.
 	// passwords of other lengths are handled by oSSL CTX method.
-	ARCH_WORD_32 (*first_blk)[21][SHA_BUF_SIZ*NBKEYS];
-	ARCH_WORD_32 *ex_data[21];
+	uint32_t (*first_blk)[21][SHA_BUF_SIZ*NBKEYS];
+	uint32_t *ex_data[21];
 	int n_ex[21]; // number of sha blocks in ex_data.
 	unsigned char data_hash[20];	// to find if this one loaded before.
 	struct preload_t *next;
@@ -287,7 +287,7 @@ static void *get_salt(char *ciphertext)
 	keystore_salt cs;
 
 	memset(&cs, 0, sizeof(keystore_salt));
-	ctcopy += 10; /* skip over "$keystore$" */
+	ctcopy += FORMAT_TAG_LEN; /* skip over "$keystore$" */
 	p = strtokm(ctcopy, "$");
 	cs.target = atoi(p);
 	p = strtokm(NULL, "$");
@@ -331,14 +331,6 @@ static void *get_salt(char *ciphertext)
 
 	return (void *) &ptr;
 }
-
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static void set_salt(void *salt)
 {
@@ -400,8 +392,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef SIMD_COEF_32
 		int x, tid=0, len, idx;
 		char tmp_sse_out[20*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
-		ARCH_WORD_32 *sse_out;
-		sse_out = (ARCH_WORD_32 *)mem_align(tmp_sse_out, MEM_ALIGN_SIMD);
+		uint32_t *sse_out;
+		sse_out = (uint32_t *)mem_align(tmp_sse_out, MEM_ALIGN_SIMD);
 #ifdef _OPENMP
 		tid = omp_get_thread_num();
 #endif
@@ -459,14 +451,14 @@ static int cmp_all(void *binary, int count)
 #if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (; index < count; index++)
 #endif
-		if (((ARCH_WORD_32*)binary)[0] == crypt_out[index][0])
+		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
 }
 
 static int cmp_one(void *binary, int index)
 {
-	if (((ARCH_WORD_32*)binary)[0] == crypt_out[index][0])
+	if (((uint32_t*)binary)[0] == crypt_out[index][0])
 		return 1;
 	return 0;
 }
@@ -516,6 +508,7 @@ struct fmt_main fmt_keystore = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
 		/* FIXME: report keystore_cur_salt->data_length as tunable cost? */
 		{ NULL },
+		{ FORMAT_TAG },
 		keystore_common_tests
 	}, {
 		init,
@@ -529,13 +522,7 @@ struct fmt_main fmt_keystore = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -545,13 +532,7 @@ struct fmt_main fmt_keystore = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

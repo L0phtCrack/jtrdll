@@ -90,7 +90,7 @@ typedef struct my_salt_t {
 #define ALGORITHM_NAME      "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
 #define PLAINTEXT_LENGTH	125
-#define BINARY_ALIGN        sizeof(ARCH_WORD_32)
+#define BINARY_ALIGN        sizeof(uint32_t)
 #define SALT_SIZE           sizeof(my_salt*)
 #define SALT_ALIGN          sizeof(my_salt*)
 #ifdef SIMD_COEF_32
@@ -145,6 +145,7 @@ static void done(void)
 	MEM_FREE(crypt_key);
 	MEM_FREE(saved_key);
 }
+
 
 static void *get_salt(char *ciphertext)
 {
@@ -263,14 +264,6 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-static int get_hash_0(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((ARCH_WORD_32*)&(crypt_key[index]))[0] & PH_MASK_6; }
-
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
@@ -290,6 +283,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef SIMD_COEF_32
 		unsigned char pwd_ver[64*MAX_KEYS_PER_CRYPT];
 		int lens[MAX_KEYS_PER_CRYPT], i;
+		int something_hit = 0, hits[MAX_KEYS_PER_CRYPT] = {0};
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			lens[i] = strlen(saved_key[i+index]);
@@ -299,26 +293,34 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		pbkdf2_sha1_sse((const unsigned char **)pin, lens, saved_salt->salt,
 		                SALT_LENGTH(saved_salt->v.mode), KEYING_ITERATIONS,
 		                pout, 2, 2*KEY_LENGTH(saved_salt->v.mode));
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
-			if (!memcmp(pout[i], saved_salt->passverify, 2)) {
-				pbkdf2_sha1_sse((const unsigned char **)pin, lens,
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+			if (!memcmp(pout[i], saved_salt->passverify, 2))
+				something_hit = hits[i] = 1;
+		if (something_hit) {
+			pbkdf2_sha1_sse((const unsigned char **)pin, lens,
 				                saved_salt->salt,
 				                SALT_LENGTH(saved_salt->v.mode),
 				                KEYING_ITERATIONS, pout,
 				                KEY_LENGTH(saved_salt->v.mode),
 				                KEY_LENGTH(saved_salt->v.mode));
-				hmac_sha1(pout[i], KEY_LENGTH(saved_salt->v.mode),
-				          (const unsigned char*)saved_salt->datablob,
-				          saved_salt->comp_len, crypt_key[index+i],
-				          WINZIP_BINARY_SIZE);
+			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+				if (hits[i]) {
+					hmac_sha1(pout[i], KEY_LENGTH(saved_salt->v.mode),
+				                  (const unsigned char*)saved_salt->datablob,
+				                  saved_salt->comp_len, crypt_key[index+i],
+				                  WINZIP_BINARY_SIZE);
+				}
+				else
+					memset(crypt_key[index+i], 0, WINZIP_BINARY_SIZE);
 			}
-			else
+		} else {
+			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
 				memset(crypt_key[index+i], 0, WINZIP_BINARY_SIZE);
 		}
 #else
 		union {
 			unsigned char pwd_ver[64];
-			ARCH_WORD_32 w;
+			uint32_t w;
 		} x;
 		unsigned char *pwd_ver = x.pwd_ver;
 		pbkdf2_sha1((unsigned char *)saved_key[index], strlen(saved_key[index]),
@@ -348,14 +350,14 @@ static int cmp_all(void *binary, int count)
 	int i;
 
 	for (i = 0; i < count; i++)
-		if (((ARCH_WORD_32*)&(crypt_key[i]))[0] == ((ARCH_WORD_32*)binary)[0])
+		if (((uint32_t*)&(crypt_key[i]))[0] == ((uint32_t*)binary)[0])
 			return 1;
 	return 0;
 }
 
 static int cmp_one(void *binary, int index)
 {
-	return (((ARCH_WORD_32*)&(crypt_key[index]))[0] == ((ARCH_WORD_32*)binary)[0]);
+	return (((uint32_t*)&(crypt_key[index]))[0] == ((uint32_t*)binary)[0]);
 }
 
 static int cmp_exact(char *source, int index)
@@ -381,6 +383,7 @@ struct fmt_main fmt_zip = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
 		{ NULL },
+		{ WINZIP_FORMAT_TAG },
 		winzip_common_tests
 	}, {
 		init,
@@ -388,19 +391,13 @@ struct fmt_main fmt_zip = {
 		fmt_default_reset,
 		fmt_default_prepare,
 		winzip_common_valid,
-		fmt_default_split,
+		winzip_common_split,
 		winzip_common_binary,
 		get_salt,
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_dyna_salt_hash,
 		NULL,
@@ -410,13 +407,7 @@ struct fmt_main fmt_zip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

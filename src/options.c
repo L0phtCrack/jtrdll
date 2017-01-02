@@ -66,6 +66,10 @@ static struct opt_entry opt_list[] = {
 	{"", FLG_PASSWD, 0, 0, 0, OPT_FMT_ADD_LIST, &options.passwd},
 	{"single", FLG_SINGLE_SET, FLG_CRACKING_CHK, 0, FLG_STACKING,
 		OPT_FMT_STR_ALLOC, &options.activesinglerules},
+	{"single-seed", FLG_ZERO, 0, FLG_SINGLE_CHK, OPT_REQ_PARAM,
+		OPT_FMT_STR_ALLOC, &options.seed_word},
+	{"single-wordlist", FLG_ZERO, 0, FLG_SINGLE_CHK, OPT_REQ_PARAM,
+		OPT_FMT_STR_ALLOC, &options.seed_file},
 	{"wordlist", FLG_WORDLIST_SET, FLG_CRACKING_CHK,
 		0, 0, OPT_FMT_STR_ALLOC, &options.wordlist},
 	{"loopback", FLG_LOOPBACK_SET, FLG_CRACKING_CHK,
@@ -81,9 +85,9 @@ static struct opt_entry opt_list[] = {
 	{"prince-elem-cnt-max", FLG_ZERO, 0, FLG_PRINCE_CHK,
 		OPT_REQ_PARAM, "%d", &prince_elem_cnt_max},
 	{"prince-skip", FLG_ZERO, 0, FLG_PRINCE_CHK,
-		0, OPT_FMT_STR_ALLOC, &prince_skip_str},
+		OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &prince_skip_str},
 	{"prince-limit", FLG_ZERO, 0, FLG_PRINCE_CHK,
-		0, OPT_FMT_STR_ALLOC, &prince_limit_str},
+		OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &prince_limit_str},
 	{"prince-wl-dist-len", FLG_PRINCE_DIST, 0, FLG_PRINCE_CHK, 0},
 	{"prince-wl-max", FLG_ZERO, 0, FLG_PRINCE_CHK,
 		OPT_REQ_PARAM, "%d", &prince_wl_max},
@@ -96,13 +100,13 @@ static struct opt_entry opt_list[] = {
 #endif
 	/* -enc is an alias for -input-enc for legacy reasons */
 	{"encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
-		0, 0, OPT_FMT_STR_ALLOC, &encoding_str},
+		0, OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &encoding_str},
 	{"input-encoding", FLG_INPUT_ENC, FLG_INPUT_ENC,
-		0, 0, OPT_FMT_STR_ALLOC, &encoding_str},
+		0, OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &encoding_str},
 	{"internal-codepage", FLG_SECOND_ENC, FLG_SECOND_ENC,
-		0, 0, OPT_FMT_STR_ALLOC, &internal_cp_str},
+		0, OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &internal_cp_str},
 	{"target-encoding", FLG_SECOND_ENC, FLG_SECOND_ENC,
-		0, 0, OPT_FMT_STR_ALLOC, &target_enc_str},
+		0, OPT_REQ_PARAM, OPT_FMT_STR_ALLOC, &target_enc_str},
 	{"stdin", FLG_STDIN_SET, FLG_CRACKING_CHK},
 #if HAVE_WINDOWS_H
 	{"pipe", FLG_PIPE_SET, FLG_CRACKING_CHK,
@@ -245,7 +249,7 @@ static struct opt_entry opt_list[] = {
 	{"force-vector-width", FLG_VECTOR, FLG_VECTOR, 0,
 		(FLG_SCALAR | OPT_REQ_PARAM), "%u", &options.v_width},
 #endif
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 	{"devices", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_ADD_LIST_MULTI, &options.gpu_devices},
 #endif
@@ -273,21 +277,21 @@ static struct opt_entry opt_list[] = {
 
 #if OS_FORK
 #define JOHN_USAGE_FORK \
-"--fork=N                  fork N processes\n"
+"--fork=N                   fork N processes\n"
 #else
 #define JOHN_USAGE_FORK ""
 #endif
 
 #if HAVE_REXGEN
 #define JOHN_USAGE_REGEX \
-	"--regex=REGEXPR           regular expression mode (see doc/README.librexgen)\n"
+"--regex=REGEXPR            regular expression mode (see doc/README.librexgen)\n"
 #else
 #define JOHN_USAGE_REGEX ""
 #endif
 
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 #define PRINCE_USAGE \
-	"--prince[=FILE]           PRINCE mode, read words from FILE\n"
+"--prince[=FILE]            PRINCE mode, read words from FILE\n"
 #else
 #define PRINCE_USAGE ""
 #endif
@@ -298,51 +302,46 @@ static struct opt_entry opt_list[] = {
 "Homepage: http://www.openwall.com/john/\n" \
 "\n" \
 "Usage: %s [OPTIONS] [PASSWORD-FILES]\n" \
-"--single[=SECTION]        \"single crack\" mode\n" \
-"--wordlist[=FILE] --stdin wordlist mode, read words from FILE or stdin\n" \
-"                  --pipe  like --stdin, but bulk reads, and allows rules\n" \
-"--loopback[=FILE]         like --wordlist, but fetch words from a .pot file\n" \
-"--dupe-suppression        suppress all dupes in wordlist (and force preload)\n" \
+"--single[=(SECTION[,S2,..,Sn]|:rule)] \"single crack\" mode\n" \
+"--wordlist[=FILE] --stdin  wordlist mode, read words from FILE or stdin\n" \
+"                  --pipe   like --stdin, but bulk reads, and allows rules\n" \
+"--loopback[=FILE]          like --wordlist, but extract words from a .pot file\n" \
+"--dupe-suppression         suppress all dupes in wordlist (and force preload)\n" \
 PRINCE_USAGE \
-"--encoding=NAME           input encoding (eg. UTF-8, ISO-8859-1). See also\n" \
-"                          doc/ENCODING and --list=hidden-options.\n" \
-"--rules[=(SECTION|:rule)] enable word mangling rules for wordlist or PRINCE\n" \
-"--incremental[=MODE]      \"incremental\" mode [using section MODE]\n" \
-"--mask[=MASK]             mask mode using MASK (or default mask from john.conf)\n" \
-"--markov[=OPTIONS]        \"Markov\" mode (see doc/MARKOV)\n" \
-"--external=MODE           external mode or word filter\n" \
+"--encoding=NAME            input encoding (eg. UTF-8, ISO-8859-1). See also\n" \
+"                           doc/ENCODING and --list=hidden-options.\n" \
+"--rules[=(SECTION[,S2,..,Sn]|:rule)]  enable word mangling rules for\n" \
+"                           wordlist or PRINCE modes\n" \
+"--incremental[=MODE]       \"incremental\" mode [using section MODE]\n" \
+"--mask[=MASK]              mask mode using MASK (or default from john.conf)\n" \
+"--markov[=OPTIONS]         \"Markov\" mode (see doc/MARKOV)\n" \
+"--external=MODE            external mode or word filter\n" \
 JOHN_USAGE_REGEX \
-"--stdout[=LENGTH]         just output candidate passwords [cut at LENGTH]\n" \
-"--restore[=NAME]          restore an interrupted session [called NAME]\n" \
-"--session=NAME            give a new session the NAME\n" \
-"--status[=NAME]           print status of a session [called NAME]\n" \
-"--make-charset=FILE       make a charset file. It will be overwritten\n" \
-"--show[=left]             show cracked passwords [if =left, then uncracked]\n" \
-"--test[=TIME]             run tests and benchmarks for TIME seconds each\n" \
-"--users=[-]LOGIN|UID[,..] [do not] load this (these) user(s) only\n" \
-"--groups=[-]GID[,..]      load users [not] of this (these) group(s) only\n" \
-"--shells=[-]SHELL[,..]    load users with[out] this (these) shell(s) only\n" \
-"--salts=[-]COUNT[:MAX]    load salts with[out] COUNT [to MAX] hashes\n" \
-"--costs=[-]C[:M][,...]    load salts with[out] cost value Cn [to Mn]. For\n" \
-"                          tunable cost parameters, see doc/OPTIONS\n" \
-"--save-memory=LEVEL       enable memory saving, at LEVEL 1..3\n" \
-"--node=MIN[-MAX]/TOTAL    this node's number range out of TOTAL count\n" \
+"--stdout[=LENGTH]          just output candidate passwords [cut at LENGTH]\n" \
+"--restore[=NAME]           restore an interrupted session [called NAME]\n" \
+"--session=NAME             give a new session the NAME\n" \
+"--status[=NAME]            print status of a session [called NAME]\n" \
+"--make-charset=FILE        make a charset file. It will be overwritten\n" \
+"--show[=left]              show cracked passwords [if =left, then uncracked]\n" \
+"--test[=TIME]              run tests and benchmarks for TIME seconds each\n" \
+"--users=[-]LOGIN|UID[,..]  [do not] load this (these) user(s) only\n" \
+"--groups=[-]GID[,..]       load users [not] of this (these) group(s) only\n" \
+"--shells=[-]SHELL[,..]     load users with[out] this (these) shell(s) only\n" \
+"--salts=[-]COUNT[:MAX]     load salts with[out] COUNT [to MAX] hashes\n" \
+"--costs=[-]C[:M][,...]     load salts with[out] cost value Cn [to Mn]. For\n" \
+"                           tunable cost parameters, see doc/OPTIONS\n" \
+"--save-memory=LEVEL        enable memory saving, at LEVEL 1..3\n" \
+"--node=MIN[-MAX]/TOTAL     this node's number range out of TOTAL count\n" \
 JOHN_USAGE_FORK \
-"--pot=NAME                pot file to use\n" \
-"--list=WHAT               list capabilities, see --list=help or doc/OPTIONS\n"
+"--pot=NAME                 pot file to use\n" \
+"--list=WHAT                list capabilities, see --list=help or doc/OPTIONS\n"
 
 #define JOHN_USAGE_FORMAT \
-"--format=NAME             force hash of type NAME. The supported formats can\n" \
-"                          be seen with --list=formats and --list=subformats\n\n"
-#if defined(HAVE_OPENCL) && defined(HAVE_CUDA)
+"--format=NAME              force hash of type NAME. The supported formats can\n" \
+"                           be seen with --list=formats and --list=subformats\n\n"
+#if defined(HAVE_OPENCL)
 #define JOHN_USAGE_GPU \
-"--devices=N[,..]          set OpenCL or CUDA device(s)\n"
-#elif defined(HAVE_OPENCL)
-#define JOHN_USAGE_GPU \
-"--devices=N[,..]          set OpenCL device(s) (see --list=opencl-devices)\n"
-#elif defined (HAVE_CUDA)
-#define JOHN_USAGE_GPU \
-"--device=N                set CUDA device (see --list=cuda-devices)\n"
+"--devices=N[,..]           set OpenCL device(s) (see --list=opencl-devices)\n"
 #endif
 
 static void print_usage(char *name)
@@ -351,7 +350,7 @@ static void print_usage(char *name)
 		exit(0);
 
 	printf(JOHN_USAGE, name);
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 	printf("%s", JOHN_USAGE_GPU);
 #endif
 	printf("%s", JOHN_USAGE_FORMAT);
@@ -360,74 +359,73 @@ static void print_usage(char *name)
 
 void opt_print_hidden_usage(void)
 {
-	puts("--help                    print usage summary, just like running the command");
-	puts("                          without any parameters");
-	puts("--config=FILE             use FILE instead of john.conf or john.ini");
-	puts("--mem-file-size=SIZE      size threshold for wordlist preload (default 5 MB)");
-	printf("--format=CLASS            valid classes: dynamic, cpu");
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
-	printf(", gpu");
-#ifdef HAVE_CUDA
-	printf(", cuda");
-#endif
+	puts("--help                     print usage summary, just like running the command");
+	puts("                           without any parameters");
+	puts("--config=FILE              use FILE instead of john.conf or john.ini");
+	puts("--mem-file-size=SIZE       size threshold for wordlist preload (default 5 MB)");
+	printf("--format=CLASS             valid classes: dynamic, cpu");
 #ifdef HAVE_OPENCL
 	printf(", opencl");
-#endif
 #endif
 #ifdef _OPENMP
 	printf(", omp");
 #endif
 	printf("\n");
-	puts("--subformat=FORMAT        pick a benchmark format for --format=crypt");
-	puts("--mkpc=N                  request a lower max. keys per crypt");
-	puts("--min-length=N            request a minimum candidate length in bytes");
-	puts("--max-length=N            request a maximum candidate length in bytes");
-	puts("--field-separator-char=C  use 'C' instead of the ':' in input and pot files");
-	puts("--fix-state-delay=N       performance tweak, see doc/OPTIONS");
-	puts("--nolog                   disables creation and writing to john.log file");
-	puts("--log-stderr              log to screen instead of file");
-	puts("--bare-always-valid=C     if C is 'Y' or 'y', then the dynamic format will");
-	puts("                          always treat bare hashes as valid");
-	puts("--progress-every=N        emit a status line every N seconds");
-	puts("--crack-status            emit a status line whenever a password is cracked");
-	puts("--keep-guessing           try more candidates for cracked hashes (ie. search");
-	puts("                          for plaintext collisions)");
-	puts("--max-run-time=[-]N       gracefully exit after this many seconds. If");
-	puts("                          negative, reset timer on each crack");
-	puts("--regen-lost-salts=N      brute force unknown salts (see doc/OPTIONS)");
-	puts("--mkv-stats=FILE          \"Markov\" stats file (see doc/MARKOV)");
-	puts("--reject-printable        reject printable binaries");
-	puts("--verbosity=N             change verbosity (1-5, default 3)");
-	puts("--show=types              show some information about hashes in file (machine readable)");
-	puts("--show=invalid            show the hashes which valid fails.");
-	puts("--skip-self-tests         skip self tests");
-	puts("--test-full[=LEVEL]       run more thorough self-tests");
-	puts("--stress-test[=TIME]      loop self tests forever");
+	puts("--single-seed=WORD[,WORD]  add static seed word(s) for all salts in single mode");
+	puts("--single-wordlist=FILE     wordlist with static seed words. Use a short one!");
+	puts("--subformat=FORMAT         pick a benchmark format for --format=crypt");
+	puts("--mkpc=N                   request a lower max. keys per crypt");
+	puts("--min-length=N             request a minimum candidate length in bytes");
+	puts("--max-length=N             request a maximum candidate length in bytes");
+	puts("--field-separator-char=C   use 'C' instead of the ':' in input and pot files");
+	puts("--fix-state-delay=N        performance tweak, see doc/OPTIONS");
+	puts("--nolog                    disables creation and writing to john.log file");
+	puts("--log-stderr               log to screen instead of file");
+	puts("--bare-always-valid=C      if C is 'Y' or 'y', then the dynamic format will");
+	puts("                           always treat bare hashes as valid");
+	puts("--progress-every=N         emit a status line every N seconds");
+	puts("--crack-status             emit a status line whenever a password is cracked");
+	puts("--keep-guessing            try more candidates for cracked hashes (ie. search");
+	puts("                           for plaintext collisions)");
+	puts("--max-run-time=[-]N        gracefully exit after this many seconds. If");
+	puts("                           negative, reset timer on each crack");
+	puts("--regen-lost-salts=N       brute force unknown salts (see doc/OPTIONS)");
+	puts("--mkv-stats=FILE           \"Markov\" stats file (see doc/MARKOV)");
+	puts("--reject-printable         reject printable binaries");
+	printf("--verbosity=N              change verbosity (1-%u, default %u)\n",
+	       VERB_MAX, VERB_DEFAULT);
+	puts("--show=types               show some information about hashes in file (machine");
+	puts("                           readable)");
+	puts("--show=invalid             show any lines from input that are not valid for");
+	puts("                           selected format(s)");
+	puts("--skip-self-tests          skip self tests");
+	puts("--test-full[=LEVEL]        run more thorough self-tests");
+	puts("--stress-test[=TIME]       loop self tests forever");
 #ifdef HAVE_FUZZ
-	puts("--fuzz[=DICTFILE]         fuzz formats' prepare(), valid() and split()");
-	puts("--fuzz-dump[=FROM,TO]     dump the fuzzed hashes between FROM and TO to file pwfile.format");
+	puts("--fuzz[=DICTFILE]          fuzz formats' prepare(), valid() and split()");
+	puts("--fuzz-dump[=FROM,TO]      dump the fuzzed hashes between FROM and TO to file pwfile.format");
 #endif
-	puts("--input-encoding=NAME     input encoding (alias for --encoding)");
-	puts("--internal-codepage=NAME  codepage used in rules/masks (see doc/ENCODING)");
-	puts("--target-encoding=NAME    output encoding (used by format, see doc/ENCODING)");
+	puts("--input-encoding=NAME      input encoding (alias for --encoding)");
+	puts("--internal-codepage=NAME   codepage used in rules/masks (see doc/ENCODING)");
+	puts("--target-encoding=NAME     output encoding (used by format, see doc/ENCODING)");
 #ifdef HAVE_OPENCL
-	puts("--force-scalar            (OpenCL) force scalar mode");
-	puts("--force-vector-width=N    (OpenCL) force vector width N");
+	puts("--force-scalar             (OpenCL) force scalar mode");
+	puts("--force-vector-width=N     (OpenCL) force vector width N");
 #endif
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
 	puts("\nPRINCE mode options:");
-	puts("--prince-loopback[=FILE]  fetch words from a .pot file");
-	puts("--prince-elem-cnt-min=N   minimum number of elements per chain (1)");
-	puts("--prince-elem-cnt-max=N   maximum number of elements per chain (8)");
-	puts("--prince-skip=N           initial skip");
-	puts("--prince-limit=N          limit number of candidates generated");
-	puts("--prince-wl-dist-len      calculate length distribution from wordlist");
-	puts("                          instead of using built-in table");
-	puts("--prince-wl-max=N         load only N words from input wordlist");
-	puts("--prince-case-permute     permute case of first letter");
-	puts("--prince-mmap             memory-map infile (not available when permuting case)");
-	puts("--prince-keyspace         just show total keyspace that would be produced");
-	puts("                          (disregarding skip and limit)");
+	puts("--prince-loopback[=FILE]   fetch words from a .pot file");
+	puts("--prince-elem-cnt-min=N    minimum number of elements per chain (1)");
+	puts("--prince-elem-cnt-max=N    maximum number of elements per chain (8)");
+	puts("--prince-skip=N            initial skip");
+	puts("--prince-limit=N           limit number of candidates generated");
+	puts("--prince-wl-dist-len       calculate length distribution from wordlist");
+	puts("                           instead of using built-in table");
+	puts("--prince-wl-max=N          load only N words from input wordlist");
+	puts("--prince-case-permute      permute case of first letter");
+	puts("--prince-mmap              memory-map infile (not available with case permute)");
+	puts("--prince-keyspace          just show total keyspace that would be produced");
+	puts("                           (disregarding skip and limit)");
 #endif
 	puts("");
 }
@@ -446,15 +444,11 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	memset(&options, 0, offsetof(struct options_main, subformat));
 
 	options.loader.field_sep_char = ':';
-	options.regen_lost_salts = 0;
-	options.max_fix_state_delay = 0;
 	options.max_wordfile_memory = WORDLIST_BUFFER_DEFAULT;
-	options.force_maxkeys = 0;
-	options.req_maxlength = options.force_maxlength = 0;
-	options.req_minlength = -1; options.reload_at_crack = 0;
-	options.max_run_time = options.status_interval = 0;
-	options.reload_at_save = options.dynamic_bare_hashes_always_valid = 0;
-	options.verbosity = VERB_DEFAULT;
+	options.req_minlength = -1;
+
+	if (!options.verbosity)
+		options.verbosity = VERB_DEFAULT;
 
 	list_init(&options.passwd);
 
@@ -462,7 +456,7 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	list_init(&options.loader.users);
 	list_init(&options.loader.groups);
 	list_init(&options.loader.shells);
-#if defined(HAVE_OPENCL) || defined(HAVE_CUDA)
+#if defined(HAVE_OPENCL)
 	list_init(&options.gpu_devices);
 #endif
 
@@ -709,12 +703,12 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 				}
 				if (!two_values)
 					sscanf(range[i], "%u", &options.loader.min_cost[i]);
-					if (negative && options.loader.min_cost[i] == 0) {
-						if (john_main_process)
-							fprintf(stderr, "Usage of negative --cost is not valid"
-							                " for value 0\n");
-						error();
-					}
+				if (negative && options.loader.min_cost[i] == 0) {
+					if (john_main_process)
+						fprintf(stderr, "Usage of negative --cost is not valid"
+								" for value 0\n");
+					error();
+				}
 				if (!two_values) {
 					if (negative) {
 						options.loader.max_cost[i] = options.loader.min_cost[i] - 1;
@@ -770,10 +764,10 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 		}
 	}
 
-	if (options.flags & FLG_VERBOSITY &&
+	if (john_main_process && options.flags & FLG_VERBOSITY &&
 	    (options.verbosity < 1 || options.verbosity > VERB_MAX)) {
-		if (john_main_process)
-			fprintf(stderr, "Invalid --verbosity level, use 1-5\n");
+		fprintf(stderr, "Invalid --verbosity level, use 1-%u\n",
+		        VERB_MAX);
 		error();
 	}
 	if (options.length < 0)

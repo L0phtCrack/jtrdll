@@ -317,7 +317,7 @@ static void done(void)
 /* Check if given ciphertext (hash) format is valid */
 static int lotus85_valid(char *ciphertext,struct fmt_main *self)
 {
-	int len;
+	int len, extra;
 
 	len = strlen(ciphertext);
 
@@ -330,7 +330,7 @@ static int lotus85_valid(char *ciphertext,struct fmt_main *self)
 	if((len >> 1) < LOTUS85_MIN_BLOB_SIZE)
 		return 0;
 
-	if (hexlenu(ciphertext)  != len)
+	if (hexlenu(ciphertext, &extra)  != len || extra)
 		return 0;
 
 	return 1;
@@ -452,6 +452,7 @@ struct fmt_main fmt_lotus_85 =
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		{ NULL },
 		{ NULL },
 		lotus85_tests
 	}, {

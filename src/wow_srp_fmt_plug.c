@@ -90,7 +90,7 @@ john_register_one(&fmt_blizzard);
 #define BENCHMARK_LENGTH	-1
 
 #define WOWSIG			"$WoWSRP$"
-#define WOWSIGLEN		8
+#define WOWSIGLEN		(sizeof(WOWSIG)-1)
 // min plaintext len is 8  PW's are only alpha-num uppercase
 #define PLAINTEXT_LENGTH	16
 #define CIPHERTEXT_LENGTH	64
@@ -132,7 +132,7 @@ static SRP_CTX *pSRP_CTX;
 static unsigned char saved_salt[SALT_SIZE];
 static unsigned char user_id[USERNAMELEN];
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[8];
+static uint32_t (*crypt_out)[8];
 static int max_keys_per_crypt;
 
 static void init(struct fmt_main *self)
@@ -175,15 +175,21 @@ static void init(struct fmt_main *self)
 
 static void done(void)
 {
-#ifdef HAVE_LIBGMP
 	int i;
 	for (i = 0; i < max_keys_per_crypt; ++i) {
+#ifdef HAVE_LIBGMP
 		mpz_clear(pSRP_CTX[i].z_mod);
 		mpz_clear(pSRP_CTX[i].z_base);
 		mpz_clear(pSRP_CTX[i].z_exp);
 		mpz_clear(pSRP_CTX[i].z_rop);
-	}
+#else
+		BN_clear_free(pSRP_CTX[i].z_mod);
+		BN_clear_free(pSRP_CTX[i].z_base);
+		BN_clear_free(pSRP_CTX[i].z_exp);
+		BN_clear_free(pSRP_CTX[i].z_rop);
+		BN_CTX_free(pSRP_CTX[i].BN_ctx);
 #endif
+	}
 	MEM_FREE(pSRP_CTX);
 	MEM_FREE(crypt_out);
 	MEM_FREE(saved_key);
@@ -289,7 +295,7 @@ static void *get_binary(char *ciphertext)
 {
 	static union {
 		unsigned char b[FULL_BINARY_SIZE];
-		ARCH_WORD_32 dummy[1];
+		uint32_t dummy[1];
 	} out;
 	char *p, *q;
 	int i;
@@ -324,7 +330,7 @@ static void *get_salt(char *ciphertext)
 {
 	static union {
 		unsigned char b[SALT_SIZE];
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} out;
 	char *p;
 	int length=0;
@@ -494,14 +500,14 @@ static int cmp_all(void *binary, int count)
 {
 	int i;
 	for (i = 0; i < count; ++i) {
-		if (*((ARCH_WORD_32*)binary) == *((ARCH_WORD_32*)(crypt_out[i])))
+		if (*((uint32_t*)binary) == *((uint32_t*)(crypt_out[i])))
 			return 1;
 	}
 	return 0;
 }
 static int cmp_one(void *binary, int index)
 {
-	return *((ARCH_WORD_32*)binary) == *((ARCH_WORD_32*)(crypt_out[index]));
+	return *((uint32_t*)binary) == *((uint32_t*)(crypt_out[index]));
 }
 
 static int cmp_exact(char *source, int index)
@@ -526,6 +532,7 @@ struct fmt_main fmt_blizzard = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
 		{ NULL },
+		{ WOWSIG },
 		tests
 	}, {
 		init,

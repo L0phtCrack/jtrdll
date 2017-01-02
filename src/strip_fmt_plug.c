@@ -35,6 +35,8 @@ john_register_one(&fmt_strip);
 
 #define FORMAT_LABEL		"STRIP"
 #define FORMAT_NAME		"Password Manager"
+#define FORMAT_TAG          "$strip$*"
+#define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
@@ -102,17 +104,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	if (strncmp(ciphertext, "$strip$*", 8))
+	int extra;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 7+1;	/* skip over "$strip$" and first '*' */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$strip$" and first '*' */
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt + data */
 		goto err;
-	if (hexlenl(p) != 2048)
+	if (hexlenl(p, &extra) != 2048 || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -132,7 +132,7 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 7+1;	/* skip over "$strip$" and first '*' */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$strip$" and first '*' */
 	p = strtokm(ctcopy, "*");
 	for (i = 0; i < 16; i++)
 			cs.salt[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -284,6 +284,7 @@ struct fmt_main fmt_strip = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{ NULL },
+		{ FORMAT_TAG },
 		strip_tests
 	}, {
 		init,
@@ -297,7 +298,7 @@ struct fmt_main fmt_strip = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -307,7 +308,7 @@ struct fmt_main fmt_strip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

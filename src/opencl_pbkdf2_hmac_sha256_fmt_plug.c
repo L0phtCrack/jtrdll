@@ -211,7 +211,7 @@ static void *get_salt(char *ciphertext)
 		salt.rounds = rounds;
 		return (void*)&salt;
 	}
-	salt.length = base64_convert(c, e_b64_mime, p-c, salt.salt, e_b64_raw, sizeof(salt.salt), flg_Base64_MIME_PLUS_TO_DOT);
+	salt.length = base64_convert(c, e_b64_mime, p-c, salt.salt, e_b64_raw, sizeof(salt.salt), flg_Base64_MIME_PLUS_TO_DOT, 0);
 	salt.rounds = rounds;
 	return (void *)&salt;
 }
@@ -382,6 +382,7 @@ struct fmt_main fmt_opencl_pbkdf2_hmac_sha256 = {
 		{
 			"iteration count",
 		},
+		{ PBKDF2_SHA256_FORMAT_TAG, FORMAT_TAG_CISCO8 },
 	pbkdf2_hmac_sha256_common_tests
 }, {
 	init,

@@ -390,13 +390,13 @@ void dump_stuff_be_msg_sepline(const void *msg, void *x, unsigned int size) {
 }
 
 void alter_endianity(void *_x, unsigned int size) {
-	ARCH_WORD_32 *x = (ARCH_WORD_32*)_x;
+	uint32_t *x = (uint32_t*)_x;
 
 	// size is in octets
 	size>>=2;
 
 #if !ARCH_ALLOWS_UNALIGNED
-	if (is_aligned(x, sizeof(ARCH_WORD_32))) {
+	if (is_aligned(x, sizeof(uint32_t))) {
 #endif
 		while (size--) {
 			*x = JOHNSWAP(*x);
@@ -595,14 +595,14 @@ void dump_out_shammx64_msg(const void *msg, void *buf, unsigned int size, unsign
 
 void alter_endianity_w(void *_x, unsigned int count) {
 	int i = -1;
-	ARCH_WORD_32 *x = (ARCH_WORD_32*)_x;
+	uint32_t *x = (uint32_t*)_x;
 #if ARCH_ALLOWS_UNALIGNED
 	while (++i < count) {
 		x[i] = JOHNSWAP(x[i]);
 	}
 #else
 	unsigned char *cpX, c;
-	if (is_aligned(x,sizeof(ARCH_WORD_32))) {
+	if (is_aligned(x,sizeof(uint32_t))) {
 		// we are in alignment.
 		while (++i < count) {
 			x[i] = JOHNSWAP(x[i]);
@@ -625,14 +625,14 @@ void alter_endianity_w(void *_x, unsigned int count) {
 
 void alter_endianity_w64(void *_x, unsigned int count) {
 	int i = -1;
-	ARCH_WORD_64 *x = (ARCH_WORD_64*)_x;
+	uint64_t *x = (uint64_t*)_x;
 #if ARCH_ALLOWS_UNALIGNED
 	while (++i < count) {
 		x[i] = JOHNSWAP64(x[i]);
 	}
 #else
 	unsigned char *cpX, c;
-	if (is_aligned(x,sizeof(ARCH_WORD_64))) {
+	if (is_aligned(x,sizeof(uint64_t))) {
 		// we are in alignment.
 		while (++i < count) {
 			x[i] = JOHNSWAP64(x[i]);
@@ -657,4 +657,90 @@ void alter_endianity_w64(void *_x, unsigned int count) {
 		cpX += 8;
 	}
 #endif
+}
+
+#define HUGEPAGE_THRESHOLD		(12 * 1024 * 1024)
+
+#ifdef __x86_64__
+#define HUGEPAGE_SIZE			(2 * 1024 * 1024)
+#else
+#undef HUGEPAGE_SIZE
+#endif
+
+void *
+alloc_region_t(region_t * region, size_t size)
+{
+	size_t base_size = size;
+	uint8_t * base, * aligned;
+#ifdef MAP_ANON
+	int flags =
+#ifdef MAP_NOCORE
+	    MAP_NOCORE |
+#endif
+	    MAP_ANON | MAP_PRIVATE;
+#if defined(MAP_HUGETLB) && defined(HUGEPAGE_SIZE)
+	size_t new_size = size;
+	const size_t hugepage_mask = (size_t)HUGEPAGE_SIZE - 1;
+	if (size >= HUGEPAGE_THRESHOLD && size + hugepage_mask >= size) {
+		flags |= MAP_HUGETLB;
+/*
+ * Linux's munmap() fails on MAP_HUGETLB mappings if size is not a multiple of
+ * huge page size, so let's round up to huge page size here.
+ */
+		new_size = size + hugepage_mask;
+		new_size &= ~hugepage_mask;
+	}
+	base = mmap(NULL, new_size, PROT_READ | PROT_WRITE, flags, -1, 0);
+	if (base != MAP_FAILED) {
+		base_size = new_size;
+	} else
+	if (flags & MAP_HUGETLB) {
+		flags &= ~MAP_HUGETLB;
+		base = mmap(NULL, size, PROT_READ | PROT_WRITE, flags, -1, 0);
+	}
+
+#else
+	base = mmap(NULL, size, PROT_READ | PROT_WRITE, flags, -1, 0);
+#endif
+	if (base == MAP_FAILED)
+		base = NULL;
+	aligned = base;
+#elif defined(HAVE_POSIX_MEMALIGN)
+	if ((errno = posix_memalign((void **)&base, 64, size)) != 0)
+		base = NULL;
+	aligned = base;
+#else
+	base = aligned = NULL;
+	if (size + 63 < size) {
+		errno = ENOMEM;
+	} else if ((base = libc_malloc(size + 63)) != NULL) {
+		aligned = base + 63;
+		aligned -= (uintptr_t)aligned & 63;
+	}
+#endif
+	region->base = base;
+	region->aligned = aligned;
+	region->base_size = base ? base_size : 0;
+	region->aligned_size = base ? size : 0;
+	return aligned;
+}
+
+inline void init_region_t(region_t * region)
+{
+	region->base = region->aligned = NULL;
+	region->base_size = region->aligned_size = 0;
+}
+
+int free_region_t(region_t * region)
+{
+	if (region->base) {
+#ifdef MAP_ANON
+		if (munmap(region->base, region->base_size))
+			return -1;
+#else
+		libc_free(region->base);
+#endif
+	}
+	init_region_t(region);
+	return 0;
 }

@@ -33,7 +33,7 @@ john_register_one(&fmt_opencl_xsha512);
 #include "sha2.h"
 #include "rawSHA512_common.h"
 
-#define FORMAT_LABEL			"XSHA512-opencl"
+#define FORMAT_LABEL			"XSHA512-free-opencl"
 #define FORMAT_NAME			"Mac OS X 10.7+"
 #define ALGORITHM_NAME			"SHA512 OpenCL (efficient at \"many salts\" only)"
 
@@ -234,7 +234,7 @@ static void *salt(char *ciphertext)
 {
 	static union {
 		unsigned char c[SALT_SIZE];
-		ARCH_WORD_32 dummy;
+		uint32_t dummy;
 	} buf;
 	unsigned char *out = buf.c;
 	char *p;
@@ -253,37 +253,37 @@ static void *salt(char *ciphertext)
 
 static int binary_hash_0(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_0;
+	return *((uint32_t *) binary + 6) & PH_MASK_0;
 }
 
 static int binary_hash_1(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_1;
+	return *((uint32_t *) binary + 6) & PH_MASK_1;
 }
 
 static int binary_hash_2(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_2;
+	return *((uint32_t *) binary + 6) & PH_MASK_2;
 }
 
 static int binary_hash_3(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_3;
+	return *((uint32_t *) binary + 6) & PH_MASK_3;
 }
 
 static int binary_hash_4(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_4;
+	return *((uint32_t *) binary + 6) & PH_MASK_4;
 }
 
 static int binary_hash_5(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_5;
+	return *((uint32_t *) binary + 6) & PH_MASK_5;
 }
 
 static int binary_hash_6(void *binary)
 {
-	return *((ARCH_WORD_32 *) binary + 6) & PH_MASK_6;
+	return *((uint32_t *) binary + 6) & PH_MASK_6;
 }
 
 static int get_hash_0(int index)
@@ -330,7 +330,7 @@ static int get_hash_6(int index)
 
 static int salt_hash(void *salt)
 {
-	return *(ARCH_WORD_32 *) salt & (SALT_HASH_SIZE - 1);
+	return *(uint32_t *) salt & (SALT_HASH_SIZE - 1);
 }
 
 static void set_salt(void *salt)
@@ -410,7 +410,7 @@ static int cmp_exact(char *source, int index)
 	SHA512_Update(&ctx, gkey[index].v, gkey[index].length);
 	SHA512_Final((unsigned char *) (crypt_out), &ctx);
 #ifdef SIMD_COEF_64
-	alter_endianity_to_BE64(crypt_out, DIGEST_SIZE / sizeof(ARCH_WORD_64));
+	alter_endianity_to_BE64(crypt_out, DIGEST_SIZE / sizeof(uint64_t));
 #endif
 
 	b = (uint64_t *) sha512_common_binary_xsha512(source);
@@ -441,6 +441,7 @@ struct fmt_main fmt_opencl_xsha512 = {
 		FMT_CASE | FMT_8_BIT,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
+		{ FORMAT_TAG },
 #endif
 	    sha512_common_tests_xsha512_20
 	}, {

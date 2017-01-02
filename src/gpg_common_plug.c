@@ -18,6 +18,8 @@
 #include <openssl/blowfish.h>
 #include <openssl/ripemd.h>
 #include <openssl/cast.h>
+#include <openssl/camellia.h>
+#include "twofish.h"
 #include "idea-JtR.h"
 #include <openssl/bn.h>
 #include <openssl/dsa.h>
@@ -25,7 +27,6 @@
 #include "sha.h"
 #include "sha2.h"
 #include "md5.h"
-
 #include "formats.h"
 #include "memory.h"
 #include "common.h"
@@ -88,6 +89,12 @@ uint32_t gpg_common_blockSize(char algorithm)
 		case CIPHER_AES192:
 		case CIPHER_AES256:
 			return AES_BLOCK_SIZE;
+		case CIPHER_CAMELLIA128:
+		case CIPHER_CAMELLIA192:
+		case CIPHER_CAMELLIA256:
+			return CAMELLIA_BLOCK_SIZE;
+		case CIPHER_TWOFISH:
+			return 16;
 		case CIPHER_3DES:
 			return 8;
 		default:
@@ -114,6 +121,14 @@ uint32_t gpg_common_keySize(char algorithm)
 			return 16;
 		case CIPHER_3DES:
 			return 24;
+		case CIPHER_TWOFISH:
+			return 32;
+		case CIPHER_CAMELLIA128:
+			return 16;
+		case CIPHER_CAMELLIA192:
+			return 24;
+		case CIPHER_CAMELLIA256:
+			return 32;
 		default: break;
 	}
 	assert(0);
@@ -130,6 +145,10 @@ static int gpg_common_valid_cipher_algorithm(int cipher_algorithm)
 		case CIPHER_AES256: return 1;
 		case CIPHER_IDEA: return 1;
 		case CIPHER_3DES: return 1;
+		case CIPHER_TWOFISH: return 1;
+		case CIPHER_CAMELLIA128: return 1;
+		case CIPHER_CAMELLIA192: return 1;
+		case CIPHER_CAMELLIA256: return 1;
 	}
 
 	return 0;
@@ -151,9 +170,11 @@ static int gpg_common_valid_hash_algorithm(int hash_algorithm, int spec)
 		{
 			case HASH_SHA1: return 1;
 			case HASH_MD5: return 1;
-			case HASH_SHA256: return 1;
 			case HASH_RIPEMD160: return 1;
+			case HASH_SHA256: return 1;
+			case HASH_SHA384: return 1;
 			case HASH_SHA512: return 1;
+			case HASH_SHA224: return 1;
 		}
 	}
 	return 0;
@@ -163,16 +184,13 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
 	int res,j,spec,usage,algorithm,ex_flds=0;
-	int symmetric_mode = 0;
+	int symmetric_mode = 0, extra;
 
-	if (strncmp(ciphertext, "$gpg$*", 6) != 0)
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 6;	/* skip over "$gpg$" marker and '*' */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$gpg$" marker and '*' */
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* algorithm */
 		goto err;
 	if (!isdec(p))
@@ -186,8 +204,6 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 	if (!isdec(p))
 		goto err;
 	res = atoi(p);
-	if (res > BIG_ENOUGH * 2)
-		goto err;
 	if (!symmetric_mode) {
 		if ((p = strtokm(NULL, "*")) == NULL)	/* bits */
 			goto err;
@@ -196,7 +212,7 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 	}
 	if ((p = strtokm(NULL, "*")) == NULL)	/* data */
 		goto err;
-	if (hexlenl(p) != res*2)
+	if (hexlenl(p, &extra) != res*2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* spec */
 		goto err;
@@ -239,7 +255,7 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 			goto err;
-		if (hexlenl(p) != res*2)
+		if (hexlenl(p, &extra) != res*2 || extra)
 			goto err;
 	}
 	/* handle "SPEC_SIMPLE" correctly */
@@ -255,7 +271,7 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if (hexlenl(p) != SALT_LENGTH*2)
+	if (hexlenl(p, &extra) != SALT_LENGTH*2 || extra)
 		goto err;
 	/*
 	 * For some test vectors, there are no more fields,
@@ -273,7 +289,16 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 		ex_flds = 1; /* handle p */
 	} else if (usage == 255 && spec == 3 && algorithm == 1) {
 		/* gpg --homedir . --s2k-cipher-algo 3des --simple-sk-checksum --gen-key */
+		// PKA_RSA_ENCSIGN
 		ex_flds = 1; /* handle p */
+	} else if (usage == 255 && spec == 3 && algorithm == 17) {
+		// NEW stuff
+		// PKA_DSA
+		ex_flds = 4; /* handle p, q, g, y */
+	} else if (usage == 255 && spec == 3 && algorithm == 16) {
+		// NEW stuff
+		// PKA_ELGAMAL
+		ex_flds = 3; /* handle p, g, y */
 	} else {
 		/* NOT sure what to do here, probably nothing */
 	}
@@ -290,11 +315,9 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self)
 		if (!isdec(p))
 			goto err;
 		res = atoi(p);
-		if (res > BIG_ENOUGH * 2)
-			goto err; // FIXME: warn if BIG_ENOUGH isn't big enough?
 		if ((p = strtokm(NULL, "*")) == NULL)
 			goto err;
-		if (hexlenl(p) != res*2)
+		if (hexlenl(p, &extra) != res*2 || extra)
 			goto err;
 		p = strtokm(NULL, "*");  /* NOTE, do not goto err if null, we WANT p nul if there are no fields */
 	}
@@ -397,7 +420,7 @@ static void S2KItSaltedSHA1Generator(char *password, unsigned char *key, int key
 #ifdef LEAN
 	uint8_t keybuf[128 + 64+1 + PLAINTEXT_LENGTH + SALT_LENGTH];
 #else
-	unsigned char keybuf[KEYBUFFER_LENGTH + 128];
+	unsigned char keybuf[KEYBUFFER_LENGTH + 256];
 	uint32_t bs;
 #endif
 
@@ -528,6 +551,52 @@ static void S2KItSaltedSHA256Generator(char *password, unsigned char *key, int l
 	}
 }
 
+static void S2KItSaltedSHA224Generator(char *password, unsigned char *key, int length)
+{
+	unsigned char keybuf[KEYBUFFER_LENGTH];
+	SHA256_CTX ctx;
+	int i, j;
+	int32_t tl;
+	int32_t mul;
+	int32_t bs;
+	uint8_t *bptr;
+	int32_t n;
+
+	uint32_t numHashes = (length + SHA224_DIGEST_LENGTH - 1) / SHA224_DIGEST_LENGTH;
+	memcpy(keybuf, gpg_common_cur_salt->salt, SALT_LENGTH);
+
+	// TODO: This is not very efficient with multiple hashes
+	// NOTE, with 32 bit hash digest, we should never have numHashes > 1 if
+	// all keys being requested are 32 bytes or less.
+	for (i = 0; i < numHashes; i++) {
+		SHA224_Init(&ctx);
+		for (j = 0; j < i; j++) {
+			SHA224_Update(&ctx, "\0", 1);
+		}
+		// Find multiplicator
+		tl = strlen(password) + SALT_LENGTH;
+		mul = 1;
+		while (mul < tl && ((64 * mul) % tl)) {
+			++mul;
+		}
+		// Try to feed the hash function with 64-byte blocks
+		bs = mul * 64;
+		bptr = keybuf + tl;
+		n = bs / tl;
+		memcpy(keybuf + SALT_LENGTH, password, strlen(password));
+		while (n-- > 1) {
+			memcpy(bptr, keybuf, tl);
+			bptr += tl;
+		}
+		n = gpg_common_cur_salt->count / bs;
+		while (n-- > 0) {
+			SHA224_Update(&ctx, keybuf, bs);
+		}
+		SHA224_Update(&ctx, keybuf, gpg_common_cur_salt->count % bs);
+		SHA224_Final(key + (i * SHA224_DIGEST_LENGTH), &ctx);
+	}
+}
+
 static void S2KItSaltedSHA512Generator(char *password, unsigned char *key, int length)
 {
 	// keybuf needs to be twice as large, since we group to 128 byte blocks.
@@ -575,9 +644,56 @@ static void S2KItSaltedSHA512Generator(char *password, unsigned char *key, int l
 	}
 }
 
+static void S2KItSaltedSHA384Generator(char *password, unsigned char *key, int length)
+{
+	// keybuf needs to be twice as large, since we group to 128 byte blocks.
+	unsigned char keybuf[KEYBUFFER_LENGTH*2];
+	SHA512_CTX ctx;
+	int i, j;
+	int32_t tl;
+	int32_t mul;
+	int32_t bs;
+	uint8_t *bptr;
+	int32_t n;
+
+	uint32_t numHashes = (length + SHA384_DIGEST_LENGTH - 1) / SHA384_DIGEST_LENGTH;
+	memcpy(keybuf, gpg_common_cur_salt->salt, SALT_LENGTH);
+
+	// TODO: This is not very efficient with multiple hashes
+	// NOTE, with 64 bit hash digest, we should never have numHashes > 1 if
+	// all keys being requested are 32 bytes or less.
+	for (i = 0; i < numHashes; i++) {
+		SHA384_Init(&ctx);
+		for (j = 0; j < i; j++) {
+			SHA384_Update(&ctx, "\0", 1);
+		}
+		// Find multiplicator
+		tl = strlen(password) + SALT_LENGTH;
+		mul = 1;
+		while (mul < tl && ((128 * mul) % tl)) {
+			++mul;
+		}
+		// Try to feed the hash function with 128-byte blocks
+		bs = mul * 128;
+		bptr = keybuf + tl;
+		n = bs / tl;
+		memcpy(keybuf + SALT_LENGTH, password, strlen(password));
+		while (n-- > 1) {
+			memcpy(bptr, keybuf, tl);
+			bptr += tl;
+		}
+		n = gpg_common_cur_salt->count / bs;
+		while (n-- > 0) {
+			SHA384_Update(&ctx, keybuf, bs);
+		}
+		SHA384_Update(&ctx, keybuf, gpg_common_cur_salt->count % bs);
+		SHA384_Final(key + (i * SHA384_DIGEST_LENGTH), &ctx);
+	}
+}
+
 static void S2KItSaltedRIPEMD160Generator(char *password, unsigned char *key, int length)
 {
-	unsigned char keybuf[KEYBUFFER_LENGTH + 128];
+	unsigned char keybuf[KEYBUFFER_LENGTH + 256];
 	RIPEMD160_CTX ctx;
 	int i, j;
 	int32_t tl;
@@ -688,10 +804,12 @@ void *gpg_common_get_salt(char *ciphertext)
 	char *keeptr = ctcopy;
 	int i;
 	char *p;
-	static struct gpg_common_custom_salt cs;
+	struct gpg_common_custom_salt cs, *psalt;
+	static unsigned char *ptr;
 
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 6;	/* skip over "$gpg$" marker and first '*' */
+	if (!ptr) ptr = mem_alloc_tiny(sizeof(struct gpg_common_custom_salt*),sizeof(struct gpg_common_custom_salt*));
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$gpg$" marker and first '*' */
 	p = strtokm(ctcopy, "*");
 	cs.pk_algorithm = atoi(p);
 	if (cs.pk_algorithm == 0) {
@@ -699,121 +817,137 @@ void *gpg_common_get_salt(char *ciphertext)
 	}
 	p = strtokm(NULL, "*");
 	cs.datalen = atoi(p);
-	if (!cs.symmetric_mode) {
+
+	/* Ok, now we 'know' the size of the dyna salt, so we can allocate */
+	/* note the +64 is due to certain algo's reading dirty data, up to 64 bytes past end */
+	psalt = mem_calloc(sizeof(struct gpg_common_custom_salt) + cs.datalen + 64, 1);
+	psalt->pk_algorithm = cs.pk_algorithm;
+	psalt->symmetric_mode = cs.symmetric_mode;
+	psalt->datalen = cs.datalen;
+
+	/* from now on we use psalt */
+	if (!psalt->symmetric_mode) {
 		p = strtokm(NULL, "*");
-		cs.bits = atoi(p);
+		psalt->bits = atoi(p);
 	}
 	p = strtokm(NULL, "*");
-	for (i = 0; i < cs.datalen; i++)
-		cs.data[i] =
+
+	for (i = 0; i < psalt->datalen; i++)
+		psalt->data[i] =
 		    atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 		    atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtokm(NULL, "*");
-	cs.spec = atoi(p);
+	psalt->spec = atoi(p);
 	p = strtokm(NULL, "*");
-	cs.usage = atoi(p);
+	psalt->usage = atoi(p);
 	p = strtokm(NULL, "*");
-	cs.hash_algorithm = atoi(p);
+	psalt->hash_algorithm = atoi(p);
 	p = strtokm(NULL, "*");
-	cs.cipher_algorithm = atoi(p);
-	if (!cs.symmetric_mode) {
+	psalt->cipher_algorithm = atoi(p);
+	if (!psalt->symmetric_mode) {
 		p = strtokm(NULL, "*");
-		cs.ivlen = atoi(p);
+		psalt->ivlen = atoi(p);
 		p = strtokm(NULL, "*");
-		for (i = 0; i < cs.ivlen; i++)
-			cs.iv[i] =
+		for (i = 0; i < psalt->ivlen; i++)
+			psalt->iv[i] =
 				atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 				atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
 	p = strtokm(NULL, "*");
 	/* handle "SPEC_SIMPLE" correctly */
-	if (cs.spec != SPEC_SIMPLE || cs.usage == 255) {
-		cs.count = atoi(p);
+	if (psalt->spec != SPEC_SIMPLE || psalt->usage == 255) {
+		psalt->count = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < SALT_LENGTH; i++)
-			cs.salt[i] =
+			psalt->salt[i] =
 			atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
-	if (cs.usage == 255 && cs.spec == SPEC_SALTED && cs.pk_algorithm == PKA_DSA) {
+	if (psalt->usage == 255 && (psalt->spec == SPEC_SALTED || psalt->spec == SPEC_ITERATED_SALTED) && psalt->pk_algorithm == PKA_DSA) {
 		/* old hashes will crash!, "gpg --s2k-mode 1 --gen-key" */
 		p = strtokm(NULL, "*");
-		cs.pl = atoi(p);
+		psalt->pl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		p = strtokm(NULL, "*");
-		cs.ql = atoi(p);
+		psalt->ql = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.q[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->q[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		p = strtokm(NULL, "*");
-		cs.gl = atoi(p);
+		psalt->gl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		p = strtokm(NULL, "*");
-		cs.yl = atoi(p);
+		psalt->yl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
-	if (cs.usage == 255 && cs.spec == SPEC_SALTED && (cs.pk_algorithm == PKA_ELGAMAL || cs.pk_algorithm == PKA_EG)) {
+	if (psalt->usage == 255 && (psalt->spec == SPEC_SALTED || psalt->spec == SPEC_ITERATED_SALTED) && (psalt->pk_algorithm == PKA_ELGAMAL || psalt->pk_algorithm == PKA_EG)) {
 		/* ElGamal */
 		p = strtokm(NULL, "*");
-		cs.pl = atoi(p);
+		psalt->pl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->p[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		p = strtokm(NULL, "*");
-		cs.gl = atoi(p);
+		psalt->gl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->g[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 		p = strtokm(NULL, "*");
-		cs.yl = atoi(p);
+		psalt->yl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->y[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
-	if (cs.usage == 255 && cs.pk_algorithm == PKA_RSA_ENCSIGN) {
+	if (psalt->usage == 255 && psalt->pk_algorithm == PKA_RSA_ENCSIGN) {
 		/* RSA */
 		p = strtokm(NULL, "*");
-		cs.nl = atoi(p);
+		psalt->nl = atoi(p);
 		p = strtokm(NULL, "*");
 		for (i = 0; i < strlen(p) / 2; i++)
-			cs.n[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
+			psalt->n[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	}
 
 	MEM_FREE(keeptr);
 
 	// Set up the key generator
-	switch(cs.spec) {
+	switch(psalt->spec) {
 		case SPEC_ITERATED_SALTED:
 			{
-				switch(cs.hash_algorithm) {
+				switch(psalt->hash_algorithm) {
 					case HASH_SHA1:
-						cs.s2kfun = S2KItSaltedSHA1Generator;
+						psalt->s2kfun = S2KItSaltedSHA1Generator;
 						break;
 					case HASH_MD5:
-						cs.s2kfun = S2KItSaltedMD5Generator;
+						psalt->s2kfun = S2KItSaltedMD5Generator;
 						break;
 					case HASH_SHA256:
-						cs.s2kfun = S2KItSaltedSHA256Generator;
+						psalt->s2kfun = S2KItSaltedSHA256Generator;
 						break;
 					case HASH_RIPEMD160:
-						cs.s2kfun = S2KItSaltedRIPEMD160Generator;
+						psalt->s2kfun = S2KItSaltedRIPEMD160Generator;
 						break;
 					case HASH_SHA512:
-						cs.s2kfun = S2KItSaltedSHA512Generator;
+						psalt->s2kfun = S2KItSaltedSHA512Generator;
+						break;
+					case HASH_SHA384:
+						psalt->s2kfun = S2KItSaltedSHA384Generator;
+						break;
+					case HASH_SHA224:
+						psalt->s2kfun = S2KItSaltedSHA224Generator;
 						break;
 					default: break;
 				}
@@ -821,38 +955,45 @@ void *gpg_common_get_salt(char *ciphertext)
 			break;
 		case SPEC_SALTED:
 			{
-				switch(cs.hash_algorithm) {
+				switch(psalt->hash_algorithm) {
 					case HASH_SHA1:
-						cs.s2kfun = S2KSaltedSHA1Generator;
+						psalt->s2kfun = S2KSaltedSHA1Generator;
 						break;
 					case HASH_MD5:
-						cs.s2kfun = S2KSaltedMD5Generator;
+						psalt->s2kfun = S2KSaltedMD5Generator;
 						break;
 					default:
 						// WTF? (see gpg_common_valid_hash_algorithm() function)
-						cs.s2kfun = S2KSaltedSHA1Generator;
+						psalt->s2kfun = S2KSaltedSHA1Generator;
 						break;
 				}
 			}
 			break;
 		case SPEC_SIMPLE:
 			{
-				switch(cs.hash_algorithm) {
+				switch(psalt->hash_algorithm) {
 					case HASH_SHA1:
-						cs.s2kfun = S2KSimpleSHA1Generator;
+						psalt->s2kfun = S2KSimpleSHA1Generator;
 						break;
 					case HASH_MD5:
-						cs.s2kfun = S2KSimpleMD5Generator;
+						psalt->s2kfun = S2KSimpleMD5Generator;
 						break;
 					default:
-						cs.s2kfun = S2KSimpleSHA1Generator;  // WTF?
+						psalt->s2kfun = S2KSimpleSHA1Generator;  // WTF?
 						break;
 				}
 			}
 			break;
 	}
-	assert(cs.s2kfun != NULL);
-	return (void *)&cs;
+	assert(psalt->s2kfun != NULL);
+
+	// set the JtR core linkage stuff for this dyna_salt
+	psalt->dsalt.salt_alloc_needs_free = 1;  // we used mem_calloc, so JtR CAN free our pointer when done with them.
+	psalt->dsalt.salt_cmp_offset = SALT_CMP_OFF(struct gpg_common_custom_salt, datalen);
+	psalt->dsalt.salt_cmp_size = SALT_CMP_SIZE(struct gpg_common_custom_salt, datalen, data, psalt->datalen);
+
+	memcpy(ptr, &psalt, sizeof(struct gpg_common_custom_salt*));
+	return (void*)ptr;
 }
 static int give_multi_precision_integer(unsigned char *buf, int len, int *key_bytes, unsigned char *out)
 {
@@ -1002,7 +1143,7 @@ int gpg_common_check(unsigned char *keydata, int ks)
 	// the MPI. If they are correct, there's a good chance that the
 	// password is correct, too.
 	unsigned char ivec[32];
-	unsigned char out[BIG_ENOUGH * 2] = { 0 };
+	unsigned char *out;
 	int tmp = 0;
 	uint32_t num_bits = 0;
 	int checksumOk;
@@ -1010,6 +1151,10 @@ int gpg_common_check(unsigned char *keydata, int ks)
 	uint8_t checksum[SHA_DIGEST_LENGTH];
 	SHA_CTX ctx;
 
+	// out is used for more than just data. So if datalen is 'small', but
+	// other things (like mpz integer creation) are needed, we know that
+	// our sizes will not overflow.
+	out = mem_alloc((gpg_common_cur_salt->datalen) + 0x10000);
 	// Quick Hack
 	if (!gpg_common_cur_salt->symmetric_mode)
 		memcpy(ivec, gpg_common_cur_salt->iv, gpg_common_blockSize(gpg_common_cur_salt->cipher_algorithm));
@@ -1058,7 +1203,20 @@ int gpg_common_check(unsigned char *keydata, int ks)
 					  DES_ede3_cfb64_encrypt(gpg_common_cur_salt->data, out, SALT_LENGTH, &ks1, &ks2, &ks3, &divec, &num, DES_DECRYPT);
 				    }
 				    break;
-
+		case CIPHER_CAMELLIA128:
+		case CIPHER_CAMELLIA192:
+		case CIPHER_CAMELLIA256: {
+					    CAMELLIA_KEY ck;
+					    Camellia_set_key(keydata, ks * 8, &ck);
+					    Camellia_cfb128_encrypt(gpg_common_cur_salt->data, out, CAMELLIA_BLOCK_SIZE, &ck, ivec, &tmp, CAMELLIA_DECRYPT);
+				    }
+				    break;
+		case CIPHER_TWOFISH: {
+					      Twofish_key ck;
+					      Twofish_prepare_key(keydata, ks, &ck);
+					      Twofish_Decrypt_cfb128(&ck, gpg_common_cur_salt->data, out, 16, ivec);
+				      }
+				      break;
 		default:
 				    printf("(check) Unknown Cipher Algorithm %d ;(\n", gpg_common_cur_salt->cipher_algorithm);
 				    break;
@@ -1067,6 +1225,7 @@ int gpg_common_check(unsigned char *keydata, int ks)
 	if (!gpg_common_cur_salt->symmetric_mode) {
 		num_bits = ((out[0] << 8) | out[1]);
 		if (num_bits < MIN_BN_BITS || num_bits > gpg_common_cur_salt->bits) {
+			MEM_FREE(out);
 			return 0;
 		}
 	}
@@ -1118,6 +1277,20 @@ int gpg_common_check(unsigned char *keydata, int ks)
 					  DES_ede3_cfb64_encrypt(gpg_common_cur_salt->data, out, gpg_common_cur_salt->datalen, &ks1, &ks2, &ks3, &divec, &num, DES_DECRYPT);
 				    }
 				    break;
+		case CIPHER_CAMELLIA128:
+		case CIPHER_CAMELLIA192:
+		case CIPHER_CAMELLIA256: {
+					    CAMELLIA_KEY ck;
+					    Camellia_set_key(keydata, ks * 8, &ck);
+					    Camellia_cfb128_encrypt(gpg_common_cur_salt->data, out, gpg_common_cur_salt->datalen, &ck, ivec, &tmp, CAMELLIA_DECRYPT);
+				    }
+				    break;
+		case CIPHER_TWOFISH: {
+					      Twofish_key ck;
+					      Twofish_prepare_key(keydata, ks, &ck);
+					      Twofish_Decrypt_cfb128(&ck, gpg_common_cur_salt->data, out, gpg_common_cur_salt->datalen, ivec);
+				      }
+				      break;
 		default:
 				    break;
 	}
@@ -1126,16 +1299,20 @@ int gpg_common_check(unsigned char *keydata, int ks)
 		SHA1_Init(&ctx);
 		SHA1_Update(&ctx, out, gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH);
 		SHA1_Final(checksum, &ctx);
-		if (memcmp(checksum, out + gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) == 0)
+		if (memcmp(checksum, out + gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) == 0) {
+			MEM_FREE(out);
 			return 1;  /* we have a 20 byte verifier ;) */
-		else
-			return 0;
+		}
+		MEM_FREE(out);
+		return 0;
 	} else if (gpg_common_cur_salt->symmetric_mode && gpg_common_cur_salt->usage == 9) {
 		// https://www.ietf.org/rfc/rfc2440.txt
-		if ((out[9] == out[7]) && (out[8] == out[6])) // XXX this verifier is not good at all!
+		if ((out[9] == out[7]) && (out[8] == out[6])) { // XXX this verifier is not good at all!
+			MEM_FREE(out);
 			return 1;
-		else
-			return 0;
+		}
+		MEM_FREE(out);
+		return 0;
 	}
 
 	// Verify
@@ -1145,10 +1322,12 @@ int gpg_common_check(unsigned char *keydata, int ks)
 				  SHA1_Init(&ctx);
 				  SHA1_Update(&ctx, out, gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH);
 				  SHA1_Final(checksum, &ctx);
-				  if (memcmp(checksum, out + gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) == 0)
+				  if (memcmp(checksum, out + gpg_common_cur_salt->datalen - SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) == 0) {
+					  MEM_FREE(out);
 					  return 1;  /* we have a 20 byte verifier ;) */
-				  else
-					  return 0;
+				  }
+				  MEM_FREE(out);
+				  return 0;
 			  } break;
 		case 0:
 		case 255: {
@@ -1172,8 +1351,10 @@ int gpg_common_check(unsigned char *keydata, int ks)
 		BIGNUM *b = NULL;
 		uint32_t blen = (num_bits + 7) / 8;
 		int ret;
-		if (gpg_common_cur_salt->datalen == 24 && blen != 20)  /* verifier 1 */
+		if (gpg_common_cur_salt->datalen == 24 && blen != 20) { /* verifier 1 */
+			MEM_FREE(out);
 			return 0;
+		}
 		if (blen < gpg_common_cur_salt->datalen && ((b = BN_bin2bn(out + 2, blen, NULL)) != NULL)) {
 			char *str = BN_bn2hex(b);
 			ElGamal_secret_key elg;
@@ -1181,6 +1362,7 @@ int gpg_common_check(unsigned char *keydata, int ks)
 			if (strlen(str) != blen * 2) { /* verifier 2 */
 				OPENSSL_free(str);
 				BN_free(b);
+				MEM_FREE(out);
 				return 0;
 			}
 			OPENSSL_free(str);
@@ -1195,6 +1377,7 @@ int gpg_common_check(unsigned char *keydata, int ks)
 				DSA_free(dsa);
 				if (ret != 0)
 				{
+					MEM_FREE(out);
 					return 0;
 				}
 			}
@@ -1209,8 +1392,10 @@ int gpg_common_check(unsigned char *keydata, int ks)
 				elg.y = BN_bin2bn(gpg_common_cur_salt->y, gpg_common_cur_salt->yl, NULL);
 				// puts(BN_bn2hex(elg.y));
 				ret = check_elg_secret_key(&elg); /* verifier 3 */
-				if (ret != 0)
+				if (ret != 0) {
+					MEM_FREE(out);
 					return 0;
+				}
 			}
 			if (gpg_common_cur_salt->pk_algorithm == PKA_RSA_ENCSIGN) { /* RSA check */
 				// http://www.ietf.org/rfc/rfc4880.txt
@@ -1226,12 +1411,16 @@ int gpg_common_check(unsigned char *keydata, int ks)
 				// b is not used.  So we must free it, or we have a leak.
 				BN_free(b);
 				ret = check_rsa_secret_key(&rsa);
-				if (ret != 0)
+				if (ret != 0) {
+					MEM_FREE(out);
 					return 0;
+				}
 			}
+			MEM_FREE(out);
 			return 1;
 		}
 	}
+	MEM_FREE(out);
 	return 0;
 }
 
@@ -1245,7 +1434,7 @@ unsigned int gpg_common_gpg_s2k_count(void *salt)
 {
 	struct gpg_common_custom_salt *my_salt;
 
-	my_salt = salt;
+	my_salt = *(struct gpg_common_custom_salt **)salt;
 	if (my_salt->spec == SPEC_ITERATED_SALTED)
 		/*
 		 * gpg --s2k-count is only meaningful
@@ -1262,13 +1451,13 @@ unsigned int gpg_common_gpg_hash_algorithm(void *salt)
 {
 	struct gpg_common_custom_salt *my_salt;
 
-	my_salt = salt;
+	my_salt = *(struct gpg_common_custom_salt **)salt;
 	return (unsigned int) my_salt->hash_algorithm;
 }
 unsigned int gpg_common_gpg_cipher_algorithm(void *salt)
 {
 	struct gpg_common_custom_salt *my_salt;
 
-	my_salt = salt;
+	my_salt = *(struct gpg_common_custom_salt **)salt;
 	return (unsigned int) my_salt->cipher_algorithm;
 }

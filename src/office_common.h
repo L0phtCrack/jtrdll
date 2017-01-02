@@ -7,6 +7,15 @@
 
 #include "formats.h"
 
+#define FORMAT_TAG_OFFICE           "$office$*"
+#define FORMAT_TAG_OFFICE_LEN       (sizeof(FORMAT_TAG_OFFICE)-1)
+#define FORMAT_TAG_OFFICE_2007      "$office$*2007*"
+#define FORMAT_TAG_OFFICE_2007_LEN  (sizeof(FORMAT_TAG_OFFICE_2007)-1)
+#define FORMAT_TAG_OFFICE_2010      "$office$*2010*"
+#define FORMAT_TAG_OFFICE_2010_LEN  (sizeof(FORMAT_TAG_OFFICE_2010)-1)
+#define FORMAT_TAG_OFFICE_2013      "$office$*2013*"
+#define FORMAT_TAG_OFFICE_2013_LEN  (sizeof(FORMAT_TAG_OFFICE_2013)-1)
+
 typedef struct ms_office_custom_salt_t {
 	char unsigned osalt[32]; /* bigger than necessary */
 	char unsigned encryptedVerifier[16];
@@ -29,5 +38,5 @@ int ms_office_common_valid_2013(char *ciphertext, struct fmt_main *self);
 /* other 'common' functions for MSOffice */
 unsigned int ms_office_common_iteration_count(void *salt);
 void ms_office_common_DecryptUsingSymmetricKeyAlgorithm(ms_office_custom_salt *cur_salt, unsigned char *verifierInputKey, unsigned char *encryptedVerifier, const unsigned char *decryptedVerifier, int length);
-int ms_office_common_PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key, ARCH_WORD_32 *out);
+int ms_office_common_PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key, uint32_t *out);
 

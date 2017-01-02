@@ -67,10 +67,6 @@
 #include "john_build_rule.h"
 #endif
 
-#if HAVE_CUDA
-extern char *get_cuda_header_version();
-extern void cuda_device_list();
-#endif
 #if HAVE_OPENCL
 #undef __SSE2__
 #include "common-opencl.h"
@@ -89,14 +85,11 @@ static void listconf_list_options()
 	puts("help[:WHAT], subformats, inc-modes, rules, externals, ext-modes, ext-hybrids,");
 	puts("ext-filters, ext-filters-only, build-info, hidden-options, encodings,");
 	puts("formats, format-details, format-all-details, format-methods[:WHICH],");
-	// With "opencl-devices, cuda-devices, <conf section name>" added,
+	// With "opencl-devices, <conf section name>" added,
 	// the resulting line will get too long
 	puts("format-tests, sections, parameters:SECTION, list-data:SECTION,");
 #if HAVE_OPENCL
 	printf("opencl-devices, ");
-#endif
-#if HAVE_CUDA
-	printf("cuda-devices, ");
 #endif
 	/* NOTE: The following must end the list. Anything listed after
 	   <conf section name> will be ignored by current
@@ -194,9 +187,6 @@ static void listconf_list_build_info(void)
 #endif
 #endif
 
-#if HAVE_CUDA
-	printf("CUDA headers version: %s\n",get_cuda_header_version());
-#endif
 #if HAVE_OPENCL
 	printf("OpenCL headers version: %s\n",get_opencl_header_version());
 #endif
@@ -335,13 +325,6 @@ void listconf_parse_early(void)
 		listEncodings(stdout);
 		exit(EXIT_SUCCESS);
 	}
-#if HAVE_CUDA
-	if (!strcasecmp(options.listconf, "cuda-devices"))
-	{
-		cuda_device_list();
-		exit(EXIT_SUCCESS);
-	}
-#endif
 }
 
 /*
@@ -534,6 +517,7 @@ void listconf_parse_late(void)
 		format = fmt_list;
 		do {
 			int ntests = 0;
+			char buf[LINE_BUFFER_SIZE + 1];
 
 /* Some encodings change max plaintext length when
    encoding is used, or KPC when under OMP */
@@ -561,10 +545,10 @@ void listconf_parse_late(void)
 /* salts are handled internally within the format. We want to know the
    'real' salt size. Dynamic will always set params.salt_size to 0 or sizeof
    a pointer. */
-   dynamic_real_salt_length(format) : format->params.salt_size);
+			       dynamic_real_salt_length(format) : format->params.salt_size);
 			printf("\t");
 			list_tunable_cost_names(format, ",");
-			printf("\t%d\t%.256s\n",
+			printf("\t%d\t%s\n",
 			       format->params.plaintext_min_length,
 /*
  * Since the example ciphertext should be the last line in the
@@ -574,11 +558,10 @@ void listconf_parse_late(void)
  * have to check the number of columns if they want to use the example
  * ciphertext.
  *
- * ciphertext example will be silently truncated
- * to 256 characters here
+ * ciphertext example will be silently $SOURCE_HASH$'ed if needed.
  */
 			       ntests ?
-			       get_test(format, 0) : "");
+			       ldr_pot_source(get_test(format, 0), buf) : "");
 
 			fmt_done(format);
 
@@ -672,7 +655,7 @@ void listconf_parse_late(void)
 			printf("Salt size                            %d\n",
 			       ((format->params.flags & FMT_DYNAMIC) && format->params.salt_size) ?
 /* salts are handled internally within the format. We want to know the
-   'real' salt size dynamic will alway set params.salt_size to 0 or
+   'real' salt size dynamic will always set params.salt_size to 0 or
    sizeof a pointer. */
 			       dynamic_real_salt_length(format) : format->params.salt_size);
 			printf("Tunable cost parameters              ");
@@ -683,15 +666,16 @@ void listconf_parse_late(void)
  * The below should probably stay as last line of output if adding more
  * information.
  *
- * ciphertext example will be truncated to 512 characters here, with a notice.
+ * ciphertext example will be $SOURCE_HASH$'ed if needed, with a notice.
  */
 			if (ntests) {
 				char *ciphertext = get_test(format, 0);
+				char buf[LINE_BUFFER_SIZE + 1];
 
-				printf("Example ciphertext%s  %.512s\n",
-				       strlen(ciphertext) > 512 ?
+				printf("Example ciphertext%s  %s\n",
+				       strlen(ciphertext) > MAX_CIPHERTEXT_SIZE ?
 				       " (truncated here)" :
-				       "                 ", ciphertext);
+				       "                 ", ldr_pot_source(ciphertext, buf));
 			}
 			printf("\n");
 
@@ -706,7 +690,6 @@ void listconf_parse_late(void)
 		do {
 			int ShowIt = 1, i;
 
-/* required for thin formats, these adjust their methods here */
 			fmt_init(format);
 
 			if (options.listconf[14] == '=' || options.listconf[14] == ':') {
@@ -875,8 +858,7 @@ void listconf_parse_late(void)
 				printf("\tcmp_exact()\n");
 				printf("\n\n");
 			}
-			if (format->params.flags & FMT_DYNAMIC)
-				fmt_done(format); // required for thin formats
+			fmt_done(format);
 		} while ((format = format->next));
 		exit(EXIT_SUCCESS);
 	}

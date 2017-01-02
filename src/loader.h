@@ -17,6 +17,7 @@
 #include "list.h"
 #include "formats.h"
 #endif
+#include "stdint.h"
 
 /*
  * Password hash list entry (with a fixed salt).
@@ -317,9 +318,12 @@ extern void ldr_show_pot_file(struct db_main *db, char *name);
  */
 extern void ldr_show_pw_file(struct db_main *db, char *name);
 
+/* Compare a possibly truncated pot source with a full one */
+extern int ldr_pot_source_cmp(const char *pot_entry, const char *full_source);
+
 /*
- * this returns the line to write to a .pot file. It may be shorter than the
- *original source (with some extra tags added).
+ * This returns the line to write to a .pot file. It may be shorter than the
+ * original source (with some extra tags added).
  */
 extern const char *ldr_pot_source(const char *full_source,
                                   char buffer[LINE_BUFFER_SIZE+1]);
@@ -328,5 +332,8 @@ extern const char *ldr_pot_source(const char *full_source,
  * this function simply returns true of false if this is a chopped pot line
  */
 extern int ldr_isa_pot_source(const char *ciphertext);
+
+/* Common code for determining valid when loading a chopped .pot line */
+extern int ldr_trunc_valid(char *ciphertext, struct fmt_main *format);
 
 #endif

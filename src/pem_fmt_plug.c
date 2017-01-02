@@ -120,13 +120,10 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
-	int len, value;
+	int len, value, extra;
 
 	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH) != 0)
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
@@ -134,29 +131,38 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += TAG_LENGTH;
 	if ((p = strtokm(ctcopy, "$")) == NULL) // type
 		goto err;
+	if (!isdec(p))
+		goto err;
 	value = atoi(p);
 	if (value != 1)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)   // cipher
+		goto err;
+	if (!isdec(p))
 		goto err;
 	value = atoi(p);
 	if (value != 1)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)   // salt
 		goto err;
-	if(hexlenl(p) != 16)
+	if(hexlenl(p, &extra) != 16 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)   // iterations
 		goto err;
+	if (!isdec(p))
+		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)   // iv
 		goto err;
-	if(hexlenl(p) != 16)
+	if(hexlenl(p, &extra) != 16 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL)   // ciphertext length
 		goto err;
+	if (!isdec(p))
+		goto err;
 	len = atoi(p);
 	if ((p = strtokm(NULL, "*")) == NULL)   // ciphertext
-	if(hexlenl(p) != len)
+		goto err;
+	if(hexlenl(p, &extra) != len*2 || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -393,6 +399,7 @@ struct fmt_main fmt_pem = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		PEM_tests
 	}, {
 		init,
@@ -408,7 +415,7 @@ struct fmt_main fmt_pem = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -418,7 +425,7 @@ struct fmt_main fmt_pem = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

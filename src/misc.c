@@ -69,13 +69,18 @@ void real_pexit(char *file, int line, char *format, ...)
 {
 	va_list args;
 
-#if defined(HAVE_MPI) && !defined(_JOHN_MISC_NO_LOG)
+#if !defined(_JOHN_MISC_NO_LOG)
+#if HAVE_MPI
 	if (mpi_p > 1)
 		fprintf(stderr, "%u@%s: ", mpi_id + 1, mpi_name);
+#endif
+#if HAVE_MPI && OS_FORK
 	else
-#elif OS_FORK && !defined(_JOHN_MISC_NO_LOG)
+#endif
+#if OS_FORK
 	if (options.fork)
 		fprintf(stderr, "%u: ", options.node_min);
+#endif
 #endif
 
 	va_start(args, format);
@@ -246,7 +251,7 @@ int strnzcpyn(char *dst, const char *src, int size)
 		if (!(*dptr++ = *src++)) return (dptr-dst)-1;
 	*dptr = 0;
 
-	return (dptr-dst)-1;
+	return (dptr-dst);
 }
 
 char *strnzcat(char *dst, const char *src, int size)
@@ -267,7 +272,7 @@ char *strnzcat(char *dst, const char *src, int size)
 }
 
 /*
- * strtok code, BUT returns empty token "" for adjacent delmiters. It also
+ * strtok code, BUT returns empty token "" for adjacent delimiters. It also
  * returns leading and trailing tokens for leading and trailing delimiters
  * (strtok strips them away and does not return them). Several other issues
  * in strtok also impact this code

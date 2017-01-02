@@ -23,7 +23,7 @@ void *ms_office_common_get_salt(char *ciphertext)
 
 	if (!cur_salt) cur_salt = mem_alloc_tiny(sizeof(ms_office_custom_salt), MEM_ALIGN_WORD);
 	memset(cur_salt, 0, sizeof(*cur_salt));
-	ctcopy += 9;	/* skip over "$office$*" */
+	ctcopy += FORMAT_TAG_OFFICE_LEN;	/* skip over "$office$*" */
 	p = strtokm(ctcopy, "*");
 	cur_salt->version = atoi(p);
 	p = strtokm(NULL, "*");
@@ -63,7 +63,7 @@ void *ms_office_common_binary(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy, *p, Tmp[16];
 
-	ctcopy += 9;	/* skip over "$office$*" */
+	ctcopy += FORMAT_TAG_OFFICE_LEN;	/* skip over "$office$*" */
 	p = strtokm(ctcopy, "*");
 	if (atoi(p) != 2007) {
 		memset(out, 0, sizeof(out));
@@ -90,16 +90,16 @@ void *ms_office_common_binary(char *ciphertext)
 static int valid(char *ciphertext, struct fmt_main *self, char *which)
 {
 	char *ctcopy, *ptr, *keeptr;
-	int res;
+	int res, extra;
 
-	if (strncmp(ciphertext, "$office$*", 9))
+	if (strncmp(ciphertext, FORMAT_TAG_OFFICE, FORMAT_TAG_OFFICE_LEN))
 		return 0;
 	if (!(ctcopy = strdup(ciphertext))) {
 		fprintf(stderr, "Memory allocation failed in office format, unable to check if hash is valid!");
 		return 0;
 	}
 	keeptr = ctcopy;
-	ctcopy += 9;
+	ctcopy += FORMAT_TAG_OFFICE_LEN;
 	if (!(ptr = strtokm(ctcopy, "*")))
 		goto error;
 	if (strncmp(ptr, "2007", 4) && strncmp(ptr, "2010", 4) && strncmp(ptr, "2013", 4))
@@ -121,11 +121,11 @@ static int valid(char *ciphertext, struct fmt_main *self, char *which)
 		goto error;
 	if (!(ptr = strtokm(NULL, "*"))) /* salt */
 		goto error;
-	if (hexlenl(ptr) != res * 2)
+	if (hexlenl(ptr, &extra) != res * 2 || extra)
 		goto error;
 	if (!(ptr = strtokm(NULL, "*"))) /* encrypted verifier */
 		goto error;
-	if (hexlenl(ptr) != 32)
+	if (hexlenl(ptr, &extra) != 32 || extra)
 		goto error;
 	if (!(ptr = strtokm(NULL, "*"))) /* encrypted verifier hash */
 		goto error;
@@ -208,7 +208,7 @@ void ms_office_common_DecryptUsingSymmetricKeyAlgorithm(ms_office_custom_salt *c
 // doing this in hopes of figuring out some way to salt-dupe correct the
 // office 2010-2013 formats. I do not think they can be done, but I may be
 // wrong, so I will keep this code in an "easy to see what changed" layout.
-int ms_office_common_PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key, ARCH_WORD_32 *out)
+int ms_office_common_PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key, uint32_t *out)
 {
 	unsigned char decryptedVerifier[16];
 	//unsigned char decryptedVerifierHash[16];

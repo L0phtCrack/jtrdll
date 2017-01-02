@@ -380,6 +380,7 @@ struct fmt_main fmt_opencl_encfs = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		tests
 	}, {
 		init,

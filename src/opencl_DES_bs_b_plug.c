@@ -277,6 +277,13 @@ static void gws_tune(size_t gws_init, long double kernel_run_ms, int gws_tune_fl
 		get_power_of_two(gws_limit);
 		gws_limit >>= 1;
 	}
+
+#if SIZEOF_SIZE_T > 4
+	/* We can't process more than 4G keys per crypt() */
+	while (gws_limit * mask_int_cand.num_int_cand > 0xffffffffUL)
+		gws_limit >>= 1;
+#endif
+
 	assert(gws_limit > PADDING);
 	assert(!(gws_limit & (gws_limit - 1)));
 
@@ -573,7 +580,7 @@ static void auto_tune_all(long double kernel_run_ms, void (*set_key)(char *, int
 	if (lws_tune_flag)
 		save_lws_config(CONFIG_FILE, gpu_id, local_work_size, 0);
 
-	if (options.verbosity > VERB_DEFAULT)
+	if (options.verbosity > VERB_LEGACY)
 	fprintf(stdout, "GWS: "Zu", LWS: "Zu"\n",
 		global_work_size, local_work_size);
 }

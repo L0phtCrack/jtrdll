@@ -8,7 +8,7 @@
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  *
  *  Functions and data which is common among the phpass-md5 crackers
- *  (CPU, OpenCL and Cuda)
+ *  (CPU, OpenCL)
  */
 
 
@@ -18,8 +18,14 @@
 #define PHPASS_CPU_PLAINTEXT_LENGTH    39
 #define PHPASS_CIPHERTEXT_LENGTH       34
 #define PHPASS_BINARY_SIZE             16
-#define PHPASS_SALT_ALIGN              1
+#define PHPASS_SALT_ALIGN              4
 #define PHPASS_BINARY_ALIGN            4
+#define FORMAT_TAG                     "$P$"
+#define FORMAT_TAG_LEN                (sizeof(FORMAT_TAG)-1)
+#define FORMAT_TAG2                    "$H$"
+#define FORMAT_TAG3                    "$dynamic_17$"
+#define FORMAT_TAG3_LEN               (sizeof(FORMAT_TAG3)-1)
+
 
 extern int phpass_common_valid(char *ciphertext, struct fmt_main *self);
 extern void *phpass_common_binary(char *ciphertext);

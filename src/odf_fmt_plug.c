@@ -37,6 +37,8 @@ john_register_one(&fmt_odf);
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"ODF"
+#define FORMAT_TAG		"$odf$*"
+#define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
 #define FORMAT_NAME		""
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME		"SHA1/SHA256 " SHA1_ALGORITHM_NAME " BF/AES"
@@ -48,7 +50,7 @@ john_register_one(&fmt_odf);
 #define BINARY_SIZE		20
 #define PLAINTEXT_LENGTH	125
 #define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN		sizeof(ARCH_WORD_32)
+#define BINARY_ALIGN		sizeof(uint32_t)
 #define SALT_ALIGN			sizeof(int)
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
@@ -73,7 +75,7 @@ static struct fmt_tests odf_tests[] = {
 static int omp_t = 1;
 #endif
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
-static ARCH_WORD_32 (*crypt_out)[32 / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[32 / sizeof(uint32_t)];
 
 static struct custom_salt {
 	int cipher_type;
@@ -113,15 +115,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy;
 	char *keeptr;
 	char *p;
-	int res;
-	if (strncmp(ciphertext, "$odf$*", 6))
+	int res, extra;
+
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 6;
+	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* cipher type */
 		goto err;
 	if (strlen(p) != 1)
@@ -147,7 +147,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* checksum field (skipped) */
 		goto err;
-	res = hexlenl(p);
+	res = hexlenl(p, &extra);
+	if (extra)
+		goto err;
 	if (res != BINARY_SIZE * 2 && res != 64) // 2 hash types.
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv length */
@@ -157,7 +159,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
-	if (hexlenl(p) != res * 2)
+	if (hexlenl(p, &extra) != res * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt length */
 		goto err;
@@ -168,7 +170,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 		goto err;
-	if (hexlenl(p) != res * 2)
+	if (hexlenl(p, &extra) != res * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* something */
 		goto err;
@@ -196,7 +198,7 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 6;	/* skip over "$odf$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$odf$*" */
 	p = strtokm(ctcopy, "*");
 	cs.cipher_type = atoi(p);
 	p = strtokm(NULL, "*");
@@ -242,7 +244,7 @@ static void *get_binary(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 
-	ctcopy += 6;	/* skip over "$odf$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$odf$*" */
 	strtokm(ctcopy, "*");
 	strtokm(NULL, "*");
 	strtokm(NULL, "*");
@@ -258,14 +260,6 @@ static void *get_binary(char *ciphertext)
 	MEM_FREE(keeptr);
 	return out;
 }
-
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 
 static void set_salt(void *salt)
 {
@@ -431,6 +425,7 @@ struct fmt_main fmt_odf = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		odf_tests
 	}, {
 		init,
@@ -446,13 +441,7 @@ struct fmt_main fmt_odf = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -462,13 +451,7 @@ struct fmt_main fmt_odf = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

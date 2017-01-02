@@ -53,13 +53,15 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"VNC"
 #define FORMAT_NAME		""
+#define FORMAT_TAG           "$vnc$*"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"DES 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	0
 #define PLAINTEXT_LENGTH	8
 #define BINARY_SIZE		16
 #define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(ARCH_WORD_32)
+#define BINARY_ALIGN	sizeof(uint32_t)
 #define SALT_ALIGN		1
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
@@ -129,7 +131,7 @@ static struct custom_salt {
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static unsigned char (*des_key)[PLAINTEXT_LENGTH];
-static ARCH_WORD_32 (*crypt_out)[BINARY_SIZE / sizeof(ARCH_WORD_32)];
+static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 
@@ -157,21 +159,22 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ptr, *ctcopy, *keeptr;
+	int extra;
 
-	if (strncmp(ciphertext, "$vnc$*", 6))
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
 	if (!(ctcopy = strdup(ciphertext)))
 		return 0;
 	keeptr = ctcopy;
-	ctcopy += 6;	/* skip leading $vnc$* */
+	ctcopy += FORMAT_TAG_LEN;	/* skip leading $vnc$* */
 
 	if (!(ptr = strtokm(ctcopy, "*")))
 		goto error;
-	if (hexlenu(ptr) != 32)
+	if (hexlenu(ptr, &extra) != 32 || extra)
 		goto error;
 	if (!(ptr = strtokm(NULL, "*")))
 		goto error;
-	if (hexlenu(ptr) != 32)
+	if (hexlenu(ptr, &extra) != 32 || extra)
 		goto error;
 	MEM_FREE(keeptr);
 	return 1;
@@ -187,7 +190,7 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	char *ctcopy = strdup(ciphertext);
 	char *p, *keeptr = ctcopy;
-	ctcopy += 6;	/* skip over "$vnc$*" */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$vnc$*" */
 	p = strtokm(ctcopy, "*");
 	for (i = 0; i < 16; i++)
 		cs.challenge[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
@@ -314,6 +317,7 @@ struct fmt_main fmt_vnc = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_TRUNC | FMT_OMP | FMT_OMP_BAD,
 		{ NULL },
+		{ FORMAT_TAG },
 		vnc_tests
 	}, {
 		init,

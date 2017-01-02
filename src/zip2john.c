@@ -275,6 +275,7 @@ static void process_file(const char *fname)
 cleanup:
 	if (cur)
 		printf ("%s\n",cur);
+	MEM_FREE(cur);
 	fclose(fp);
 }
 
@@ -284,12 +285,13 @@ cleanup:
  */
 typedef struct _zip_ptr
 {
-	uint16_t      magic_type, cmptype;
+	char         *hash_data;
 	uint32_t      offset, offex, crc, cmp_len, decomp_len;
+	uint16_t      magic_type, cmptype;
 	char          chksum[5];
 	char          chksum2[5];
-	char         *hash_data;
 } zip_ptr;
+
 typedef struct _zip_file
 {
 	int unix_made;
@@ -315,6 +317,7 @@ static int magic_type(const char *filename) {
 			return MagicToEnum[i];
 	return 0;
 }
+
 static char *toHex(unsigned char *p, int len) {
 	static char *Buf;
 	static size_t BufSz = 4096;
@@ -328,6 +331,7 @@ static char *toHex(unsigned char *p, int len) {
 		cp += sprintf(cp, "%02x", p[i]);
 	return Buf;
 }
+
 static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fname)
 {
 	uint16_t version,flags,lastmod_time,lastmod_date,filename_length,extrafield_length;
@@ -346,6 +350,7 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 	p->decomp_len = fget32LE(fp);
 	filename_length = fget16LE(fp);
 	extrafield_length = fget16LE(fp);
+	p->hash_data = NULL;
 	/* unused variables */
 	(void) lastmod_date;
 
@@ -359,9 +364,47 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 
 	p->offex = 30 + filename_length + extrafield_length;
 
+	// If bit 3 of flags is set, we need to find CRC and sizes AFTER file data
+	// (because archive was created in a non-seekable stream) which means we're
+	// in a hen-and-egg situation since we don't know the size... I think the
+	// below is enough but there may be edge cases where we need to also
+	// recognize some other kind of end-of-whatever and seek back 12 bytes.
+	if (flags & (1 << 3)) {
+		long saved_pos = ftell(fp);
+
+		// Find data descriptor 0x08074b50UL or next local header 0x04034b50UL
+		while (!feof(fp)) {
+			if (fgetc(fp) == 0x50) {
+				if (fgetc(fp) == 0x4b) {
+					if (fgetc(fp) == 0x07) {
+						if (fgetc(fp) == 0x08) {
+							p->crc = fget32LE(fp);
+							p->cmp_len= fget32LE(fp);
+							p->decomp_len = fget32LE(fp);
+							//puts("FOUND desc");
+							break;
+						}
+					}
+					else if (fgetc(fp) == 0x03) {
+						if (fgetc(fp) == 0x04) {
+							fseek(fp, -12, SEEK_CUR);
+							p->crc = fget32LE(fp);
+							p->cmp_len= fget32LE(fp);
+							p->decomp_len = fget32LE(fp);
+							//puts("FOUND lcl");
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		fseek(fp, saved_pos, SEEK_SET);
+	}
+
 	// we only handle implode or store.
 	// 0x314 was seen at 2012 CMIYC ?? I have to look into that one.
-	fprintf(stderr, "ver %0x  ", version);
+	fprintf(stderr, "ver %d.%d ", version / 10, version % 10);
 	if ( !(only_fname && strcmp(only_fname, (char*)filename)) && (version == 0x14||version==0xA||version == 0x314) && (flags & 1)) {
 		uint16_t extra_len_used = 0;
 		if (flags & 8) {
@@ -370,7 +413,7 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 				uint16_t efh_datasize = fget16LE(fp);
 				extra_len_used += 4 + efh_datasize;
 				fseek(fp, efh_datasize, SEEK_CUR);
-				fprintf(stderr, "efh %04x  ", efh_id);
+				fprintf(stderr, "efh %04x ", efh_id);
 				//http://svn.assembla.com/svn/os2utils/unzip60f/proginfo/extrafld.txt
 				//http://emerge.hg.sourceforge.net/hgweb/emerge/emerge/diff/c2f208617d32/Source/unzip/proginfo/extrafld.txt
 				if (efh_id == 0x07c8 ||  // Info-ZIP Macintosh (old, J. Lee)
@@ -402,19 +445,20 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 			"%s->%s PKZIP Encr:%s%s cmplen=%d, decmplen=%d, crc=%X\n",
 			jtr_basename(zip_fname), filename, zfp->check_bytes==2?" 2b chk,":"", zfp->check_in_crc?"":" TS_chk,", p->cmp_len, p->decomp_len, p->crc);
 
-		p->hash_data = mem_alloc_tiny(p->cmp_len+1, MEM_ALIGN_WORD);
+		MEM_FREE(p->hash_data);
+		p->hash_data = mem_alloc(p->cmp_len + 1);
 		if (fread(p->hash_data, 1, p->cmp_len, fp) != p->cmp_len) {
 			fprintf(stderr, "Error, fread could not read the data from the file:  %s\n", zip_fname);
 			return 0;
 		}
 
 		// Ok, now set checksum bytes.  This will depend upon if from crc, or from timestamp
-			sprintf (p->chksum, "%02x%02x", (p->crc>>24)&0xFF, (p->crc>>16)&0xFF);
+		sprintf (p->chksum, "%02x%02x", (p->crc>>24)&0xFF, (p->crc>>16)&0xFF);
 		sprintf (p->chksum2, "%02x%02x", lastmod_time>>8, lastmod_time&0xFF);
 
 		return 1;
-
 	}
+
 	fprintf(stderr, "%s->%s is not encrypted, or stored with non-handled compression type\n", zip_fname, filename);
 	fseek(fp, extrafield_length, SEEK_CUR);
 	fseek(fp, p->cmp_len, SEEK_CUR);
@@ -425,12 +469,12 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 static void process_old_zip(const char *fname)
 {
 	FILE *fp;
-
 	int count_of_hashes = 0;
 	zip_ptr hashes[3], curzip;
 	zip_file zfp;
-
 	char path[LARGE_ENOUGH];
+
+	memset(hashes, 0, sizeof(hashes));
 
 	zfp.check_in_crc = 1;
 	zfp.check_bytes = 1;
@@ -474,18 +518,22 @@ static void process_old_zip(const char *fname)
 							// the size.
 							if (hashes[1].magic_type == 0) {
 								if (hashes[2].cmp_len < curzip.cmp_len) {
+									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &(hashes[2]), sizeof(curzip));
 									memcpy(&(hashes[2]), &curzip, sizeof(curzip));
 									done=1;
 								} else {
+									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &curzip, sizeof(curzip));
 									done=1;
 								}
 							} else if (hashes[2].magic_type == 0) {
 								if (hashes[1].cmp_len < curzip.cmp_len) {
+									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &curzip, sizeof(curzip));
 									done=1;
 								} else {
+									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
 									memcpy(&(hashes[1]), &curzip, sizeof(curzip));
 									done=1;
@@ -494,19 +542,23 @@ static void process_old_zip(const char *fname)
 						}
 						if (!done && curzip.cmp_len < hashes[0].cmp_len) {
 							// we 'only' replace the smallest zip, and always keep as many any other magic as possible.
-							if (hashes[0].magic_type == 0)
+							if (hashes[0].magic_type == 0) {
+								MEM_FREE(hashes[0].hash_data);
 								memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-							else {
+							} else {
 								// Ok, the 1st is a magic, we WILL keep it.
 								if (hashes[1].magic_type) {  // Ok, we found our 2
+									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
 									memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 									memcpy(&(hashes[0]), &curzip, sizeof(curzip));
 								} else if (hashes[2].magic_type) {  // Ok, we found our 2
+									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 									memcpy(&(hashes[0]), &curzip, sizeof(curzip));
 								} else {
 									// found none.  So we will simply roll them down (like when #1 was a magic also).
+									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
 									memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 									memcpy(&(hashes[0]), &curzip, sizeof(curzip));
@@ -547,6 +599,9 @@ print_and_cleanup:;
 			printf("%x*%s*%s*%s*", hashes[0].cmp_len, hashes[0].chksum, hashes[0].chksum2, toHex((unsigned char*)hashes[0].hash_data, hashes[0].cmp_len));
 		}
 		printf("$/pkzip2$:::::%s\n", fname);
+
+		for (i = 0; i < count_of_hashes; ++i)
+			MEM_FREE(hashes[i].hash_data);
 	}
 	fclose(fp);
 }
@@ -576,7 +631,7 @@ int zip2john(int argc, char **argv)
 	int c;
 
 	/* Parse command line */
-	while ((c = getopt(argc, argv, "a:o:cn2")) != -1) {
+	while ((c = getopt(argc, argv, "a:o:cm2")) != -1) {
 		switch (c) {
 		case 'a':
 			ascii_fname = optarg;

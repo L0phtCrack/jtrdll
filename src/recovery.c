@@ -55,6 +55,7 @@
 #include "status.h"
 #include "recovery.h"
 #include "external.h"
+#include "regex.h"
 #include "john.h"
 #include "mask.h"
 #include "unicode.h"
@@ -302,7 +303,7 @@ void rec_save(void)
 #endif
 	opt = rec_argv;
 	while (*++opt) {
-		if (!memcmp(*opt, "--internal-encoding", 19))
+		if (!strncmp(*opt, "--internal-encoding", 19))
 			memcpy(*opt, "--internal-codepage", 19);
 #ifdef HAVE_MPI
 		if (!strncmp(*opt, "--fork", 6))
@@ -637,14 +638,6 @@ void rec_restore_mode(int (*restore_mode)(FILE *file))
 
 	if (options.flags & FLG_MASK_STACKED)
 	if (mask_restore_state(rec_file)) rec_format_error("fscanf");
-/*
- * Unlocking the file explicitly is normally not necessary since we're about to
- * close it anyway (which would normally release the lock).  However, when
- * we're the main process running with --fork, our newborn children may hold a
- * copy of the fd for a moment (until they close the fd themselves).  Thus, if
- * we don't explicitly remove the lock, there may be a race condition between
- * our children closing the fd and us proceeding to re-open and re-lock it.
- */
 
 	/* we may be pointed at appended hybrid records.  If so, then process them */
 	fgetl(buf, sizeof(buf), rec_file);
@@ -653,18 +646,26 @@ void rec_restore_mode(int (*restore_mode)(FILE *file))
 			if (ext_restore_state_hybrid(buf, rec_file))
 				rec_format_error("external-hybrid");
 		}
-		/*
+#if HAVE_REXGEN
 		else if (!strncmp(buf, "rex-v", 5)) {
 			if (rexgen_restore_state_hybrid(buf, rec_file))
 				rec_format_error("rexgen-hybrid");
 		}
-		*/
+#endif
 		if (!strcmp(buf, "slt-v1")) {
 			restore_salt_state();
 		}
 		fgetl(buf, sizeof(buf), rec_file);
 	}
 
+/*
+ * Unlocking the file explicitly is normally not necessary since we're about to
+ * close it anyway (which would normally release the lock).  However, when
+ * we're the main process running with --fork, our newborn children may hold a
+ * copy of the fd for a moment (until they close the fd themselves).  Thus, if
+ * we don't explicitly remove the lock, there may be a race condition between
+ * our children closing the fd and us proceeding to re-open and re-lock it.
+ */
 	rec_unlock();
 
 	if (fclose(rec_file)) pexit("fclose");

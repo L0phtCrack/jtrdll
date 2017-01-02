@@ -46,6 +46,8 @@ static int omp_t = 1;
 
 #define FORMAT_LABEL		"Bitcoin"
 #define FORMAT_NAME		""
+#define FORMAT_TAG           "$bitcoin$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 
 #ifdef SIMD_COEF_64
 #define ALGORITHM_NAME		"SHA512 AES " SHA512_ALGORITHM_NAME
@@ -142,11 +144,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *keeptr;
 	char *p = NULL;
 	int res;
-	if (strncmp(ciphertext, "$bitcoin$", 9))
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
+
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 9;
+	ctcopy += FORMAT_TAG_LEN;
 
 	if ((p = strtokm(ctcopy, "$")) == NULL) /* cry_master_length (of the hex string) */
 		goto err;
@@ -213,7 +216,7 @@ static void *get_salt(char *ciphertext)
 	char *keeptr = ctcopy;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 9;
+	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "$");
 	cs.cry_master_length = atoi(p) / 2;
 	p = strtokm(NULL, "$");
@@ -272,8 +275,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		int i;
 
 #ifdef SIMD_COEF_64
-		char unaligned_buf[MAX_KEYS_PER_CRYPT*SHA_BUF_SIZ*sizeof(ARCH_WORD_64)+MEM_ALIGN_SIMD];
-		ARCH_WORD_64 *key_iv = (ARCH_WORD_64*)mem_align(unaligned_buf, MEM_ALIGN_SIMD);
+		char unaligned_buf[MAX_KEYS_PER_CRYPT*SHA_BUF_SIZ*sizeof(uint64_t)+MEM_ALIGN_SIMD];
+		uint64_t *key_iv = (uint64_t*)mem_align(unaligned_buf, MEM_ALIGN_SIMD);
 		JTR_ALIGN(8)  unsigned char hash1[SHA512_DIGEST_LENGTH];            // 512 bits
 		int index2;
 
@@ -285,7 +288,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA512_Final(hash1, &sha_ctx);
 
 			// Now copy and convert hash1 from flat into SIMD_COEF_64 buffers.
-			for (i = 0; i < SHA512_DIGEST_LENGTH/sizeof(ARCH_WORD_64); ++i) {
+			for (i = 0; i < SHA512_DIGEST_LENGTH/sizeof(uint64_t); ++i) {
 #if COMMON_DIGEST_FOR_OPENSSL
 				key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64] = sha_ctx.hash[i];  // this is in BE format
 #else
@@ -298,8 +301,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			// out the rest of the buffer, putting 512 (#bits) at the end.  Once this part of the buffer is set up, we never
 			// touch it again, for the rest of the crypt.  We simply overwrite the first half of this buffer, over and over
 			// again, with BE results of the prior hash.
-			key_iv[ SHA512_DIGEST_LENGTH/sizeof(ARCH_WORD_64) * SIMD_COEF_64 + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64 ] = 0x8000000000000000ULL;
-			for (i = (SHA512_DIGEST_LENGTH/sizeof(ARCH_WORD_64)+1); i < 15; i++)
+			key_iv[ SHA512_DIGEST_LENGTH/sizeof(uint64_t) * SIMD_COEF_64 + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64 ] = 0x8000000000000000ULL;
+			for (i = (SHA512_DIGEST_LENGTH/sizeof(uint64_t)+1); i < 15; i++)
 				key_iv[i*SIMD_COEF_64 + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64] = 0;
 			key_iv[15*SIMD_COEF_64 + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64] = (SHA512_DIGEST_LENGTH << 3);
 		}
@@ -313,10 +316,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			unsigned char iv[16];
 
 			// Copy and convert from SIMD_COEF_64 buffers back into flat buffers, in little-endian
-			for (i = 0; i < sizeof(key)/sizeof(ARCH_WORD_64); i++)  // the derived key
-				((ARCH_WORD_64 *)key)[i] = JOHNSWAP64(key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
-			for (i = 0; i < sizeof(iv)/sizeof(ARCH_WORD_64); i++)   // the derived iv
-				((ARCH_WORD_64 *)iv)[i]  = JOHNSWAP64(key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(ARCH_WORD_64) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
+			for (i = 0; i < sizeof(key)/sizeof(uint64_t); i++)  // the derived key
+				((uint64_t *)key)[i] = JOHNSWAP64(key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
+			for (i = 0; i < sizeof(iv)/sizeof(uint64_t); i++)   // the derived iv
+				((uint64_t *)iv)[i]  = JOHNSWAP64(key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(uint64_t) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
 
 			AES_set_decrypt_key(key, 256, &aes_key);
 			AES_cbc_encrypt(cur_salt->cry_master, output, cur_salt->cry_master_length, &aes_key, iv, AES_DECRYPT);
@@ -414,6 +417,7 @@ struct fmt_main fmt_bitcoin = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		bitcoin_tests
 	}, {
 		init,

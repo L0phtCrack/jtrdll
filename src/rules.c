@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-99,2003,2005,2009,2010,2015 by Solar Designer
+ * Copyright (c) 1996-99,2003,2005,2009,2010,2015,2016 by Solar Designer
  *
  * With heavy changes in Jumbo, by JimF and magnum
  */
@@ -103,6 +103,9 @@ static struct {
 	char *classes[0x100];
 } CC_CACHE_ALIGN rules_data;
 
+/* A null string that is safe to read past (for eg. ASan) */
+static char safe_null_string[RULE_BUFFER_SIZE];
+
 #define rules_pass rules_data.pass
 #define rules_classes rules_data.classes
 #define rules_vars rules_data.vars
@@ -178,7 +181,7 @@ static char *conv_tolower, *conv_toupper;
 
 #define CLASS_export_pos(start, true, false) { \
 	char value, *class; \
-	if ((value = RULE) == '?' && !hc_logic) { \
+	if (((value = RULE) == '?') && !hc_logic) { \
 		if (!(class = rules_classes[ARCH_INDEX(RULE)])) \
 			goto out_ERROR_CLASS; \
 		for (pos = (start); ARCH_INDEX(in[pos]); pos++) \
@@ -1162,7 +1165,7 @@ char *rules_reject(char *rule, int split, char *last, struct db_main *db)
 {
 	static char out_rule[RULE_BUFFER_SIZE];
 
-	if (hc_logic && !strncmp(rule, "!! hashcat logic", 13))
+	if (hc_logic && !strncmp(rule, "!! hashcat logic", 16))
 		return NULL;
 
 	while (RULE)
@@ -1213,8 +1216,7 @@ char *rules_reject(char *rule, int split, char *last, struct db_main *db)
 				rules_errno = RULES_ERROR_END;
 				return NULL;
 			}
-			if (!minlength ||
-			    (rules_vars[ARCH_INDEX(RULE)] >= minlength))
+			if (rules_vars[ARCH_INDEX(RULE)] >= minlength)
 				continue;
 			return NULL;
 
@@ -1232,79 +1234,6 @@ char *rules_reject(char *rule, int split, char *last, struct db_main *db)
 			if (options.internal_cp != UTF_8) continue;
 			return NULL;
 
-/*
- * This inner case was added to handle things like this, which ARE seen in the
- * wild:
- * -[:c] other_rule_stuff    This case will chew up the -[.....] items,
- * handling them in proper method, just like stand alone -c -:, etc
- */
-		case '[':
-		do {
-			switch (*rule) {
-			case ':':
-				continue;
-
-			case 'c':
-				if (!db) continue;
-				if (db->format->params.flags & FMT_CASE)
-					continue;
-				return NULL;
-
-			case '8':
-				if (!db) continue;
-				if (db->format->params.flags & FMT_8_BIT)
-					continue;
-				return NULL;
-
-			case 's':
-				if (!db) continue;
-				if (db->options->flags & DB_SPLIT) continue;
-				return NULL;
-
-			case 'p':
-				if (split >= 0) continue;
-				return NULL;
-
-			case '>':
-				if (!db && RULE) continue;
-				if (!NEXT) {
-					rules_errno = RULES_ERROR_END;
-					return NULL;
-				}
-				if (rules_vars[ARCH_INDEX(RULE)] <=
-				    rules_max_length)
-					continue;
-				return NULL;
-
-			case '\0':
-				rules_errno = RULES_ERROR_END;
-				return NULL;
-
-			case 'u':
-				if (!db) continue;
-				if (options.internal_cp == UTF_8)
-					continue;
-				return NULL;
-
-			case 'U':
-				if (!db) continue;
-				if (options.internal_cp != UTF_8)
-					continue;
-				return NULL;
-
-			case ']':
-// skip the ']', since we are not dropping down to the while clause.
-				++rule;
-				goto EndPP;
-
-			default:
-				rules_errno = RULES_ERROR_REJECT;
-				return NULL;
-			}
-		} while (RULE);
-		EndPP:
-		continue;
-
 		default:
 			rules_errno = RULES_ERROR_REJECT;
 			return NULL;
@@ -1317,7 +1246,7 @@ char *rules_reject(char *rule, int split, char *last, struct db_main *db)
 accept:
 	rules_pass--;
 	strnzcpy(out_rule, rule - 1, sizeof(out_rule));
-	rules_apply("", out_rule, split, last);
+	rules_apply(safe_null_string, out_rule, split, last);
 	rules_pass++;
 
 	return out_rule;
@@ -1331,7 +1260,8 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 	int length;
 	int which;
 
-	if (options.internal_cp != UTF_8 && options.target_enc == UTF_8)
+	if (!(options.flags & FLG_SINGLE_CHK) &&
+	    options.internal_cp != UTF_8 && options.target_enc == UTF_8)
 		memory = word = utf8_to_cp_r(word_in, cpword,
 		                             PLAINTEXT_BUFFER_SIZE);
 	else
@@ -1342,7 +1272,7 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 		in = buffer[2];
 
 	length = 0;
-	while (length < RULE_WORD_SIZE - 1) {
+	while (length < RULE_WORD_SIZE) {
 		if (!(in[length] = word[length]))
 			break;
 		length++;
@@ -1371,7 +1301,8 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 	which = 0;
 
 	while (RULE) {
-		in[RULE_WORD_SIZE - 1] = 0;
+		if (length >= RULE_WORD_SIZE)
+			in[length = RULE_WORD_SIZE - 1] = 0;
 
 		switch (LAST) {
 /* Crack 4.1 rules */
@@ -2021,7 +1952,7 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 				/* HC rule: increment character */
 				unsigned char x;
 				POSITION(x)
-				if (x  <length)
+				if (x < length)
 					++in[x];
 			} else {
 			switch (which) {

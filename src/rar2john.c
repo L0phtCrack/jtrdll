@@ -179,12 +179,10 @@ static void process_file(const char *archive_name)
 	char *gecos, *best = NULL;
 	int best_len = 0, gecos_len = 0;
 
-	/* We misuse PATH_BUFFER_SIZE as a sane maximum for this */
-	gecos = mem_calloc(1, PATH_BUFFER_SIZE);
+	gecos = mem_calloc(1, LINE_BUFFER_SIZE);
 
 	strnzcpy(path, archive_name, sizeof(path));
 	base_aname = basename(path);
-	gecos[0] = 0;
 	errno = 0;
 
 	if (!(fp = fopen(archive_name, "rb"))) {
@@ -211,6 +209,8 @@ static void process_file(const char *archive_name)
 					found = 1;
 					break;
 				}
+				if (feof(fp)) //We shold examine the EOF before seek back
+					break;
 				jtr_fseek64(fp, -6, SEEK_CUR);
 			}
 			if (!found) {
@@ -318,10 +318,11 @@ next_file_header:
 	} else {
 		size_t file_header_pack_size = 0, file_header_unp_size = 0;
 		int ext_time_size;
+		uint64_t bytes_left;
 		uint16_t file_header_head_size, file_name_size;
 		unsigned char file_name[256], file_crc[4];
 		unsigned char salt[8] = { 0 };
-		char rejbuf[32];
+		unsigned char rejbuf[32];
 		char *p;
 		unsigned char s;
 
@@ -332,60 +333,89 @@ next_file_header:
 
 		file_header_head_size =
 		    file_header_block[6] << 8 | file_header_block[5];
-		file_header_pack_size = file_header_block[7] +
-			(file_header_block[8] << 8) +
-			(file_header_block[9] << 16) +
-			(file_header_block[10] << 24);
-		file_header_unp_size = file_header_block[11] +
-			(file_header_block[12] << 8) +
-			(file_header_block[13] << 16) +
-			(file_header_block[14] << 24);
+
+		/* low 32 bits.  If header_flags & 0x100 set, then there are additional
+		   32 bits of length data later in the header. FIXME! */
+		file_header_pack_size = file_header_block[10];
+		file_header_pack_size <<= 8; file_header_pack_size += file_header_block[9];
+		file_header_pack_size <<= 8; file_header_pack_size += file_header_block[8];
+		file_header_pack_size <<= 8; file_header_pack_size += file_header_block[7];
+
+		file_header_unp_size = file_header_block[14];
+		file_header_unp_size <<= 8; file_header_unp_size += file_header_block[13];
+		file_header_unp_size <<= 8; file_header_unp_size += file_header_block[12];
+		file_header_unp_size <<= 8; file_header_unp_size += file_header_block[11];
+
 		if (verbose) {
 			fprintf(stderr,
 			        "! HEAD_SIZE: %d, PACK_SIZE: "LLu", UNP_SIZE: "LLu"\n",
 			        file_header_head_size,
 			        (unsigned long long)file_header_pack_size,
 			        (unsigned long long)file_header_unp_size);
+			fprintf(stderr, "! file_header_block:\n!  ");
+			for (i = 0; i < 32; ++i)
+				fprintf(stderr, " %02x", file_header_block[i]);
+			fprintf(stderr, "\n");
 		}
 		/* calculate EXT_TIME size */
 		ext_time_size = file_header_head_size - 32;
 
 		if (file_header_head_flags & 0x100) {
-			if (verbose) {
-				fprintf(stderr, "! HIGH_PACK_SIZE present\n");
-			}
+			uint64_t ex;
 			if (fread(rejbuf, 4, 1, fp) != 1) {
-				fprintf(stderr, "%s: Error: read failed: %s.\n",
+				fprintf(stderr, "\n! %s: Error: read failed: %s.\n",
 					archive_name, strerror(errno));
 				goto err;
 			}
-
-			ext_time_size -= 4;
-		}
-		if (file_header_head_flags & 0x100) {
 			if (verbose) {
+				fprintf(stderr, "!  ");
+				for (i = 0; i < 4; ++i)
+					fprintf(stderr, " %02x", rejbuf[i]);
+			}
+			ex = rejbuf[3];
+			ex <<= 8; ex += rejbuf[2];
+			ex <<= 8; ex += rejbuf[1];
+			ex <<= 8; ex += rejbuf[0];
+			ex <<= 32;
+			file_header_pack_size += ex;
+			ext_time_size -= 4;
+
+			if (fread(rejbuf, 4, 1, fp) != 1) {
+				fprintf(stderr, "\n! %s: Error: read failed: %s.\n",
+					archive_name, strerror(errno));
+				goto err;
+			}
+			if (verbose) {
+				for (i = 0; i < 4; ++i)
+					fprintf(stderr, " %02x", rejbuf[i]);
+				fprintf(stderr, "   (High Pack/Unp extra header data)\n");
+			}
+			ex = rejbuf[3];
+			ex <<= 8; ex += rejbuf[2];
+			ex <<= 8; ex += rejbuf[1];
+			ex <<= 8; ex += rejbuf[0];
+			ex <<= 32;
+			file_header_unp_size += ex;
+			ext_time_size -= 4;
+			if (verbose) {
+				/* note, we should warn (or bail) if sizeof(size_t) < 8) FIXME! */
+				fprintf(stderr, "! HIGH_PACK_SIZE present\n");
 				fprintf(stderr, "! HIGH_UNP_SIZE present\n");
 			}
-			if (fread(rejbuf, 4, 1, fp) != 1) {
-				fprintf(stderr, "%s: Error: read failed: %s.\n",
-					archive_name, strerror(errno));
-				goto err;
-			}
-
-			ext_time_size -= 4;
-		}
+		} else
+			fprintf(stderr, "\n");
 		/* file name processing */
 		file_name_size =
 		    file_header_block[27] << 8 | file_header_block[26];
 		if (verbose) {
-			fprintf(stderr, "file name size: %d bytes\n", file_name_size);
+			fprintf(stderr, "! file name size: %d bytes\n", file_name_size);
 		}
 		memset(file_name, 0, sizeof(file_name));
 
 		if (!check_fread(sizeof(file_name), file_name_size, 1))
 			goto err;
 		if (fread(file_name, file_name_size, 1, fp) != 1) {
-			fprintf(stderr, "%s: Error: read failed: %s.\n",
+			fprintf(stderr, "! %s: Error: read failed: %s.\n",
 				archive_name, strerror(errno));
 			goto err;
 		}
@@ -400,33 +430,34 @@ next_file_header:
 			int Length = strlen((char*)file_name);
 
 			if (verbose) {
-				dump_stuff_msg("Encoded filenames", file_name, file_name_size);
+				dump_stuff_msg("! Encoded filenames", file_name, file_name_size);
 			}
 			DecodeFileName(file_name, file_name + Length + 1,
 			               file_name_size, FileNameW, 256);
 
 			if (*FileNameW) {
 				if (verbose) {
-					dump_stuff_msg("UTF16 filename", FileNameW,
+					dump_stuff_msg("! UTF16 filename", FileNameW,
 					               strlen16(FileNameW) << 1);
 					fprintf(stderr, "OEM name:  %s\n", file_name);
 				}
 				utf16_to_utf8_r(file_name, 256, FileNameW);
-				fprintf(stderr, "Unicode:   %s\n", file_name);
+				fprintf(stderr, "! Unicode:   %s\n", file_name);
 			} else
-				fprintf(stderr, "UTF8 name: %s\n", file_name);
+				fprintf(stderr, "! UTF8 name: %s\n", file_name);
 		}
         else
-			fprintf(stderr, "file name: %s\n", file_name);
+			fprintf(stderr, "! file name: %s\n", file_name);
 
-		/* We duplicate file name to the GECOS field, for single mode */
-		gecos_len += snprintf(&gecos[gecos_len], PATH_BUFFER_SIZE - 1, "%s ", (char*)file_name);
+		/* We duplicate file names to the GECOS field, for single mode */
+		if (gecos_len + strlen((char*)file_name) < LINE_BUFFER_SIZE)
+			gecos_len += snprintf(&gecos[gecos_len], LINE_BUFFER_SIZE - gecos_len - 1, "%s ", (char*)file_name);
 
 		/* salt processing */
 		if (file_header_head_flags & 0x400) {
 			ext_time_size -= 8;
 			if (fread(salt, 8, 1, fp) != 1) {
-				fprintf(stderr, "%s: Error: read failed: %s.\n",
+				fprintf(stderr, "! %s: Error: read failed: %s.\n",
 					archive_name, strerror(errno));
 				goto err;
 			}
@@ -444,7 +475,7 @@ next_file_header:
 				goto err;
 
 			if (fread(rejbuf, ext_time_size, 1, fp) != 1) {
-				fprintf(stderr, "%s: Error: read failed: %s.\n",
+				fprintf(stderr, "! %s: Error: read failed: %s.\n",
 					archive_name, strerror(errno));
 				goto err;
 			}
@@ -486,7 +517,7 @@ next_file_header:
 		bestsize = file_header_unp_size;
 
 		MEM_FREE(best);
-		best = mem_calloc(1, LINE_BUFFER_SIZE + 2 * file_header_pack_size);
+		best = mem_calloc(1, 2 * LINE_BUFFER_SIZE + 2 * file_header_pack_size);
 
 		/* process encrypted data of size "file_header_pack_size" */
 		best_len = sprintf(best, "%s:$RAR3$*%d*", base_aname, type);
@@ -494,7 +525,7 @@ next_file_header:
 			best_len += sprintf(&best[best_len], "%c%c", itoa16[ARCH_INDEX(salt[i] >> 4)], itoa16[ARCH_INDEX(salt[i] & 0x0f)]);
 		}
 		if (verbose) {
-			fprintf(stderr, "salt: '%s'\n", best);
+			fprintf(stderr, "! salt: '%s'\n", best);
 		}
 		best_len += sprintf(&best[best_len], "*");
 		memcpy(file_crc, file_header_block + 16, 4);
@@ -528,11 +559,20 @@ next_file_header:
 
 		best_len += sprintf(&best[best_len], "1*");
 		p = &best[best_len];
+		bytes_left = file_header_pack_size;
 		for (i = 0; i < file_header_pack_size; i++) {
-			if (fread(&s, 1, 1, fp) != 1)
-				fprintf(stderr, "Error while reading archive: %s\n", strerror(errno));
-			*p++ = itoa16[s >> 4];
-			*p++ = itoa16[s & 0xf];
+			unsigned char bytes[64*1024];
+			unsigned x, to_read = 64*1024;
+			if (bytes_left < 64*1024)
+				to_read = bytes_left;
+			bytes_left -= to_read;
+			if (fread(bytes, 1, to_read, fp) != to_read)
+				fprintf(stderr, "! Error while reading archive: %s\n", strerror(errno));
+			for (x = 0; x < to_read; ++x) {
+				s = bytes[x];
+				*p++ = itoa16[s >> 4];
+				*p++ = itoa16[s & 0xf];
+			}
 		}
 		best_len += file_header_pack_size;
 		best_len += sprintf(p, "*%c%c:%d::", itoa16[file_header_block[25]>>4], itoa16[file_header_block[25]&0xf], type);
@@ -543,12 +583,12 @@ next_file_header:
 BailOut:
 		if (best && *best) {
 			if (verbose) {
-				fprintf(stderr, "Found a valid -p mode candidate in %s\n", base_aname);
+				fprintf(stderr, "! Found a valid -p mode candidate in %s\n", base_aname);
 			}
 			strncat(best, gecos, LINE_BUFFER_SIZE - best_len - 1);
 			puts(best);
 		} else
-			fprintf(stderr, "Did not find a valid encrypted candidate in %s\n", base_aname);
+			fprintf(stderr, "! Did not find a valid encrypted candidate in %s\n", base_aname);
 	}
 
 err:
@@ -661,9 +701,9 @@ static int ProcessExtra50(FILE *fp, uint64_t extra_size, uint64_t HeadSize, uint
                 if (!read_buf(fp, PswCheck, SIZE_PSWCHECK, &bytes_read)) return 0;
                 printf ("%s:$rar5$%d$%s$%d$%s$%d$%s\n",
                     archive_name,
-                    SIZE_SALT50, base64_convert_cp(rar5_salt,e_b64_raw,SIZE_SALT50,Hex1,e_b64_hex,sizeof(Hex1),0),
-                    Lg2Count, base64_convert_cp(InitV,e_b64_raw,SIZE_INITV,Hex2,e_b64_hex,sizeof(Hex2),0),
-                    SIZE_PSWCHECK, base64_convert_cp(PswCheck,e_b64_raw,SIZE_PSWCHECK,Hex3,e_b64_hex,sizeof(Hex3),0));
+                    SIZE_SALT50, base64_convert_cp(rar5_salt,e_b64_raw,SIZE_SALT50,Hex1,e_b64_hex,sizeof(Hex1),0, 0),
+                    Lg2Count, base64_convert_cp(InitV,e_b64_raw,SIZE_INITV,Hex2,e_b64_hex,sizeof(Hex2),0, 0),
+                    SIZE_PSWCHECK, base64_convert_cp(PswCheck,e_b64_raw,SIZE_PSWCHECK,Hex3,e_b64_hex,sizeof(Hex3),0, 0));
                 return 0;
             }
         }
@@ -692,9 +732,9 @@ static size_t read_rar5_header(FILE *fp, size_t CurBlockPos, uint8_t *HeaderType
         }
         printf ("%s:$rar5$%d$%s$%d$%s$%d$%s\n",
             archive_name,
-            SIZE_SALT50, base64_convert_cp(rar5_salt,e_b64_raw,SIZE_SALT50,Hex1,e_b64_hex,sizeof(Hex1),0),
-            rar5_interations, base64_convert_cp(HeadersInitV,e_b64_raw,SIZE_INITV,Hex2,e_b64_hex,sizeof(Hex2),0),
-            SIZE_PSWCHECK, base64_convert_cp(PswCheck,e_b64_raw,SIZE_PSWCHECK,Hex3,e_b64_hex,sizeof(Hex3),0));
+            SIZE_SALT50, base64_convert_cp(rar5_salt,e_b64_raw,SIZE_SALT50,Hex1,e_b64_hex,sizeof(Hex1),0, 0),
+            rar5_interations, base64_convert_cp(HeadersInitV,e_b64_raw,SIZE_INITV,Hex2,e_b64_hex,sizeof(Hex2),0, 0),
+            SIZE_PSWCHECK, base64_convert_cp(PswCheck,e_b64_raw,SIZE_PSWCHECK,Hex3,e_b64_hex,sizeof(Hex3),0, 0));
         return 0;
     }
 	if (!read_uint32(fp, &head_crc, &header_bytes_read)) return 0;
@@ -799,6 +839,8 @@ static int process_file5(const char *archive_name) {
 					found = 1;
 					break;
 				}
+				if (feof(fp)) //We shold examine the EOF before seek back
+					break;
 				jtr_fseek64(fp, -7, SEEK_CUR);
 			}
             if (!found)

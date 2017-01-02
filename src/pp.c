@@ -33,6 +33,9 @@
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
 #define __USE_MINGW_ANSI_STDIO 1
+#ifdef __SIZEOF_INT128__
+#define HAVE___INT128 1
+#endif
 #endif
 
 #if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
@@ -144,6 +147,8 @@ int prince_elem_cnt_max;
 int prince_wl_max;
 char *prince_skip_str;
 char *prince_limit_str;
+
+extern int rpp_real_run; /* set to 1 when we really get into prince mode */
 
 static char *mem_map, *map_pos, *map_end;
 #if HAVE_REXGEN
@@ -1272,6 +1277,11 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   if (!(wordlist = cfg_get_param(SECTION_OPTIONS, NULL, "Wordlist")))
     wordlist = options.wordlist = WORDLIST_NAME;
 
+	if (rec_restored && john_main_process)
+    fprintf(stderr, "Proceeding with prince%c%s\n",
+            loopback ? '-' : ':',
+            loopback ? "loopback" : path_expand(wordlist));
+
   log_event("- Wordlist file: %.100s", path_expand(wordlist));
   log_event("- Will generate candidates of length %d - %d", pw_min, pw_max);
   log_event("- Using chains with %d - %d elements.", elem_cnt_min,
@@ -1304,6 +1314,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
     list_init(&rule_list);
 
+    rpp_real_run = 1;
     if ((prerule = rpp_next(&ctx)))
     do {
       char *rule;
@@ -1313,7 +1324,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
         list_add(rule_list, rule);
         active_rules++;
 
-        if (options.verbosity > VERB_DEFAULT)
+        if (options.verbosity >= VERB_LEGACY)
         {
           if (strcmp(prerule, rule))
             log_event("- Rule #%d: '%.100s' accepted as '%.100s'",
@@ -1323,7 +1334,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
                       rule_number + 1, prerule);
         }
       } else {
-        if (options.verbosity > VERB_DEFAULT)
+        if (options.verbosity >= VERB_LEGACY)
           log_event("- Rule #%d: '%.100s' rejected",
                     rule_number + 1, prerule);
       }
@@ -1518,7 +1529,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
     while (((1 << hash_log) < size) && hash_log < 27)
       hash_log++;
 
-    if (john_main_process && options.verbosity < VERB_MAX)
+    if (john_main_process && options.verbosity <= VERB_DEFAULT)
       log_event("- Suppressing dupes");
 
     int in_max = MIN(IN_LEN_MAX, pw_max);

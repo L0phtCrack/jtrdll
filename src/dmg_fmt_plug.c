@@ -92,6 +92,8 @@ extern volatile int bench_running;
 
 #define FORMAT_LABEL        "dmg"
 #define FORMAT_NAME         "Apple DMG"
+#define FORMAT_TAG           "$dmg$"
+#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME      "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME " 3DES/AES"
 #else
@@ -251,16 +253,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *ctcopy, *keeptr;
 	char *p;
 	int headerver;
-	int res;
+	int res, extra;
 
-	if (strncmp(ciphertext, "$dmg$", 5) != 0)
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
-	/* handle 'chopped' .pot lines */
-	if (ldr_isa_pot_source(ciphertext))
-		return 1;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += 5;	/* skip over "$dmg$" marker */
+	ctcopy += FORMAT_TAG_LEN;	/* skip over "$dmg$" marker */
 	if ((p = strtokm(ctcopy, "*")) == NULL)
 		goto err;
 	headerver = atoi(p);
@@ -274,7 +273,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* ivlen */
 			goto err;
@@ -285,7 +284,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* encrypted_keyblob_size */
 			goto err;
@@ -296,7 +295,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* encrypted keyblob */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* chunk number */
 			goto err;
@@ -307,7 +306,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		res = atoi(p);
 		if ((p = strtokm(NULL, "*")) == NULL)	/* chunk */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if (res > 8192)
 			goto err;
@@ -334,7 +333,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* salt */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* len_wrapped_aes_key */
 			goto err;
@@ -345,7 +344,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* wrapped_aes_key  */
 			goto err;
-		if (hexlenl(p) / 2 != res)
+		if (hexlenl(p, &extra) / 2 != res || extra)
 			goto err;
 		if ((p = strtokm(NULL, "*")) == NULL)	/* len_hmac_sha1_key */
 			goto err;
@@ -378,7 +377,7 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 
 	memset(&cs, 0, sizeof(cs));
-	ctcopy += 5;
+	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "*");
 	cs.headerver = atoi(p);
 	if (cs.headerver == 2) {
@@ -495,13 +494,13 @@ static void hash_plugin_check_hash(int index)
 		int lens[SSE_GROUP_SZ_SHA1], i;
 		unsigned char *pin[SSE_GROUP_SZ_SHA1];
 		union {
-			ARCH_WORD_32 *pout[SSE_GROUP_SZ_SHA1];
+			uint32_t *pout[SSE_GROUP_SZ_SHA1];
 			unsigned char *poutc;
 		} x;
 		for (i = 0; i < SSE_GROUP_SZ_SHA1; ++i) {
 			lens[i] = strlen(saved_key[index+i]);
 			pin[i] = (unsigned char*)saved_key[index+i];
-			x.pout[i] = (ARCH_WORD_32*)(Derived_key[i]);
+			x.pout[i] = (uint32_t*)(Derived_key[i]);
 		}
 		pbkdf2_sha1_sse((const unsigned char **)pin, lens, cur_salt->salt, 20,
 			cur_salt->iterations, &(x.poutc), 32, 0);
@@ -540,13 +539,13 @@ static void hash_plugin_check_hash(int index)
 		int lens[SSE_GROUP_SZ_SHA1], i;
 		unsigned char *pin[SSE_GROUP_SZ_SHA1];
 		union {
-			ARCH_WORD_32 *pout[SSE_GROUP_SZ_SHA1];
+			uint32_t *pout[SSE_GROUP_SZ_SHA1];
 			unsigned char *poutc;
 		} x;
 		for (i = 0; i < SSE_GROUP_SZ_SHA1; ++i) {
 			lens[i] = strlen(saved_key[index+i]);
 			pin[i] = (unsigned char*)saved_key[index+i];
-			x.pout[i] = (ARCH_WORD_32*)(Derived_key[i]);
+			x.pout[i] = (uint32_t*)(Derived_key[i]);
 		}
 		pbkdf2_sha1_sse((const unsigned char **)pin, lens, cur_salt->salt, 20,
 			cur_salt->iterations, &(x.poutc), 32, 0);
@@ -805,6 +804,7 @@ struct fmt_main fmt_dmg = {
 		{
 			"iteration count",
 		},
+		{ FORMAT_TAG },
 		dmg_tests
 	}, {
 		init,
@@ -820,7 +820,7 @@ struct fmt_main fmt_dmg = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash
+			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -830,7 +830,7 @@ struct fmt_main fmt_dmg = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash
+			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
 		},
 		cmp_all,
 		cmp_one,

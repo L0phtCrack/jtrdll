@@ -41,6 +41,7 @@ john_register_one(&fmt_asaMD5);
 
 static struct fmt_tests tests[] = {
 	{"$dynamic_20$h3mJrcH0901pqX/m$alex","ripper"},
+	{"$dynamic_20$ICzzhPWXScHWElEK$e","ripper"},
 	{"$dynamic_20$3USUcOPFUiMCO4Jk$cisc","cisco"},
 	{"$dynamic_20$lZt7HSIXw3.QP7.R$admc","CscFw-ITC!"},
 	{"$dynamic_20$hN7LzeyYjw12FSIU$john","cisco"},
@@ -123,6 +124,7 @@ struct fmt_main fmt_asaMD5 = {
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
 		0, 12, BINARY_SIZE, BINARY_ALIGN, SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_DYNAMIC,
+		{ NULL },
 		{ NULL },
 		tests
 	},

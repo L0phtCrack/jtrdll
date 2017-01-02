@@ -38,6 +38,8 @@ static int valid(char *ciphertext, struct fmt_main *self) {
 		goto Exit;
 	ct = strtokm(&ct[1], "@");
 	// Only allow @m @s or @S signatures.
+	if (!ct || *ct == '\0')
+		goto Exit;
 	if (*ct == 'm') len = 32;
 	else if (*ct == 's') len = 64;
 	else if (*ct == 'S') len = 128;
@@ -49,10 +51,12 @@ static int valid(char *ciphertext, struct fmt_main *self) {
 		if (ct[1] != ',' || !isdec(&ct[2]))
 			goto Exit;
 	}
-	ct = strtokm(NULL, "@");
+	if (!(ct = strtokm(NULL, "@")))
+		goto Exit;
 	if (!ishexlc(ct) || strlen(ct) != len)
 		goto Exit;
-	ct = strtokm(NULL, "@");
+	if (!(ct = strtokm(NULL, "")))
+		goto Exit;
 	if (!ishexlc(ct) || strlen(ct) > SALT_LENGTH)
 		goto Exit;
 	ret = 1;
@@ -62,11 +66,11 @@ Exit:;
 }
 
 static void *get_binary(char *ciphertext) {
-	static ARCH_WORD_32 outbuf[BINARY_SIZE/4];
+	static uint32_t outbuf[BINARY_SIZE/4];
 	unsigned char *out = (unsigned char*)outbuf;
 	memset(outbuf, 0, sizeof(outbuf));
 	ciphertext = strchr(&ciphertext[1], '@') + 1;
-	base64_convert(ciphertext, e_b64_hex, strchr(ciphertext, '@')-ciphertext, out, e_b64_raw, BINARY_SIZE, 0);
+	base64_convert(ciphertext, e_b64_hex, strchr(ciphertext, '@')-ciphertext, out, e_b64_raw, BINARY_SIZE, 0, 0);
 	return (void *)outbuf;
 }
 

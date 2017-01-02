@@ -178,7 +178,7 @@ static inline uint32_t __attribute__((const)) rotateleft(uint32_t value, uint8_t
 {
 	register uint32_t result;
 #if (__MINGW32__ || __MINGW64__) && __STRICT_ANSI__
-	result = _rotl(value, count); //((value<<count)|((ARCH_WORD_32)value>>(32-count)));
+	result = _rotl(value, count); //((value<<count)|((uint32_t)value>>(32-count)));
 #elif __i386__ || __x86_64__
 	asm("rol    %%cl, %0"
 	    : "=r" (result)
@@ -825,6 +825,7 @@ struct fmt_main fmt_sha1_ng = {
 #endif
 		                      FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
 		.tunable_cost_name  = { NULL },
+		.signature          = { FORMAT_TAG, FORMAT_TAG_OLD },
 		.tests              = rawsha1_common_tests,
 	},
 	.methods                = {

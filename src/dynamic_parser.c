@@ -255,6 +255,7 @@ static Dynamic_Predicate_t Dynamic_Predicate[] =  {
 	{ "DynamicFunc__ToSSE", DynamicFunc__ToSSE },
 	{ "DynamicFunc__ToX86", DynamicFunc__ToX86 },
 	{ "DynamicFunc__setmode_unicode", DynamicFunc__setmode_unicode },
+	{ "DynamicFunc__setmode_unicodeBE", DynamicFunc__setmode_unicodeBE },
 	{ "DynamicFunc__setmode_normal", DynamicFunc__setmode_normal },
 	{ "DynamicFunc__base16_convert_locase", DynamicFunc__base16_convert_locase },
 	{ "DynamicFunc__base16_convert_upcase", DynamicFunc__base16_convert_upcase },
@@ -416,6 +417,7 @@ static Dynamic_Str_Flag_t Dynamic_Str_Flag[] =  {
 	{ "MGF_PASSWORD_UPCASE",              MGF_PASSWORD_UPCASE },
 	{ "MGF_PASSWORD_LOCASE",              MGF_PASSWORD_LOCASE },
 	{ "MGF_FULL_CLEAN_REQUIRED",          MGF_FULL_CLEAN_REQUIRED },
+	{ "MGF_FULL_CLEAN_REQUIRED2",         MGF_FULL_CLEAN_REQUIRED2 },
 	{ NULL, 0 }};
 
 #define SALT_AS_HEX_FLAG2(HASH) \
@@ -589,7 +591,8 @@ int dynamic_LOAD_PARSER_FUNCTIONS_LoadLINE(struct cfg_line *_line)
 				static char Buf[1024];
 				pSetup->pPreloads[nPreloadCnt].ciphertext = Thin_Convert(Buf, pSetup->pPreloads[nPreloadCnt].ciphertext, 1);
 		}
-		if (!strncmp(pSetup->pPreloads[nPreloadCnt].ciphertext, "$dynamic_6xxx$", 14)) {
+		if (pSetup->pPreloads[nPreloadCnt].ciphertext &&
+		    !strncmp(pSetup->pPreloads[nPreloadCnt].ciphertext, "$dynamic_6xxx$", 14)) {
 			memmove(pSetup->pPreloads[nPreloadCnt].ciphertext, SetupName, strlen(SetupName));
 		}
 		if (!pSetup->pPreloads[nPreloadCnt].ciphertext ||

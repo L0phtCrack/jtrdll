@@ -306,7 +306,7 @@ static char *status_get_ETA(double percent, unsigned int secs_done)
 return s_ETA;
 }
 
-#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if defined(HAVE_OPENCL)
 static void status_print_cracking(double percent, char *gpustat)
 #else
 static void status_print_cracking(double percent)
@@ -392,7 +392,7 @@ static void status_print_cracking(double percent)
 			p += n;
 	}
 
-#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if defined(HAVE_OPENCL)
 	n = sprintf(p, "%.31sC/s%s%s%.200s%s%.200s\n",
 	    status_get_cps(s_combs_ps, &status.combs, status.combs_ehi),
 	    gpustat,
@@ -432,7 +432,7 @@ static void status_print_stdout(double percent)
 void status_print(void)
 {
 	double percent_value;
-#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if defined(HAVE_OPENCL)
 	char s_gpu[64 * MAX_GPU_DEVICES] = "";
 
 	if (!(options.flags & FLG_STDOUT) &&
@@ -451,7 +451,7 @@ void status_print(void)
 				dev_get_temp[dev](temp_dev_id[dev],
 				                  &temp, &fan, &util, &cl, &ml);
 				if (temp >= 0 &&
-				    (options.verbosity > VERB_DEFAULT ||
+				    (options.verbosity > VERB_LEGACY ||
 				    cfg_get_bool(SECTION_OPTIONS,
 				                 SUBSECTION_GPU,
 				                 "TempStatus", 1))) {
@@ -467,14 +467,14 @@ void status_print(void)
 						             gpu_degree_sign);
 				}
 				if (util > 0 &&
-				    (options.verbosity > VERB_DEFAULT ||
+				    (options.verbosity > VERB_LEGACY ||
 				    cfg_get_bool(SECTION_OPTIONS,
 				                 SUBSECTION_GPU,
 				                 "UtilStatus", 0)))
 					n += sprintf(s_gpu + n,
 					             " util:%u%%", util);
 				if (fan >= 0 &&
-				    (options.verbosity > VERB_DEFAULT ||
+				    (options.verbosity > VERB_LEGACY ||
 				    cfg_get_bool(SECTION_OPTIONS,
 				                 SUBSECTION_GPU,
 				                 "FanStatus", 0)))
@@ -495,7 +495,7 @@ void status_print(void)
 	if (options.flags & FLG_STDOUT)
 		status_print_stdout(percent_value);
 	else
-#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+#if defined(HAVE_OPENCL)
 		status_print_cracking(percent_value, s_gpu);
 #else
 		status_print_cracking(percent_value);

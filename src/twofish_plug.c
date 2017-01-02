@@ -1812,3 +1812,45 @@ int Twofish_Decrypt(Twofish_key *m_key, Byte *pInput, Byte *pOutBuffer, int nInp
 
 	return 16*numBlocks - padLen;
 }
+
+int Twofish_Decrypt_cfb128(Twofish_key *m_key, Twofish_Byte *pInput, Twofish_Byte *pOutBuffer, int nInputOctets, Twofish_Byte *m_pInitVector)
+{
+	int i, numBlocks, ex;
+	UInt32 iv[4];
+	union {
+		Byte block[16];
+		UInt32 p32[4];	// needed for 'requires aligned' machines
+	} x;
+	UInt32 *p;
+	Byte *block;
+
+	p = x.p32;
+	block = x.block;
+	if((pInput == NULL) || (nInputOctets <= 0) || (pOutBuffer == NULL)) return 0;
+
+	numBlocks = nInputOctets / 16;
+	ex = nInputOctets % 16;
+
+	memcpy(iv, m_pInitVector, 16);
+
+	for(i = numBlocks; i > 0; i--)
+	{
+		Twofish_encrypt(m_key, (Twofish_Byte *)iv, (Twofish_Byte *)block);
+		memcpy(iv, pInput, 16);
+		p[0] ^= iv[0];
+		p[1] ^= iv[1];
+		p[2] ^= iv[2];
+		p[3] ^= iv[3];
+		memcpy(pOutBuffer, block, 16);
+		pInput += 16;
+		pOutBuffer += 16;
+	}
+	/* less than full block for last block. Only put in that many bytes */
+	if (ex) {
+		Twofish_encrypt(m_key, (Twofish_Byte *)iv, (Twofish_Byte *)block);
+		for (i = 0; i < ex; ++i)
+			pOutBuffer[i] = pInput[i] ^ block[i];
+	}
+
+	return nInputOctets;
+}
