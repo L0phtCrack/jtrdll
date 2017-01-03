@@ -508,7 +508,6 @@ SET(jtrdll_run_RUNTIME_FILES
 	"dynamic_flat_sse_formats.conf"
 	"fuzz.dic"
 	"hybrid.conf"
-	"hybrid_new.inc.conf"
 	"john.conf"
 	"korelogic.conf"
 	"lanman.chr"

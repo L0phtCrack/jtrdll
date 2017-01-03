@@ -1841,10 +1841,10 @@ void opencl_find_best_gws(int step, unsigned long long int max_run_time,
 			min_time = run_time;
 
 		if (options.verbosity > VERB_LEGACY)
-			fprintf(stderr, "gws: %9"Zu"\t%10s%12"LLu" "
-			        "rounds/s%10s per crypt_all()",
-			        num, human_speed(raw_speed), speed, ns2string(run_time));
-
+			fprintf(stderr, "gws: "Zu_N(9)"\t%10s"LLu_N(12)" "
+				"rounds/s%10s per crypt_all()",
+				num, human_speed(raw_speed), speed, ns2string(run_time));
+		
 		if (best_speed && speed < 1.8 * best_speed &&
 		        max_run_time && run_time > max_run_time) {
 			if (!optimal_gws)

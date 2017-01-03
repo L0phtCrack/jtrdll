@@ -363,19 +363,31 @@ extern int setenv(const char *name, const char *val, int overwrite);
 #define LLu "%I64u"
 #define LLd "%I64d"
 #define LLx "%I64x"
+#define LLu_N(x) "%" #x "I64u"
+#define LLd_N(x) "%" #x "I64d"
+#define LLx_N(x) "%" #x "I64x"
 #ifdef WIN64
 #define Zu  "%I64u"
 #define Zd  "%I64d"
+#define Zu_N(x)  "%" #x "I64u"
+#define Zd_N(x)  "%" #x "I64d"
 #else
 #define Zu  "%u"
 #define Zd  "%d"
+#define Zu_N(x)  "%" #x "u"
+#define Zd_N(x)  "%" #x "d"
 #endif
 #else
 #define LLu "%llu"
 #define LLd "%lld"
 #define LLx "%llx"
+#define LLu_N(x) "%" #x "llu"
+#define LLd_N(x) "%" #x "lld"
+#define LLx_N(x) "%" #x "llx"
 #define Zu  "%zu"
 #define Zd  "%zd"
+#define Zu_N(x)  "%" #x "zu"
+#define Zd_N(x)  "%" #x "zd"
 #endif
 
 //#if (AC_BUILT && !HAVE_STRREV) || (!AC_BUILT && !_MSC_VER)

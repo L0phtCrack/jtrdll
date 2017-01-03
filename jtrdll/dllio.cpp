@@ -945,7 +945,7 @@ extern "C"
 		{
 			return ret;
 		}
-		return chmod(_Filename, _AccessMode);
+		return _chmod(_Filename, _AccessMode);
 #else
 		return chmod(_Filename, _AccessMode);
 #endif
