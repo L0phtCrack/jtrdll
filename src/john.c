@@ -1903,8 +1903,6 @@ int main(int argc, char **argv)
 		name = argv[0];
 #endif
 
-#ifndef JTRDLL
-
 #if defined(__CYGWIN__) || defined (__MINGW32__) || defined (_MSC_VER)
 	strlwr(name);
 	if (strlen(name) > 4 && !strcmp(name + strlen(name) - 4, ".exe"))
@@ -1931,8 +1929,10 @@ int main(int argc, char **argv)
 	/* put the crc table init here, so that tables are fully setup for any ancillary program */
 	CRC32_Init_tab();
 
-        /* Needed before CPU fallback */
+    /* Needed before CPU fallback */
 	path_init(argv);
+
+#ifndef JTRDLL
 
 	if (!strcmp(name, "unshadow")) {
 		CPU_detect_or_fallback(argv, 0);
