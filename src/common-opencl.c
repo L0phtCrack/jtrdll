@@ -430,9 +430,14 @@ static int get_if_device_is_in_use(int sequential_id)
 static void start_opencl_environment()
 {
 	cl_platform_id platform_list[MAX_PLATFORMS];
-	char opencl_data[LOG_SIZE];
+	char vendor[1024];
+	char name[1024];
+	char version[1024];
+	char vendor2[1024];
+	char name2[1024];
+	char version2[1024];
 	cl_uint num_platforms, device_num, device_pos = 0;
-	int i, ret;
+	int i, j, ret, duplicate;
 
 	/* Find OpenCL enabled devices. We ignore error here, in case
 	 * there is no platform and we'd like to run a non-OpenCL format. */
@@ -455,12 +460,44 @@ static void start_opencl_environment()
 
 	clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
 
-	for (i = 0; i < num_platforms; i++) {
+	for (i = 0; i < num_platforms; i++) 
+	{
+		duplicate = 0;
+
 		platforms[i].platform = platform_list[i];
 
-		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform,
-		                                 CL_PLATFORM_NAME, sizeof(opencl_data), opencl_data, NULL),
-		               "Error querying PLATFORM_NAME");
+		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_VENDOR, sizeof(vendor), vendor, NULL), "Error querying PLATFORM_VENDOR");
+		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_NAME, sizeof(name), name, NULL), "Error querying PLATFORM_NAME");
+		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_VERSION, sizeof(version), version, NULL), "Error querying PLATFORM_VERSION");
+
+		// It is possible to have duplicated platforms from buggy drivers
+		for (j = 0; j < i; j++)
+		{
+			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_VENDOR, sizeof(vendor2), vendor2, NULL), "Error querying PLATFORM_VENDOR");
+			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_NAME, sizeof(name2), name2, NULL), "Error querying PLATFORM_NAME");
+			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_VERSION, sizeof(version2), version2, NULL), "Error querying PLATFORM_VERSION");
+
+			if (strcmp(vendor, vendor2) == 0 && strcmp(name, name2) == 0 && strcmp(version, version2) == 0)
+			{
+				if ((i + 1) < num_platforms)
+				{
+					memmove(platform_list + i, platform_list + i + 1, sizeof(cl_platform)*(num_platforms - (i + 1)));
+				}
+				i--;
+				num_platforms--;
+
+				platforms[num_platforms].platform = NULL;
+				platforms[num_platforms].num_devices = 0;
+
+				duplicate = 1;
+				break;
+			}
+		}
+
+		if (duplicate)
+		{
+			continue;
+		}
 
 		// It is possible to have a platform without any devices
 		ret = clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
@@ -2598,6 +2635,7 @@ void opencl_list_devices(void)
 	if (!platforms[0].platform) {
 		fprintf(stderr, "Error: No OpenCL-capable devices were detected"
 		        " by the installed OpenCL driver.\n\n");
+		return;
 	}
 
 	if (get_number_of_available_devices() == 0) {
