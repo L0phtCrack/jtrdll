@@ -4,6 +4,7 @@
 #include<stdio.h>
 #ifdef _WIN32
 #include<windows.h>
+#include"process.h"
 #endif
 #include"cpuinformation.h"
 #include"jtrexe.h"
@@ -72,6 +73,9 @@ int main(int argc, char **argv)
 #ifdef JTREXE_USE_CRASHDUMP
 	JTREXE_INSTALL_CRASHDUMP();
 #endif
+
+	putenv("CUDA_CACHE_DISABLE=1");
+
 	CPUInformation cpu;
 	std::string jtrdllversion, force_jtrdllversion;
 	std::vector<char *> args;
