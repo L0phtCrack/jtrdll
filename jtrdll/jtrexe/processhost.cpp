@@ -544,7 +544,7 @@ int run_processhost(void)
 				std::getline(std::cin, line);
 				tp_jtrdll_abort->timeout = atoi(line.c_str());
 
-				create_command_thread(jtrdll_abort_thread, NULL);
+				create_command_thread(jtrdll_abort_thread, tp_jtrdll_abort);
 				writeStdOut("%u:aborted\n", cmdid);
 			}
 			else if (line == "jtrdll_get_status")
