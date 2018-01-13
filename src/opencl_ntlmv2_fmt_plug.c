@@ -23,6 +23,7 @@
  */
 
 #ifdef HAVE_OPENCL
+#undef FMT_STRUCT
 #define FMT_STRUCT fmt_opencl_NTLMv2
 
 #if FMT_EXTERNS_H

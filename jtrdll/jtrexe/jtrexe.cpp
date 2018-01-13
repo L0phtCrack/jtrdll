@@ -74,7 +74,11 @@ int main(int argc, char **argv)
 	JTREXE_INSTALL_CRASHDUMP();
 #endif
 
+#ifdef _WIN32
+	_putenv("CUDA_CACHE_DISABLE=1");
+#else
 	putenv("CUDA_CACHE_DISABLE=1");
+#endif
 
 	CPUInformation cpu;
 	std::string jtrdllversion, force_jtrdllversion;

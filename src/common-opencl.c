@@ -34,6 +34,12 @@
 #include <fcntl.h>
 #endif
 
+#ifdef JTRDLL
+#ifdef _WIN32
+#include<windows.h>
+#endif
+#endif
+
 // the 2 DJ_DOS builds currently set this (and do not build the header). If other environs
 // can not build the header, then they will also have this value set.
 #ifdef NO_JOHN_BLD
@@ -1107,7 +1113,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 
 #ifdef _MSC_VER
 	/* Hack to eliminate spaces in pathname, other platforms may want quoted string instead to keep spaces */
-	GetShortPathName(full_path, full_path, strlen(full_path));
+	GetShortPathNameA(full_path, full_path, strlen(full_path));
 #endif
 
 #else

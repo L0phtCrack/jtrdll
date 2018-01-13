@@ -646,7 +646,9 @@ void sig_init_late(void)
 #endif
 #endif
 
+#ifndef _WIN32
 	sig_install(sig_handle_update, SIGHUP);
+#endif
 	sig_install_timer();
 #ifdef JTRDLL
 #ifdef _WIN32

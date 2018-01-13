@@ -7,6 +7,7 @@
  */
 
 #ifdef HAVE_OPENCL
+#undef FMT_STRUCT
 #define FMT_STRUCT fmt_opencl_mysqlsha1
 
 #if FMT_EXTERNS_H

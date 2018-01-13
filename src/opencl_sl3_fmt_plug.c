@@ -13,6 +13,7 @@
  */
 
 #ifdef HAVE_OPENCL
+#undef FMT_STRUCT
 #define FMT_STRUCT fmt_opencl_sl3
 
 #if FMT_EXTERNS_H
@@ -23,7 +24,12 @@ john_register_one(&FMT_STRUCT);
 
 #include <string.h>
 #include <assert.h>
+#ifdef _WIN32
+#include <time.h>
+#include "gettimeofday.h"
+#else
 #include <sys/time.h>
+#endif
 
 #include "arch.h"
 #include "params.h"

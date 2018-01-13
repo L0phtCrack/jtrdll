@@ -23,6 +23,7 @@
  */
 
 #ifdef HAVE_OPENCL
+#undef FMT_STRUCT
 #define FMT_STRUCT fmt_opencl_krb5pa_md5
 
 #if FMT_EXTERNS_H

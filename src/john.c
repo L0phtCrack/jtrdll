@@ -1498,7 +1498,6 @@ static void john_init(char *name, int argc, char **argv)
 			cfg_init(CFG_PRIVATE_FULL_NAME, 1);
 #endif
 			cfg_init(CFG_FULL_NAME, 1);
-			cfg_init(CFG_ALT_NAME, 0);
 		}
 		else {
 #if JOHN_SYSTEMWIDE
@@ -2016,6 +2015,8 @@ int main(int argc, char **argv)
 		CPU_detect_or_fallback(argv, 0);
 		return base64conv(argc, argv);
 	}
+#endif
+
 	john_init(name, argc, argv);
 
 #ifdef JTRDLL

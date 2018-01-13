@@ -44,6 +44,10 @@
 #include "common-gpu.h"
 #include "memdbg.h"
 
+#ifdef JTRDLL
+#include "jtrdll.h"
+#endif
+
 struct status_main status;
 unsigned int status_restored_time = 0;
 static char* timeFmt = NULL;
@@ -459,74 +463,47 @@ void status_print(void)
 
 #ifdef JTRDLL
 
-unsigned long long to_ulonglong(int64 val)
-{
-	return (((unsigned long long)val.hi) << 32) | ((unsigned long long)val.lo);
-}
-
-
 int have_last_status = 0;
 struct status_main last_status;	
 clock_t last_status_clock=0;
 
-
-int64 sub64(int64 a, int64 b)
-{
-	int64 c;
-	c.hi=a.hi-b.hi;
-	c.lo=a.lo-b.lo;
-	if(c.lo>a.lo)
-	{
-		c.hi--;
-	}
-	return c;
-}
-
-unsigned long long jtrdll_get_per_second(int64 val, unsigned int c_ehi, clock_t ticks)
+uint64_t jtrdll_get_per_second(uint64_t c, unsigned int c_ehi, clock_t ticks)
 {
 	int use_ticks;
 	unsigned long time;
-	int64 cps;
+	uint64_t cps;
 
-	if (!val.lo && !val.hi && !c_ehi)
+	if (!c && !c_ehi)
 		return 0;
 
-	use_ticks = !(val.hi | c_ehi | status_restored_time);
+	use_ticks = (c <= 0xffffffffU && !c_ehi && !status_restored_time);
 
+	ticks = get_time() - status.start_time;
 	if (use_ticks)
 		time = ticks;
 	else
 		time = status_restored_time + ticks / clk_tck;
-	if (!time) 
-		time = 1;
+	if (!time) time = 1;
 
-	cps = val;
+	cps = c;
 	if (c_ehi)
-	{
-		cps.lo = cps.hi;
-		cps.hi = c_ehi;
-	}
+		cps = ((uint64_t)c_ehi << 32) | (c >> 32);
 	if (use_ticks)
-	{
-		mul64by32(&cps, clk_tck);
-	}
-	div64by32(&cps, time);
-	if (c_ehi) {
-		cps.hi = cps.lo;
-		cps.lo = 0;
-	}
+		cps *= clk_tck;
+	cps /= time;
+	if (c_ehi)
+		cps <<= 32;
 
-	return to_ulonglong(cps);
+	return cps;
 }
 
 extern int jtrdll_stage;
 
 JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 {
-	int64 guess_count;
-	int64 int64zero={0,0};
+	uint64_t guess_count;
 	clock_t ticks, the_time;
-	int64 combs;
+	uint64_t combs;
 	unsigned int combs_ehi;
 
 	/* stage */
@@ -557,30 +534,24 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	jtrdllstatus->guess_count = status.guess_count;
 
 	/* number of candidate passwords tried */
-	jtrdllstatus->candidates = to_ulonglong(status.cands);
+	jtrdllstatus->candidates = status.cands;
 
 	/* successful guesses per second */
-	guess_count.lo=status.guess_count-(have_last_status?last_status.guess_count:0);
-	guess_count.hi=0;
+	guess_count=status.guess_count-(have_last_status?last_status.guess_count:0);
 	jtrdllstatus->guesses_per_second = jtrdll_get_per_second(guess_count,0, ticks);
 
 	/* candidate passwords tried per second */
-	jtrdllstatus->candidates_per_second = jtrdll_get_per_second(sub64(status.cands,(have_last_status?last_status.cands:int64zero)), 0, ticks);
+	jtrdllstatus->candidates_per_second = jtrdll_get_per_second(status.cands-(have_last_status?last_status.cands:0), 0, ticks);
 
 	/* crypts per second */
-	jtrdllstatus->crypts_per_second = jtrdll_get_per_second(sub64(status.crypts,(have_last_status?last_status.crypts:int64zero)), 0, ticks);
+	jtrdllstatus->crypts_per_second = jtrdll_get_per_second(status.crypts-(have_last_status?last_status.crypts:0), 0, ticks);
 
 	/* combinations per second */
 	if(have_last_status)
 	{
-		combs.lo = status.combs.lo - last_status.combs.lo;
-		combs.hi = status.combs.hi - last_status.combs.hi;
+		combs = status.combs - last_status.combs;
 		combs_ehi = status.combs_ehi - last_status.combs_ehi;
-		if(combs.lo>status.combs.lo)
-		{
-			combs.hi--;
-		}
-		if(combs.hi>status.combs.hi)
+		if(combs > status.combs)
 		{
 			combs_ehi--;
 		}
@@ -595,7 +566,7 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	/* start and end word of current work */
 	jtrdllstatus->word1[0]=0;
 	jtrdllstatus->word2[0]=0;
-	if (status.crypts.lo | status.crypts.hi && jtrdll_stage==2)
+	if (status.crypts && jtrdll_stage==2)
 	{
 		char *key;
 		key = crk_get_key1();

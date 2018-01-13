@@ -120,6 +120,8 @@ FILE(GLOB jtrdll_HEADERS
     "../src/aes/openssl/*.h"
 #    "../src/aes/aesni/*.h"
     "../src/escrypt/*.h"
+    "../src/secp256k1/*.h"
+    "../src/lzma/*.h"
 #	"../src/ztex/*.h"
 )
 
@@ -131,6 +133,8 @@ FILE(GLOB jtrdll_SOURCES
 #    "../src/aes/aesni/*.c"
     "../src/escrypt/*.c"
 #	"../src/ztex/*.c"
+    "../src/secp256k1/*.c"
+    "../src/lzma/*.c"
     "*.cpp"
     "*.h"
 )
@@ -310,6 +314,7 @@ LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/stribog_fmt_plug
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/KeccakF-1600-reference32BI.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/stribog_fmt_plug.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ztex_descrypt.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ztex_bcrypt.c)
 
 # remove #included programs
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/haval_helper.c)
@@ -338,6 +343,9 @@ LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/raw2dyna.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/SIPdump.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/symlink.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/tgtsnarf.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ppc_cpuid.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/tests.c)
+
 
 # remove 2john programs
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/dmg2john.c)
@@ -362,6 +370,9 @@ LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/keystore2john
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/rar2john.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/kwallet2john.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ssh2john.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/eapmd5tojohn.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/bitlocker2john.c)
+
 
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/fuzz.c)
 
@@ -394,6 +405,7 @@ INCLUDE_DIRECTORIES( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_BINARY_DIR}
 SET(JTRDLL_DEFINITIONS 
 	-DAC_BUILT=1 
 	-DHAVE_OPENCL=1 
+	-DHAVE_CONFIG_H=1
 	-DJTRDLL=1 
 	${PLATFORM_DEFINITIONS} 
 )

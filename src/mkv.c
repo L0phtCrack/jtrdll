@@ -1,9 +1,9 @@
 /*
- * This software is Copyright (c) 2010 bartavelle, <bartavelle at bandecon.com>, and it is hereby released to the general public under the following terms:
- * Redistribution and use in source and binary forms, with or without modification, are permitted.
- *
- * Added --markov=MODE[:<options>] support and other minor adjustments, 2012, Frank Dittrich
- */
+* This software is Copyright (c) 2010 bartavelle, <bartavelle at bandecon.com>, and it is hereby released to the general public under the following terms:
+* Redistribution and use in source and binary forms, with or without modification, are permitted.
+*
+* Added --markov=MODE[:<options>] support and other minor adjustments, 2012, Frank Dittrich
+*/
 
 #include <stdio.h>
 #include <string.h>
@@ -61,9 +61,18 @@ static int restore_state(FILE *file)
 
 static void fix_state(void)
 {
-	tidx = gidx;
+	if (hybrid_tidx) {
+		tidx = hybrid_tidx;
+		hybrid_tidx = 0;
+	}
+	else
+		tidx = gidx;
 }
 
+void mkv_hybrid_fix_state(void)
+{
+	hybrid_tidx = gidx;
+}
 
 static int show_pwd_rnbs(struct db_main *db, struct s_pwd *pwd)
 {
@@ -75,18 +84,18 @@ static int show_pwd_rnbs(struct db_main *db, struct s_pwd *pwd)
 
 	k = 0;
 	i = nbparts[pwd->password[pwd->len - 1] + pwd->len * 256 +
-	            pwd->level * 256 * gmax_len];
+		pwd->level * 256 * gmax_len];
 	pwd->len++;
 	lvl = pwd->level;
 	pwd->password[pwd->len] = 0;
 	while (i > 1) {
 		pwd->password[pwd->len - 1] =
-		    charsorted[pwd->password[pwd->len - 2] * 256 + k];
+			charsorted[pwd->password[pwd->len - 2] * 256 + k];
 		pwd->level =
-		    lvl + proba2[pwd->password[pwd->len - 2] * 256 +
-		                 pwd->password[pwd->len - 1]];
+			lvl + proba2[pwd->password[pwd->len - 2] * 256 +
+			pwd->password[pwd->len - 1]];
 		i -= nbparts[pwd->password[pwd->len - 1] + pwd->len * 256 +
-		             pwd->level * 256 * gmax_len];
+			pwd->level * 256 * gmax_len];
 		if (pwd->len <= gmax_len) {
 			if (show_pwd_rnbs(db, pwd))
 				return 1;
@@ -96,26 +105,27 @@ static int show_pwd_rnbs(struct db_main *db, struct s_pwd *pwd)
 #if HAVE_REXGEN
 			if (regex) {
 				if (do_regex_hybrid_crack(db, regex, pass,
-				                          regex_case, regex_alpha))
+					regex_case, regex_alpha))
 					return 1;
-				fix_state();
-			} else
-#endif
-			if (f_new) {
-				if (do_external_hybrid_crack(db, pass))
-					return 1;
-				fix_state();
-			} else
-			if (options.mask) {
-				if (do_mask_crack(pass))
-					return 1;
-				fix_state();
+				mkv_hybrid_fix_state();
 			}
 			else
-			if (!f_filter ||
-			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
-				if (crk_process_key(pass))
-					return 1;
+#endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				}
+				else
+					if (options.mask) {
+						if (do_mask_crack(pass))
+							return 1;
+					}
+					else
+						if (!f_filter ||
+							ext_filter_body((char *)pwd->password, pass = pass_filtered))
+							if (crk_process_key(pass))
+								return 1;
 		}
 		gidx++;
 		k++;
@@ -139,51 +149,52 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 
 	k = 0;
 	i = nbparts[pwd->password[pwd->len - 1] + pwd->len * 256 +
-	            pwd->level * 256 * gmax_len];
+		pwd->level * 256 * gmax_len];
 	pwd->len++;
 	lvl = pwd->level;
 	if (bs) {
 		while ((curchar =
-		            charsorted[pwd->password[pwd->len - 2] * 256 + k]) !=
-		        pwd->password[pwd->len - 1]) {
+			charsorted[pwd->password[pwd->len - 2] * 256 + k]) !=
+			pwd->password[pwd->len - 1]) {
 			i -= nbparts[curchar + pwd->len * 256 + (pwd->level +
-			             proba2[pwd->password[pwd->len - 2] * 256 +
-			                    curchar]) * 256 * gmax_len];
+				proba2[pwd->password[pwd->len - 2] * 256 +
+				curchar]) * 256 * gmax_len];
 			k++;
 		}
 		pwd->level +=
-		    proba2[pwd->password[pwd->len - 2] * 256 + pwd->password[pwd->len -
-		            1]];
+			proba2[pwd->password[pwd->len - 2] * 256 + pwd->password[pwd->len -
+			1]];
 		if (pwd->password[pwd->len] != 0)
 			if (show_pwd_r(db, pwd, 1))
 				return 1;
 		i -= nbparts[pwd->password[pwd->len - 1] + pwd->len * 256 +
-		             pwd->level * 256 * gmax_len];
+			pwd->level * 256 * gmax_len];
 		if ((pwd->len >= gmin_len) && (pwd->level >= gmin_level)) {
 			pass = (char *)pwd->password;
 #if HAVE_REXGEN
 			if (regex) {
 				if (do_regex_hybrid_crack(db, regex, pass,
-				                          regex_case, regex_alpha))
+					regex_case, regex_alpha))
 					return 1;
-				fix_state();
-			} else
-#endif
-			if (f_new) {
-				if (do_external_hybrid_crack(db, pass))
-					return 1;
-				fix_state();
-			} else
-			if (options.mask) {
-				if (do_mask_crack(pass))
-					return 1;
-				fix_state();
+				mkv_hybrid_fix_state();
 			}
 			else
-			if (!f_filter ||
-			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
-				if (crk_process_key(pass))
-					return 1;
+#endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				}
+				else
+					if (options.mask) {
+						if (do_mask_crack(pass))
+							return 1;
+					}
+					else
+						if (!f_filter ||
+							ext_filter_body((char *)pwd->password, pass = pass_filtered))
+							if (crk_process_key(pass))
+								return 1;
 		}
 		gidx++;
 		k++;
@@ -191,12 +202,12 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 	pwd->password[pwd->len] = 0;
 	while (i > 1) {
 		pwd->password[pwd->len - 1] =
-		    charsorted[pwd->password[pwd->len - 2] * 256 + k];
+			charsorted[pwd->password[pwd->len - 2] * 256 + k];
 		pwd->level =
-		    lvl + proba2[pwd->password[pwd->len - 2] * 256 +
-		                 pwd->password[pwd->len - 1]];
+			lvl + proba2[pwd->password[pwd->len - 2] * 256 +
+			pwd->password[pwd->len - 1]];
 		i -= nbparts[pwd->password[pwd->len - 1] + pwd->len * 256 +
-		             pwd->level * 256 * gmax_len];
+			pwd->level * 256 * gmax_len];
 		if (pwd->len <= gmax_len) {
 			if (show_pwd_r(db, pwd, 0))
 				return 1;
@@ -206,26 +217,27 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 #if HAVE_REXGEN
 			if (regex) {
 				if (do_regex_hybrid_crack(db, regex, pass,
-				                          regex_case, regex_alpha))
+					regex_case, regex_alpha))
 					return 1;
-				fix_state();
-			} else
-#endif
-			if (f_new) {
-				if (do_external_hybrid_crack(db, pass))
-					return 1;
-				fix_state();
-			} else
-			if (options.mask) {
-				if (do_mask_crack(pass))
-					return 1;
-				fix_state();
+				mkv_hybrid_fix_state();
 			}
 			else
-			if (!f_filter ||
-			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
-				if (crk_process_key(pass))
-					return 1;
+#endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				}
+				else
+					if (options.mask) {
+						if (do_mask_crack(pass))
+							return 1;
+					}
+					else
+						if (!f_filter ||
+							ext_filter_body((char *)pwd->password, pass = pass_filtered))
+							if (crk_process_key(pass))
+								return 1;
 		}
 		gidx++;
 		k++;
@@ -264,26 +276,27 @@ static int show_pwd(struct db_main *db, uint64_t start)
 #if HAVE_REXGEN
 				if (regex) {
 					if (do_regex_hybrid_crack(db, regex, pass,
-					                          regex_case, regex_alpha))
+						regex_case, regex_alpha))
 						return 1;
-					fix_state();
-				} else
-#endif
-				if (f_new) {
-					if (do_external_hybrid_crack(db, pass))
-						return 1;
-					fix_state();
-				} else
-				if (options.mask) {
-					if (do_mask_crack(pass))
-						return 1;
-					fix_state();
+					mkv_hybrid_fix_state();
 				}
 				else
-				if (!f_filter ||
-				    ext_filter_body((char *)pwd.password, pass = pass_filtered))
-					if (crk_process_key(pass))
-						return 1;
+#endif
+					if (f_new) {
+						if (do_external_hybrid_crack(db, pass))
+							return 1;
+						mkv_hybrid_fix_state();
+					}
+					else
+						if (options.mask) {
+							if (do_mask_crack(pass))
+								return 1;
+						}
+						else
+							if (!f_filter ||
+								ext_filter_body((char *)pwd.password, pass = pass_filtered))
+								if (crk_process_key(pass))
+									return 1;
 			}
 		}
 		gidx++;
@@ -303,26 +316,27 @@ static int show_pwd(struct db_main *db, uint64_t start)
 #if HAVE_REXGEN
 			if (regex) {
 				if (do_regex_hybrid_crack(db, regex, pass,
-				                          regex_case, regex_alpha))
+					regex_case, regex_alpha))
 					return 1;
-				fix_state();
-			} else
-#endif
-			if (f_new) {
-				if (do_external_hybrid_crack(db, pass))
-					return 1;
-				fix_state();
-			} else
-			if (options.mask) {
-				if (do_mask_crack(pass))
-					return 1;
-				fix_state();
+				mkv_hybrid_fix_state();
 			}
 			else
-			if (!f_filter ||
-			    ext_filter_body((char *)pwd.password, pass = pass_filtered))
-				if (crk_process_key(pass))
-					return 1;
+#endif
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				}
+				else
+					if (options.mask) {
+						if (do_mask_crack(pass))
+							return 1;
+					}
+					else
+						if (!f_filter ||
+							ext_filter_body((char *)pwd.password, pass = pass_filtered))
+							if (crk_process_key(pass))
+								return 1;
 		}
 		gidx++;
 		i++;
@@ -348,10 +362,10 @@ static double get_progress(void)
 }
 
 void get_markov_options(struct db_main *db,
-                        char *mkv_param,
-                        unsigned int *mkv_minlevel, unsigned int *mkv_level,
-                        char **start_token, char **end_token,
-                        unsigned int *mkv_minlen, unsigned int *mkv_maxlen, char **statfile)
+	char *mkv_param,
+	unsigned int *mkv_minlevel, unsigned int *mkv_level,
+	char **start_token, char **end_token,
+	unsigned int *mkv_minlen, unsigned int *mkv_maxlen, char **statfile)
 {
 	char *mode = NULL;
 	char *lvl_token = NULL;
@@ -376,14 +390,14 @@ void get_markov_options(struct db_main *db,
 			++mkv_param;
 		lvl_token = strtokm(mkv_param, ":");
 		/*
-		 * If the first token contains anything else than digits
-		 * (for the Markov level) or '-' (for a level interval),
-		 * then treat it as a section name, and use the next token
-		 * as the Markov level (or level interval)
-		 */
+		* If the first token contains anything else than digits
+		* (for the Markov level) or '-' (for a level interval),
+		* then treat it as a section name, and use the next token
+		* as the Markov level (or level interval)
+		*/
 		for (i = 0; mode == NULL && lvl_token[i] != '\0'; i++) {
 			if ((lvl_token[i] < '0' || lvl_token[i] > '9') &&
-			        lvl_token[i] != '-') {
+				lvl_token[i] != '-') {
 				mode = lvl_token;
 				lvl_token = strtokm(NULL, ":");
 			}
@@ -397,8 +411,8 @@ void get_markov_options(struct db_main *db,
 		if (dummy_token) {
 			if (john_main_process)
 				fprintf(stderr,
-				        "Too many markov parameters specified:"
-				        " %s\n", dummy_token);
+				"Too many markov parameters specified:"
+				" %s\n", dummy_token);
 			error();
 		}
 	}
@@ -409,7 +423,7 @@ void get_markov_options(struct db_main *db,
 	if (cfg_get_section(SECTION_MARKOV, mode) == NULL) {
 		if (john_main_process)
 			fprintf(stderr,
-			        "Section [" SECTION_MARKOV "%s] not found\n", mode);
+			"Section [" SECTION_MARKOV "%s] not found\n", mode);
 		error();
 	}
 
@@ -422,8 +436,8 @@ void get_markov_options(struct db_main *db,
 		log_event("Statsfile not defined");
 		if (john_main_process)
 			fprintf(stderr,
-			        "Statsfile not defined in section ["
-			        SECTION_MARKOV "%s]\n", mode);
+			"Statsfile not defined in section ["
+			SECTION_MARKOV "%s]\n", mode);
 		error();
 	}
 	/* treat 'empty' level token same as NULL, i.e. pull in from config */
@@ -445,7 +459,7 @@ void get_markov_options(struct db_main *db,
 		}
 	}
 	if ((len_token != NULL) &&
-	        (sscanf(len_token, "%d-%d", &minlen, &maxlen) != 2)) {
+		(sscanf(len_token, "%d-%d", &minlen, &maxlen) != 2)) {
 		sscanf(len_token, "%d", &maxlen);
 		if (maxlen == 0)
 			/* get min. and max. length from markov section */
@@ -459,8 +473,8 @@ void get_markov_options(struct db_main *db,
 			log_event("no markov level defined!");
 			if (john_main_process)
 				fprintf(stderr,
-				        "no markov level defined in section ["
-				        SECTION_MARKOV "%s]\n", mode);
+				"no markov level defined in section ["
+				SECTION_MARKOV "%s]\n", mode);
 			error();
 		}
 
@@ -468,7 +482,7 @@ void get_markov_options(struct db_main *db,
 		log_event("! Level = %d is too large (max=%d)", level, MAX_MKV_LVL);
 		if (john_main_process)
 			fprintf(stderr, "Warning: Level = %d is too large "
-			        "(max = %d)\n", level, MAX_MKV_LVL);
+			"(max = %d)\n", level, MAX_MKV_LVL);
 		level = MAX_MKV_LVL;
 	}
 
@@ -479,13 +493,13 @@ void get_markov_options(struct db_main *db,
 	if (level < minlevel) {
 		if (john_main_process)
 			fprintf(stderr, "Warning: max level(%d) < min level(%d)"
-			        ", min level set to %d\n", level, minlevel, level);
+			", min level set to %d\n", level, minlevel, level);
 		minlevel = level;
 	}
 
 	/* Command-line --min-length and --max-length can over-ride lengths
-	   from config file. This may clash with the len_token stuff, or rather
-	   it will over-ride that too. */
+	from config file. This may clash with the len_token stuff, or rather
+	it will over-ride that too. */
 	if (options.req_minlength >= 0)
 		minlen = options.req_minlength;
 	if (options.req_maxlength)
@@ -496,10 +510,11 @@ void get_markov_options(struct db_main *db,
 			log_event("no markov max length defined!");
 			if (john_main_process)
 				fprintf(stderr,
-				        "no markov max length defined in "
-				        "section [" SECTION_MARKOV "%s]\n", mode);
+				"no markov max length defined in "
+				"section [" SECTION_MARKOV "%s]\n", mode);
 			error();
-		} else {
+		}
+		else {
 			maxlen -= mask_add_len;
 			if (mask_num_qw > 1)
 				maxlen /= mask_num_qw;
@@ -513,14 +528,15 @@ void get_markov_options(struct db_main *db,
 		log_event("! MaxLen = %d is too large for this hash type", maxlen);
 		if (john_main_process)
 			fprintf(stderr, "Warning: "
-			        "MaxLen = %d is too large for the current hash"
-			        " type, reduced to %d\n", maxlen, our_fmt_len);
+			"MaxLen = %d is too large for the current hash"
+			" type, reduced to %d\n", maxlen, our_fmt_len);
 		maxlen = our_fmt_len;
-	} else if (maxlen > MAX_MKV_LEN) {
+	}
+	else if (maxlen > MAX_MKV_LEN) {
 		log_event("! MaxLen = %d is too large (max=%d)", maxlen, MAX_MKV_LEN);
 		if (john_main_process)
 			fprintf(stderr, "Warning: Maxlen = %d is too large (max"
-			        " = %d)\n", maxlen, MAX_MKV_LEN);
+			" = %d)\n", maxlen, MAX_MKV_LEN);
 		maxlen = MAX_MKV_LEN;
 	}
 
@@ -537,8 +553,8 @@ void get_markov_options(struct db_main *db,
 	if (minlen > maxlen) {
 		if (john_main_process)
 			fprintf(stderr, "Warning: minimum length(%d) > maximum"
-			        " length(%d), minimum length set to %d\n",
-			        minlen, maxlen, maxlen);
+			" length(%d), minimum length set to %d\n",
+			minlen, maxlen, maxlen);
 		minlen = maxlen;
 	}
 
@@ -548,13 +564,13 @@ void get_markov_options(struct db_main *db,
 	*mkv_level = level;
 
 	/* Save some stuff we might have got from john.conf so we can
-	   resume even if it changes */
+	resume even if it changes */
 	if (!mkv_param) {
 		int len = strlen(mode) + 1 + 4 * 4 + 1;
 
 		options.mkv_param = mem_alloc_tiny(len, MEM_ALIGN_NONE);
 		sprintf(options.mkv_param, "%s:%d-%d:%d-%d", mode,
-		        minlevel, level, minlen, maxlen);
+			minlevel, level, minlen, maxlen);
 	}
 
 	if (!options.mkv_stats)
@@ -562,8 +578,8 @@ void get_markov_options(struct db_main *db,
 }
 
 void get_markov_start_end(char *start_token, char *end_token,
-                          uint64_t mkv_max,
-                          uint64_t *mkv_start, uint64_t *mkv_end)
+	uint64_t mkv_max,
+	uint64_t *mkv_start, uint64_t *mkv_end)
 {
 	*mkv_start = 0;
 	*mkv_end = 0;
@@ -579,14 +595,14 @@ void get_markov_start_end(char *start_token, char *end_token,
 		}
 	}
 	/*
-	 * Currently I see no use case for MkvStart and MkvEnd as variables
-	 * in a [Markov:mode] section.
-	 * If that changes, I'll need
-	 * start_token = cfg_get_param(SECTION_MARKOV, mode, "MkvStart")
-	 * and
-	 * sscanf(start_token, "%"PRId64, start)
-	 * because the values could be too large for integers
-	 */
+	* Currently I see no use case for MkvStart and MkvEnd as variables
+	* in a [Markov:mode] section.
+	* If that changes, I'll need
+	* start_token = cfg_get_param(SECTION_MARKOV, mode, "MkvStart")
+	* and
+	* sscanf(start_token, "%"PRId64, start)
+	* because the values could be too large for integers
+	*/
 	/* NOTE, start_token can be an empty string. Treat "" and "0" equal */
 	else if (start_token != NULL && *start_token) {
 		if (john_main_process)
@@ -595,37 +611,39 @@ void get_markov_start_end(char *start_token, char *end_token,
 	}
 
 	if (start_token != NULL && strlen(start_token) &&
-	        start_token[strlen(start_token) - 1] == '%') {
+		start_token[strlen(start_token) - 1] == '%') {
 		if (*mkv_start >= 100) {
 			log_event("! Start = %s is too large (max < 100%%)", end_token);
 			if (john_main_process)
 				fprintf(stderr, "Error: Start = %s is too large"
-				        " (max < 100%%)\n", start_token);
+				" (max < 100%%)\n", start_token);
 			exit(1);
-		} else if (*mkv_start > 0) {
+		}
+		else if (*mkv_start > 0) {
 			*mkv_start *= mkv_max / 100;
 			log_event("- Start: %s converted to %" PRId64, start_token,
-			          *mkv_start);
+				*mkv_start);
 			if (john_main_process)
 				fprintf(stderr, "Start: %s converted to %" PRId64
-				        "\n", start_token, *mkv_start);
+				"\n", start_token, *mkv_start);
 		}
 	}
 	if (end_token != NULL && strlen(end_token) &&
-	        end_token[strlen(end_token) - 1] == '%') {
+		end_token[strlen(end_token) - 1] == '%') {
 		if (*mkv_end >= 100) {
 			if (*mkv_end > 100) {
 				if (john_main_process)
 					fprintf(stderr, "Warning: End = %s is "
-					        "too large (max = 100%%)\n", end_token);
+					"too large (max = 100%%)\n", end_token);
 			}
 			*mkv_end = 0;
-		} else if (*mkv_end > 0) {
+		}
+		else if (*mkv_end > 0) {
 			*mkv_end *= mkv_max / 100;
 			log_event("- End: %s converted to %" PRId64 "", end_token, *mkv_end);
 			if (john_main_process)
 				fprintf(stderr, "End: %s converted to %" PRId64
-				        "\n", end_token, *mkv_end);
+				"\n", end_token, *mkv_end);
 		}
 	}
 	if (*mkv_end == 0)
@@ -633,19 +651,19 @@ void get_markov_start_end(char *start_token, char *end_token,
 
 	if (*mkv_end > mkv_max) {
 		log_event("! End = %" PRId64 " is too large (max=%" PRId64 ")", *mkv_end,
-		          mkv_max);
+			mkv_max);
 		if (john_main_process)
 			fprintf(stderr, "Warning: End = %" PRId64 " is too large "
-			        "(max = %" PRId64 ")\n", *mkv_end, mkv_max);
+			"(max = %" PRId64 ")\n", *mkv_end, mkv_max);
 		*mkv_end = mkv_max;
 	}
 
 	if (*mkv_start > *mkv_end) {
 		log_event("! MKV start > end (%" PRId64 " > %" PRId64 ")", *mkv_start,
-		          *mkv_end);
+			*mkv_end);
 		if (john_main_process)
 			fprintf(stderr, "Error: MKV start > end (%" PRId64 " > %" PRId64
-			        ")\n", *mkv_start, *mkv_end);
+			")\n", *mkv_start, *mkv_end);
 		error();
 	}
 }
@@ -663,11 +681,10 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 	if (jtrdll_is_preflight)
 	{
 		// Stop here if we're just preflighting
-//		exit(0);
+		//		exit(0);
 		return;
 	}
 #endif
-
 
 	if (mkv_param != NULL) {
 		param = str_alloc_copy(mkv_param);
@@ -676,9 +693,9 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 	}
 
 	get_markov_options(db,
-	                   mkv_param,
-	                   &mkv_minlevel, &mkv_level, &start_token, &end_token,
-	                   &mkv_minlen, &mkv_maxlen, &statfile);
+		mkv_param,
+		&mkv_minlevel, &mkv_level, &start_token, &end_token,
+		&mkv_minlen, &mkv_maxlen, &statfile);
 
 #if HAVE_REXGEN
 	if ((regex = prepare_regex(options.regex, &regex_case, &regex_alpha))) {
@@ -704,15 +721,15 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 	gmin_len = mkv_minlen;
 
 	nbparts =
-	    mem_alloc(256 * (mkv_level + 1) * sizeof(int64_t) * (mkv_maxlen +
-	              1));
+		mem_alloc(256 * (mkv_level + 1) * sizeof(int64_t) * (mkv_maxlen +
+		1));
 	memset(nbparts, 0,
-	       256 * (mkv_level + 1) * (mkv_maxlen + 1) * sizeof(int64_t));
+		256 * (mkv_level + 1) * (mkv_maxlen + 1) * sizeof(int64_t));
 
 	nb_parts(0, 0, 0, mkv_level, mkv_maxlen);
 
 	get_markov_start_end(start_token, end_token, nbparts[0], &mkv_start,
-	                     &mkv_end);
+		&mkv_end);
 
 	if (john_main_process) {
 		fprintf(stderr, "MKV start (stats=%s, lvl=", statfile);
@@ -722,7 +739,7 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 		if (mkv_minlen > 0)
 			fprintf(stderr, "%d-", mkv_minlen);
 		fprintf(stderr, "%d pwd=%" PRIu64 "%s)\n", mkv_maxlen, mkv_end - mkv_start,
-		        options.node_count > 1 ? " split over nodes" : "");
+			options.node_count > 1 ? " split over nodes" : "");
 	}
 
 	if (options.node_count > 1) {
@@ -731,8 +748,8 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 		mkv_size = mkv_end - mkv_start + 1;
 		if (options.node_max != options.node_count)
 			mkv_end =
-			    mkv_start + mkv_size / options.node_count * options.node_max -
-			    1;
+			mkv_start + mkv_size / options.node_count * options.node_max -
+			1;
 		mkv_start += mkv_size / options.node_count * (options.node_min - 1);
 	}
 

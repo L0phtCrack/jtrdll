@@ -1,9 +1,9 @@
 /*
- * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2006,2010-2013,2015 by Solar Designer
- *
- * ...with changes in the jumbo patch, by JoMo-Kun and magnum
- */
+* This file is part of John the Ripper password cracker,
+* Copyright (c) 1996-2006,2010-2013,2015 by Solar Designer
+*
+* ...with changes in the jumbo patch, by JoMo-Kun and magnum
+*/
 
 #include <stdio.h>
 #include <string.h>
@@ -52,13 +52,16 @@ static double get_progress(void)
 	return 100.0 * status.cands / (cand * mask_mult);
 }
 
-typedef char (*char2_table)
-	[CHARSET_SIZE + 1][CHARSET_SIZE + 1];
-typedef char (*chars_table)
-	[CHARSET_SIZE + 1][CHARSET_SIZE + 1][CHARSET_SIZE + 1];
+typedef char(*char2_table)
+[CHARSET_SIZE + 1][CHARSET_SIZE + 1];
+typedef char(*chars_table)
+[CHARSET_SIZE + 1][CHARSET_SIZE + 1][CHARSET_SIZE + 1];
 
 static unsigned int rec_entry, rec_length;
 static unsigned char rec_numbers[CHARSET_LENGTH];
+
+static unsigned int hybrid_rec_entry, hybrid_rec_length;
+static unsigned char hybrid_rec_numbers[CHARSET_LENGTH];
 
 static unsigned int entry, length;
 static unsigned char numbers[CHARSET_LENGTH];
@@ -108,9 +111,23 @@ static int restore_state(FILE *file)
 
 static void fix_state(void)
 {
+	if (hybrid_rec_entry || hybrid_rec_length) {
+		rec_entry = hybrid_rec_entry;
+		rec_length = hybrid_rec_length;
+		memcpy(rec_numbers, hybrid_rec_numbers, hybrid_rec_length);
+		hybrid_rec_entry = hybrid_rec_length = 0;
+		return;
+	}
 	rec_entry = entry;
 	rec_length = length;
 	memcpy(rec_numbers, numbers, length);
+}
+
+void inc_hybrid_fix_state(void)
+{
+	hybrid_rec_entry = entry;
+	hybrid_rec_length = length;
+	memcpy(hybrid_rec_numbers, numbers, length);
 }
 
 static void inc_format_error(char *charset)
@@ -154,7 +171,7 @@ static int has_8bit(char *chars)
 }
 
 static void inc_new_length(unsigned int length,
-	struct charset_header *header, FILE *file, char *charset,
+struct charset_header *header, FILE *file, char *charset,
 	char *char1, char2_table char2, chars_table *chars)
 {
 	long offset;
@@ -163,7 +180,7 @@ static void inc_new_length(unsigned int length,
 	int count;
 
 	if (options.verbosity >= VERB_DEFAULT)
-	log_event("- Switching to length %d", length + 1);
+		log_event("- Switching to length %d", length + 1);
 
 	char1[0] = 0;
 	if (length) {
@@ -173,8 +190,8 @@ static void inc_new_length(unsigned int length,
 	}
 	for (pos = 0; pos <= (int)length - 2; pos++) {
 		for (i = real_min; i <= real_max; i++)
-		for (j = real_min; j <= real_max; j++)
-			(*chars[pos])[i][j][0] = 0;
+			for (j = real_min; j <= real_max; j++)
+				(*chars[pos])[i][j][0] = 0;
 		for (j = real_min; j <= real_max; j++)
 			(*chars[pos])[CHARSET_SIZE][j][0] = 0;
 		(*chars[pos])[CHARSET_SIZE][CHARSET_SIZE][0] = 0;
@@ -190,78 +207,80 @@ static void inc_new_length(unsigned int length,
 
 	i = j = pos = -1;
 	if ((value = getc(file)) != EOF)
-	do {
-		if (value != CHARSET_ESC) {
-			switch (pos) {
-			case -1:
-				inc_format_error(charset);
-
-			case 0:
-				buffer = char1;
-				break;
-
-			case 1:
-				if (j < 0)
+		do {
+			if (value != CHARSET_ESC) {
+				switch (pos) {
+				case -1:
 					inc_format_error(charset);
-				buffer = (*char2)[j];
-				break;
 
-			default:
-				if (i < 0 || j < 0)
-					inc_format_error(charset);
-				buffer = (*chars[pos - 2])[i][j];
-			}
-
-			buffer[count = 0] = value;
-			while ((value = getc(file)) != EOF) {
-				buffer[++count] = value;
-				if (value == CHARSET_ESC)
+				case 0:
+					buffer = char1;
 					break;
-				if (count >= CHARSET_SIZE)
-					inc_format_error(charset);
+
+				case 1:
+					if (j < 0)
+						inc_format_error(charset);
+					buffer = (*char2)[j];
+					break;
+
+				default:
+					if (i < 0 || j < 0)
+						inc_format_error(charset);
+					buffer = (*chars[pos - 2])[i][j];
+				}
+
+				buffer[count = 0] = value;
+				while ((value = getc(file)) != EOF) {
+					buffer[++count] = value;
+					if (value == CHARSET_ESC)
+						break;
+					if (count >= CHARSET_SIZE)
+						inc_format_error(charset);
+				}
+				buffer[count] = 0;
+
+				continue;
 			}
-			buffer[count] = 0;
 
-			continue;
+			if ((value = getc(file)) == EOF)
+				break;
+			else
+				if (value == CHARSET_NEW) {
+					if ((value = getc(file)) != (int)length)
+						break;
+					if ((value = getc(file)) == EOF)
+						break;
+					if (value < 0 || value >(int)length)
+						inc_format_error(charset);
+					pos = value;
+				}
+				else
+					if (value == CHARSET_LINE) {
+						if (pos < 0)
+							inc_format_error(charset);
+						if ((value = getc(file)) == EOF)
+							break;
+						i = value;
+						if (i < 0 || i > CHARSET_SIZE)
+							inc_format_error(charset);
+						if ((value = getc(file)) == EOF)
+							break;
+						j = value;
+						if (j < 0 || j > CHARSET_SIZE)
+							inc_format_error(charset);
+					}
+					else
+						inc_format_error(charset);
+
+			value = getc(file);
+		} while (value != EOF);
+
+		if (value == EOF) {
+			if (ferror(file))
+				pexit("getc");
+			else
+				inc_format_error(charset);
 		}
-
-		if ((value = getc(file)) == EOF)
-			break;
-		else
-		if (value == CHARSET_NEW) {
-			if ((value = getc(file)) != (int)length)
-				break;
-			if ((value = getc(file)) == EOF)
-				break;
-			if (value < 0 || value > (int)length)
-				inc_format_error(charset);
-			pos = value;
-		} else
-		if (value == CHARSET_LINE) {
-			if (pos < 0)
-				inc_format_error(charset);
-			if ((value = getc(file)) == EOF)
-				break;
-			i = value;
-			if (i < 0 || i > CHARSET_SIZE)
-				inc_format_error(charset);
-			if ((value = getc(file)) == EOF)
-				break;
-			j = value;
-			if (j < 0 || j > CHARSET_SIZE)
-				inc_format_error(charset);
-		} else
-			inc_format_error(charset);
-
-		value = getc(file);
-	} while (value != EOF);
-
-	if (value == EOF) {
-		if (ferror(file))
-			pexit("getc");
-		else
-			inc_format_error(charset);
-	}
 }
 
 static int expand(char *dst, char *src, int size)
@@ -289,7 +308,8 @@ static int expand(char *dst, char *src, int size)
 			*dptr++ = *sptr++;
 			if (--count <= 1)
 				break;
-		} else
+		}
+		else
 			sptr++;
 	}
 	*dptr = 0;
@@ -305,8 +325,8 @@ static void inc_new_count(unsigned int length, int count, char *charset,
 	int error;
 
 	if (options.verbosity >= VERB_DEFAULT)
-	log_event("- Expanding tables for length %d to character count %d",
-	    length + 1, count + 1);
+		log_event("- Expanding tables for length %d to character count %d",
+		length + 1, count + 1);
 
 	size = count + 2;
 
@@ -315,7 +335,7 @@ static void inc_new_count(unsigned int length, int count, char *charset,
 		error |= expand((*char2)[CHARSET_SIZE], allchars, size);
 	for (pos = 0; pos <= (int)length - 2; pos++)
 		error |= expand((*chars[pos])[CHARSET_SIZE][CHARSET_SIZE],
-		    allchars, size);
+		allchars, size);
 
 	for (ci = 0; ci < real_count; ci++) {
 		int i = real_chars[ci];
@@ -323,16 +343,16 @@ static void inc_new_count(unsigned int length, int count, char *charset,
 
 		if (length)
 			error |=
-			    expand((*char2)[i], (*char2)[CHARSET_SIZE], size);
+			expand((*char2)[i], (*char2)[CHARSET_SIZE], size);
 
 		for (cj = 0; cj < real_count; cj++) {
 			int j = real_chars[cj];
 			for (pos = 0; pos <= (int)length - 2; pos++) {
 				error |= expand((*chars[pos])[i][j],
-				    (*chars[pos])[CHARSET_SIZE][j], size);
+					(*chars[pos])[CHARSET_SIZE][j], size);
 				error |= expand((*chars[pos])[i][j],
-				    (*chars[pos])[CHARSET_SIZE][CHARSET_SIZE],
-				    size);
+					(*chars[pos])[CHARSET_SIZE][CHARSET_SIZE],
+					size);
 			}
 		}
 	}
@@ -368,22 +388,22 @@ update_ending:
 			key_i[0] = char1[numbers[0]];
 		if (length)
 			key_i[1] = (*char2)[ARCH_INDEX(key_i[0]) - CHARSET_MIN]
-			    [numbers[1]];
+			[numbers[1]];
 		pos = 2;
 	}
 	while (pos < length) {
 		key_i[pos] = (*chars[pos - 2])
-		    [ARCH_INDEX(key_i[pos - 2]) - CHARSET_MIN]
-		    [ARCH_INDEX(key_i[pos - 1]) - CHARSET_MIN]
-		    [numbers[pos]];
+			[ARCH_INDEX(key_i[pos - 2]) - CHARSET_MIN]
+		[ARCH_INDEX(key_i[pos - 1]) - CHARSET_MIN]
+		[numbers[pos]];
 		pos++;
 	}
 	numbers_cache = numbers[length];
 	if (pos == length) {
 		chars_cache = (*chars[pos - 2])
-		    [ARCH_INDEX(key_i[pos - 2]) - CHARSET_MIN]
-		    [ARCH_INDEX(key_i[pos - 1]) - CHARSET_MIN];
-update_last:
+			[ARCH_INDEX(key_i[pos - 2]) - CHARSET_MIN]
+		[ARCH_INDEX(key_i[pos - 1]) - CHARSET_MIN];
+	update_last:
 		key_i[length] = chars_cache[numbers_cache];
 	}
 
@@ -391,25 +411,26 @@ update_last:
 #if HAVE_REXGEN
 	if (regex) {
 		if (do_regex_hybrid_crack(db, regex, key,
-		                          regex_case, regex_alpha))
+			regex_case, regex_alpha))
 			return 1;
-		fix_state();
-	} else
-#endif
-	if (f_new) {
-		if (do_external_hybrid_crack(db, key))
-			return 1;
-		fix_state();
-	} else
-	if (options.mask) {
-		if (do_mask_crack(key))
-			return 1;
-		fix_state();
+		inc_hybrid_fix_state();
 	}
 	else
-	if (!f_filter || ext_filter_body(key_i, key = key_e))
-		if (crk_process_key(key))
-			return 1;
+#endif
+		if (f_new) {
+			if (do_external_hybrid_crack(db, key))
+				return 1;
+			inc_hybrid_fix_state();
+		}
+		else
+			if (options.mask) {
+				if (do_mask_crack(key))
+					return 1;
+			}
+			else
+				if (!f_filter || ext_filter_body(key_i, key = key_e))
+					if (crk_process_key(key))
+						return 1;
 
 	pos = length;
 	if (fixed < length) {
@@ -456,22 +477,25 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	if (!mode) {
 		if (db->format == &fmt_LM) {
 			if (!(mode = cfg_get_param(SECTION_OPTIONS, NULL,
-			                           "DefaultIncrementalLM")))
+				"DefaultIncrementalLM")))
 				mode = "LM_ASCII";
-		} else if (db->format->params.label &&
-		           (!strcasecmp(db->format->params.label, "lm-opencl") ||
-		            !strcasecmp(db->format->params.label, "netlm") ||
-		            !strcasecmp(db->format->params.label, "nethalflm"))) {
+		}
+		else if (db->format->params.label &&
+			(!strcasecmp(db->format->params.label, "lm-opencl") ||
+			!strcasecmp(db->format->params.label, "netlm") ||
+			!strcasecmp(db->format->params.label, "nethalflm"))) {
 			if (!(mode = cfg_get_param(SECTION_OPTIONS, NULL,
-			                           "DefaultIncrementalLM")))
+				"DefaultIncrementalLM")))
 				mode = "LM_ASCII";
-		} else if (options.target_enc == UTF_8) {
+		}
+		else if (options.target_enc == UTF_8) {
 			if (!(mode = cfg_get_param(SECTION_OPTIONS, NULL,
-			                           "DefaultIncrementalUTF8")))
+				"DefaultIncrementalUTF8")))
 				mode = "ASCII";
-		} else
+		}
+		else
 			if (!(mode = cfg_get_param(SECTION_OPTIONS, NULL,
-			                           "DefaultIncremental")))
+				"DefaultIncremental")))
 				mode = "ASCII";
 
 		options.charset = mode;
@@ -481,6 +505,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	if (rec_restored && john_main_process)
 		fprintf(stderr, "Proceeding with incremental:%s\n", mode);
+
 
 #ifdef JTRDLL
 	/* mode starting with 'file:' specify a path to a character set file */
@@ -543,6 +568,14 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 #endif
 
+	extra = cfg_get_param(SECTION_INC, mode, "Extra");
+
+	if ((min_length = cfg_get_int(SECTION_INC, mode, "MinLen")) < 0)
+		min_length = 0;
+	if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
+		max_length = CHARSET_LENGTH;
+	max_count = cfg_get_int(SECTION_INC, mode, "CharCount");
+
 	/* Hybrid mask */
 	our_fmt_len -= mask_add_len;
 	if (mask_num_qw > 1)
@@ -577,49 +610,49 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 
 	if (options.req_minlength >= 0 && min_length > max_length &&
-	   (options.req_maxlength == 0 || mask_maxlength_computed) &&
-	    options.req_minlength <= CHARSET_LENGTH) {
+		(options.req_maxlength == 0 || mask_maxlength_computed) &&
+		options.req_minlength <= CHARSET_LENGTH) {
 		max_length = min_length;
 	}
 
 	if (min_length > max_length) {
 		log_event("! MinLen = %d exceeds MaxLen = %d",
-		    min_length, max_length);
+			min_length, max_length);
 		if (john_main_process)
 			fprintf(stderr, "MinLen = %d exceeds MaxLen = %d; "
-			    "MaxLen can be increased up to %d\n",
-			    min_length, max_length, CHARSET_LENGTH);
+			"MaxLen can be increased up to %d\n",
+			min_length, max_length, CHARSET_LENGTH);
 		error();
 	}
 
 	if (min_length > our_fmt_len) {
 		log_event("! MinLen = %d is too large for this hash type",
-		    min_length);
+			min_length);
 		if (john_main_process)
 			fprintf(stderr,
-			    "MinLen = %d exceeds the maximum possible "
-			    "length for the current hash type (%d)\n",
-			    min_length, db->format->params.plaintext_length);
+			"MinLen = %d exceeds the maximum possible "
+			"length for the current hash type (%d)\n",
+			min_length, db->format->params.plaintext_length);
 		error();
 	}
 
 	if (max_length > our_fmt_len) {
 		log_event("! MaxLen = %d is too large for this hash type",
-		    max_length);
+			max_length);
 		if (john_main_process)
 			fprintf(stderr, "Warning: MaxLen = %d is too large "
-			    "for the current hash type, reduced to %d\n",
-			    max_length,
-			    our_fmt_len);
+			"for the current hash type, reduced to %d\n",
+			max_length,
+			our_fmt_len);
 		max_length = our_fmt_len;
 	}
 
 	if (max_length > CHARSET_LENGTH) {
 		log_event("! MaxLen = %d exceeds the compile-time limit of %d",
-		    max_length, CHARSET_LENGTH);
+			max_length, CHARSET_LENGTH);
 		if (john_main_process)
 			fprintf(stderr, "MaxLen = %d exceeds the compile-time "
-			    "limit of %d\n", max_length, CHARSET_LENGTH);
+			"limit of %d\n", max_length, CHARSET_LENGTH);
 		error();
 	}
 
@@ -634,16 +667,16 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		pexit("fread");
 
 	if (feof(file) ||
-	    memcmp(header->version, CHARSET_V, sizeof(header->version)) ||
-	    !header->count)
+		memcmp(header->version, CHARSET_V, sizeof(header->version)) ||
+		!header->count)
 		inc_format_error(charset);
 
 	if (header->min != CHARSET_MIN || header->max != CHARSET_MAX ||
-	    header->length != CHARSET_LENGTH) {
+		header->length != CHARSET_LENGTH) {
 		log_event("! Incompatible charset file: %.100s", charset);
 		if (john_main_process)
 			fprintf(stderr, "Incompatible charset file: %s\n",
-			    charset);
+			charset);
 		error();
 	}
 
@@ -663,7 +696,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		log_event("! Charset file has changed: %.100s", charset);
 		if (john_main_process)
 			fprintf(stderr, "Charset file has changed: %s\n",
-			    charset);
+			charset);
 		error();
 	}
 
@@ -673,23 +706,23 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		inc_format_error(charset);
 	}
 
-/* Sanity-check and expand allchars */
+	/* Sanity-check and expand allchars */
 	real_minc = CHARSET_MIN; real_size = CHARSET_SIZE;
 	allchars[header->count] = 0;
 	if (expand(allchars, "", sizeof(allchars)))
 		inc_format_error(charset);
 	if (extra && expand(allchars, extra, sizeof(allchars))) {
 		log_event("! Extra characters not in compile-time "
-		    "specified range ('\\x%02x' to '\\x%02x')",
-		    CHARSET_MIN, CHARSET_MAX);
+			"specified range ('\\x%02x' to '\\x%02x')",
+			CHARSET_MIN, CHARSET_MAX);
 		if (john_main_process)
 			fprintf(stderr, "Extra characters not in compile-time "
-			    "specified range ('\\x%02x' to '\\x%02x')\n",
-			    CHARSET_MIN, CHARSET_MAX);
+			"specified range ('\\x%02x' to '\\x%02x')\n",
+			CHARSET_MIN, CHARSET_MAX);
 		error();
 	}
 
-/* Calculate the actual real_* based on sanitized and expanded allchars */
+	/* Calculate the actual real_* based on sanitized and expanded allchars */
 	{
 		unsigned char c;
 		real_min = 0xff;
@@ -713,17 +746,17 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	if (min_length != max_length)
 		log_event("- Lengths %d to %d, up to %d different characters",
-		    min_length, max_length, max_count);
+		min_length, max_length, max_count);
 	else
 		log_event("- Length %d, up to %d different characters",
-		    min_length, max_count);
+		min_length, max_count);
 
 	if ((unsigned int)max_count > real_count) {
 		log_event("! Only %u characters available", real_count);
 		if (john_main_process)
 			fprintf(stderr,
-			    "Warning: only %u characters available\n",
-			    real_count);
+			"Warning: only %u characters available\n",
+			real_count);
 	}
 
 	for (pos = min_length; pos <= max_length; pos++)
@@ -743,24 +776,24 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	if (options.node_count)
 		cand *= (double)(options.node_max - options.node_min + 1) /
-			options.node_count;
+		options.node_count;
 
 	if (!(db->format->params.flags & FMT_CASE) && is_mixedcase(allchars)) {
 		log_event("! Mixed-case charset, "
-		    "but the hash type is case-insensitive");
+			"but the hash type is case-insensitive");
 		if (john_main_process)
 			fprintf(stderr, "Warning: mixed-case charset, "
-			    "but the current hash type is case-insensitive;\n"
-			    "some candidate passwords may be unnecessarily "
-			    "tried more than once.\n");
+			"but the current hash type is case-insensitive;\n"
+			"some candidate passwords may be unnecessarily "
+			"tried more than once.\n");
 	}
 
 	if (!(db->format->params.flags & FMT_8_BIT) && has_8bit(allchars)) {
 		log_event("! 8-bit charset, but the hash type is 7-bit");
 		if (john_main_process)
 			fprintf(stderr, "Warning: 8-bit charset, but the current"
-			    " hash type is 7-bit;\n"
-			    "some candidate passwords may be redundant.\n");
+			" hash type is 7-bit;\n"
+			"some candidate passwords may be redundant.\n");
 	}
 
 	char2 = NULL;
@@ -783,21 +816,21 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	ptr = header->order;
 	entry = 0;
 	while (entry < rec_entry &&
-	    ptr < &header->order[sizeof(header->order) - 1]) {
+		ptr < &header->order[sizeof(header->order) - 1]) {
 		entry++;
 		length = *ptr++; fixed = *ptr++; count = *ptr++;
 
 		if (length >= CHARSET_LENGTH ||
-		    fixed > length ||
-		    count >= CHARSET_SIZE)
+			fixed > length ||
+			count >= CHARSET_SIZE)
 			inc_format_error(charset);
 
 		if (count >= real_count || (fixed && !count))
 			continue;
 
 		if ((int)length + 1 < min_length ||
-		    (int)length >= max_length ||
-		    (int)count >= max_count)
+			(int)length >= max_length ||
+			(int)count >= max_count)
 			continue;
 
 		if (count)
@@ -805,9 +838,9 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 		if (counts[length][fixed] != count) {
 			log_event("! Unexpected count: %d != %d",
-			    counts[length][fixed] + 1, count + 1);
+				counts[length][fixed] + 1, count + 1);
 			fprintf(stderr, "Unexpected count: %d != %d\n",
-			    counts[length][fixed] + 1, count + 1);
+				counts[length][fixed] + 1, count + 1);
 			error();
 		}
 	}
@@ -824,15 +857,15 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		if (options.node_count) {
 			int for_node = entry % options.node_count + 1;
 			skip = for_node < options.node_min ||
-			    for_node > options.node_max;
+				for_node > options.node_max;
 		}
 
 		entry++;
 		length = *ptr++; fixed = *ptr++; count = *ptr++;
 
 		if (length >= CHARSET_LENGTH ||
-		    fixed > length ||
-		    count >= CHARSET_SIZE)
+			fixed > length ||
+			count >= CHARSET_SIZE)
 			inc_format_error(charset);
 
 		if (entry != rec_entry)
@@ -842,15 +875,15 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			continue;
 
 		if ((int)length + 1 < min_length ||
-		    (int)length >= max_length ||
-		    (int)count >= max_count)
+			(int)length >= max_length ||
+			(int)count >= max_count)
 			continue;
 
 		if (!skip) {
 			int i, max_count = 0;
 			if ((int)length != last_length) {
 				inc_new_length(last_length = length,
-				    header, file, charset, char1, char2, chars);
+					header, file, charset, char1, char2, chars);
 				last_count = -1;
 			}
 			for (i = 0; i <= length; i++)
@@ -861,7 +894,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			if (max_count > last_count) {
 				last_count = max_count;
 				inc_new_count(length, max_count, charset,
-				    allchars, char1, char2, chars);
+					allchars, char1, char2, chars);
 			}
 		}
 
@@ -870,26 +903,27 @@ void do_incremental_crack(struct db_main *db, char *mode)
 #if HAVE_REXGEN
 			if (regex) {
 				if (!skip && do_regex_hybrid_crack(db, regex,
-				                                   fmt_null_key,
-				                                   regex_case,
-				                                   regex_alpha))
+					fmt_null_key,
+					regex_case,
+					regex_alpha))
 					break;
-				fix_state();
-			} else
-#endif
-			if (f_new) {
-				if (!skip && do_external_hybrid_crack(db, fmt_null_key))
-					break;
-				fix_state();
-			} else
-			if (options.mask) {
-				if (!skip && do_mask_crack(fmt_null_key))
-					break;
-				fix_state();
+				inc_hybrid_fix_state();
 			}
 			else
-			if (!skip && crk_process_key(fmt_null_key))
-				break;
+#endif
+				if (f_new) {
+					if (!skip && do_external_hybrid_crack(db, fmt_null_key))
+						break;
+					inc_hybrid_fix_state();
+				}
+				else
+					if (options.mask) {
+						if (!skip && do_mask_crack(fmt_null_key))
+							break;
+					}
+					else
+						if (!skip && crk_process_key(fmt_null_key))
+							break;
 		}
 
 		if (count)
@@ -897,9 +931,9 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 		if (counts[length][fixed] != count) {
 			log_event("! Unexpected count: %d != %d",
-			    counts[length][fixed] + 1, count + 1);
+				counts[length][fixed] + 1, count + 1);
 			fprintf(stderr, "Unexpected count: %d != %d\n",
-			    counts[length][fixed] + 1, count + 1);
+				counts[length][fixed] + 1, count + 1);
 			error();
 		}
 
@@ -907,8 +941,8 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			continue;
 
 		if (options.verbosity >= VERB_DEFAULT)
-		log_event("- Trying length %d, fixed @%d, character count %d",
-		    length + 1, fixed + 1, counts[length][fixed] + 1);
+			log_event("- Trying length %d, fixed @%d, character count %d",
+			length + 1, fixed + 1, counts[length][fixed] + 1);
 
 		if (inc_key_loop(db, length, fixed, count, char1, char2, chars))
 			break;
