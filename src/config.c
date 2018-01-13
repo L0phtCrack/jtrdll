@@ -33,7 +33,7 @@ char *cfg_name = NULL;
 static struct cfg_section *cfg_database = NULL;
 static int cfg_recursion;
 static int cfg_process_directive(char *line, int number, int in_hcmode);
-static int cfg_loading_john_local = 0;
+static int cfg_loading_john_local, cfg_loaded_john_local;
 
 /* we have exposed this to the dyna_parser file, so that it can easily
  * walk the configuration list one time, to determine which dynamic formats
@@ -89,7 +89,11 @@ static int cfg_merge_local_section() {
 		if (!found) {
 			// add a new item. NOTE, fixes bug #767
 			// https://github.com/magnumripper/JohnTheRipper/issues/767
+#if ARCH_ALLOWS_UNALIGNED
 			struct cfg_param *p3 = (struct cfg_param*)mem_alloc_tiny(sizeof(struct cfg_param), 1);
+#else
+			struct cfg_param *p3 = (struct cfg_param*)mem_alloc_tiny(sizeof(struct cfg_param), MEM_ALIGN_WORD);
+#endif
 			p3->next = parent->params;
 			p3->name = p1->name;
 			p3->value = p1->value;
@@ -115,7 +119,7 @@ static void cfg_add_section(char *name)
 						fprintf(stderr, "Warning! john.conf section [%s] is multiple declared.\n", name);
 				}
 #ifndef BENCH_BUILD
-				else if (john_main_process && options.verbosity > VERB_LEGACY)
+				else if (john_main_process && options.verbosity >= VERB_DEFAULT)
 					fprintf(stderr, "Warning! Section [%s] overridden by john-local.conf\n", name);
 #endif
 				break;
@@ -310,10 +314,10 @@ int cfg_print_section_params(char *section, char *subsection)
 	int param_count = 0;
 
 	if ((current = cfg_get_section(section, subsection))) {
-		if((param = current->params))
+		if ((param = current->params))
 		do {
 			value = cfg_get_param(section, subsection, param->name);
-			if(!strcmp(param->value, value)) {
+			if (!strcmp(param->value, value)) {
 				printf("%s = %s\n", param->name, param->value);
 				param_count++;
 			}
@@ -403,6 +407,32 @@ int cfg_get_int(char *section, char *subsection, char *param)
 	}
 
 	return -1;
+}
+
+void cfg_get_int_array(char *section, char *subsection, char *param,
+		int *array, int array_len)
+{
+	char *s_value, *error;
+	long l_value;
+	int i = 0;
+
+	s_value = cfg_get_param(section, subsection, param);
+	if (s_value) {
+		for (;;) {
+			if (!*s_value)
+				break;
+			l_value = strtol(s_value, &error, 10);
+			if (error == s_value || (l_value & ~0x3FFFFFFFL))
+				break;
+			array[i++] = (int)l_value;
+			if (!*error || i == array_len)
+				break;
+			s_value = error + 1;
+		}
+	}
+
+	for ( ; i < array_len; i++)
+		array[i] = -1;
 }
 
 int cfg_get_bool(char *section, char *subsection, char *param, int def)
@@ -560,13 +590,23 @@ static int cfg_process_directive_include_config(char *line, int number)
 		return 1;
 	}
 
-	if (strstr(Name, "/john-local.conf"))
+	if (strstr(Name, "/john-local.conf")) {
+		if (!strcmp(Name, "$JOHN/john-local.conf") ||
+		    !strcmp(Name, "./john-local.conf")) {
+			if (!strcmp(path_expand("$JOHN/"), "./") &&
+			    cfg_loaded_john_local)
+				return 0;
+			else
+				cfg_loaded_john_local = 1;
+		}
 		cfg_loading_john_local = 1;
+	}
 	saved_fname = cfg_name;
 	cfg_recursion++;
 	cfg_init(Name, allow_missing);
 	cfg_recursion--;
 	cfg_name = saved_fname;
+	cfg_loading_john_local = 0;
 	return 0;
 }
 
@@ -582,7 +622,7 @@ static int cfg_process_directive(char *line, int number, int in_hc_mode)
 	if (!strncmp(line, ".log ", 5))
 		return -1;
 	if (john_main_process)
-		fprintf (stderr, "Unknown directive in the .conf file:  '%s'\n", line);
+		fprintf(stderr, "Unknown directive in the .conf file:  '%s'\n", line);
 #ifndef BENCH_BUILD
 	log_event("! Unknown directive in the .conf file:  %s", line);
 #endif

@@ -20,8 +20,6 @@
  * 7. http://www.pkware.com/documents/casestudies/APPNOTE.TXT
  * 8. http://gladman.plushost.co.uk/oldsite/cryptography_technology/fileencrypt/index.php
  *   (borrowed files have "gladman_" prepended to them). This gladman code has been removed from JtR source tree.
- * 9. http://svn.assembla.com/svn/os2utils/unzip60f/proginfo/extrafld.txt
- * 10. http://emerge.hg.sourceforge.net/hgweb/emerge/emerge/diff/c2f208617d32/Source/unzip/proginfo/extrafld.txt
  *
  * Usage:
  *
@@ -48,14 +46,14 @@
  *     CL  Compressed length of file blob data (includes 12 byte IV).
  *     UL  Uncompressed length of the file.
  *     CR  CRC32 of the 'final' file.
- *     OF  Offset to the PK\x3\x4 record for this file data. If DT==2, then this will be a 0, as it is not needed, all of the data is already included in the line.
+ *     OF  Offset to the PK\x3\x4 record for this file data. If DT == 2, then this will be a 0, as it is not needed, all of the data is already included in the line.
  *     OX  Additional offset (past OF), to get to the zip data within the file.
  *     END OF 'optional' fields.
  *   CT  Compression type  (0 or 8)  0 is stored, 8 is imploded.
  *   DL  Length of the DA data.
  *   CS  2 bytes of checksum data.
  *   TC  2 bytes of checksun data (fron timestamp)
- *   DA  This is the 'data'.  It will be hex data if DT==1 or 2. If DT==3, then it is a filename (name of the .zip file).
+ *   DA  This is the 'data'.  It will be hex data if DT == 1 or 2. If DT == 3, then it is a filename (name of the .zip file).
  * END of array item.  There will be C (count) array items.
  * The format string will end with $/pkzip$
  *
@@ -87,8 +85,24 @@
  *        was seen when running zip2john. If the file is removed, this hash line will no longer be valid.
  *  Oh    Offset to the zip central header record for this blob.
  *  Ob    Offset to the start of the blob data
+ *
+ *
+ * The new format for PKWARE's Strong Encryption Specification is:
+ *
+ *    filename:$zip3$*Ty*Al*Bi*Ma*Sa*Erd*Le*DF*Au*Fn
+ *    Ty = type (0) and ignored.
+ *    Al = algorithm (1 for AES)
+ *    Bi = bit length (128/192/256 bit)
+ *    Ma = magic (file magic), reserved, must be '0' now
+ *    Sa = salt(hex), 12 or 16 bytes of IV data
+ *    Erd = encrypted random data (max. 256 bytes)
+ *    Le = real compr len (hex) length of compressed/encrypted data (field DF), unused currently
+ *    DF = compressed data DF can be Le*2 hex bytes, and if so, then it is the ENTIRE file blob written 'inline', unused currently
+ *    Au = authentication code, a 8 byte hex value that contains a CRC32 checksum, unused currently
+ *    Fn = filename within zip file
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "arch.h"
@@ -99,182 +113,386 @@
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
-#if  (!AC_BUILT || HAVE_UNISTD_H) && !_MSC_VER
+#if (!AC_BUILT || HAVE_UNISTD_H) && !_MSC_VER
 #include <unistd.h>
 #endif
 
 #include "common.h"
 #include "jumbo.h"
 #include "formats.h"
-#include "john_stdint.h"
+#include "memory.h"
 #include "pkzip.h"
 #ifdef _MSC_VER
 #include "missing_getopt.h"
 #endif
+#include "johnswap.h"
 #include "memdbg.h"
 
 #define LARGE_ENOUGH 8192
 
-static int checksum_only=0, use_magic=0;
+static int checksum_only = 0, use_magic = 0;
 static int force_2_byte_checksum = 0;
 static char *ascii_fname, *only_fname;
 
-static char *MagicTypes[]= { "", "DOC", "XLS", "DOT", "XLT", "EXE", "DLL", "ZIP", "BMP", "DIB", "GIF", "PDF", "GZ", "TGZ", "BZ2", "TZ2", "FLV", "SWF", "MP3", NULL };
-static int  MagicToEnum[] = {0,  1,    1,     1,     1,     2,     2,     3,     4,     4,     5,     6,     7,    7,     8,     8,     9,     10,    11,  0};
+static char *MagicTypes[] = {"", "DOC", "XLS", "DOT", "XLT", "EXE", "DLL", "ZIP", "BMP", "DIB", "GIF", "PDF", "GZ", "TGZ", "BZ2", "TZ2", "FLV", "SWF", "MP3", NULL};
+static int MagicToEnum[] = {0, 1, 1, 1, 1, 2, 2, 3, 4, 4, 5, 6, 7, 7, 8, 8, 9, 10, 11, 0};
+
+static void print_hex_inline(unsigned char *str, int len)
+{
+	int i;
+	for (i = 0; i < len; ++i)
+		printf("%02x", str[i]);
+}
 
 static void process_old_zip(const char *fname);
 static void process_file(const char *fname)
 {
 	unsigned char filename[1024];
 	FILE *fp;
-	int i;
+	uint64_t i;
 	char path[LARGE_ENOUGH];
-	char *cur=0, *cp;
-	uint32_t best_len = 0xffffffff;
+	char *cur = 0, *cp;
+	uint64_t best_len = 0xffffffff;
 
-
-	if (!(fp = fopen(fname, "rb"))) {
+	if (!(fp = fopen(fname, "rb")))
+	{
 		fprintf(stderr, "! %s : %s\n", fname, strerror(errno));
 		return;
 	}
 
-	while (!feof(fp)) {
+	while (!feof(fp))
+	{
 		uint32_t id = fget32LE(fp);
 		uint32_t store = 0;
 
-		if (id == 0x04034b50UL) {	/* local header */
+		if (id == 0x04034b50UL)
+		{ /* local header */
 			uint16_t version = fget16LE(fp);
 			uint16_t flags = fget16LE(fp);
 			uint16_t compression_method = fget16LE(fp);
 			uint16_t lastmod_time = fget16LE(fp);
 			uint16_t lastmod_date = fget16LE(fp);
 			uint32_t crc = fget32LE(fp);
-			uint32_t compressed_size = fget32LE(fp);
-			uint32_t uncompressed_size = fget32LE(fp);
+			uint64_t compressed_size = fget32LE(fp);
+			uint64_t uncompressed_size = fget32LE(fp);
 			uint16_t filename_length = fget16LE(fp);
 			uint16_t extrafield_length = fget16LE(fp);
 			/* unused variables */
-			(void) version;
-			(void) lastmod_time;
-			(void) lastmod_date;
-			(void) crc;
-			(void) uncompressed_size;
+			(void)version;
+			(void)lastmod_time;
+			(void)lastmod_date;
+			(void)crc;
+			(void)uncompressed_size;
 
-			if (filename_length > 250) {
+			if (filename_length > 250)
+			{
 				fprintf(stderr, "! %s: Invalid zip file, filename length too long!\n", fname);
 				return;
 			}
-			if (fread(filename, 1, filename_length, fp) != filename_length) {
+			if (fread(filename, 1, filename_length, fp) != filename_length)
+			{
 				fprintf(stderr, "Error, in fread of file data!\n");
 				goto cleanup;
 			}
 			filename[filename_length] = 0;
 
-			if (compression_method == 99) {	/* AES encryption */
-				uint32_t real_cmpr_len;
-				uint16_t efh_id = fget16LE(fp);
-				uint16_t efh_datasize = fget16LE(fp);
-				uint16_t efh_vendor_version = fget16LE(fp);
-				uint16_t efh_vendor_id = fget16LE(fp);
-				char efh_aes_strength = fgetc(fp);
-				uint16_t actual_compression_method = fget16LE(fp);
+			if (compression_method == 99)
+			{					 /* AES encryption */
+#define AES_EXTRA_DATA_LENGTH 11 // http://www.winzip.com/aes_info.htm#authentication-code
+				uint64_t real_cmpr_len;
+				uint16_t efh_id;
+				uint16_t efh_datasize;
+				uint16_t efh_vendor_version;
+				uint16_t efh_vendor_id;
+				char efh_aes_strength;
+				uint16_t actual_compression_method;
 				unsigned char salt[16], d;
 				char *bname;
-				int magic_enum = 0;  // reserved at 0 for now, we are not computing this (yet).
+				int found = 0;
+				int magic_enum = 0; // reserved at 0 for now, we are not computing this (yet).
 
+				while (!ferror(fp))
+				{
+					efh_id = fget16LE(fp);
+					efh_datasize = fget16LE(fp);
+					if (efh_id != 0x9901)
+					{
+#if DEBUG
+						fprintf(stderr, "[DEBUG] Skipping over efh_id (%x) with size %d.\n", efh_id, efh_datasize);
+#endif
+						fseek(fp, efh_datasize, SEEK_CUR);
+					}
+					else
+					{
+						found = 1;
+						break;
+					}
+				}
+				if (!found)
+					goto cleanup;
+				efh_vendor_version = fget16LE(fp);
+				efh_vendor_id = fget16LE(fp);
+				efh_aes_strength = fgetc(fp);
+				actual_compression_method = fget16LE(fp);
+				if (efh_id != 0x9901)
+				{
+					fprintf(stderr, "Unable to parse %s which is using WinZip AES encryption!\n", fname);
+					goto cleanup;
+				}
+				// Data size: this value is currently 7, but because it is possible that this
+				// specification will be modified in the future to store additional data in
+				// this extra field, vendors should not assume that it will always remain 7.
+				if (efh_datasize != 7)
+				{
+					fprintf(stderr, "AES_EXTRA_DATA_LENGTH is not 11 for %s, please report this to us!\n", fname);
+					goto cleanup;
+				}
 				strnzcpy(path, fname, sizeof(path));
 				bname = basename(path);
 				cp = cur;
-				if ((unsigned)best_len < compressed_size) {
+				if (best_len < compressed_size)
+				{
 #if DEBUG
-					printf ("This buffer not used, it is not 'best' size\n");
+					printf("This buffer not used, it is not 'best' size\n");
 #endif
-				} else {
+				}
+				else
+				{
 					store = 1;
 					best_len = compressed_size;
-					if (cur) MEM_FREE(cur);
-					cur = mem_alloc(compressed_size*2 + 400);
+					if (cur)
+						MEM_FREE(cur);
+					cur = mem_alloc(compressed_size * 2 + 400);
 					cp = cur;
 				}
 
 #if DEBUG
 				fprintf(stderr,
-				    "%s->%s is using AES encryption, extrafield_length is %d\n",
-				    fname, filename, extrafield_length);
+						"%s->%s is using AES encryption, extrafield_length is %d\n",
+						fname, filename, extrafield_length);
 #endif
 				/* unused variables */
-				(void) efh_id;
-				(void) efh_datasize;
-				(void) efh_vendor_version;
-				(void) efh_vendor_id;
-				(void) actual_compression_method; /* we need this!! */
+				(void)efh_id;
+				(void)efh_datasize;
+				(void)efh_vendor_version;
+				(void)efh_vendor_id;
+				(void)actual_compression_method; /* we need this!! */
 
-				if (store) cp += sprintf(cp, "%s:$zip2$*0*%x*%x*", bname, efh_aes_strength, magic_enum);
+				if (store)
+					cp += sprintf(cp, "%s:$zip2$*0*%x*%x*", bname, efh_aes_strength, magic_enum);
 				if (sizeof(salt) < 4 + 4 * efh_aes_strength ||
-					fread(salt, 1, 4+4*efh_aes_strength, fp) != 4+4*efh_aes_strength) {
-						fprintf(stderr, "Error, in fread of file data!\n");
-						goto cleanup;
+					fread(salt, 1, 4 + 4 * efh_aes_strength, fp) != 4 + 4 * efh_aes_strength)
+				{
+					fprintf(stderr, "Error, in fread of file data!\n");
+					goto cleanup;
 				}
 
-				for (i = 0; i < 4+4*efh_aes_strength; i++) {
-					if (store) cp += sprintf(cp, "%c%c",
-						itoa16[ARCH_INDEX(salt[i] >> 4)],
-						itoa16[ARCH_INDEX(salt[i] & 0x0f)]);
+				for (i = 0; i < 4 + 4 * efh_aes_strength; i++)
+				{
+					if (store)
+						cp += sprintf(cp, "%c%c",
+									  itoa16[ARCH_INDEX(salt[i] >> 4)],
+									  itoa16[ARCH_INDEX(salt[i] & 0x0f)]);
 				}
-				if (store) cp += sprintf (cp, "*");
+				if (store)
+					cp += sprintf(cp, "*");
 				// since in the format we read/compare this one, we do it char by
 				// char, so there is no endianity swapping needed. (validator)
-				for (i = 0; i < 2; i++) {
-					d = fgetc(fp);
-					if (store) cp += sprintf(cp, "%c%c",
-						itoa16[ARCH_INDEX(d >> 4)],
-						itoa16[ARCH_INDEX(d & 0x0f)]);
-				}
-				real_cmpr_len = compressed_size-2-(4+4*efh_aes_strength)-extrafield_length;
-				// not quite sure why the real_cmpr_len is 'off by 1' ????
-				++real_cmpr_len;
-				if (store) cp += sprintf(cp, "*%x*", real_cmpr_len);
-
-				for (i = 0; i < real_cmpr_len; i++) {
+				for (i = 0; i < 2; i++)
+				{
 					d = fgetc(fp);
 					if (store)
 						cp += sprintf(cp, "%c%c",
-						              itoa16[ARCH_INDEX(d >> 4)],
-						              itoa16[ARCH_INDEX(d & 0x0f)]);
+									  itoa16[ARCH_INDEX(d >> 4)],
+									  itoa16[ARCH_INDEX(d & 0x0f)]);
 				}
-				if (store) cp += sprintf(cp, "*");
-				for (i = 0; i < 10; i++) {
+				// Password verification value -> 2 bytes, Salt value -> (4 + 4 * efh_aes_strength)
+				real_cmpr_len = compressed_size - 2 - (4 + 4 * efh_aes_strength) - AES_EXTRA_DATA_LENGTH;
+				// not quite sure why the real_cmpr_len is 'off by 1' ????
+				++real_cmpr_len;
+				if (store)
+					cp += sprintf(cp, "*%" PRIx64 "*", real_cmpr_len);
+
+				for (i = 0; i < real_cmpr_len; i++)
+				{
 					d = fgetc(fp);
-					if (store) cp += sprintf(cp, "%c%c",
-					    itoa16[ARCH_INDEX(d >> 4)],
-					    itoa16[ARCH_INDEX(d & 0x0f)]);
+					if (store)
+						cp += sprintf(cp, "%c%c",
+									  itoa16[ARCH_INDEX(d >> 4)],
+									  itoa16[ARCH_INDEX(d & 0x0f)]);
 				}
-				for (d = ' '+1; d < '~'; ++d) {
+				if (store)
+					cp += sprintf(cp, "*");
+				for (i = 0; i < 10; i++)
+				{
+					d = fgetc(fp);
+					if (store)
+						cp += sprintf(cp, "%c%c",
+									  itoa16[ARCH_INDEX(d >> 4)],
+									  itoa16[ARCH_INDEX(d & 0x0f)]);
+				}
+				for (d = ' ' + 1; d < '~'; ++d)
+				{
 					if (!strchr(fname, d) && d != ':' && !isxdigit(d))
 						break;
 				}
-				if (store) cp += sprintf(cp, "*$/zip2$:::::%s\n", bname);
-			} else if (flags & 1) {	/* old encryption */
+				if (store)
+					cp += sprintf(cp, "*$/zip2$:::::%s-%s\n", bname, filename);
+				if (cur)
+				{
+					printf("%s\n", cur);
+					cur = NULL; // dirty hack to avoid printing of last hash twice
+				}
+			}
+			else if (flags & 1 && (version == 51 || version == 52 || version >= 61))
+			{ /* Strong Encryption?, APPNOTE-6.3.4.TXT, bit 6 check doesn't really work */
+				// fseek(fp, filename_length, SEEK_CUR);
+				// fseek(fp, extrafield_length, SEEK_CUR);
+				// continue;
+				unsigned char iv[16];
+				unsigned char Erd[256];
+				uint32_t Size;
+				uint32_t Format;
+				uint16_t AlgId;
+				uint16_t Bitlen;
+				uint16_t Flags;
+				uint16_t ErdSize;
+				uint32_t Reserved1;
+				uint16_t VSize;
+				uint16_t IVSize;
+				char *bname;
+				long previous_position;
+
+				// unused
+				(void)Flags;
+				(void)Bitlen;
+				(void)Reserved1;
+				(void)Size;
+
+				strnzcpy(path, fname, sizeof(path));
+				bname = basename(path);
+				previous_position = ftell(fp);
+				IVSize = fget16LE(fp);
+				if (IVSize > sizeof(iv))
+					goto bail;
+				if (fread(iv, 1, IVSize, fp) != IVSize)
+					goto bail;
+				Size = fget32LE(fp);
+				Format = fget16LE(fp);
+				if (Format != 3)
+				{
+					goto bail;
+				}
+				AlgId = fget16LE(fp);
+				if (AlgId == 0x660E || AlgId == 0x660F || AlgId == 0x6610)
+					AlgId = 1;
+				else if (AlgId == 0x6603 || AlgId == 0x6609 || AlgId == 0x6720 || AlgId == 0x6721 || AlgId == 0x6801)
+				{
+					fprintf(stderr, "AlgId (%x) is currently unsupported, please report this to us!\n", AlgId);
+					goto bail;
+				}
+				else
+					goto bail;
+				if (IVSize == 0)
+				{
+					memset(iv, 0, 16);
+#if !ARCH_LITTLE_ENDIAN
+					crc = JOHNSWAP(crc);
+					uncompressed_size = JOHNSWAP64(uncompressed_size);
+#endif
+					memcpy(iv, &crc, 4);
+					memcpy(iv + 4, &uncompressed_size, 8);
+					IVSize = 12;
+				}
+				Bitlen = fget16LE(fp);
+				Flags = fget16LE(fp);
+				ErdSize = fget16LE(fp);
+				if (ErdSize > sizeof(Erd))
+					goto bail;
+				if (fread(Erd, 1, ErdSize, fp) != ErdSize)
+					goto bail;
+				Reserved1 = fget32LE(fp);
+				if (Reserved1 != 0)
+				{
+					fprintf(stderr, "Reserved1 is %u (non-zero), please report this bug to us!\n", Reserved1);
+					goto bail;
+				}
+				VSize = fget16LE(fp);
+				fseek(fp, VSize, SEEK_CUR);
+
+				printf("%s:$zip3$*%d*%d*%d*%d*", bname, 0, AlgId, Bitlen, 0);
+				print_hex_inline(iv, IVSize); // getting this right isn't important ;)
+				printf("*");
+				print_hex_inline(Erd, ErdSize);
+				printf("*0*0*0*%s\n", filename);
+				continue;
+			bail:
+				fseek(fp, previous_position, SEEK_SET);
+				fseek(fp, filename_length, SEEK_CUR);
+				fseek(fp, extrafield_length, SEEK_CUR);
+				fseek(fp, compressed_size, SEEK_CUR);
+			}
+			else if (flags & 1)
+			{ /* old encryption */
 				fclose(fp);
 				fp = 0;
 				process_old_zip(fname);
 				return;
-			} else {
+			}
+			else
+			{
 				fprintf(stderr, "%s->%s is not encrypted!\n", fname,
-				    filename);
+						filename);
 				fseek(fp, extrafield_length, SEEK_CUR);
 				fseek(fp, compressed_size, SEEK_CUR);
 			}
-		} else if (id == 0x08074b50UL) {	/* data descriptor */
+		}
+		else if (id == 0x08074b50UL)
+		{ /* data descriptor */
 			fseek(fp, 12, SEEK_CUR);
-		} else if (id == 0x02014b50UL || id == 0x06054b50UL) {	/* central directory structures */
+		}
+		else if (id == 0x02014b50UL)
+		{ /* central directory structures */
+			/* uint16_t version_maker = fget16LE(fp);
+			uint16_t version_needed = fget16LE(fp);
+			uint16_t filename_length;
+			uint16_t extrafield_length;
+			uint16_t comment_length;
+			(void) fget16LE(fp);
+			(void) fget16LE(fp);
+			(void) fget16LE(fp);
+			(void) fget16LE(fp);
+			(void) fget32LE(fp);
+			(void) fget32LE(fp);
+			(void) fget32LE(fp);
+			filename_length = fget16LE(fp);
+			extrafield_length = fget16LE(fp);
+			comment_length = fget16LE(fp);
+			(void) fget16LE(fp);
+			(void) fget16LE(fp);
+			(void) fget32LE(fp);
+			(void) fget32LE(fp);
+			(void) version_maker;
+			(void) version_needed;
+
+			if (fread(filename, 1, filename_length, fp) != filename_length) {
+				fprintf(stderr, "Error, in fread of file data!\n");
+				goto cleanup;
+			}
+			filename[filename_length] = 0;
+			fseek(fp, extrafield_length, SEEK_CUR);
+			fseek(fp, comment_length, SEEK_CUR); */
+			goto cleanup;
+		}
+		else if (id == 0x06054b50UL)
+		{ /* end of central dir  */
 			goto cleanup;
 		}
 	}
 
 cleanup:
 	if (cur)
-		printf ("%s\n",cur);
+		printf("%s\n", cur);
 	MEM_FREE(cur);
 	fclose(fp);
 }
@@ -285,11 +503,13 @@ cleanup:
  */
 typedef struct _zip_ptr
 {
-	char         *hash_data;
-	uint32_t      offset, offex, crc, cmp_len, decomp_len;
-	uint16_t      magic_type, cmptype;
-	char          chksum[5];
-	char          chksum2[5];
+	char *hash_data;
+	uint32_t crc;
+	uint64_t offset, offex;
+	uint64_t cmp_len, decomp_len;
+	uint16_t magic_type, cmptype;
+	char chksum[5];
+	char chksum2[5];
 } zip_ptr;
 
 typedef struct _zip_file
@@ -299,18 +519,21 @@ typedef struct _zip_file
 	int check_bytes;
 } zip_file;
 
-static int magic_type(const char *filename) {
-	char *Buf = str_alloc_copy((char*)filename), *cp;
+static int magic_type(const char *filename)
+{
+	char *Buf = str_alloc_copy((char *)filename), *cp;
 	int i;
 
-	if (!use_magic) return 0;
+	if (!use_magic)
+		return 0;
 
 	strupr(Buf);
 	if (ascii_fname && !strcasecmp(Buf, ascii_fname))
 		return 255;
 
 	cp = strrchr(Buf, '.');
-	if (!cp) return 0;
+	if (!cp)
+		return 0;
 	++cp;
 	for (i = 1; MagicTypes[i]; ++i)
 		if (!strcmp(cp, MagicTypes[i]))
@@ -318,116 +541,175 @@ static int magic_type(const char *filename) {
 	return 0;
 }
 
-static char *toHex(unsigned char *p, int len) {
-	static char *Buf;
-	static size_t BufSz = 4096;
-	char *cp;
-	int i;
+static void print_hex(unsigned char *p, uint64_t len)
+{
+	while (len--)
+		printf("%02x", *p++);
+	printf("*");
+}
 
-	BufSz = MAX(BufSz, 2 * len + 1);
-	Buf = realloc(Buf, BufSz);
-	cp = Buf;
-	for (i = 0; i < len; ++i)
-		cp += sprintf(cp, "%02x", p[i]);
-	return Buf;
+// If archive was created from a non-seekable stream, we need to find CRC and
+// sizes AFTER file data which means we're in a hen-and-egg situation since we
+// don't know the size... I think the below is enough but there may be edge
+// cases where we need to also recognize some other kind of start-of-whatever
+// and seek back 16 bytes.
+static void scan_for_eod(FILE **fp, zip_ptr *p, int size64)
+{
+	long saved_pos = ftell(*fp);
+
+	fprintf(stderr, "Scanning for EOD... ");
+	while (!feof(*fp))
+	{
+		if (fgetc(*fp) == 0x50)
+		{
+			if (fgetc(*fp) == 0x4b)
+			{
+				if (fgetc(*fp) == 0x07)
+				{
+					if (fgetc(*fp) == 0x08)
+					{
+						fprintf(stderr, "FOUND Extended local header\n");
+						p->crc = fget32LE(*fp);
+						if (size64)
+						{
+							p->cmp_len = fget64LE(*fp);
+							p->decomp_len = fget64LE(*fp);
+						}
+						else
+						{
+							p->cmp_len = fget32LE(*fp);
+							p->decomp_len = fget32LE(*fp);
+						}
+						break;
+					}
+				}
+				else if (fgetc(*fp) == 0x03)
+				{
+					if (fgetc(*fp) == 0x04)
+					{
+						fprintf(stderr, "FOUND next Local file header\n");
+						if (size64)
+							fseek(*fp, -24, SEEK_CUR);
+						else
+							fseek(*fp, -16, SEEK_CUR);
+						p->crc = fget32LE(*fp);
+						if (size64)
+						{
+							p->cmp_len = fget64LE(*fp);
+							p->decomp_len = fget64LE(*fp);
+						}
+						else
+						{
+							p->cmp_len = fget32LE(*fp);
+							p->decomp_len = fget32LE(*fp);
+						}
+						break;
+					}
+				}
+				else if (fgetc(*fp) == 0x01)
+				{
+					if (fgetc(*fp) == 0x02)
+					{
+						fprintf(stderr, "FOUND Central directory\n");
+						if (size64)
+							fseek(*fp, -24, SEEK_CUR);
+						else
+							fseek(*fp, -16, SEEK_CUR);
+						p->crc = fget32LE(*fp);
+						if (size64)
+						{
+							p->cmp_len = fget64LE(*fp);
+							p->decomp_len = fget64LE(*fp);
+						}
+						else
+						{
+							p->cmp_len = fget32LE(*fp);
+							p->decomp_len = fget32LE(*fp);
+						}
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	fseek(*fp, saved_pos, SEEK_SET);
 }
 
 static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fname)
 {
-	uint16_t version,flags,lastmod_time,lastmod_date,filename_length,extrafield_length;
+	uint16_t version, flags, lastmod_time, lastmod_date, filename_length, extrafield_length;
 	unsigned char filename[1024];
+	int size64 = 0;
 
 	memset(p, 0, sizeof(*p));
 
-	p->offset = ftell(fp)-4;
+	p->offset = ftell(fp) - 4;
 	version = fget16LE(fp);
 	flags = fget16LE(fp);
 	p->cmptype = fget16LE(fp);
 	lastmod_time = fget16LE(fp);
 	lastmod_date = fget16LE(fp);
 	p->crc = fget32LE(fp);
-	p->cmp_len= fget32LE(fp);
+	p->cmp_len = fget32LE(fp);
 	p->decomp_len = fget32LE(fp);
 	filename_length = fget16LE(fp);
 	extrafield_length = fget16LE(fp);
 	p->hash_data = NULL;
 	/* unused variables */
-	(void) lastmod_date;
+	(void)lastmod_date;
 
 	if (sizeof(filename) < filename_length ||
-		fread(filename, 1, filename_length, fp) != filename_length) {
-		fprintf(stderr, "Error, fread could not read the data from the file:  %s\n", zip_fname);
+		fread(filename, 1, filename_length, fp) != filename_length)
+	{
+		fprintf(stderr, "Error, fread could not read the data from the file: %s\n", zip_fname);
 		return 0;
 	}
 	filename[filename_length] = 0;
-	p->magic_type = magic_type((char*)filename);
+	p->magic_type = magic_type((char *)filename);
 
 	p->offex = 30 + filename_length + extrafield_length;
 
-	// If bit 3 of flags is set, we need to find CRC and sizes AFTER file data
-	// (because archive was created in a non-seekable stream) which means we're
-	// in a hen-and-egg situation since we don't know the size... I think the
-	// below is enough but there may be edge cases where we need to also
-	// recognize some other kind of end-of-whatever and seek back 12 bytes.
-	if (flags & (1 << 3)) {
-		long saved_pos = ftell(fp);
-
-		// Find data descriptor 0x08074b50UL or next local header 0x04034b50UL
-		while (!feof(fp)) {
-			if (fgetc(fp) == 0x50) {
-				if (fgetc(fp) == 0x4b) {
-					if (fgetc(fp) == 0x07) {
-						if (fgetc(fp) == 0x08) {
-							p->crc = fget32LE(fp);
-							p->cmp_len= fget32LE(fp);
-							p->decomp_len = fget32LE(fp);
-							//puts("FOUND desc");
-							break;
-						}
-					}
-					else if (fgetc(fp) == 0x03) {
-						if (fgetc(fp) == 0x04) {
-							fseek(fp, -12, SEEK_CUR);
-							p->crc = fget32LE(fp);
-							p->cmp_len= fget32LE(fp);
-							p->decomp_len = fget32LE(fp);
-							//puts("FOUND lcl");
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		fseek(fp, saved_pos, SEEK_SET);
-	}
-
 	// we only handle implode or store.
-	// 0x314 was seen at 2012 CMIYC ?? I have to look into that one.
+	// 0x314 (788) was seen at 2012 CMIYC ?? I have to look into that one.
 	fprintf(stderr, "ver %d.%d ", version / 10, version % 10);
-	if ( !(only_fname && strcmp(only_fname, (char*)filename)) && (version == 0x14||version==0xA||version == 0x314) && (flags & 1)) {
+	if ((flags & 1) &&
+		(version == 10 || version == 20 || version == 45 || version == 788))
+	{
 		uint16_t extra_len_used = 0;
-		if (flags & 8) {
-			while (extra_len_used < extrafield_length) {
+
+		if (flags & (1 << 3))
+		{
+			while (extra_len_used < extrafield_length)
+			{
 				uint16_t efh_id = fget16LE(fp);
 				uint16_t efh_datasize = fget16LE(fp);
-				extra_len_used += 4 + efh_datasize;
-				fseek(fp, efh_datasize, SEEK_CUR);
-				fprintf(stderr, "efh %04x ", efh_id);
-				//http://svn.assembla.com/svn/os2utils/unzip60f/proginfo/extrafld.txt
-				//http://emerge.hg.sourceforge.net/hgweb/emerge/emerge/diff/c2f208617d32/Source/unzip/proginfo/extrafld.txt
-				if (efh_id == 0x07c8 ||  // Info-ZIP Macintosh (old, J. Lee)
-					efh_id == 0x334d ||  // Info-ZIP Macintosh (new, D. Haase's 'Mac3' field)
-					efh_id == 0x4d49 ||  // Info-ZIP OpenVMS (obsolete)
-					efh_id == 0x5855 ||  // Info-ZIP UNIX (original; also OS/2, NT, etc.)
-					efh_id == 0x6375 ||  // Info-ZIP UTF-8 comment field
-					efh_id == 0x7075 ||  // Info-ZIP UTF-8 name field
-					efh_id == 0x7855 ||  // Info-ZIP UNIX (16-bit UID/GID info)
-					efh_id == 0x7875)    // Info-ZIP UNIX 3rd generation (generic UID/GID, ...)
 
-					// 7zip ALSO is 2 byte checksum, but I have no way to find them.  NOTE, it is 2 bytes of CRC, not timestamp like InfoZip.
-					// OLD winzip (I think 8.01 or before), is also supposed to be 2 byte.
-					// old v1 pkzip (the DOS builds) are 2 byte checksums.
+				fprintf(stderr, "efh %04x ", efh_id);
+
+				if (efh_id == 0x0001)
+				{
+					size64 = 1;
+					p->decomp_len = fget64LE(fp);
+					p->cmp_len = fget64LE(fp);
+					extra_len_used += 16;
+					efh_datasize -= 16;
+				}
+				fseek(fp, efh_datasize, SEEK_CUR);
+
+				extra_len_used += 4 + efh_datasize;
+				if (efh_id == 0x07c8 || // Info-ZIP Macintosh (old, J. Lee)
+					efh_id == 0x334d || // Info-ZIP Macintosh (new, D. Haase's 'Mac3' field)
+					efh_id == 0x4d49 || // Info-ZIP OpenVMS (obsolete)
+					efh_id == 0x5855 || // Info-ZIP UNIX (original; also OS/2, NT, etc.)
+					efh_id == 0x6375 || // Info-ZIP UTF-8 comment field
+					efh_id == 0x7075 || // Info-ZIP UTF-8 name field
+					efh_id == 0x7855 || // Info-ZIP UNIX (16-bit UID/GID info)
+					efh_id == 0x7875)   // Info-ZIP UNIX 3rd generation (generic UID/GID, ...)
+
+				// 7zip ALSO is 2 byte checksum, but I have no way to find them.  NOTE, it is 2 bytes of CRC, not timestamp like InfoZip.
+				// OLD winzip (I think 8.01 or before), is also supposed to be 2 byte.
+				// old v1 pkzip (the DOS builds) are 2 byte checksums.
 				{
 					zfp->unix_made = 1;
 					zfp->check_bytes = 2;
@@ -438,26 +720,43 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 		else if (extrafield_length)
 			fseek(fp, extrafield_length, SEEK_CUR);
 
+		if (p->cmp_len == 0 && p->decomp_len == 0)
+			scan_for_eod(&fp, p, size64);
+
+		if (only_fname && strcmp(only_fname, (char *)filename))
+		{
+			fseek(fp, p->cmp_len, SEEK_CUR);
+			return 0;
+		}
+
 		if (force_2_byte_checksum)
 			zfp->check_bytes = 2;
 
 		fprintf(stderr,
-			"%s->%s PKZIP Encr:%s%s cmplen=%d, decmplen=%d, crc=%X\n",
-			jtr_basename(zip_fname), filename, zfp->check_bytes==2?" 2b chk,":"", zfp->check_in_crc?"":" TS_chk,", p->cmp_len, p->decomp_len, p->crc);
+				"%s->%s PKZIP%s Encr:%s%s cmplen=%" PRIu64 ", decmplen=%" PRIu64 ", crc=%X\n",
+				jtr_basename(zip_fname), filename,
+				size64 ? "64" : "",
+				zfp->check_bytes == 2 ? " 2b chk," : "",
+				zfp->check_in_crc ? "" : " TS_chk,",
+				p->cmp_len, p->decomp_len, p->crc);
 
 		MEM_FREE(p->hash_data);
 		p->hash_data = mem_alloc(p->cmp_len + 1);
-		if (fread(p->hash_data, 1, p->cmp_len, fp) != p->cmp_len) {
-			fprintf(stderr, "Error, fread could not read the data from the file:  %s\n", zip_fname);
+		if (fread(p->hash_data, 1, p->cmp_len, fp) != p->cmp_len)
+		{
+			fprintf(stderr, "Error, fread could not read the data from the file: %s\n", zip_fname);
 			return 0;
 		}
 
 		// Ok, now set checksum bytes.  This will depend upon if from crc, or from timestamp
-		sprintf (p->chksum, "%02x%02x", (p->crc>>24)&0xFF, (p->crc>>16)&0xFF);
-		sprintf (p->chksum2, "%02x%02x", lastmod_time>>8, lastmod_time&0xFF);
+		sprintf(p->chksum, "%02x%02x", (p->crc >> 24) & 0xFF, (p->crc >> 16) & 0xFF);
+		sprintf(p->chksum2, "%02x%02x", lastmod_time >> 8, lastmod_time & 0xFF);
 
 		return 1;
 	}
+
+	if (p->cmp_len == 0 && p->decomp_len == 0)
+		scan_for_eod(&fp, p, version >= 45);
 
 	fprintf(stderr, "%s->%s is not encrypted, or stored with non-handled compression type\n", zip_fname, filename);
 	fseek(fp, extrafield_length, SEEK_CUR);
@@ -480,83 +779,116 @@ static void process_old_zip(const char *fname)
 	zfp.check_bytes = 1;
 	zfp.unix_made = 0;
 
-	if (!(fp = fopen(fname, "rb"))) {
+	if (!(fp = fopen(fname, "rb")))
+	{
 		fprintf(stderr, "! %s : %s\n", fname, strerror(errno));
 		return;
 	}
 
-	while (!feof(fp)) {
+	while (!feof(fp))
+	{
 		uint32_t id = fget32LE(fp);
 
-		if (id == 0x04034b50UL) {	/* local header */
-			if (LoadZipBlob(fp, &curzip, &zfp, fname) && curzip.decomp_len > 3) {
+		if (id == 0x04034b50UL)
+		{ /* local header */
+			if (LoadZipBlob(fp, &curzip, &zfp, fname) && curzip.decomp_len > 3)
+			{
 				if (!count_of_hashes)
 					memcpy(&(hashes[count_of_hashes++]), &curzip, sizeof(curzip));
-				else {
-					if (count_of_hashes == 1) {
-						if (curzip.cmp_len < hashes[0].cmp_len) {
+				else
+				{
+					if (count_of_hashes == 1)
+					{
+						if (curzip.cmp_len < hashes[0].cmp_len)
+						{
 							memcpy(&(hashes[count_of_hashes++]), &(hashes[0]), sizeof(curzip));
 							memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-						} else
+						}
+						else
 							memcpy(&(hashes[count_of_hashes++]), &curzip, sizeof(curzip));
 					}
-					else if (count_of_hashes == 2) {
-						if (curzip.cmp_len < hashes[0].cmp_len) {
+					else if (count_of_hashes == 2)
+					{
+						if (curzip.cmp_len < hashes[0].cmp_len)
+						{
 							memcpy(&(hashes[count_of_hashes++]), &(hashes[1]), sizeof(curzip));
 							memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 							memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-						} else if (curzip.cmp_len < hashes[1].cmp_len) {
+						}
+						else if (curzip.cmp_len < hashes[1].cmp_len)
+						{
 							memcpy(&(hashes[count_of_hashes++]), &(hashes[1]), sizeof(curzip));
 							memcpy(&(hashes[1]), &curzip, sizeof(curzip));
-						} else
+						}
+						else
 							memcpy(&(hashes[count_of_hashes++]), &curzip, sizeof(curzip));
 					}
-					else {
-						int done=0;
-						if (curzip.magic_type && curzip.cmp_len > hashes[0].cmp_len) {
+					else
+					{
+						int done = 0;
+						if (curzip.magic_type && curzip.cmp_len > hashes[0].cmp_len)
+						{
 							// if we have a magic type, we will replace any NON magic type, for the 2nd and 3rd largest, without caring about
 							// the size.
-							if (hashes[1].magic_type == 0) {
-								if (hashes[2].cmp_len < curzip.cmp_len) {
+							if (hashes[1].magic_type == 0)
+							{
+								if (hashes[2].cmp_len < curzip.cmp_len)
+								{
 									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &(hashes[2]), sizeof(curzip));
 									memcpy(&(hashes[2]), &curzip, sizeof(curzip));
-									done=1;
-								} else {
+									done = 1;
+								}
+								else
+								{
 									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &curzip, sizeof(curzip));
-									done=1;
+									done = 1;
 								}
-							} else if (hashes[2].magic_type == 0) {
-								if (hashes[1].cmp_len < curzip.cmp_len) {
+							}
+							else if (hashes[2].magic_type == 0)
+							{
+								if (hashes[1].cmp_len < curzip.cmp_len)
+								{
 									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &curzip, sizeof(curzip));
-									done=1;
-								} else {
+									done = 1;
+								}
+								else
+								{
 									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
 									memcpy(&(hashes[1]), &curzip, sizeof(curzip));
-									done=1;
+									done = 1;
 								}
 							}
 						}
-						if (!done && curzip.cmp_len < hashes[0].cmp_len) {
+						if (!done && curzip.cmp_len < hashes[0].cmp_len)
+						{
 							// we 'only' replace the smallest zip, and always keep as many any other magic as possible.
-							if (hashes[0].magic_type == 0) {
+							if (hashes[0].magic_type == 0)
+							{
 								MEM_FREE(hashes[0].hash_data);
 								memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-							} else {
+							}
+							else
+							{
 								// Ok, the 1st is a magic, we WILL keep it.
-								if (hashes[1].magic_type) {  // Ok, we found our 2
+								if (hashes[1].magic_type)
+								{ // Ok, we found our 2
 									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
 									memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 									memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-								} else if (hashes[2].magic_type) {  // Ok, we found our 2
+								}
+								else if (hashes[2].magic_type)
+								{ // Ok, we found our 2
 									MEM_FREE(hashes[1].hash_data);
 									memcpy(&(hashes[1]), &(hashes[0]), sizeof(curzip));
 									memcpy(&(hashes[0]), &curzip, sizeof(curzip));
-								} else {
+								}
+								else
+								{
 									// found none.  So we will simply roll them down (like when #1 was a magic also).
 									MEM_FREE(hashes[2].hash_data);
 									memcpy(&(hashes[2]), &(hashes[1]), sizeof(curzip));
@@ -568,35 +900,44 @@ static void process_old_zip(const char *fname)
 					}
 				}
 			}
-		} else if (id == 0x08074b50UL) {	/* data descriptor */
+		}
+		else if (id == 0x08074b50UL)
+		{ /* data descriptor */
 			fseek(fp, 12, SEEK_CUR);
-		} else if (id == 0x02014b50UL || id == 0x06054b50UL) {	/* central directory structures */
+		}
+		else if (id == 0x02014b50UL || id == 0x06054b50UL)
+		{ /* central directory structures */
 			goto print_and_cleanup;
 		}
 	}
 
 print_and_cleanup:;
-	if (count_of_hashes) {
-		int i=1;
+	if (count_of_hashes)
+	{
+		int i = 1;
 		char *bname;
 		strnzcpy(path, fname, sizeof(path));
 		bname = basename(path);
 
-		printf ("%s:$pkzip2$%x*%x*", bname, count_of_hashes, zfp.check_bytes);
+		printf("%s:$pkzip2$%x*%x*", bname, count_of_hashes, zfp.check_bytes);
 		if (checksum_only)
 			i = 0;
-		for (; i < count_of_hashes; ++i) {
-			int len = 12+24;
+		for (; i < count_of_hashes; ++i)
+		{
+			uint64_t len = 12 + 24;
 			if (hashes[i].magic_type)
-				len = 12+180;
+				len = 12 + 180;
 			if (len > hashes[i].cmp_len)
 				len = hashes[i].cmp_len; // even though we 'could' output a '2', we do not.  We only need one full inflate CRC check file.
-			printf("1*%x*%x*%x*%s*%s*%s*", hashes[i].magic_type, hashes[i].cmptype, len, hashes[i].chksum, hashes[i].chksum2, toHex((unsigned char*)hashes[i].hash_data, len));
+			printf("1*%x*%x*%" PRIx64 "*%s*%s*", hashes[i].magic_type, hashes[i].cmptype, (uint64_t)len, hashes[i].chksum, hashes[i].chksum2);
+			print_hex((unsigned char *)hashes[i].hash_data, len);
 		}
 		// Ok, now output the 'little' one (the first).
-		if (!checksum_only) {
-			printf("%x*%x*%x*%x*%x*%x*%x*%x*", 2, hashes[0].magic_type, hashes[0].cmp_len, hashes[0].decomp_len, hashes[0].crc, hashes[0].offset, hashes[0].offex, hashes[0].cmptype);
-			printf("%x*%s*%s*%s*", hashes[0].cmp_len, hashes[0].chksum, hashes[0].chksum2, toHex((unsigned char*)hashes[0].hash_data, hashes[0].cmp_len));
+		if (!checksum_only)
+		{
+			printf("%x*%x*%" PRIx64 "*%" PRIx64 "*%x*%" PRIx64 "*%" PRIx64 "*%x*", 2, hashes[0].magic_type, hashes[0].cmp_len, hashes[0].decomp_len, hashes[0].crc, hashes[0].offset, hashes[0].offex, hashes[0].cmptype);
+			printf("%" PRIx64 "*%s*%s*", hashes[0].cmp_len, hashes[0].chksum, hashes[0].chksum2);
+			print_hex((unsigned char *)hashes[0].hash_data, hashes[0].cmp_len);
 		}
 		printf("$/pkzip2$:::::%s\n", fname);
 
@@ -606,22 +947,25 @@ print_and_cleanup:;
 	fclose(fp);
 }
 
-static int usage(char *name) {
-	fprintf(stderr, "Usage: %s [options] [zip files]\n", name);
+static int usage(char *name)
+{
+	fprintf(stderr, "Usage: %s [options] [zip file(s)]\n", name);
 	fprintf(stderr, "Options for 'old' PKZIP encrypted files only:\n");
-	fprintf(stderr, " -a <filename>   This is a 'known' ASCII file\n");
-	fprintf(stderr, "    Using 'ascii' mode is a serious speedup, IF all files are larger, and\n");
-	fprintf(stderr, "    you KNOW that at least one of them starts out as 'pure' ASCII data\n");
-	fprintf(stderr, " -o <filename>   Only use this file from the .zip file\n");
+	fprintf(stderr, " -a <filename>   This is a 'known' ASCII file. This can be faster, IF all\n");
+	fprintf(stderr, "    files are larger, and you KNOW that at least one of them starts out as\n");
+	fprintf(stderr, "    'pure' ASCII data.\n");
+	fprintf(stderr, " -o <filename>   Only use this file from the .zip file.\n");
 	fprintf(stderr, " -c This will create a 'checksum only' hash.  If there are many encrypted\n");
 	fprintf(stderr, "    files in the .zip file, then this may be an option, and there will be\n");
 	fprintf(stderr, "    enough data that false possitives will not be seen.  If the .zip is 2\n");
 	fprintf(stderr, "    byte checksums, and there are 3 or more of them, then we have 48 bits\n");
 	fprintf(stderr, "    knowledge, which 'may' be enough to crack the password, without having\n");
-	fprintf(stderr, "    to force the user to have the .zip file present\n");
-	fprintf(stderr, " -m Use \"file magic\" as known-plain if applicable. This is slightly faster\n");
-	fprintf(stderr, "    but not 100%% safe in all situations.\n");
-	fprintf(stderr, " -2 Force 2 byte checksum computation\n");
+	fprintf(stderr, "    to force the user to have the .zip file present.\n");
+	fprintf(stderr, " -m Use \"file magic\" as known-plain if applicable. This can be faster but\n");
+	fprintf(stderr, "    not 100%% safe in all situations.\n");
+	fprintf(stderr, " -2 Force 2 byte checksum computation.\n");
+	fprintf(stderr, "\nNOTE: By default it is assumed that all files in each archive have the same\n");
+	fprintf(stderr, "password. To work around that, use -o option to pick a file at a time.\n");
 
 	return EXIT_FAILURE;
 }
@@ -631,8 +975,10 @@ int zip2john(int argc, char **argv)
 	int c;
 
 	/* Parse command line */
-	while ((c = getopt(argc, argv, "a:o:cm2")) != -1) {
-		switch (c) {
+	while ((c = getopt(argc, argv, "a:o:cm2")) != -1)
+	{
+		switch (c)
+		{
 		case 'a':
 			ascii_fname = optarg;
 			fprintf(stderr, "Using file %s as an 'ASCII' quick check file\n", ascii_fname);
@@ -659,11 +1005,11 @@ int zip2john(int argc, char **argv)
 		}
 	}
 	argc -= optind;
-	if(argc == 0)
+	if (argc == 0)
 		return usage(argv[0]);
 	argv += optind;
 
-	while(argc--)
+	while (argc--)
 		process_file(*argv++);
 
 	cleanup_tiny_memory();

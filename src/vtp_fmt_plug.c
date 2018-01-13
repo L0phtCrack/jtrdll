@@ -5,8 +5,10 @@
  * realisticgroup.com> and Dhiru Kholia <dhiru at openwall.com>, and it is
  * hereby released to the general public under the following terms:
  *
- * Redistribution and use in source and binary forms, with or without#
+ * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
+ *
+ * Take a look at "cisco_IOS-11.2-8_source.tar.bz2" if in doubt ;)
  */
 
 #if FMT_EXTERNS_H
@@ -16,6 +18,7 @@ john_register_one(&fmt_vtp);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 // Tuned on core i7 4-core HT
@@ -73,15 +76,15 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 /* VTP summary advertisement packet, partially based on original Yersinia code */
 typedef struct {
-    unsigned char version;
-    unsigned char code;
-    unsigned char followers;
-    unsigned char domain_name_length;
-    unsigned char domain_name[32];  // zero padded
-    uint32_t revision;  // 4 bytes
-    uint32_t updater;   // 4 bytes
-    unsigned char update_timestamp[12]; // zero'ed during MAC calculations
-    unsigned char md5_checksum[16];
+	unsigned char version;
+	unsigned char code;
+	unsigned char followers;
+	unsigned char domain_name_length;
+	unsigned char domain_name[32];  // zero padded
+	uint32_t revision;  // 4 bytes
+	uint32_t updater; // 4 bytes
+	unsigned char update_timestamp[12];  // zero'ed during MAC calculations
+	unsigned char md5_checksum[16];
 } vtp_summary_packet;
 
 static  struct custom_salt {
@@ -99,11 +102,7 @@ static  struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_num_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	saved_len = mem_calloc(sizeof(*saved_len), self->params.max_keys_per_crypt);
@@ -132,7 +131,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if ((p = strtokm(p, "$")) == NULL) /* version */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res != 1  && res != 2)  // VTP version 3 support is pending
@@ -140,7 +139,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if ((p = strtokm(NULL, "$")) == NULL)  /* vlans len */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)  /* vlans data */
@@ -152,7 +151,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	if ((p = strtokm(NULL, "$")) == NULL)  /* salt len */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if ((p = strtokm(NULL, "$")) == NULL)  /* salt */
@@ -185,8 +184,8 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	int i;
 	char *p, *q;
-	memset(&cs, 0, SALT_SIZE);
 
+	memset(&cs, 0, SALT_SIZE);
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
 
@@ -207,7 +206,7 @@ static void *get_salt(char *ciphertext)
 		cs.salt[i] = (atoi16[ARCH_INDEX(q[2 * i])] << 4) |
 			atoi16[ARCH_INDEX(q[2 * i + 1])];
 
-	if (cs.salt_length > 72) { /* we have trailing bytes */
+	if (cs.salt_length > 72) {  // we have trailing bytes
 		cs.trailer_length = cs.salt_length - 72;
 		memcpy(cs.trailer_data, cs.salt + 72, cs.trailer_length);
 	}
@@ -240,6 +239,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '$') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -266,7 +266,7 @@ static void vtp_secret_derive(char *password, int length, unsigned char *output)
 	}
 
 	MD5_Init(&ctx);
-	for(i = 0; i < 1563; i++) { /* roughly 1 MB */
+	for (i = 0; i < 1563; i++) { /* roughly 1 MB */
 		cp = buf;
 			for (j = 0; j < 64; j++) /* treat password as a cyclic generator */
 				*cp++ = password[password_idx++ % length];
@@ -288,8 +288,11 @@ static void vtp_secret_derive(char *password, int length, unsigned char *output)
 	cp = buf[bufs_used];
 	/* treat password as a cyclic generator */
 	for (;;) {
-		/* note this WILL exit.  Modular math assures will do so in 'length' buffers or       */
-		/* less. with PLAINTEXTLEN set to 55 bytes, we only need 55 buffers to assure a cycle */
+		/*
+		 * Note: This WILL exit. Modular math assures will do so in 'length'
+		 * buffers or less. With PLAINTEXTLEN set to 55 bytes, we only need 55
+		 * buffers to assure a cycle.
+		 */
 		if (local_cnt + length <= 64) {
 			memcpy(&cp[local_cnt], password, length);
 			local_cnt += length;
@@ -308,7 +311,7 @@ static void vtp_secret_derive(char *password, int length, unsigned char *output)
 	}
 
 	MD5_Init(&ctx);
-	for(i = 0, j=0; i < 1563; ++i) { /* roughly 1 MB */
+	for (i = 0, j=0; i < 1563; ++i) { /* roughly 1 MB */
 		MD5_Update(&ctx, buf[j++], 64);
 		if (j == bufs_used)
 			j = 0;
@@ -325,12 +328,11 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		MD5_CTX ctx;
 
 		// space for (secret + SUMMARY ADVERTISEMENT + VLANS DATA + secret)
@@ -357,15 +359,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		MD5_Final((unsigned char*)crypt_out[index], &ctx);
 	}
 	dirty = 0;
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -383,11 +385,8 @@ static int cmp_exact(char *source, int index)
 
 static void vtp_set_key(char *key, int index)
 {
-	saved_len[index] = strlen(key);
-
-	strnzcpy(saved_key[index], key, sizeof(saved_key[0]));
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 	dirty = 1;
-
 }
 
 static char *get_key(int index)
@@ -410,7 +409,7 @@ struct fmt_main fmt_vtp = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests
@@ -426,7 +425,7 @@ struct fmt_main fmt_vtp = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -436,7 +435,7 @@ struct fmt_main fmt_vtp = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

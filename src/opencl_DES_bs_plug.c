@@ -479,7 +479,7 @@ size_t create_checking_kernel_set_args()
 	memset(cmp_kernel[gpu_id], 0, 4096 * sizeof(cl_kernel));
 
 	for (i = 0; i < 4096; i++) {
-		if(num_uncracked_hashes(i) <= LOW_THRESHOLD)
+		if (num_uncracked_hashes(i) <= LOW_THRESHOLD)
 			cmp_kernel[gpu_id][i] = kernel_low;
 		else
 			cmp_kernel[gpu_id][i] = kernel_high;
@@ -489,7 +489,7 @@ size_t create_checking_kernel_set_args()
 
 	min_lws = get_kernel_max_lws(gpu_id, kernel_high);
 
-	if(min_lws > get_kernel_max_lws(gpu_id, kernel_low))
+	if (min_lws > get_kernel_max_lws(gpu_id, kernel_low))
 		return get_kernel_max_lws(gpu_id, kernel_low);
 
 	return min_lws;
@@ -595,37 +595,37 @@ void finish_checking()
 
 int opencl_DES_bs_get_hash_0(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xf;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_0;
 }
 
 int opencl_DES_bs_get_hash_1(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_1;
 }
 
 int opencl_DES_bs_get_hash_2(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xfff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_2;
 }
 
 int opencl_DES_bs_get_hash_3(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xffff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_3;
 }
 
 int opencl_DES_bs_get_hash_4(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xfffff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_4;
 }
 
 int opencl_DES_bs_get_hash_5(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0xffffff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_5;
 }
 
 int opencl_DES_bs_get_hash_6(int index)
 {
-	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & 0x7ffffff;
+	return hash_tables[current_salt][hash_ids[2 + 2 * index]] & PH_MASK_6;
 }
 
 int opencl_DES_bs_cmp_one(void *binary, int index)
@@ -820,8 +820,6 @@ typedef union {
 	kvor(kp[0], va, vb); 				\
 	kp += 1;					\
 }
-
-#include "memdbg.h"
 
 static void des_finalize_int_keys()
 {

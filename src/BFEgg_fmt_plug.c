@@ -16,12 +16,7 @@ john_register_one(&fmt_BFEgg);
 
 #include <string.h>
 
-#include "misc.h"
-#include "formats.h"
-#include "common.h"
-#include "blowfish.c"
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 // Tuning on AMD A8 4500M laptop, cygwin64 with OMP(4x) -test=5
 // 4   = 44330 (original)
@@ -39,26 +34,27 @@ static int omp_t = 1;
 #define OMP_SCALE               128
 #endif
 #endif
+
+#include "misc.h"
+#include "formats.h"
+#include "common.h"
+#include "blowfish.c"
 #include "memdbg.h"
 
-#define FORMAT_LABEL			"bfegg"
-#define FORMAT_NAME			"Eggdrop"
-#define ALGORITHM_NAME			"Blowfish 32/" ARCH_BITS_STR
-
-#define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		-1
-
-#define PLAINTEXT_MIN_LENGTH		1
-#define PLAINTEXT_LENGTH		72
-#define CIPHERTEXT_LENGTH		13
-
-#define BINARY_SIZE			7
-#define BINARY_ALIGN			4
-#define SALT_SIZE			0
-#define SALT_ALIGN			1
-
-#define MIN_KEYS_PER_CRYPT		1
-#define MAX_KEYS_PER_CRYPT		1
+#define FORMAT_LABEL            "bfegg"
+#define FORMAT_NAME             "Eggdrop"
+#define ALGORITHM_NAME          "Blowfish 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_MIN_LENGTH    1
+#define PLAINTEXT_LENGTH        72
+#define CIPHERTEXT_LENGTH       13
+#define BINARY_SIZE             7
+#define BINARY_ALIGN            4
+#define SALT_SIZE               0
+#define SALT_ALIGN              1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 
 static struct fmt_tests tests[] = {
     {"+9F93o1OxwgK1", "123456"},
@@ -87,7 +83,7 @@ static int valid(char *ciphertext, struct fmt_main *self) {
     char *pos;
 
     if (*ciphertext != '+') return 0;
-    if (strlen(ciphertext) != CIPHERTEXT_LENGTH) return 0;
+    if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH) return 0;
 
     for (pos = &ciphertext[1]; atoi64[ARCH_INDEX(*pos)] != 0x7F; pos++);
     if (*pos || pos - ciphertext != CIPHERTEXT_LENGTH) return 0;
@@ -99,10 +95,7 @@ void init(struct fmt_main *self) {
 	const char *pos;
 
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -155,7 +148,7 @@ static void *get_binary(char *ciphertext)
 }
 
 static void set_key(char *key, int index) {
-    strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH+1);
+    strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index) {
@@ -163,10 +156,9 @@ static char *get_key(int index) {
 }
 
 static int cmp_all(void *binary, int count) {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], 4))
 			return 1;
 	return 0;
@@ -182,31 +174,22 @@ static int cmp_exact(char *source, int index)
   return 1;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
-		/*if (saved_key[index][0] == '\0') {
-			zerolengthkey = 1;
-		} else {
-			zerolengthkey = 0; */
+	for (index = 0; index < count; index++) {
 		if (saved_key[index][0] != 0)
 			blowfish_encrypt_pass(saved_key[index],
 				(char*)crypt_out[index]);
 	}
+
 	return count;
 }
 
@@ -257,13 +240,8 @@ struct fmt_main fmt_BFEgg = {
 	fmt_default_clear_keys,
 	crypt_all,
 	{
-            get_hash_0,
-            get_hash_1,
-            get_hash_2,
-            get_hash_3,
-            get_hash_4,
-            get_hash_5,
-            get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 	},
 	    cmp_all,
 	    cmp_one,

@@ -48,7 +48,7 @@ john_register_one(&FMT_STRUCT);
 #define CIPHERTEXT_LENGTH   32
 #define DIGEST_SIZE         16
 #define BINARY_SIZE         16
-#define BINARY_ALIGN        1
+#define BINARY_ALIGN        sizeof(uint32_t)
 #define SALT_SIZE           0
 #define SALT_ALIGN          1
 
@@ -259,7 +259,8 @@ static char *prepare(char *fields[10], struct fmt_main *self)
 {
 	static char out[CIPHERTEXT_LENGTH + 1];
 
-	if (!strncmp(fields[1], FORMAT_TAG2, FORMAT_TAG2_LEN) && strlen(fields[1]) == FORMAT_TAG2_LEN+24) {
+	if (!strncmp(fields[1], FORMAT_TAG2, FORMAT_TAG2_LEN) &&
+	    strlen(fields[1]) == FORMAT_TAG2_LEN + 24) {
 		int res;
 
 		res = base64_convert(&fields[1][FORMAT_TAG2_LEN], e_b64_mime, 24,

@@ -177,13 +177,16 @@ inline uint prepare_key(__global uint *key, uint length, uint *nt_buffer)
 	}
 	*target = 0x80;	// Terminate
 
-#if __OS_X__ && gpu_nvidia(DEVICE_INFO)
-	/*
-	 * Driver bug workaround. Halves the performance :-(
-	 * Bug seen with GT 650M version 10.6.47 310.42.05f01
-	 */
+#if __OS_X__
+	// Stupid driver/runtime bug workarounds.
+#if cpu(DEVICE_INFO)
+	// This acts like some kind of barrier but a normal barrier doesn't help.
+	printf("");
+#elif gpu_nvidia(DEVICE_INFO)
 	barrier(CLK_GLOBAL_MEM_FENCE);
 #endif
+#endif
+
 	return (uint)(target - (UTF16*)nt_buffer);
 }
 
@@ -383,7 +386,7 @@ __kernel void nt(__global uint *keys,
 	uint lws = get_local_size(0);
 	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS];
 
-	for(i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
+	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
 		s_bitmaps[i*lws + lid] = bitmaps[i*lws + lid];
 
 	barrier(CLK_LOCAL_MEM_FENCE);

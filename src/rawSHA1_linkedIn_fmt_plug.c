@@ -48,7 +48,6 @@ john_register_one(&fmt_rawSHA1_LI);
 #define BENCHMARK_LENGTH		-1
 
 
-#define PLAINTEXT_LENGTH		55
 #define CIPHERTEXT_LENGTH		(HASH_LENGTH + TAG_LENGTH)
 
 #define BINARY_SIZE			20
@@ -57,11 +56,13 @@ john_register_one(&fmt_rawSHA1_LI);
 #define SALT_ALIGN			1
 
 #ifdef SIMD_COEF_32
+#define PLAINTEXT_LENGTH		55
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-// this version works properly for MMX, SSE2 (.S) and SSE2 intrinsic.
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 ) //for endianity conversion
+#define FMT_IS_BE
+#include "common-simd-getpos.h"
 #else
+#define PLAINTEXT_LENGTH		125
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
 #endif
@@ -84,7 +85,6 @@ static struct fmt_tests tests[] = {
 #ifdef SIMD_COEF_32
 JTR_ALIGN(MEM_ALIGN_SIMD) uint32_t saved_key[SHA_BUF_SIZ*NBKEYS];
 JTR_ALIGN(MEM_ALIGN_SIMD) uint32_t crypt_key[BINARY_SIZE/4*NBKEYS];
-static unsigned char out[PLAINTEXT_LENGTH + 1];
 #else
 static char saved_key[PLAINTEXT_LENGTH + 1];
 static uint32_t crypt_key[BINARY_SIZE / 4];
@@ -104,80 +104,17 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return ciphertext;
 }
 
-static void set_key(char *key, int index) {
-#ifdef SIMD_COEF_32
-#if ARCH_ALLOWS_UNALIGNED
-	const uint32_t *wkey = (uint32_t*)key;
-#else
-	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint32_t));
-	const uint32_t *wkey = (uint32_t*)(is_aligned(key, sizeof(uint32_t)) ?
-	                                       key : strcpy(buf_aligned, key));
-#endif
-	uint32_t *keybuffer = &saved_key[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32];
-	uint32_t *keybuf_word = keybuffer;
-	unsigned int len;
-	uint32_t temp;
-
-	len = 0;
-	while((unsigned char)(temp = *wkey++)) {
-		if (!(temp & 0xff00))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xff) | (0x80 << 8));
-			len++;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff0000))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xffff) | (0x80 << 16));
-			len+=2;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff000000))
-		{
-			*keybuf_word = JOHNSWAP(temp | (0x80U << 24));
-			len+=3;
-			goto key_cleaning;
-		}
-		*keybuf_word = JOHNSWAP(temp);
-		len += 4;
-		keybuf_word += SIMD_COEF_32;
-	}
-	*keybuf_word = 0x80000000;
-
-key_cleaning:
-	keybuf_word += SIMD_COEF_32;
-	while(*keybuf_word) {
-		*keybuf_word = 0;
-		keybuf_word += SIMD_COEF_32;
-	}
-	keybuffer[15*SIMD_COEF_32] = len << 3;
-#else
-	strnzcpy(saved_key, key, PLAINTEXT_LENGTH+1);
-#endif
-}
-
-static char *get_key(int index) {
-#ifdef SIMD_COEF_32
-	unsigned int i,s;
-
-	s = saved_key[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] >> 3;
-	for(i=0;i<s;i++)
-		out[i] = ((unsigned char*)saved_key)[ GETPOS(i, index) ];
-	out[i] = 0;
-	return (char *) out;
-#else
-	return saved_key;
-#endif
-}
+#define NON_SIMD_SINGLE_SAVED_KEY
+#include "common-simd-setkey32.h"
 
 static int cmp_all(void *binary, int count) {
 #ifdef SIMD_COEF_32
-	unsigned int x,y=0;
-	for(;y<SIMD_PARA_SHA1;y++)
-	for(x=0;x<SIMD_COEF_32;x++)
-	{
-		if( ((uint32_t*)binary)[1] == crypt_key[x+y*SIMD_COEF_32*5+SIMD_COEF_32] )
-			return 1;
+	unsigned int x, y;
+	for (y = 0; y < SIMD_PARA_SHA1; y++) {
+		for (x = 0; x < SIMD_COEF_32; x++) {
+			if ( ((uint32_t*)binary)[1] == crypt_key[x+y*SIMD_COEF_32*5+SIMD_COEF_32] )
+				return 1;
+		}
 	}
 	return 0;
 #else
@@ -187,7 +124,7 @@ static int cmp_all(void *binary, int count) {
 
 static int cmp_exact(char *source, int index)
 {
-	return (1);
+	return 1;
 }
 
 static int cmp_one(void * binary, int index)
@@ -197,25 +134,25 @@ static int cmp_one(void * binary, int index)
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
 
-//	if( ((uint32_t*)binary)[0] != crypt_key[x+y*SIMD_COEF_32*5] )
+//	if ( ((uint32_t*)binary)[0] != crypt_key[x+y*SIMD_COEF_32*5] )
 //		return 0;
-	if( ((uint32_t*)binary)[1] != crypt_key[x+y*SIMD_COEF_32*5+SIMD_COEF_32] )
+	if ( ((uint32_t*)binary)[1] != crypt_key[x+y*SIMD_COEF_32*5+SIMD_COEF_32] )
 		return 0;
-	if( ((uint32_t*)binary)[2] != crypt_key[x+y*SIMD_COEF_32*5+2*SIMD_COEF_32] )
+	if ( ((uint32_t*)binary)[2] != crypt_key[x+y*SIMD_COEF_32*5+2*SIMD_COEF_32] )
 		return 0;
-	if( ((uint32_t*)binary)[3] != crypt_key[x+y*SIMD_COEF_32*5+3*SIMD_COEF_32] )
+	if ( ((uint32_t*)binary)[3] != crypt_key[x+y*SIMD_COEF_32*5+3*SIMD_COEF_32] )
 		return 0;
-	if( ((uint32_t*)binary)[4] != crypt_key[x+y*SIMD_COEF_32*5+4*SIMD_COEF_32] )
+	if ( ((uint32_t*)binary)[4] != crypt_key[x+y*SIMD_COEF_32*5+4*SIMD_COEF_32] )
 		return 0;
 	return 1;
 #else
-	if( ((uint32_t*)binary)[1] != crypt_key[1] )
+	if ( ((uint32_t*)binary)[1] != crypt_key[1] )
 		return 0;
-	if( ((uint32_t*)binary)[2] != crypt_key[2] )
+	if ( ((uint32_t*)binary)[2] != crypt_key[2] )
 		return 0;
-	if( ((uint32_t*)binary)[3] != crypt_key[3] )
+	if ( ((uint32_t*)binary)[3] != crypt_key[3] )
 		return 0;
-	if( ((uint32_t*)binary)[4] != crypt_key[4] )
+	if ( ((uint32_t*)binary)[4] != crypt_key[4] )
 		return 0;
 	return 1;
 #endif
@@ -267,7 +204,7 @@ static int get_hash_6(int index) { return ((uint32_t*)crypt_key)[1] & PH_MASK_6;
 static void *binary(char *ciphertext)
 {
 	uint32_t *bin = (uint32_t*)rawsha1_common_get_binary(ciphertext);
-#ifdef SIMD_COEF_32
+#if defined (SIMD_COEF_32) && ARCH_LITTLE_ENDIAN
 	alter_endianity(bin, BINARY_SIZE);
 #endif
 	return (void*)bin;
@@ -301,7 +238,7 @@ static char *source(char *source, void *binary)
 		   if (!bench_running) ((uint32_t*)binary)[0] = crypt_key[0];
 #endif
 	memcpy(realcipher, binary, BINARY_SIZE);
-#ifdef SIMD_COEF_32
+#if defined(SIMD_COEF_32) && ARCH_LITTLE_ENDIAN
 	alter_endianity(realcipher, BINARY_SIZE);
 #endif
 	strcpy(Buf, FORMAT_TAG);

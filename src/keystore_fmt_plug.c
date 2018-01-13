@@ -1,4 +1,5 @@
-/* Java KeyStore cracker. Written by Dhiru Kholia <dhiru at openwall.com> and
+/*
+ * Java KeyStore cracker. Written by Dhiru Kholia <dhiru at openwall.com> and
  * Narendra Kangralkar <narendrakangralkar at gmail.com>.
  *
  * Input Format: $keystore$target$data_length$data$hash$nkeys$keylength$keydata$keylength$keydata...
@@ -9,9 +10,9 @@
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted.
  *
- * major re-write - JimF, Feb, 2016.
- *  Added SIMD and prebuild all salt data for SIMD.
- *  made a common code module (for sharing code with GPU)
+ * Major re-write - JimF, Feb, 2016.
+ *  + Added SIMD and prebuild all salt data for SIMD.
+ *  + made a common code module (for sharing code with GPU)
  */
 
 #if FMT_EXTERNS_H
@@ -21,14 +22,9 @@ john_register_one(&fmt_keystore);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
 
 #include "arch.h"
 #include "simd-intrinsics.h"
-
-//#undef SIMD_COEF_32
-
 #include "sha.h"
 #include "misc.h"
 #include "common.h"
@@ -38,9 +34,9 @@ john_register_one(&fmt_keystore);
 #include "dyna_salt.h"
 #include "johnswap.h"
 #include "keystore_common.h"
+#include "memdbg.h"
 
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #if SIMD_COEF_32
@@ -52,32 +48,30 @@ static int omp_t = 1;
 #elif SIMD_COEF_32
 #define OMP_SCALE               128
 #endif
-#include "memdbg.h"
-
 
 #ifdef SIMD_COEF_32
-#define NBKEYS			(SIMD_COEF_32 * SIMD_PARA_SHA1)
+#define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_SHA1)
 #endif
 
-#define FORMAT_LABEL		"keystore"
-#define FORMAT_NAME		"Java KeyStore"
+#define FORMAT_LABEL            "keystore"
+#define FORMAT_NAME             "Java KeyStore"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"SHA1 " SHA1_ALGORITHM_NAME
+#define ALGORITHM_NAME          "SHA1 " SHA1_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME		"SHA1 32/" ARCH_BITS_STR
+#define ALGORITHM_NAME          "SHA1 32/" ARCH_BITS_STR
 #endif
 
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
-#define PLAINTEXT_LENGTH	125
-#define SALT_SIZE		sizeof(struct keystore_salt *)
-#define SALT_ALIGN		sizeof(struct keystore_salt *)
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        0
+#define PLAINTEXT_LENGTH        125
+#define SALT_SIZE               sizeof(struct keystore_salt *)
+#define SALT_ALIGN              sizeof(struct keystore_salt *)
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT	NBKEYS
-#define MAX_KEYS_PER_CRYPT	NBKEYS
+#define MIN_KEYS_PER_CRYPT      NBKEYS
+#define MAX_KEYS_PER_CRYPT      NBKEYS
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
@@ -88,7 +82,11 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static int *MixOrder, MixOrderLen;
 
 #ifdef SIMD_COEF_32
-#define GETPOS(i, index)   ((index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32)
+#if ARCH_LITTLE_ENDIAN==1
+#define GETPOS(i, index)        ((index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32)
+#else
+#define GETPOS(i, index)        ((index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32)
+#endif
 static unsigned salt_mem_total;
 
 typedef struct preload_t {
@@ -122,7 +120,7 @@ static keystore_salt *keystore_cur_salt;
 
 /* To guard against tampering with the keystore, we append a keyed
  * hash with a bit of whitener. */
-static inline void getPreKeyedHash(int idx)
+inline static void getPreKeyedHash(int idx)
 {
 	int i, j;
         unsigned char passwdBytes[PLAINTEXT_LENGTH * 2];
@@ -148,14 +146,9 @@ static inline void getPreKeyedHash(int idx)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#elif SIMD_COEF_32
-	self->params.max_keys_per_crypt *= OMP_SCALE;
+	omp_autotune(self, OMP_SCALE);
 #endif
-	// we need 1 more saved_key than is 'used'. This extra key is used
+	// We need 1 more saved_key than is 'used'. This extra key is used
 	// in SIMD code, for all part full grouped blocks.
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt + 1);
 	saved_len = mem_calloc(sizeof(*saved_len), self->params.max_keys_per_crypt + 1);
@@ -172,15 +165,6 @@ static void done(void)
 	MEM_FREE(crypt_out);
 	MEM_FREE(saved_len);
 	MEM_FREE(saved_key);
-#ifdef SIMD_COEF_32
-	while (salt_preload) {
-		int i;
-		for (i = 20; i >= 0; --i)
-			MEM_FREE(salt_preload->ex_data[i]);
-		MEM_FREE(salt_preload->first_blk);
-		salt_preload = salt_preload->next;
-	}
-#endif
 }
 
 #ifdef SIMD_COEF_32
@@ -208,7 +192,7 @@ void link_salt(keystore_salt *ps) {
 	memcpy(p->data_hash, ps->data_hash, 20);
 	// make sure this salt was not already loaded. IF it is loaded, then
 	// adjust the pointer in the salt-db record.
-	p->first_blk = mem_calloc_align(threads, sizeof(*p->first_blk), MEM_ALIGN_SIMD);
+	p->first_blk = mem_calloc_tiny(threads * sizeof(*p->first_blk), MEM_ALIGN_SIMD);
 	salt_mem_total += threads*sizeof(*p->first_blk);
 	for (t = 0; t < threads; ++t) {	// t is threads
 	for (j = 0; j < 21; ++j) {	// j is length-4 of candidate password
@@ -231,7 +215,7 @@ void link_salt(keystore_salt *ps) {
 			// we only add 1 instance of the ex_data. for each
 			// password length, since this data is read only.
 			// All threads can share it.
-			p->ex_data[j] = mem_calloc_align((len+8)/64+1,
+			p->ex_data[j] = mem_calloc_tiny(((len+8)/64+1) *
 				64*NBKEYS, MEM_ALIGN_SIMD);
 			salt_mem_total += ((len+8)/64+1)*64*NBKEYS;
 			for (idx = 0; idx < NBKEYS; ++idx) {
@@ -350,6 +334,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	// byte passwords 'all' group into the final group. Those are run 1 at
 	// a time through CTX based code.
 	int j, tot=0;
+
 	tot_todo = 0;
 	saved_len[count] = 0; // point all 'tail' MMX buffer elements to this location.
 	for (j = 0; j < 21 && tot<count; ++j) {
@@ -381,13 +366,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	tot_todo = count;
 #endif
 
-	index = 0;
-
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < tot_todo; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < tot_todo; index += MAX_KEYS_PER_CRYPT) {
 		SHA_CTX ctx;
 #ifdef SIMD_COEF_32
 		int x, tid=0, len, idx;
@@ -421,7 +403,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			for (x = 0; x <  MAX_KEYS_PER_CRYPT; ++x) {
 				idx = MixOrder[index+x];
 				if (idx < count)
+#if ARCH_LITTLE_ENDIAN==1
 					crypt_out[idx][0] = JOHNSWAP(sse_out[5*SIMD_COEF_32*(x/SIMD_COEF_32)+x%SIMD_COEF_32]);
+#else
+					crypt_out[idx][0] = sse_out[5*SIMD_COEF_32*(x/SIMD_COEF_32)+x%SIMD_COEF_32];
+#endif
 			}
 #endif
 
@@ -447,10 +433,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -480,8 +465,7 @@ static int cmp_exact(char *source, int index)
 
 static void keystore_set_key(char *key, int index)
 {
-	saved_len[index] = strlen(key);
-	strcpy(saved_key[index], key);
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 	dirty = 1;
 }
 
@@ -505,7 +489,7 @@ struct fmt_main fmt_keystore = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		/* FIXME: report keystore_cur_salt->data_length as tunable cost? */
 		{ NULL },
 		{ FORMAT_TAG },
@@ -522,7 +506,7 @@ struct fmt_main fmt_keystore = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -532,7 +516,7 @@ struct fmt_main fmt_keystore = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

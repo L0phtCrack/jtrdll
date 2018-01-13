@@ -62,7 +62,11 @@ john_register_one(&fmt_drupal7);
 #ifdef SIMD_COEF_64
 #define MIN_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
 #define MAX_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
+#if ARCH_LITTLE_ENDIAN
 #define GETPOS(i, index)        ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#else
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + ((i)&7) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#endif
 #else
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
@@ -92,12 +96,7 @@ static char (*crypt_key)[DIGEST_SIZE];
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int omp_t;
-
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	EncKey    = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*EncKey));
@@ -119,7 +118,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	int i;
 	unsigned count_log2;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
@@ -142,11 +141,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	int len;
-
-	len = strlen(key);
-	EncKeyLen[index] = len;
-	memcpy(((char*)EncKey[index]), key, len + 1);
+	EncKeyLen[index] = strnzcpyn((char*)EncKey[index], key, sizeof(*EncKey));
 }
 
 static char *get_key(int index)
@@ -158,7 +153,7 @@ static int cmp_all(void *binary, int count)
 {
 	int index;
 
-	for(index = 0; index < count; index++)
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_key[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -177,12 +172,11 @@ static int cmp_exact(char *source, int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT) {
 #ifdef SIMD_COEF_64
 		unsigned char _IBuf[128*MAX_KEYS_PER_CRYPT+MEM_ALIGN_CACHE], *keys;
 		uint64_t *keys64;
@@ -289,13 +283,8 @@ static void * get_salt(char *ciphertext)
 	return salt.u8;
 }
 
-static int get_hash_0(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_0; }
-static int get_hash_1(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_1; }
-static int get_hash_2(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_2; }
-static int get_hash_3(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_3; }
-static int get_hash_4(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_4; }
-static int get_hash_5(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_5; }
-static int get_hash_6(int index) { return *((uint32_t *)&crypt_key[index]) & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -358,13 +347,8 @@ struct fmt_main fmt_drupal7 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

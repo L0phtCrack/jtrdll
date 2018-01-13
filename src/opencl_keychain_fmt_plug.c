@@ -14,6 +14,7 @@ extern struct fmt_main fmt_opencl_keychain;
 john_register_one(&fmt_opencl_keychain);
 #else
 
+#include <stdint.h>
 #include <string.h>
 #include <openssl/des.h>
 #ifdef _OPENMP
@@ -23,7 +24,6 @@ john_register_one(&fmt_opencl_keychain);
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
-#include "stdint.h"
 #include "misc.h"
 #include "options.h"
 #include "jumbo.h"
@@ -99,7 +99,7 @@ size_t insize, outsize, settingsize, cracked_size;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {
@@ -206,7 +206,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
 	int extra;
-	
+
 	if (strncmp(ciphertext,  FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -214,15 +214,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
-	if(hexlenl(p, &extra) != SALTLEN * 2 || extra)
+	if (hexlenl(p, &extra) != SALTLEN * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
-	if(hexlenl(p, &extra) != IVLEN * 2 || extra)
+	if (hexlenl(p, &extra) != IVLEN * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
-	if(hexlenl(p, &extra) != CTLEN * 2 || extra)
+	if (hexlenl(p, &extra) != CTLEN * 2 || extra)
 		goto err;
 
 	MEM_FREE(keeptr);

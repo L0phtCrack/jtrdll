@@ -4,7 +4,7 @@
  * to the general public under the following terms:  Redistribution and use in
  * source and binary forms, with or without modification, are permitted.
  *
- * The internals of this algorithm were found on the HashCat forum, and
+ * The internals of this algorithm were found on the hashcat forum, and
  * implemented here, whether, it is right or wrong. A link to that post is:
  * http://hashcat.net/forum/thread-3804.html
  * There are some things which are unclear, BUT which have been coded as listed
@@ -122,11 +122,11 @@ john_register_one(&fmt_sapH);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define PLAINTEXT_LENGTH        23
+#define PLAINTEXT_LENGTH        23 /* Real world max. is 40 */
 #else
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
-#define PLAINTEXT_LENGTH        125
+#define PLAINTEXT_LENGTH        40
 #endif
 
 static struct fmt_tests tests[] = {
@@ -165,10 +165,7 @@ static struct sapH_salt {
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
@@ -214,7 +211,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (strlen(cp) != base64_valid_length(cp, e_b64_mime, flg_Base64_MIME_TRAIL_EQ|flg_Base64_MIME_TRAIL_EQ_CNT, 0))
 		goto err;
 	len = base64_convert(cp, e_b64_mime, strlen(cp), tmp, e_b64_raw,
-	                     sizeof(tmp), flg_Base64_MIME_TRAIL_EQ, 0);
+	                     sizeof(tmp), flg_Base64_MIME_TRAIL_EQ|flg_Base64_DONOT_NULL_TERMINATE, 0);
 	len -= hash_len;
 	if (len < 1 || len > SALT_LENGTH)
 		goto err;
@@ -233,7 +230,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	strcpy((char*)saved_plain[index], key);
+	strnzcpyn(saved_plain[index], key, sizeof(*saved_plain));
 }
 
 static char *get_key(int index)
@@ -305,8 +302,13 @@ static void crypt_all_1(int count) {
 			keys[(i<<6)+len+20] = 0x80;
 			offs[i] = len;
 			len += 20;
+#if ARCH_LITTLE_ENDIAN
 			keys[(i<<6)+60] = (len<<3)&0xff;
 			keys[(i<<6)+61] = (len>>5);
+#else
+			keys[(i<<6)+62] = (len>>5);
+			keys[(i<<6)+63] = (len<<3)&0xff;
+#endif
 		}
 		for (i = 1; i < sapH_cur_salt->iter; ++i) {
 			uint32_t k;
@@ -315,7 +317,21 @@ static void crypt_all_1(int count) {
 				uint32_t *pcrypt = &crypt32[ ((k/SIMD_COEF_32)*(SIMD_COEF_32*5)) + (k&(SIMD_COEF_32-1))];
 				uint32_t *Icp32 = (uint32_t *)(&keys[(k<<6)+offs[k]]);
 				for (j = 0; j < 5; ++j) {
+					// likely location for BE porting
+#if ARCH_ALLOWS_UNALIGNED
+  #if ARCH_LITTLE_ENDIAN
 					Icp32[j] = JOHNSWAP(*pcrypt);
+  #else
+					Icp32[j] = *pcrypt;
+  #endif
+#else
+  #if ARCH_LITTLE_ENDIAN
+					uint32_t tmp = JOHNSWAP(*pcrypt);
+					memcpy(&Icp32[j], &tmp, 4);
+  #else
+					memcpy(&Icp32[j], pcrypt, 4);
+  #endif
+#endif
 					pcrypt += SIMD_COEF_32;
 				}
 			}
@@ -326,7 +342,11 @@ static void crypt_all_1(int count) {
 			uint32_t *Iptr32 = &crypt32[ ((i/SIMD_COEF_32)*(SIMD_COEF_32*5)) + (i&(SIMD_COEF_32-1))];
 			// we only want 16 bytes, not 20
 			for (j = 0; j < 4; ++j) {
+#if ARCH_LITTLE_ENDIAN
 				Optr32[j] = JOHNSWAP(*Iptr32);
+#else
+				Optr32[j] = *Iptr32;
+#endif
 				Iptr32 += SIMD_COEF_32;
 			}
 		}
@@ -377,8 +397,13 @@ static void crypt_all_256(int count) {
 			keys[(i<<6)+len+32] = 0x80;
 			offs[i] = len;
 			len += 32;
+#if ARCH_LITTLE_ENDIAN
 			keys[(i<<6)+60] = (len<<3)&0xff;
 			keys[(i<<6)+61] = (len>>5);
+#else
+			keys[(i<<6)+62] = (len>>5);
+			keys[(i<<6)+63] = (len<<3)&0xff;
+#endif
 		}
 		for (i = 1; i < sapH_cur_salt->iter; ++i) {
 			uint32_t k;
@@ -387,7 +412,20 @@ static void crypt_all_256(int count) {
 				uint32_t *pcrypt = &crypt32[ ((k/SIMD_COEF_32)*(SIMD_COEF_32*8)) + (k&(SIMD_COEF_32-1))];
 				uint32_t *Icp32 = (uint32_t *)(&keys[(k<<6)+offs[k]]);
 				for (j = 0; j < 8; ++j) {
+#if ARCH_ALLOWS_UNALIGNED
+  #if ARCH_LITTLE_ENDIAN
 					Icp32[j] = JOHNSWAP(*pcrypt);
+  #else
+					Icp32[j] = *pcrypt;
+  #endif
+#else
+  #if ARCH_LITTLE_ENDIAN
+					uint32_t tmp = JOHNSWAP(*pcrypt);
+					memcpy(&Icp32[j], &tmp, 4);
+  #else
+					memcpy(&Icp32[j], pcrypt, 4);
+  #endif
+#endif
 					pcrypt += SIMD_COEF_32;
 				}
 			}
@@ -398,7 +436,11 @@ static void crypt_all_256(int count) {
 			uint32_t *Iptr32 = &crypt32[ ((i/SIMD_COEF_32)*(SIMD_COEF_32*8)) + (i&(SIMD_COEF_32-1))];
 			// we only want 16 bytes, not 32
 			for (j = 0; j < 4; ++j) {
+#if ARCH_LITTLE_ENDIAN
 				Optr32[j] = JOHNSWAP(*Iptr32);
+#else
+				Optr32[j] = *Iptr32;
+#endif
 				Iptr32 += SIMD_COEF_32;
 			}
 		}
@@ -450,8 +492,13 @@ static void crypt_all_384(int count) {
 			keys[(i<<7)+len+48] = 0x80;
 			offs[i] = len;
 			len += 48;
+#if ARCH_LITTLE_ENDIAN
 			keys[(i<<7)+120] = (len<<3)&0xff;
 			keys[(i<<7)+121] = (len>>5);
+#else
+			keys[(i<<7)+126] = (len>>5);
+			keys[(i<<7)+127] = (len<<3)&0xff;
+#endif
 		}
 		for (i = 1; i < sapH_cur_salt->iter; ++i) {
 			uint32_t k;
@@ -460,7 +507,20 @@ static void crypt_all_384(int count) {
 				uint64_t *pcrypt = &crypt64[ ((k/SIMD_COEF_64)*(SIMD_COEF_64*8)) + (k&(SIMD_COEF_64-1))];
 				uint64_t *Icp64 = (uint64_t *)(&keys[(k<<7)+offs[k]]);
 				for (j = 0; j < 6; ++j) {
+#if ARCH_ALLOWS_UNALIGNED
+  #if ARCH_LITTLE_ENDIAN
 					Icp64[j] = JOHNSWAP64(*pcrypt);
+  #else
+					Icp64[j] = *pcrypt;
+  #endif
+#else
+  #if ARCH_LITTLE_ENDIAN
+					uint64_t tmp = JOHNSWAP64(*pcrypt);
+					memcpy(&Icp64[j], &tmp, 8);
+  #else
+					memcpy(&Icp64[j], pcrypt, 8);
+  #endif
+#endif
 					pcrypt += SIMD_COEF_64;
 				}
 			}
@@ -471,7 +531,11 @@ static void crypt_all_384(int count) {
 			uint64_t *Iptr64 = &crypt64[ ((i/SIMD_COEF_64)*(SIMD_COEF_64*8)) + (i&(SIMD_COEF_64-1))];
 			// we only want 16 bytes, not 48
 			for (j = 0; j < 2; ++j) {
+#if ARCH_LITTLE_ENDIAN
 				Optr64[j] = JOHNSWAP64(*Iptr64);
+#else
+				Optr64[j] = *Iptr64;
+#endif
 				Iptr64 += SIMD_COEF_64;
 			}
 		}
@@ -522,8 +586,13 @@ static void crypt_all_512(int count) {
 			keys[(i<<7)+len+64] = 0x80;
 			offs[i] = len;
 			len += 64;
+#if ARCH_LITTLE_ENDIAN
 			keys[(i<<7)+120] = (len<<3)&0xff;
 			keys[(i<<7)+121] = (len>>5);
+#else
+			keys[(i<<7)+126] = (len>>5);
+			keys[(i<<7)+127] = (len<<3)&0xff;
+#endif
 		}
 		for (i = 1; i < sapH_cur_salt->iter; ++i) {
 			uint32_t k;
@@ -532,7 +601,20 @@ static void crypt_all_512(int count) {
 				uint64_t *pcrypt = &crypt64[ ((k/SIMD_COEF_64)*(SIMD_COEF_64*8)) + (k&(SIMD_COEF_64-1))];
 				uint64_t *Icp64 = (uint64_t *)(&keys[(k<<7)+offs[k]]);
 				for (j = 0; j < 8; ++j) {
+#if ARCH_ALLOWS_UNALIGNED
+  #if ARCH_LITTLE_ENDIAN
 					Icp64[j] = JOHNSWAP64(*pcrypt);
+  #else
+					Icp64[j] = *pcrypt;
+  #endif
+#else
+  #if ARCH_LITTLE_ENDIAN
+					uint64_t tmp = JOHNSWAP64(*pcrypt);
+					memcpy(&Icp64[j], &tmp, 8);
+  #else
+					memcpy(&Icp64[j], pcrypt, 8);
+  #endif
+#endif
 					pcrypt += SIMD_COEF_64;
 				}
 			}
@@ -543,7 +625,11 @@ static void crypt_all_512(int count) {
 			uint64_t *Iptr64 = &crypt64[((i/SIMD_COEF_64)*(SIMD_COEF_64*8)) + (i&(SIMD_COEF_64-1))];
 			// we only want 16 bytes, not 64
 			for (j = 0; j < 2; ++j) {
+#if ARCH_LITTLE_ENDIAN
 				Optr64[j] = JOHNSWAP64(*Iptr64);
+#else
+				Optr64[j] = *Iptr64;
+#endif
 				Iptr64 += SIMD_COEF_64;
 			}
 		}
@@ -583,7 +669,7 @@ static void *get_binary(char *ciphertext)
 	while (*cp != '}') ++cp;
 	++cp;
 	base64_convert(cp, e_b64_mime, strlen(cp), b.cp, e_b64_raw,
-	               sizeof(b.cp), flg_Base64_MIME_TRAIL_EQ, 0);
+	               BINARY_SIZE, flg_Base64_MIME_TRAIL_EQ|flg_Base64_DONOT_NULL_TERMINATE, 0);
 	return b.cp;
 
 }
@@ -601,11 +687,11 @@ static void *get_salt(char *ciphertext)
 	else if (!strncasecmp(cp, FORMAT_TAG384, FORMAT_TAG384_LEN)) { s.type = 3; cp += FORMAT_TAG384_LEN; hash_len = SHA384_BINARY_SIZE; }
 	else if (!strncasecmp(cp, FORMAT_TAG512, FORMAT_TAG512_LEN)) { s.type = 4; cp += FORMAT_TAG512_LEN; hash_len = SHA512_BINARY_SIZE; }
 	else { fprintf(stderr, "error, bad signature in sap-H format!\n"); error(); }
-	sscanf (cp, "%u", &s.iter);
+	sscanf(cp, "%u", &s.iter);
 	while (*cp != '}') ++cp;
 	++cp;
 	total_len = base64_convert(cp, e_b64_mime, strlen(cp), tmp, e_b64_raw,
-	                           sizeof(tmp), flg_Base64_MIME_TRAIL_EQ, 0);
+	                           sizeof(tmp), flg_Base64_MIME_TRAIL_EQ|flg_Base64_DONOT_NULL_TERMINATE, 0);
 	s.slen = total_len-hash_len;
 	memcpy(s.s, &tmp[hash_len], s.slen);
 	return &s;
@@ -617,13 +703,8 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	return ciphertext;
 }
 
-static int get_hash_0(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_0; }
-static int get_hash_1(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_1; }
-static int get_hash_2(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_2; }
-static int get_hash_3(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_3; }
-static int get_hash_4(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_4; }
-static int get_hash_5(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_5; }
-static int get_hash_6(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -668,7 +749,7 @@ struct fmt_main fmt_sapH = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_OMP | FMT_CASE | FMT_8_BIT | FMT_UTF8,
 		{
-			"hash type [1:sha1 2:SHA256 3:SHA384 4:SHA512]",
+			"hash type [1:SHA1 2:SHA256 3:SHA384 4:SHA512]",
 			"iteration count",
 		},
 		{ FORMAT_TAG, FORMAT_TAG256, FORMAT_TAG384, FORMAT_TAG512 },
@@ -704,13 +785,8 @@ struct fmt_main fmt_sapH = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

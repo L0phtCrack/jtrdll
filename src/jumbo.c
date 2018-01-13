@@ -69,7 +69,8 @@ char *jtr_basename_r(const char *name, char *buf) {
 	int something=0;
 
 	// if name was null, or the string was null, then return a '.' char.
-	if (!name || name[0]==0) return ".";
+	if (!name || name[0] == 0)
+		return ".";
 
 	strcpy(buf, name);
 	base = buf;
@@ -80,7 +81,8 @@ char *jtr_basename_r(const char *name, char *buf) {
 	    ((base[0] >= 'A' && base[0] <= 'Z')||(base[0] >= 'a' && base[0] <= 'z')) &&
 	    base[1] == ':')
 		base += 2;
-	if (base[0]==0) return ".";
+	if (base[0] == 0)
+		return ".";
 #endif
 
 	p = base;
@@ -101,7 +103,8 @@ char *jtr_basename_r(const char *name, char *buf) {
 			*p = 0;
 			--p;
 		}
-		if (base[0]==0) return ".";
+		if (base[0] == 0)
+			return ".";
 	}
 	return (char*)base;
 }
@@ -246,9 +249,9 @@ int64_t ftello64 (FILE * fp) {
 // We configure search for unix sleep(seconds) function, MSVC and MinGW do not have this,
 // so we replicate it with Win32 Sleep(ms) function.
 #if (AC_BUILT && !HAVE_SLEEP) || (!AC_BUILT && (_MSC_VER || __MINGW32__ || __MINGW64__))
-int sleep(int i)
+unsigned int sleep(unsigned int i)
 {
-	Sleep(1000*i);
+	Sleep(1000 * i);
 	return 0;
 }
 #endif
@@ -268,7 +271,7 @@ int strcasecmp(char *dst, char *src) {
 
 #if NEED_STRNCASECMP_NATIVE
 int strncasecmp(char *dst, char *src, size_t count) {
-	if(count) {
+	if (count) {
 		int f,l;
 		do {
 			if ( ((f = (unsigned char)(*(dst++))) >= 'A') && (f <= 'Z') )
@@ -299,6 +302,19 @@ char *strlwr(char *s)
 	return s;
 }
 #endif
+
+void memcpylwr(char *dest, const char *src, size_t n)
+{
+	while (n--) {
+		if (*src >= 'A' && *src <= 'Z') {
+			*dest = *src | 0x20;
+		} else {
+			*dest = *src;
+		}
+		dest++;
+		src++;
+	}
+}
 
 #if (AC_BUILT && !HAVE_STRUPR) || (!AC_BUILT && !_MSC_VER)
 char *strupr(char *s)

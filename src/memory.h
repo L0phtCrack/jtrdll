@@ -77,6 +77,7 @@ extern void *mem_alloc_func(size_t size
 	, char *file, int line
 #endif
 	);
+
 /*
  * Allocates nmemb*size bytes using calloc(3) and returns a pointer to the
  * allocated memory, or NULL if nmemb or/and size are 0.
@@ -88,9 +89,22 @@ extern void *mem_calloc_func(size_t nmemb, size_t size
 #endif
 	);
 
+/*
+ * Change an existing allocated block to size bytes and return a pointer to
+ * the new block, or NULL if size is 0. Content is preserved to the extent
+ * possible.
+ * If an error occurs, the function does not return.
+ */
+extern void *mem_realloc_func(void *old_ptr, size_t size
+#if defined (MEMDBG_ON)
+	, char *file, int line
+#endif
+	);
+
 #if defined (MEMDBG_ON)
 #define mem_alloc(a) mem_alloc_func(a,__FILE__,__LINE__)
 #define mem_calloc(a,b) mem_calloc_func(a,b,__FILE__,__LINE__)
+#define mem_realloc(a,b) mem_realloc_func(a,b,__FILE__,__LINE__)
 #define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b,__FILE__,__LINE__)
 #define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b,__FILE__,__LINE__)
 #define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c,__FILE__,__LINE__)
@@ -100,6 +114,7 @@ extern void *mem_calloc_func(size_t nmemb, size_t size
 #else
 #define mem_alloc(a) mem_alloc_func(a)
 #define mem_calloc(a,b) mem_calloc_func(a,b)
+#define mem_realloc(a,b) mem_realloc_func(a,b)
 #define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b)
 #define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b)
 #define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c)
@@ -139,6 +154,32 @@ char *strdup_MSVC(const char *str);
 { \
 	if ((ptr)) { \
 		_aligned_free((ptr)); \
+		(ptr) = NULL; \
+	} \
+}
+#else
+#define MEM_FREE(ptr) \
+{ \
+	if ((ptr)) { \
+		MEMDBG_free(((const void*)ptr),__FILE__,__LINE__); \
+		(ptr) = NULL; \
+	} \
+}
+#endif
+
+#elif HAVE___MINGW_ALIGNED_MALLOC
+#if !defined (MEMDBG_ON)
+#define malloc(a) __mingw_aligned_malloc(a,(sizeof(long long)))
+#define realloc(a,b) __mingw_aligned_realloc(a,b,(sizeof(long long)))
+#define calloc(a,b) memset(__mingw_aligned_malloc(a*b,(sizeof(long long))),0,a*b)
+#define free(a) __mingw_aligned_free(a)
+#define strdup(a) strdup_MSVC(a)
+char *strdup_MSVC(const char *str);
+
+#define MEM_FREE(ptr) \
+{ \
+	if ((ptr)) { \
+		__mingw_aligned_free((ptr)); \
 		(ptr) = NULL; \
 	} \
 }
@@ -261,6 +302,13 @@ void getbuf_stuff_mpara_mmx(unsigned char *oBuf, void *buf, unsigned int size, u
 
 
 /*
+ * 16-bit endian-swap a memory buffer in place. Size is in octets (so should
+ * be a multiple of 2). From now on, this function may be used on any arch.
+ * this is needed for some swapping of things like UTF16LE to UTF16BE, etc.
+ */
+void alter_endianity_w16(void * x, unsigned int size);
+
+/*
  * 32-bit endian-swap a memory buffer in place. Size is in octets (so should
  * be a multiple of 4). From now on, this function may be used on any arch.
  */
@@ -275,7 +323,7 @@ void alter_endianity_w64(void *x, unsigned int count);
 #if ARCH_ALLOWS_UNALIGNED
 // we can inline these, to always use JOHNSWAP/JOHNSWAP64
 // NOTE, more portable to use #defines to inline, than the MAYBE_INLINE within header files.
-#if (ARCH_LITTLE_ENDIAN==0)
+#if !ARCH_LITTLE_ENDIAN
 #define alter_endianity_to_BE(a,b)
 #define alter_endianity_to_BE64(a,b)
 #define alter_endianity_to_LE(ptr,word32_cnt) do{ \
@@ -303,7 +351,7 @@ void alter_endianity_w64(void *x, unsigned int count);
 }while(0)
 #endif
 #else
-#if (ARCH_LITTLE_ENDIAN==0)
+#if !ARCH_LITTLE_ENDIAN
 #define alter_endianity_to_BE(a,b)
 #define alter_endianity_to_LE(a,b) do{alter_endianity_w(a,b);}while(0)
 #define alter_endianity_to_BE64(a,b)

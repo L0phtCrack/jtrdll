@@ -13,6 +13,7 @@ extern struct fmt_main fmt_ocl_pbkdf2_sha1;
 john_register_one(&fmt_ocl_pbkdf2_sha1);
 #else
 
+#include <stdint.h>
 #include <ctype.h>
 #include <string.h>
 
@@ -20,11 +21,9 @@ john_register_one(&fmt_ocl_pbkdf2_sha1);
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "base64_convert.h"
-#include "john_stdint.h"
 #include "options.h"
 #define OUTLEN 20
 #include "opencl_pbkdf2_hmac_sha1.h"
@@ -64,7 +63,7 @@ static int split_events[] = { 2, -1, -1 };
 static cl_kernel pbkdf2_init, pbkdf2_loop, pbkdf2_final;
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 /* ------- Helper functions ------- */

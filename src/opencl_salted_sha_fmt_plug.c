@@ -35,7 +35,7 @@ john_register_one(&FMT_STRUCT);
 #include "options.h"
 #include "salted_sha1_common.h"
 #include "mask_ext.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include "bt_interface.h"
 
 #define FORMAT_LABEL			"salted-sha1-opencl"
@@ -49,20 +49,13 @@ john_register_one(&FMT_STRUCT);
 
 #define PLAINTEXT_LENGTH		(55 - MAX_SALT_LEN)
 #define BUFSIZE				((PLAINTEXT_LENGTH+3)/4*4)
-#define CIPHERTEXT_LENGTH		((BINARY_SIZE + 1 + MAX_SALT_LEN + 2) / 3 * 4)
 
-#define BINARY_SIZE			20
 #define BINARY_ALIGN			4
 #define SALT_SIZE			(MAX_SALT_LEN + sizeof(unsigned int))
 #define SALT_ALIGN			4
 
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
-
-#define NSLDAP_MAGIC "{ssha}"
-#define NSLDAP_MAGIC_LENGTH 6
-#define BASE64_ALPHABET	  \
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 static cl_mem pinned_saved_keys, pinned_saved_idx, pinned_int_key_loc;
 static cl_mem buffer_keys, buffer_idx, buffer_int_keys, buffer_int_key_loc;
@@ -334,21 +327,14 @@ static void init(struct fmt_main *_self)
 static void * get_salt(char * ciphertext)
 {
 	static struct s_salt cursalt;
-	char *p;
-	char realcipher[CIPHERTEXT_LENGTH];
+	char realcipher[BINARY_SIZE + MAX_SALT_LEN + 1];
 	int len;
 
 	ciphertext += NSLDAP_MAGIC_LENGTH;
 	memset(realcipher, 0, sizeof(realcipher));
 	memset(&cursalt, 0, sizeof(struct s_salt));
 	len = strlen(ciphertext);
-	base64_decode(ciphertext, len, realcipher);
-
-	// We now support any salt length up to SALT_SIZE
-	cursalt.len = (len + 3) / 4 * 3 - BINARY_SIZE;
-	p = &ciphertext[len];
-	while (*--p == '=')
-		cursalt.len--;
+	cursalt.len = base64_convert(ciphertext, e_b64_mime, len, realcipher, e_b64_raw, BINARY_SIZE+MAX_SALT_LEN, flg_Base64_DONOT_NULL_TERMINATE ,0) - BINARY_SIZE;
 
 	memcpy(cursalt.data.c, realcipher+BINARY_SIZE, cursalt.len);
 	return &cursalt;
@@ -366,11 +352,11 @@ static void set_salt(void *salt)
 static void * get_binary(char *ciphertext) {
 	static char *realcipher;
 
-	if (!realcipher) realcipher = mem_alloc_tiny(BINARY_SIZE + 1 + SALT_SIZE, MEM_ALIGN_WORD);
+	if (!realcipher) realcipher = mem_alloc_tiny(CIPHERTEXT_LENGTH, MEM_ALIGN_WORD);
 
 	ciphertext += NSLDAP_MAGIC_LENGTH;
 	memset(realcipher, 0, BINARY_SIZE);
-	base64_decode(ciphertext, strlen(ciphertext), realcipher);
+	base64_convert(ciphertext, e_b64_mime, strlen(ciphertext), realcipher, e_b64_raw, CIPHERTEXT_LENGTH, flg_Base64_DONOT_NULL_TERMINATE, 0);
 
 	return (void *)realcipher;
 }

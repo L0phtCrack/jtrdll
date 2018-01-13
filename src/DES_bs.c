@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2002,2005,2010-2012 by Solar Designer
+ * Copyright (c) 1996-2002,2005,2010-2012, 2017 by Solar Designer
  *
  * Addition of single DES encryption with no salt by
  * Deepika Dutta Mishra <dipikadutta at gmail.com> in
@@ -12,6 +12,7 @@
 #undef _OPENMP
 #endif
 
+#include <stdint.h>
 #include <string.h>
 
 #include "arch.h"
@@ -288,9 +289,9 @@ fill2:
 	dst[sizeof(DES_bs_vector) * 8 * 6] = 0;
 }
 
-static ARCH_WORD_32 *DES_bs_get_binary_raw(ARCH_WORD *raw, int count)
+static uint32_t *DES_bs_get_binary_raw(ARCH_WORD *raw, int count)
 {
-	static ARCH_WORD_32 out[2];
+	static uint32_t out[2];
 
 /* For odd iteration counts, swap L and R here instead of doing it one
  * more time in DES_bs_crypt(). */
@@ -301,14 +302,14 @@ static ARCH_WORD_32 *DES_bs_get_binary_raw(ARCH_WORD *raw, int count)
 	return out;
 }
 
-ARCH_WORD_32 *DES_bs_get_binary(char *ciphertext)
+uint32_t *DES_bs_get_binary(char *ciphertext)
 {
 	return DES_bs_get_binary_raw(
 		DES_raw_get_binary(ciphertext),
 		DES_raw_get_count(ciphertext));
 }
 
-ARCH_WORD_32 *DES_bs_get_binary_LM(char *ciphertext)
+uint32_t *DES_bs_get_binary_LM(char *ciphertext)
 {
 	ARCH_WORD block[2], value;
 	int l, h;
@@ -325,7 +326,7 @@ ARCH_WORD_32 *DES_bs_get_binary_LM(char *ciphertext)
 	return DES_bs_get_binary_raw(DES_do_IP(block), 1);
 }
 
-char *DES_bs_get_source_LM(ARCH_WORD_32 *raw)
+char *DES_bs_get_source_LM(uint32_t *raw)
 {
 	static char out[17];
 	char *p;
@@ -384,8 +385,6 @@ static MAYBE_INLINE int DES_bs_get_hash(int index, int count, int trip)
 	result |= MOVE_BIT(1);
 	result |= MOVE_BIT(2);
 	result |= MOVE_BIT(3);
-	if (count == 4) return result;
-
 	result |= MOVE_BIT(4);
 	result |= MOVE_BIT(5);
 	result |= MOVE_BIT(6);
@@ -422,6 +421,11 @@ static MAYBE_INLINE int DES_bs_get_hash(int index, int count, int trip)
 	result |= MOVE_BIT(24);
 	result |= MOVE_BIT(25);
 	result |= MOVE_BIT(26);
+	if (count == 27) return result;
+
+	result |= MOVE_BIT(27);
+	result |= MOVE_BIT(28);
+	result |= MOVE_BIT(29);
 
 #undef GET_BIT
 #undef MOVE_BIT
@@ -431,37 +435,37 @@ static MAYBE_INLINE int DES_bs_get_hash(int index, int count, int trip)
 
 int DES_bs_get_hash_0(int index)
 {
-	return DES_bs_get_hash(index, 4, 0);
+	return DES_bs_get_hash(index, 8, 0);
 }
 
 int DES_bs_get_hash_1(int index)
 {
-	return DES_bs_get_hash(index, 8, 0);
+	return DES_bs_get_hash(index, 12, 0);
 }
 
 int DES_bs_get_hash_2(int index)
 {
-	return DES_bs_get_hash(index, 12, 0);
+	return DES_bs_get_hash(index, 16, 0);
 }
 
 int DES_bs_get_hash_3(int index)
 {
-	return DES_bs_get_hash(index, 16, 0);
+	return DES_bs_get_hash(index, 20, 0);
 }
 
 int DES_bs_get_hash_4(int index)
 {
-	return DES_bs_get_hash(index, 20, 0);
+	return DES_bs_get_hash(index, 24, 0);
 }
 
 int DES_bs_get_hash_5(int index)
 {
-	return DES_bs_get_hash(index, 24, 0);
+	return DES_bs_get_hash(index, 27, 0);
 }
 
 int DES_bs_get_hash_6(int index)
 {
-	return DES_bs_get_hash(index, 27, 0);
+	return DES_bs_get_hash(index, 30, 0);
 }
 
 /*
@@ -469,7 +473,7 @@ int DES_bs_get_hash_6(int index)
  * DES_bs_crypt*() outputs in just O(log2(ARCH_BITS)) operations, assuming
  * that DES_BS_VECTOR is 0 or 1. This routine isn't vectorized yet.
  */
-int DES_bs_cmp_all(ARCH_WORD_32 *binary, int count)
+int DES_bs_cmp_all(uint32_t *binary, int count)
 {
 	ARCH_WORD value, mask;
 	int bit;
@@ -513,7 +517,7 @@ next_depth:
 	return 0;
 }
 
-int DES_bs_cmp_one(ARCH_WORD_32 *binary, int count, int index)
+int DES_bs_cmp_one(uint32_t *binary, int count, int index)
 {
 	DES_bs_vector *b;
 	int depth;
@@ -534,7 +538,7 @@ int DES_bs_cmp_one(ARCH_WORD_32 *binary, int count, int index)
 /* Start by comparing bits that are not part of get_hash*() return value */
 	CMP_BIT(30);
 	CMP_BIT(31);
-/* These three overlap with DES_bs_get_hash_6t() return value, unfortunately */
+/* These three overlap with DES_bs_get_hash_6() return value, unfortunately */
 	CMP_BIT(27);
 	CMP_BIT(28);
 	CMP_BIT(29);
@@ -555,32 +559,32 @@ int DES_bs_cmp_one(ARCH_WORD_32 *binary, int count, int index)
 	return 1;
 }
 
-int DES_bs_get_hash_1t(int index)
+int DES_bs_get_hash_0t(int index)
 {
 	return DES_bs_get_hash(index, 8, 1);
 }
 
-int DES_bs_get_hash_2t(int index)
+int DES_bs_get_hash_1t(int index)
 {
 	return DES_bs_get_hash(index, 12, 1);
 }
 
-int DES_bs_get_hash_3t(int index)
+int DES_bs_get_hash_2t(int index)
 {
 	return DES_bs_get_hash(index, 16, 1);
 }
 
-int DES_bs_get_hash_4t(int index)
+int DES_bs_get_hash_3t(int index)
 {
 	return DES_bs_get_hash(index, 20, 1);
 }
 
-int DES_bs_get_hash_5t(int index)
+int DES_bs_get_hash_4t(int index)
 {
 	return DES_bs_get_hash(index, 24, 1);
 }
 
-int DES_bs_get_hash_6t(int index)
+int DES_bs_get_hash_5t(int index)
 {
 	return DES_bs_get_hash(index, 27, 1);
 }

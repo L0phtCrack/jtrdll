@@ -14,7 +14,7 @@
 #ifndef ARGON2_H
 #define ARGON2_H
 
-#include "stdint.h"
+#include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
 
@@ -232,9 +232,9 @@ ARGON2_PUBLIC int argon2_hash(const uint32_t t_cost, const uint32_t m_cost,
                               const size_t hashlen, char *encoded,
                               const size_t encodedlen, argon2_type type,
                               const uint32_t version,
-			      void *memory,
-			      void *pseudo_rands
- 			    );
+                              void *memory,
+                              void *pseudo_rands
+                              );
 
 /**
  * Argon2d: Version of Argon2 that picks memory blocks depending

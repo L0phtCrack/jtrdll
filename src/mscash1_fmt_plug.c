@@ -24,6 +24,11 @@ john_register_one(&fmt_mscash);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "memory.h"
@@ -34,14 +39,6 @@ john_register_one(&fmt_mscash);
 #include "loader.h"
 #include "johnswap.h"
 #include "mscash_common.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE			192
-#endif
-#endif
-
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"mscash"
@@ -51,15 +48,12 @@ john_register_one(&fmt_mscash);
 #define PLAINTEXT_LENGTH		27
 #define SALT_SIZE			(11*4)
 
-#define OK_NUM_KEYS			64
-#define BEST_NUM_KEYS			512
-#ifdef _OPENMP
-#define MS_NUM_KEYS			OK_NUM_KEYS
-#else
-#define MS_NUM_KEYS			BEST_NUM_KEYS
+#ifndef OMP_SCALE
+#define OMP_SCALE			2 // Tuned w/ MKPC for core i7
 #endif
-#define MIN_KEYS_PER_CRYPT		OK_NUM_KEYS
-#define MAX_KEYS_PER_CRYPT		MS_NUM_KEYS
+
+#define MIN_KEYS_PER_CRYPT		1
+#define MAX_KEYS_PER_CRYPT		512
 
 static unsigned int *ms_buffer1x;
 static unsigned int *output1x;
@@ -81,12 +75,10 @@ static unsigned int new_key;
 
 static void set_key_utf8(char *_key, int index);
 static void set_key_encoding(char *_key, int index);
-static void * get_salt_utf8(char *_ciphertext);
-static void * get_salt_encoding(char *_ciphertext);
 struct fmt_main fmt_mscash;
 
 #if !ARCH_LITTLE_ENDIAN
-static inline void swap(unsigned int *x, int count)
+inline static void swap(unsigned int *x, int count)
 {
 	while (count--) {
 		*x = JOHNSWAP(*x);
@@ -97,12 +89,7 @@ static inline void swap(unsigned int *x, int count)
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	fmt_mscash.params.max_keys_per_crypt *= omp_t;
-#endif
+	omp_autotune(self, OMP_SCALE);
 
 	ms_buffer1x = mem_calloc(sizeof(ms_buffer1x[0]), 16*fmt_mscash.params.max_keys_per_crypt);
 	output1x    = mem_calloc(sizeof(output1x[0])   ,  4*fmt_mscash.params.max_keys_per_crypt);
@@ -113,7 +100,7 @@ static void init(struct fmt_main *self)
 	new_key=1;
 
 	mscash1_adjust_tests(self, options.target_enc, PLAINTEXT_LENGTH,
-	                     set_key_utf8, set_key_encoding, get_salt_utf8, get_salt_encoding);
+	                     set_key_utf8, set_key_encoding);
 }
 
 static void done(void)
@@ -125,124 +112,45 @@ static void done(void)
 	MEM_FREE(ms_buffer1x);
 }
 
-static void set_salt(void *salt) {
+static void set_salt(void *salt)
+{
 	salt_buffer=salt;
 }
 
-static void *get_salt(char *_ciphertext)
+static void *get_salt(char *ciphertext)
 {
-	unsigned char *ciphertext = (unsigned char *)_ciphertext;
-	// length=11 for save memory
-	// position 10 = length
-	// 0-9 = 1-19 Unicode characters + EOS marker (0x80)
-	static unsigned int *out=0;
-	unsigned int md4_size;
-
-	if (!out) out = mem_alloc_tiny(11*sizeof(unsigned int), MEM_ALIGN_WORD);
-	memset(out,0,11*sizeof(unsigned int));
-
-	ciphertext+=FORMAT_TAG_LEN;
-
-	for(md4_size = 0 ;; md4_size++)
-		if(md4_size < 19 && ciphertext[md4_size]!='#')
-		{
-			md4_size++;
-
-			out[md4_size>>1] = ciphertext[md4_size-1] | ((ciphertext[md4_size]!='#') ? (ciphertext[md4_size]<<16) : 0x800000);
-
-			if(ciphertext[md4_size]=='#')
-				break;
-		}
-		else
-		{
-			out[md4_size>>1] = 0x80;
-			break;
-		}
-
-	out[10] = (8 + md4_size) << 4;
-
-//	dump_stuff(out, 44);
-
-	return out;
-}
-
-static void *get_salt_encoding(char *_ciphertext) {
-	unsigned char *ciphertext = (unsigned char *)_ciphertext;
 	unsigned char input[19*3+1];
-	int utf16len, md4_size;
-	static UTF16 *out=0;
+	int i, utf16len;
+	char *lasth = strrchr(ciphertext, '#');
+	union {
+		UTF16 u16[22];
+		uint32_t w[11];
+	} static out;
 
-	if (!out) out = mem_alloc_tiny(22*sizeof(UTF16), MEM_ALIGN_WORD);
-	memset(out, 0, 22*sizeof(UTF16));
+	memset(out.u16, 0, sizeof(out.u16));
 
 	ciphertext += FORMAT_TAG_LEN;
 
-	for (md4_size=0;md4_size<sizeof(input)-1;md4_size++) {
-		if (ciphertext[md4_size] == '#')
-			break;
-		input[md4_size] = ciphertext[md4_size];
-	}
-	input[md4_size] = 0;
+	for (i = 0; &ciphertext[i] < lasth; i++)
+		input[i] = ciphertext[i];
+	input[i] = 0;
 
-	utf16len = enc_to_utf16(out, 19, input, md4_size);
+	utf16len = enc_to_utf16(out.u16, 19, input, i);
 	if (utf16len < 0)
-		utf16len = strlen16(out);
+		utf16len = strlen16(out.u16);
 
 #if ARCH_LITTLE_ENDIAN
-	out[utf16len] = 0x80;
+	out.u16[utf16len] = 0x80;
 #else
-	out[utf16len] = 0x8000;
-	swap((unsigned int*)out, (md4_size>>1)+1);
+	out.u16[utf16len] = 0x8000;
+	swap(out.w, (i>>1)+1);
 #endif
 
-	((unsigned int*)out)[10] = (8 + utf16len) << 4;
+	out.w[10] = (8 + utf16len) << 4;
 
-//	dump_stuff(out, 44);
+//	dump_stuff(out.w, 44);
 
-	return out;
-}
-
-
-static void * get_salt_utf8(char *_ciphertext)
-{
-	unsigned char *ciphertext = (unsigned char *)_ciphertext;
-	unsigned int md4_size;
-	UTF16 ciphertext_utf16[21];
-	int len;
-	static uint32_t *out=0;
-
-	if (!out) out = mem_alloc_tiny(11*sizeof(uint32_t), MEM_ALIGN_WORD);
-	memset(out, 0, 11*sizeof(uint32_t));
-
-	ciphertext+=FORMAT_TAG_LEN;
-	len = ((unsigned char*)strchr((char*)ciphertext, '#')) - ciphertext;
-	utf8_to_utf16(ciphertext_utf16, 20, ciphertext, len+1);
-
-	for(md4_size = 0 ;; md4_size++) {
-#if !ARCH_LITTLE_ENDIAN
-		ciphertext_utf16[md4_size] = (ciphertext_utf16[md4_size]>>8)|(ciphertext_utf16[md4_size]<<8);
-#endif
-		if(md4_size < 19 && ciphertext_utf16[md4_size]!=(UTF16)'#') {
-			md4_size++;
-#if !ARCH_LITTLE_ENDIAN
-			ciphertext_utf16[md4_size] = (ciphertext_utf16[md4_size]>>8)|(ciphertext_utf16[md4_size]<<8);
-#endif
-			out[md4_size>>1] = ciphertext_utf16[md4_size-1] |
-				((ciphertext_utf16[md4_size]!=(UTF16)'#') ?
-				 (ciphertext_utf16[md4_size]<<16) : 0x800000);
-
-			if(ciphertext_utf16[md4_size]==(UTF16)'#')
-				break;
-		}
-		else {
-			out[md4_size>>1] = 0x80;
-			break;
-		}
-	}
-
-	out[10] = (8 + md4_size) << 4;
-
-	return out;
+	return out.u16;
 }
 
 static void *get_binary(char *ciphertext)
@@ -252,11 +160,10 @@ static void *get_binary(char *ciphertext)
 	unsigned int temp;
 	unsigned int *salt=fmt_mscash.methods.salt(ciphertext);
 
-	for(;ciphertext[0]!='#';ciphertext++);
+	/* We need to allow salt containing '#' so we search backwards */
+	ciphertext = strrchr(ciphertext, '#') + 1;
 
-	ciphertext++;
-
-	for(; i<4 ;i++)
+	for (; i<4 ;i++)
 	{
 		temp  = ((unsigned int)(atoi16[ARCH_INDEX(ciphertext[i*8+0])]))<<4;
 		temp |= ((unsigned int)(atoi16[ARCH_INDEX(ciphertext[i*8+1])]));
@@ -315,11 +222,10 @@ static void nt_hash(int count)
 {
 	int i;
 
-#if MS_NUM_KEYS > 1 && defined(_OPENMP)
+#if defined(_OPENMP)
 #pragma omp parallel for default(none) private(i) shared(count, ms_buffer1x, crypt_out, last)
 #endif
-	for (i = 0; i < count; i++)
-	{
+	for (i = 0; i < count; i++) {
 		unsigned int a;
 		unsigned int b;
 		unsigned int c;
@@ -412,17 +318,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int count = *pcount;
 	int i;
 
-	if(new_key)
+	if (new_key)
 	{
 		new_key=0;
 		nt_hash(count);
 	}
 
-#if MS_NUM_KEYS > 1 && defined(_OPENMP)
+#if defined(_OPENMP)
 #pragma omp parallel for default(none) private(i) shared(count, last, crypt_out, salt_buffer, output1x)
 #endif
-	for(i = 0; i < count; i++)
-	{
+	for (i = 0; i < count; i++) {
 		unsigned int a;
 		unsigned int b;
 		unsigned int c;
@@ -496,8 +401,8 @@ static int cmp_all(void *binary, int count)
 	unsigned int i=0;
 	unsigned int d=((unsigned int *)binary)[3];
 
-	for(;i<count;i++)
-		if(d==output1x[i*4+3])
+	for (;i<count;i++)
+		if (d==output1x[i*4+3])
 			return 1;
 
 	return 0;
@@ -511,16 +416,16 @@ static int cmp_one(void * binary, int index)
 	unsigned int c=output1x[4*index+2];
 	unsigned int d=output1x[4*index+3];
 
-	if(d!=t[3])
+	if (d!=t[3])
 		return 0;
 	d+=SQRT_3;d = (d << 9 ) | (d >> 23);
 
 	c += (d ^ a ^ b) + salt_buffer[1]  +  SQRT_3; c = (c << 11) | (c >> 21);
-	if(c!=t[2])
+	if (c!=t[2])
 		return 0;
 
 	b += (c ^ d ^ a) + salt_buffer[9]  +  SQRT_3; b = (b << 15) | (b >> 17);
-	if(b!=t[1])
+	if (b!=t[1])
 		return 0;
 
 	a += (b ^ c ^ d) + crypt_out[4*index+3]+  SQRT_3; a = (a << 3 ) | (a >> 29);
@@ -533,14 +438,14 @@ static int cmp_exact(char *source, int index)
 	// It verifies that the salts are the same.
 	unsigned int *salt=fmt_mscash.methods.salt(source);
 	unsigned int i=0;
-	for(;i<11;i++)
-		if(salt[i]!=salt_buffer[i])
+	for (;i<11;i++)
+		if (salt[i]!=salt_buffer[i])
 			return 0;
 	return 1;
 }
 
 // This is common code for the SSE/MMX/generic variants of non-UTF8 set_key
-static inline void set_key_helper(unsigned int * keybuffer,
+inline static void set_key_helper(unsigned int * keybuffer,
                                   unsigned int xBuf,
                                   const unsigned char * key,
                                   unsigned int lenStoreOffset,
@@ -548,7 +453,7 @@ static inline void set_key_helper(unsigned int * keybuffer,
 {
 	unsigned int i=0;
 	unsigned int md4_size=0;
-	for(; key[md4_size] && md4_size < PLAINTEXT_LENGTH; i += xBuf, md4_size++)
+	for (; key[md4_size] && md4_size < PLAINTEXT_LENGTH; i += xBuf, md4_size++)
 	{
 		unsigned int temp;
 		if ((temp = key[++md4_size]))
@@ -565,7 +470,7 @@ static inline void set_key_helper(unsigned int * keybuffer,
 
 key_cleaning:
 	i += xBuf;
-	for(;i <= *last_length; i += xBuf)
+	for (;i <= *last_length; i += xBuf)
 		keybuffer[i] = 0;
 
 	*last_length = (md4_size >> 1)+1;
@@ -583,7 +488,7 @@ static void set_key(char *_key, int index)
 
 // UTF-8 conversion right into key buffer
 // This is common code for the SSE/MMX/generic variants
-static inline void set_key_helper_utf8(unsigned int * keybuffer, unsigned int xBuf,
+inline static void set_key_helper_utf8(unsigned int * keybuffer, unsigned int xBuf,
     const UTF8 * source, unsigned int lenStoreOffset, unsigned int *lastlen)
 {
 	unsigned int *target = keybuffer;
@@ -724,7 +629,7 @@ static void set_key_utf8(char *_key, int index)
 }
 
 // This is common code for the SSE/MMX/generic variants of non-UTF8 non-ISO-8859-1 set_key
-static inline void set_key_helper_encoding(unsigned int * keybuffer,
+inline static void set_key_helper_encoding(unsigned int * keybuffer,
                                   unsigned int xBuf,
                                   const unsigned char * key,
                                   unsigned int lenStoreOffset,
@@ -748,7 +653,7 @@ static inline void set_key_helper_encoding(unsigned int * keybuffer,
 	i = md4_size>>1;
 
 	i += xBuf;
-	for(;i <= *last_length; i += xBuf)
+	for (;i <= *last_length; i += xBuf)
 		keybuffer[i] = 0;
 
 #if !ARCH_LITTLE_ENDIAN
@@ -781,7 +686,7 @@ static char *get_key(int index)
 	unsigned int i=0;
 	int len = keybuffer[14] >> 4;
 
-	for(md4_size = 0; md4_size < len; i++, md4_size += 2)
+	for (md4_size = 0; md4_size < len; i++, md4_size += 2)
 	{
 #if ARCH_LITTLE_ENDIAN
 		key.u16[md4_size] = keybuffer[i];

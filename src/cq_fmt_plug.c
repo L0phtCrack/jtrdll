@@ -335,11 +335,7 @@ unsigned int AdEncryptPassword(const char* username, const char* password) {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_num_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -437,31 +433,23 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (index = 0; index < count; index++)
-#endif
-	{
 		*crypt_key[index] = AdEncryptPassword(saved_salt, saved_key[index]);
-	}
 
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int i = 0;
+	int i;
 
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
 	for (i = 0; i < count; ++i)
-#endif
-	{
 		if ((*(unsigned int*)binary) == *(unsigned int*)crypt_key[i])
 			return 1;
-	}
 
 	return 0;
 }
@@ -479,13 +467,8 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 struct fmt_main fmt_cq = {
 	{
@@ -534,13 +517,8 @@ struct fmt_main fmt_cq = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

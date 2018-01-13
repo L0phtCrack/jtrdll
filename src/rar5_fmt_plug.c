@@ -1,4 +1,5 @@
-/* RAR 5.0 cracker patch for JtR. Hacked together during May of 2013 by Dhiru
+/*
+ * RAR 5.0 cracker patch for JtR. Hacked together during May of 2013 by Dhiru
  * Kholia.
  *
  * http://www.rarlab.com/technote.htm
@@ -19,11 +20,10 @@ extern struct fmt_main fmt_rar5;
 john_register_one(&fmt_rar5);
 #else
 
+#include <stdint.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               1 // tuned on core i7
@@ -32,7 +32,6 @@ static int omp_t = 1;
 
 #include "arch.h"
 #include "johnswap.h"
-#include "john_stdint.h"
 #include "sha2.h"
 #include "misc.h"
 #include "common.h"
@@ -40,15 +39,13 @@ static int omp_t = 1;
 #include "params.h"
 #include "options.h"
 #include "rar5_common.h"
-//#define PBKDF2_HMAC_SHA256_ALSO_INCLUDE_CTX
 #include "pbkdf2_hmac_sha256.h"
-
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"RAR5"
-#define FORMAT_NAME		""
+#define FORMAT_LABEL            "RAR5"
+#define FORMAT_NAME             ""
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
+#define ALGORITHM_NAME          "PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
 #if ARCH_BITS >= 64
 #define ALGORITHM_NAME          "PBKDF2-SHA256 64/" ARCH_BITS_STR " " SHA2_LIB
@@ -56,18 +53,18 @@ static int omp_t = 1;
 #define ALGORITHM_NAME          "PBKDF2-SHA256 32/" ARCH_BITS_STR " " SHA2_LIB
 #endif
 #endif
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	32
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		sizeof(int)
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        32
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              sizeof(int)
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
+#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
@@ -75,10 +72,7 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
@@ -98,13 +92,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 #ifdef SSE_GROUP_SZ_SHA256
 		int lens[SSE_GROUP_SZ_SHA256], i, j;
 		unsigned char PswCheck[SIZE_PSWCHECK],
@@ -144,11 +137,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static void rar5_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)

@@ -8,6 +8,9 @@
  * http://www.rarlab.com/technote.htm
  *
  * $rar5$<salt_len>$<salt>$<iter_log2>$<iv>$<pswcheck_len>$<pswcheck>
+ *
+ * salt length increase. HAS to match pbkdf2_hmac_sha256_kernel.cl code
+ *  Now uses a common header file.  Dec 2017, JimF.
  */
 #ifdef HAVE_OPENCL
 
@@ -17,73 +20,46 @@ extern struct fmt_main fmt_ocl_rar5;
 john_register_one(&fmt_ocl_rar5);
 #else
 
-#include <ctype.h>
 #include <string.h>
-#include <assert.h>
+#include <stdint.h>
 
 //#define DEBUG
 
 #include "misc.h"
 #include "arch.h"
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "options.h"
 #include "common-opencl.h"
 #include "rar5_common.h"
 
-#define SIZE_SALT50 16
-#define SIZE_PSWCHECK 8
-#define SIZE_PSWCHECK_CSUM 4
-#define SIZE_INITV 16
+#define SIZE_SALT50             16
+#define SIZE_PSWCHECK           8
+#define SIZE_PSWCHECK_CSUM      4
+#define SIZE_INITV              16
 
-#define FORMAT_LABEL		"RAR5-opencl"
-#define FORMAT_NAME		""
-#define ALGORITHM_NAME		"PBKDF2-SHA256 OpenCL"
+#define FORMAT_LABEL            "RAR5-opencl"
+#define FORMAT_NAME             ""
+#define ALGORITHM_NAME          "PBKDF2-SHA256 OpenCL"
 
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define DEFAULT_LWS		64
-#define DEFAULT_GWS		1024
-#define STEP			0
-#define SEED			1024
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define STEP                    0
+#define SEED                    1024
 
-#define BINARY_ALIGN		4
-#define SALT_ALIGN		1
+#define BINARY_ALIGN            4
+#define SALT_ALIGN              sizeof(int)
 
-#define PLAINTEXT_LENGTH	55
-#define BINARY_SIZE		SIZE_PSWCHECK
-#define SALT_SIZE		sizeof(struct custom_salt)
+#define BINARY_SIZE             SIZE_PSWCHECK
+#define SALT_SIZE               sizeof(struct custom_salt)
 
-#define KERNEL_NAME		"pbkdf2_sha256_kernel"
-#define SPLIT_KERNEL_NAME	"pbkdf2_sha256_loop"
+#define KERNEL_NAME             "pbkdf2_sha256_kernel"
+#define SPLIT_KERNEL_NAME       "pbkdf2_sha256_loop"
 
-#define HASH_LOOPS		(3*13*29) // factors 3, 13, 29, 29
-#define ITERATIONS		(32800 - 1)
+#define HASH_LOOPS              (3*13*29) // factors 3, 13, 29, 29
+#define ITERATIONS              (32800 - 1)
 
-typedef struct {
-	uint8_t length;
-	uint8_t v[PLAINTEXT_LENGTH];
-} pass_t;
-
-typedef struct {
-	uint32_t hash[8];
-} crack_t;
-
-// This structure HAS to match what is in pbkdf2_hmac_sha256_kernel.cl
-typedef struct {
-	uint8_t length;
-	uint8_t salt[115];
-	uint32_t rounds;
-} salt_t;
-
-typedef struct {
-	uint32_t ipad[8];
-	uint32_t opad[8];
-	uint32_t hash[8];
-	uint32_t W[8];
-	uint32_t rounds;
-} state_t;
+#include "opencl_pbkdf2_hmac_sha256.h"
 
 static pass_t *host_pass;			      /** plain ciphertexts **/
 static salt_t *host_salt;			      /** salt **/
@@ -101,7 +77,7 @@ static const char * warn[] = {
 static int split_events[] = { 3, -1, -1 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
@@ -262,7 +238,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		1, NULL, &global_work_size, lws, 0, NULL,
 		multi_profilingEvent[2]), "Run kernel");
 
-	for(i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
+	for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
 			1, NULL, &global_work_size, lws, 0, NULL,
 			multi_profilingEvent[3]), "Run split kernel");

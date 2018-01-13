@@ -1,6 +1,6 @@
 /*
  * This software is Copyright (c) 2012 Lukas Odzioba <ukasz@openwall.net>
- * and Copyright (c) 2012 magnum
+ * and Copyright (c) 2012-2017 magnum
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -16,21 +16,21 @@
 #include "opencl_misc.h"
 #include "opencl_sha1.h"
 
-#define SHA1_DIGEST_LENGTH     20
+#define SHA1_DIGEST_LENGTH 20
 
 typedef struct {
-	uint length;
+	uint  length;
 	uchar v[KEYLEN];
 } pbkdf2_password;
 
 typedef struct {
-	uint v[(OUTLEN+3)/4];
+	uint  v[(OUTLEN+3)/4]; /* output of PBKDF2 */
 } pbkdf2_hash;
 
 typedef struct {
-	uint iterations;
-	uint outlen;
-	uint skip_bytes;
+	uint  iterations;
+	uint  outlen;
+	uint  skip_bytes;
 	uchar length;
 	uchar salt[SALTLEN];
 } pbkdf2_salt;
@@ -76,7 +76,7 @@ inline void preproc(__global const uchar *key, uint keylen,
 inline void hmac_sha1(__private uint *output,
     __private uint *ipad_state,
     __private uint *opad_state,
-    __global const uchar *salt, int saltlen, uchar add)
+    __constant uchar *salt, int saltlen, uchar add)
 {
 	int i;
 	uint W[16];
@@ -195,7 +195,7 @@ inline void big_hmac_sha1(__private uint *input, uint inputlen,
 }
 
 inline void pbkdf2(__global const uchar *pass, uint passlen,
-                   __global const uchar *salt, uint saltlen, uint iterations,
+                   __constant uchar *salt, uint saltlen, uint iterations,
                    __global uint *out, uint outlen, uint skip_bytes)
 {
 	uint ipad_state[5];
@@ -233,7 +233,7 @@ inline void pbkdf2(__global const uchar *pass, uint passlen,
 
 __kernel void derive_key(__global const pbkdf2_password *inbuffer,
                          __global pbkdf2_hash *outbuffer,
-                         __global const pbkdf2_salt *salt)
+                         __constant pbkdf2_salt *salt)
 {
 	uint idx = get_global_id(0);
 

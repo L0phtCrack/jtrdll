@@ -1,4 +1,5 @@
-/* iSCSI CHAP authentication cracker. Hacked together during September of 2012
+/*
+ * iSCSI CHAP authentication cracker. Hacked together during September of 2012
  * by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
@@ -12,6 +13,11 @@
  *
  * ftp://ftp.samba.org/pub/unpacked/ppp/pppd/chap-md5.c
  * http://www.blackhat.com/presentations/bh-usa-05/bh-us-05-Dwivedi-update.pdf
+ * http://www.willhackforsushi.com/presentations/PEAP_Shmoocon2008_Wright_Antoniewicz.pdf
+ *
+ * https://tools.ietf.org/html/rfc2865 -> The CHAP challenge value is found in
+ * the CHAP-Challenge Attribute (60) if present in the packet, otherwise in the
+ * Request Authenticator field.
  */
 
 #if FMT_EXTERNS_H
@@ -20,18 +26,9 @@ extern struct fmt_main fmt_chap;
 john_register_one(&fmt_chap);
 #else
 
-#include "md5.h"
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifdef __MIC__
 #ifndef OMP_SCALE
@@ -43,27 +40,42 @@ static int omp_t = 1;
 #endif
 #endif
 #endif
+
+#include "arch.h"
+#include "misc.h"
+#include "md5.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"chap"
-#define FORMAT_NAME		"iSCSI CHAP authentication"
-#define FORMAT_TAG		"$chap$"
-#define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"MD5 32/" ARCH_BITS_STR
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	32
-#define BINARY_SIZE		16
-#define BINARY_ALIGN		sizeof(uint32_t)
-#define SALT_ALIGN			sizeof(int)
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define FORMAT_LABEL            "chap"
+#define FORMAT_NAME             "iSCSI CHAP authentication / EAP-MD5"
+#define FORMAT_TAG              "$chap$"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "MD5 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        32
+#define BINARY_SIZE             16
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              sizeof(int)
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 
 static struct fmt_tests chap_tests[] = {
 	{"$chap$0*cc7e5247514551acdcbf782c4027bfb1*fdfdad5277812ae40956a66f3db23308", "password"},
 	{"$chap$0*81a49cb700e8c2ee9bc3852a506406c3*8876e228962a999637eecc2423f55f07", "password"},
 	{"$chap$0*e270954e7d84f99535dce2e5d7340a7d*4d64f587c7b5248406b939e1e9abeb74", "bar"},
+	// EAP-MD5 hashes are also supported!
+	{"$chap$2*d7ec2fff2ada437f9dcd4e3b0df44d50*1ffc6c2659bc5bb94144fd01eb756e37", "beaVIs"},
+	{"$chap$2*00000000000000000000000000000000*9920418b3103652d3b80ffff04da5863", "bradtest"},
+	// RADIUS EAP-MD5 hash
+	{"$chap$1*266b0e9a58322f4d01ab25b35f879464*c9f9769597e320843f5f2af7b8f1c9bd", "S0cc3r"},
+	// RADIUS CHAP authentication is supported too
+	{"$chap$238*98437c9fd4cb5f446202c0b1ffab2592*050d578a292a4bfd9f030d2797919687", "hello"},
 	{NULL}
 };
 
@@ -79,10 +91,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -136,6 +145,8 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	int i;
 	static struct custom_salt cs;
+
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += FORMAT_TAG_LEN; /* skip over "$chap$" */
 	p = strtokm(ctcopy, "*");
 	cs.id = atoi(p);
@@ -168,13 +179,8 @@ static void *get_binary(char *ciphertext)
 	return out; /* CHAP_R */
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -184,12 +190,11 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		MD5_CTX ctx;
 		MD5_Init(&ctx);
 		MD5_Update(&ctx, &cur_salt->id, 1);
@@ -197,15 +202,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		MD5_Update(&ctx, cur_salt->challenge, cur_salt->challenge_length);
 		MD5_Final((unsigned char*)crypt_out[index], &ctx);
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -223,11 +228,7 @@ static int cmp_exact(char *source, int index)
 
 static void chap_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -282,13 +283,8 @@ struct fmt_main fmt_chap = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -11,6 +11,7 @@
 #include "formats.h"
 #include "johnswap.h"
 #include "rawSHA256_common.h"
+#include "misc.h"
 #include "memdbg.h"
 
 /* ------- Check if the ciphertext if a valid SHA2 hash ------- */
@@ -23,7 +24,7 @@ static int valid_cisco(char *ciphertext)
 		p += CISCO_TAG_LEN;
 
 	q = p;
-	while (atoi64[ARCH_INDEX(*q)] != 0x7F)
+	while (atoi64[ARCH_INDEX(*q)] != 0x7F && q - p <= CISCO_CIPHERTEXT_LENGTH)
 		q++;
 	return !*q && q - p == CISCO_CIPHERTEXT_LENGTH;
 }
@@ -37,7 +38,7 @@ static int valid_hex(char *ciphertext)
 		p += HEX_TAG_LEN;
 
 	q = p;
-	while (atoi16[ARCH_INDEX(*q)] != 0x7F)
+	while (atoi16[ARCH_INDEX(*q)] != 0x7F && q - p <= HEX_CIPHERTEXT_LENGTH)
 		q++;
 	return !*q && q - p == HEX_CIPHERTEXT_LENGTH;
 }
@@ -67,6 +68,25 @@ void * sha256_common_binary(char *ciphertext)
 #ifdef SIMD_COEF_32
 	alter_endianity (out, DIGEST_SIZE);
 #endif
+	return out;
+}
+
+void *sha256_common_binary_BE(char *ciphertext)
+{
+	static unsigned char * out;
+	char *p;
+	int i;
+
+	if (!out) out = mem_calloc_tiny(DIGEST_SIZE, MEM_ALIGN_WORD);
+
+	p = ciphertext + HEX_TAG_LEN;
+	for (i = 0; i < DIGEST_SIZE; i++) {
+		out[i] =
+				(atoi16[ARCH_INDEX(*p)] << 4) |
+				 atoi16[ARCH_INDEX(p[1])];
+		p += 2;
+	}
+	alter_endianity (out, DIGEST_SIZE);
 	return out;
 }
 
@@ -116,8 +136,7 @@ char * sha256_common_prepare(char *split_fields[10], struct fmt_main *self)
 		*o++ = itoa16[b >> 4];
 		*o++ = itoa16[b & 0x0f];
 	}
-	printf("Error in prepare()");
-	exit(1);
+	error_msg("Error in prepare()");
 }
 
 /* ------- Split ------- */
@@ -132,7 +151,6 @@ char * sha256_common_split(char *ciphertext, int index, struct fmt_main *self)
 		ciphertext += HEX_TAG_LEN;
 
 	memcpy(out, HEX_TAG, HEX_TAG_LEN);
-	memcpy(out + HEX_TAG_LEN, ciphertext, HEX_CIPHERTEXT_LENGTH + 1);
-	strlwr(out + HEX_TAG_LEN);
+	memcpylwr(out + HEX_TAG_LEN, ciphertext, HEX_CIPHERTEXT_LENGTH + 1);
 	return out;
 }

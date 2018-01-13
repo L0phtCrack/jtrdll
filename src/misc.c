@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "memory.h"
 #include "logger.h"
@@ -143,7 +144,11 @@ char *fgetl(char *s, int size, FILE *stream)
 char *fgetll(char *s, size_t size, FILE *stream)
 {
 	size_t len;
+	int c;
 	char *cp;
+
+	/* fgets' size arg is a signed int! */
+	assert(size <= INT32_MAX);
 
 	if (!fgets(s, size, stream))
 		return NULL;
@@ -159,8 +164,7 @@ char *fgetll(char *s, size_t size, FILE *stream)
 			s[--len] = 0;
 		return s;
 	}
-	if (s[len-1] == '\r') {
-		int c;
+	else if (s[len-1] == '\r') {
 		s[--len] = 0;
 		while (len && (s[len-1] == '\n' || s[len-1] == '\r'))
 			s[--len] = 0;
@@ -172,10 +176,18 @@ char *fgetll(char *s, size_t size, FILE *stream)
 			ungetc(c, stream);
 		return s;
 	}
+	else if ((len + 1) < size) { /* We read a null byte */
+		do {
+			c = getc(stream);
+		} while (c != EOF && c != '\n');
+		return s;
+	}
+
 	cp = strdup(s);
 
 	while (1) {
-		size_t increase = MAX(len, 0x8000000);
+		int increase = MIN((((len >> 12) + 1) << 12), 0x40000000);
+		size_t chunk_len;
 		void *new_cp;
 
 		new_cp = realloc(cp, len + increase);
@@ -193,7 +205,8 @@ char *fgetll(char *s, size_t size, FILE *stream)
 		if (!fgets(&cp[len], increase, stream))
 			return cp;
 
-		len += strlen(&cp[len]);
+		chunk_len = strlen(&cp[len]);
+		len += chunk_len;
 
 		if (cp[len-1] == '\n') {
 			cp[--len] = 0;
@@ -201,8 +214,7 @@ char *fgetll(char *s, size_t size, FILE *stream)
 				cp[--len] = 0;
 			return cp;
 		}
-		if (cp[len-1] == '\r') {
-			int c;
+		else if (cp[len-1] == '\r') {
 			cp[--len] = 0;
 			while (len && (cp[len-1] == '\n' || cp[len-1] == '\r'))
 				cp[--len] = 0;
@@ -213,6 +225,12 @@ char *fgetll(char *s, size_t size, FILE *stream)
 			if (c != '\n')
 				ungetc(c, stream);
 			return cp;
+		}
+		else if ((chunk_len + 1) < increase) { /* We read a null byte */
+			do {
+				c = getc(stream);
+			} while (c != EOF && c != '\n');
+			return s;
 		}
 	}
 }
@@ -240,6 +258,26 @@ char *strnzcpy(char *dst, const char *src, int size)
 	return dst;
 }
 
+char *strnzcpylwr(char *dst, const char *src, int size)
+{
+	char *dptr = dst;
+
+	if (size)
+		while (--size) {
+			if (*src >= 'A' && *src <= 'Z') {
+				*dptr = *src | 0x20;
+			} else {
+				*dptr = *src;
+				if (!*src) return dst;
+			}
+			dptr++;
+			src++;
+		}
+	*dptr = 0;
+
+	return dst;
+}
+
 int strnzcpyn(char *dst, const char *src, int size)
 {
 	char *dptr;
@@ -252,6 +290,30 @@ int strnzcpyn(char *dst, const char *src, int size)
 	*dptr = 0;
 
 	return (dptr-dst);
+}
+
+int strnzcpylwrn(char *dst, const char *src, int size)
+{
+	char *dptr;
+	if (!size) return 0;
+
+	dptr = dst;
+
+	if (size)
+		while (--size) {
+			if (*src >= 'A' && *src <= 'Z') {
+				*dptr = *src | 0x20;
+			} else {
+				*dptr = *src;
+				if (!*src) return (dptr-dst);
+			}
+			dptr++;
+			src++;
+		}
+	*dptr = 0;
+
+	return (dptr-dst);
+
 }
 
 char *strnzcat(char *dst, const char *src, int size)

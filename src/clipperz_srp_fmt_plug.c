@@ -86,7 +86,6 @@ john_register_one(&fmt_clipperz);
 #endif
 #include "memdbg.h"
 
-
 #define FORMAT_LABEL		"Clipperz"
 #define FORMAT_NAME		"SRP"
 #define ALGORITHM_NAME		"SHA256 32/" ARCH_BITS_STR EXP_STR
@@ -148,10 +147,7 @@ static void init(struct fmt_main *self)
 {
 	int i;
 #if defined (_OPENMP)
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -312,13 +308,8 @@ static void *get_salt(char *ciphertext)
 	return (void *)&cs;
 }
 
-static int get_hash_0(int index)       { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index)       { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index)       { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index)       { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index)       { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index)       { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index)       { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -514,13 +505,8 @@ struct fmt_main fmt_clipperz = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

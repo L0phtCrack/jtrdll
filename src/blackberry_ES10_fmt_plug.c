@@ -1,4 +1,5 @@
-/* Cracker for BlackBerry Enterprise Server 10 hashes.
+/*
+ * Cracker for BlackBerry Enterprise Server 10 hashes.
  *
  * Thanks to Nicolas RUFF for providing the algorithm details and sample
  * hashes!
@@ -20,21 +21,6 @@ john_register_one(&fmt_blackberry1);
 #else
 
 #include <string.h>
-#include <errno.h>
-#include "sha2.h"
-#include "arch.h"
-
-//#undef _OPENMP
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
-
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
-#include "johnswap.h"
-#include "simd-intrinsics.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -45,32 +31,43 @@ john_register_one(&fmt_blackberry1);
 // 256 - 81753
 // 512 - 80537
 #ifndef OMP_SCALE
-#define OMP_SCALE		128
+#define OMP_SCALE               128
 #endif
 #endif
+
+#include "arch.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
+#include "sha2.h"
+#include "johnswap.h"
+#include "simd-intrinsics.h"
 #include "memdbg.h"
 
-#define FORMAT_TAG 		"$bbes10$"
-#define FORMAT_TAG_LENGTH	(sizeof(FORMAT_TAG)-1)
-#define FORMAT_LABEL 		"Blackberry-ES10"
-#define FORMAT_NAME 		""
-#define ALGORITHM_NAME 		"SHA-512 " SHA512_ALGORITHM_NAME
+#define FORMAT_TAG              "$bbes10$"
+#define FORMAT_TAG_LENGTH       (sizeof(FORMAT_TAG)-1)
+#define FORMAT_LABEL            "Blackberry-ES10"
+#define FORMAT_NAME             ""
+#define ALGORITHM_NAME          "SHA-512 " SHA512_ALGORITHM_NAME
 
-#define BENCHMARK_COMMENT	" (101x)"
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	125
-#define BINARY_SIZE		64
-#define BINARY_ALIGN		4
-#define MAX_SALT_SIZE		64
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define SALT_ALIGN		4
+#define BENCHMARK_COMMENT       " (101x)"
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        125
+#define BINARY_SIZE             64
+#define BINARY_ALIGN            4
+#define MAX_SALT_SIZE           64
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define SALT_ALIGN              4
 #ifdef SIMD_COEF_64
-#define MIN_KEYS_PER_CRYPT	(SIMD_COEF_64*SIMD_PARA_SHA512)
-#define MAX_KEYS_PER_CRYPT	(SIMD_COEF_64*SIMD_PARA_SHA512)
+#define MIN_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
+#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
+
 static struct fmt_tests blackberry_tests[] = {
 	{"$bbes10$76BDF6BE760FCF5DEE7B20E27632D1FEDD9D64E1BBCC941F42957E87CBFB96F176324B2E2C71976CEBE67CA6F400F33F001D7453D80F4AF5D80C8A93ED0BA0E6$DB1C19C0", "toulouse"},
 	{"$bbes10$57ECCAA65BB087E3E506A8C5CEBEE193DD051538CE44F4156D65F1B44E0266DF49337EA11812DF12E39C8B12EB46F19C291FD9529CD4F09B3C8109BE6F4861E5$0wzWUnuQ", "test"},
@@ -84,16 +81,13 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static struct custom_salt {
 	int iterations;
-	char unsigned salt[MAX_SALT_SIZE + 1];
+	unsigned char salt[MAX_SALT_SIZE + 1];
 } *cur_salt;
 
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -123,13 +117,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(ctcopy, "$")) == NULL) /* hash */
 		goto err;
-	if(strlen(p) != BINARY_SIZE * 2)
+	if (strlen(p) != BINARY_SIZE * 2)
 		goto err;
 	if (!ishexuc(p))
 		goto err;
 	if ((p = strtokm(NULL, "$")) == NULL) /* salt */
 		goto err;
-	if(strlen(p) > MAX_SALT_SIZE)
+	if (strlen(p) > MAX_SALT_SIZE)
 		goto err;
 	p = strtokm(NULL, "$");
 	if (p)
@@ -175,13 +169,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -191,13 +180,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 		int j;
 		SHA512_CTX ctx;
 #ifdef SIMD_COEF_64
@@ -216,13 +204,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA512_Final(tmpBuf, &ctx);
 			p64 = &keys64[i%SIMD_COEF_64+i/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
 			for (j = 0; j < 8; ++j)
+#if ARCH_LITTLE_ENDIAN==1
 				p64[j*SIMD_COEF_64] = JOHNSWAP64(tmpBuf64[j]);
+#else
+				p64[j*SIMD_COEF_64] = tmpBuf64[j];
+#endif
 			p64[8*SIMD_COEF_64] = 0x8000000000000000ULL;
 			p64[15*SIMD_COEF_64] = 0x200;
 		}
 		for (j = 0; j < 98; j++)
 			SIMDSHA512body(keys, keys64, NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT);
-		// Last one with FLAT_OUT
 		SIMDSHA512body(keys, (uint64_t*)crypt_out[index], NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT|SSEi_FLAT_OUT);
 #else
 		SHA512_Init(&ctx);
@@ -240,13 +231,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		}
 #endif
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -264,11 +257,7 @@ static int cmp_exact(char *source, int index)
 
 static void blackberry_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -323,13 +312,8 @@ struct fmt_main fmt_blackberry1 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

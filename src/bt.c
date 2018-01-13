@@ -326,7 +326,7 @@ MAYBE_ATOMIC_CAPTURE
 
 		for (i = 0; i < offset_table_size && offset_data[i].collisions; i++)
 			;
-			fprintf (stdout, "Unused Slots in Offset Table:%Lf %%\n", 100.00 * (long double)(offset_table_size - i) / (long double)(offset_table_size));
+			fprintf(stdout, "Unused Slots in Offset Table:%Lf %%\n", 100.00 * (long double)(offset_table_size - i) / (long double)(offset_table_size));
 
 		fprintf(stdout, "Total Memory Use(in GBs):%Lf\n", ((long double)total_memory_in_bytes) / ((long double) 1024 * 1024 * 1024));
 	}
@@ -369,7 +369,7 @@ static void calc_hash_mdoulo_table_size(unsigned int *store, auxilliary_offset_d
 
 static unsigned int create_tables()
 {
- 	unsigned int i;
+	unsigned int i;
 
 	unsigned int bitmap = ((1ULL << (sizeof(OFFSET_TABLE_WORD) * 8)) - 1) & 0xFFFFFFFF;
 	unsigned int limit = bitmap % hash_table_size + 1;

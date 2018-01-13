@@ -8,7 +8,7 @@
 
 #include "misc.h"	// error()
 
-static int omp_t = 1;
+static int threads = 1;
 static unsigned char *saved_salt;
 static unsigned char *saved_key;
 static int (*cracked);
@@ -118,8 +118,8 @@ typedef struct {
 		unsigned int w;
 		unsigned char c[4];
 	} crc;
-	unsigned long long pack_size;
-	unsigned long long unp_size;
+	uint64_t pack_size;
+	uint64_t unp_size;
 	int method;
 	unsigned char blob_hash[20]; // holds an sha1, but could be 'any' hash.
 	// raw_data should be word aligned, and 'ok'
@@ -181,8 +181,8 @@ static void *get_salt(char *ciphertext)
 	} else {
 		char *p = strtokm(NULL, "*");
 		char crc_c[4];
-		unsigned long long pack_size;
-		unsigned long long unp_size;
+		uint64_t pack_size;
+		uint64_t unp_size;
 
 		for (i = 0; i < 4; i++)
 			crc_c[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16 + atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -244,7 +244,7 @@ static void *get_salt(char *ciphertext)
 			jtr_fseek64(fp, pos, SEEK_SET);
 			count = fread(psalt->raw_data, 1, psalt->pack_size, fp);
 			if (count != psalt->pack_size) {
-				fprintf(stderr, "Error loading file from archive '%s', expected "LLu" bytes, got "Zu". Archive possibly damaged.\n", archive_name, psalt->pack_size, count);
+				fprintf(stderr, "Error loading file from archive '%s', expected %"PRIu64" bytes, got "Zu". Archive possibly damaged.\n", archive_name, psalt->pack_size, count);
 				error();
 			}
 			psalt->blob = psalt->raw_data;
@@ -521,7 +521,7 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static inline void check_rar(int count)
+inline static void check_rar(int count)
 {
 	unsigned int index;
 
@@ -548,7 +548,7 @@ static inline void check_rar(int count)
 				CRC32_t crc;
 				unsigned char crc_out[4];
 				unsigned char plain[0x8000];
-				unsigned long long size = cur_file->unp_size;
+				uint64_t size = cur_file->unp_size;
 				unsigned char *cipher = cur_file->blob;
 
 				/* Use full decryption with CRC check.

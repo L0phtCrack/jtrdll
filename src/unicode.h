@@ -31,6 +31,7 @@
 #define _CONVERTUTF_H
 
 #include <wchar.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #include "options.h"
@@ -83,16 +84,13 @@
 /* Rexgen library header might have defined this (empty) */
 #undef UTF32
 
-typedef uint32_t UTF32;	/* at least 32 bits */
-typedef unsigned short UTF16;	/* at least 16 bits */
-typedef unsigned char UTF8;	/* typically 8 bits */
+typedef uint32_t UTF32;
+typedef uint16_t UTF16;
+typedef uint8_t UTF8;
 
 /* Some fundamental constants */
 #define UNI_REPLACEMENT_CHAR (UTF32)0x0000FFFD
 #define UNI_MAX_BMP (UTF32)0x0000FFFF
-#define UNI_MAX_UTF16 (UTF32)0x0010FFFF
-#define UNI_MAX_UTF32 (UTF32)0x7FFFFFFF
-#define UNI_MAX_LEGAL_UTF32 (UTF32)0x0010FFFF
 
 /* These are used in NT_fmt.c */
 extern const UTF32 offsetsFromUTF8[];
@@ -101,10 +99,10 @@ extern const char opt_trailingBytesUTF8[64];
 /*
  * Convert to UTF-16LE from UTF-8.
  * 'maxtargetlen' is max. number of characters (as opposed to bytes) in output,
- * eg. PLAINTEXT_LENGTH.
+ * e.g. PLAINTEXT_LENGTH.
  * 'sourcelen' can be strlen(source).
  * Returns number of UTF16 characters (as opposed to bytes) of resulting
- * output. If return is negative, eg. -32, it means 32 characters of INPUT were
+ * output. If return is negative, e.g. -32, it means 32 characters of INPUT were
  * used and then we had to truncate. Either because we ran out of maxtargetlen,
  * or because input was not valid after that point (eg. illegal UTF-8 sequence).
  * To get the length of output in that case, use strlen16(target).
@@ -119,10 +117,10 @@ extern int utf8_to_utf16_be(UTF16 *target, unsigned int len, const UTF8 *source,
 /*
  * Convert to UTF-16LE from whatever encoding is used (--encoding aware).
  * 'maxdstlen' is max. number of characters (as opposed to bytes) in output,
- * eg. PLAINTEXT_LENGTH.
+ * e.g. PLAINTEXT_LENGTH.
  * 'srclen' can be strlen(src).
  * Returns number of UTF16 characters (as opposed to bytes) of resulting
- * output. If return is negative, eg. -32, it means 32 characters of INPUT were
+ * output. If return is negative, e.g. -32, it means 32 characters of INPUT were
  * used and then we had to truncate. Either because we ran out of maxdstlen, or
  * because input was not valid after that point (eg. illegal UTF-8 sequence).
  * To get the length of output in that case, use strlen16(dst).
@@ -228,28 +226,28 @@ extern UTF16 ucs2_downcase[0x10000];
  * to multi UTC2 lookup table to do things 'properly'. NOTE low2up_ansi() does
  * not handle 0xDF to "SS" conversion, since it is 1 to many.
  */
-static inline UTF8 low2up_ansi(UTF8 c)
+inline static UTF8 low2up_ansi(UTF8 c)
 {
 	if ((ucs2_upcase[c] & 0xFFFE) && ucs2_upcase[c] < 0x100)
 		return (UTF8)ucs2_upcase[c];
 	return c;
 }
 
-static inline UTF8 up2low_ansi(UTF8 c)
+inline static UTF8 up2low_ansi(UTF8 c)
 {
 	if ((ucs2_downcase[c] & 0xFFFE) && ucs2_downcase[c] < 0x100)
 		return (UTF8)ucs2_downcase[c];
 	return c;
 }
 
-static inline UTF16 low2up_u16(UTF16 w)
+inline static UTF16 low2up_u16(UTF16 w)
 {
 	if (ucs2_upcase[w] & 0xFFFE)
 		return ucs2_upcase[w];
 	return w;
 }
 
-static inline UTF16 up2low_u16(UTF16 w)
+inline static UTF16 up2low_u16(UTF16 w)
 {
 	if (ucs2_downcase[w] & 0xFFFE)
 		return ucs2_downcase[w];

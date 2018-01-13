@@ -30,9 +30,9 @@ john_register_one(&fmt_nsec3);
 
 #include <ctype.h>
 #include <string.h>
-#include "stdint.h"
-#include "sha.h"
+#include <stdint.h>
 
+#include "sha.h"
 #include "arch.h"
 #include "params.h"
 #include "common.h"
@@ -280,10 +280,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	saved_key_length = strlen(key);
-	if (saved_key_length > PLAINTEXT_LENGTH)
-		saved_key_length = PLAINTEXT_LENGTH;
-	memcpy(saved_key, key, saved_key_length);
+	saved_key_length = strnzcpyn((char*)saved_key, key, sizeof(saved_key));
 	convert_label_wf();
 }
 
@@ -340,7 +337,7 @@ struct fmt_main fmt_nsec3 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT,
+		FMT_8_BIT | FMT_HUGE_INPUT,
 #if FMT_MAIN_VERSION > 11
 		{ NULL },
 #endif
@@ -360,7 +357,7 @@ struct fmt_main fmt_nsec3 = {
 #endif
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		salt_hash,
 		NULL,
@@ -370,7 +367,7 @@ struct fmt_main fmt_nsec3 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_all,

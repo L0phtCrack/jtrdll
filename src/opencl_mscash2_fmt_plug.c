@@ -42,10 +42,6 @@ john_register_one(&fmt_opencl_mscash2);
 
 #include "memdbg.h"
 
-#define INIT_MD4_A                  0x67452301
-#define INIT_MD4_B                  0xefcdab89
-#define INIT_MD4_C                  0x98badcfe
-#define INIT_MD4_D                  0x10325476
 #define SQRT_2                      0x5a827999
 #define SQRT_3                      0x6ed9eba1
 
@@ -60,7 +56,7 @@ john_register_one(&fmt_opencl_mscash2);
 #define GPU_BINARY_SIZE           4
 #define SALT_SIZE                 sizeof(ms_cash2_salt)
 
-# define SWAP(n) \
+ #define SWAP(n) \
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 
 typedef struct {
@@ -106,7 +102,7 @@ static void reset(struct db_main *db)
 		unsigned int i;
 		self->params.max_keys_per_crypt = 0;
 
-		for( i=0; i < get_number_of_devices_in_use(); i++)
+		for ( i=0; i < get_number_of_devices_in_use(); i++)
 			self->params.max_keys_per_crypt += selectDevice(gpu_device_list[i], self);
 
 		///Allocate memory
@@ -213,7 +209,7 @@ static void pbkdf2_iter0(unsigned int *input_dcc_hash,unsigned char *salt_buffer
 	memset(&ipad[4], 0x36, SHA_CBLOCK-16);
 	memset(&opad[4], 0x5C, SHA_CBLOCK-16);
 
-	for(k = 0; k < count; k++) {
+	for (k = 0; k < count; k++) {
 		i = k * 4;
 		ipad[0] = dcc_hash_host[i]^0x36363636;
 		opad[0] = dcc_hash_host[i++]^0x5C5C5C5C;
@@ -263,7 +259,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	DCC((unsigned char*)salt_host, salt_len, dcc_hash_host, count) ;
 
-	if(salt_len > 22)
+	if (salt_len > 22)
 		pbkdf2_iter0(dcc_hash_host,(unsigned char*)salt_host, (salt_len << 1) , count);
 
 #ifdef _DEBUG

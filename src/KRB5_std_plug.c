@@ -27,6 +27,7 @@
 
 #include "KRB5_std.h"
 #include "memory.h"
+#include "misc.h"
 #include "memdbg.h"
 
 #ifdef _MSC_VER
@@ -40,7 +41,7 @@ static const char derive_const[5] = "\x00\x00\x00\x03\xaa";
 /**
  * Heimdal rr13 function                // {{{
  */
-static inline void rr13(unsigned char *buf, int len) {
+inline static void rr13(unsigned char *buf, int len) {
 
     unsigned char *tmp;
     int bytes = (len + 7) / 8;
@@ -51,18 +52,18 @@ static inline void rr13(unsigned char *buf, int len) {
 
     const int lbit = len % 8;
 
-    if(len == 0)
+    if (len == 0)
         return;
 
     tmp = (unsigned char *) mem_alloc(bytes);
     memcpy(tmp, buf, bytes);
-    if(lbit) {
+    if (lbit) {
         // pad final byte with initial bits
         tmp[bytes - 1] &= 0xff << (8 - lbit);
-        for(i = lbit; i < 8; i += len)
+        for (i = lbit; i < 8; i += len)
             tmp[bytes - 1] |= buf[0] >> i;
     }
-    for(i = 0; i < bytes; i++) {
+    for (i = 0; i < bytes; i++) {
         const int bits = 13 % len;
 
         // calculate first bit position of this byte
@@ -73,7 +74,7 @@ static inline void rr13(unsigned char *buf, int len) {
         b1 = bb / 8;
         s1 = bb % 8;
 
-        if(bb + 8 > bytes * 8)
+        if (bb + 8 > bytes * 8)
             // watch for wraparound
             s2 = (len + 8 - s1) % 8;
         else
@@ -88,15 +89,15 @@ static inline void rr13(unsigned char *buf, int len) {
 /**
  * Heimdal add1 function                            // {{{
  */
-static inline void add1(unsigned char *a, unsigned char *b, size_t len) {
+inline static void add1(unsigned char *a, unsigned char *b, size_t len) {
     int i, x;
     int carry = 0;
-    for(i = len - 1; i >= 0; i--){
+    for (i = len - 1; i >= 0; i--){
         x = a[i] + b[i] + carry;
         carry = x > 0xff;
         a[i] = x & 0xff;
     }
-    for(i = len - 1; carry && i >= 0; i--){
+    for (i = len - 1; carry && i >= 0; i--){
         x = a[i] + carry;
         carry = x > 0xff;
         a[i] = x & 0xff;
@@ -107,7 +108,7 @@ static inline void add1(unsigned char *a, unsigned char *b, size_t len) {
 /**
  * Heimdal _krb5_n_fold function        // {{{
  */
-static inline void _krb5_n_fold(const void *str, int len, void *key, int size) {
+inline static void _krb5_n_fold(const void *str, int len, void *key, int size) {
 
     int maxlen = 2 * max(size, len), l = 0;
     unsigned char *tmp = (unsigned char *) mem_alloc(maxlen);
@@ -122,7 +123,7 @@ static inline void _krb5_n_fold(const void *str, int len, void *key, int size) {
         while(l >= size) {
             add1(key, tmp, size);
             l -= size;
-            if(l == 0)
+            if (l == 0)
                 break;
             memmove(tmp, tmp + size, l);
         }
@@ -135,7 +136,7 @@ static inline void _krb5_n_fold(const void *str, int len, void *key, int size) {
 /**
  * Heimdal DES3_postproc function               // {{{
  */
-static inline void DES3_postproc(unsigned char *k, int len, krb5_key *krb5key) {
+inline static void DES3_postproc(unsigned char *k, int len, krb5_key *krb5key) {
     unsigned char x[24];
     int i, j;
     unsigned char foo;
@@ -169,7 +170,7 @@ static inline void DES3_postproc(unsigned char *k, int len, krb5_key *krb5key) {
 /**
  * Heimdal based derive_key function                      // {{{
  */
-static inline void derive_key(const void *constant, int len, krb5_key *krb5key) {
+inline static void derive_key(const void *constant, int len, krb5_key *krb5key) {
 
     unsigned char *k;
     unsigned int nblocks = 0, i;
@@ -183,13 +184,13 @@ static inline void derive_key(const void *constant, int len, krb5_key *krb5key) 
     DES_set_key(&bk[1], &s[1]);
     DES_set_key(&bk[2], &s[2]);
 
-    if(DES3_BLOCK_SIZE * 8 < DES3_KEY_BITS || len != DES3_BLOCK_SIZE) {
+    if (DES3_BLOCK_SIZE * 8 < DES3_KEY_BITS || len != DES3_BLOCK_SIZE) {
         nblocks = (DES3_KEY_BITS + DES3_BLOCK_SIZE * 8 - 1) / (DES3_BLOCK_SIZE * 8);
         k = (unsigned char *) mem_alloc(nblocks * DES3_BLOCK_SIZE);
 
         _krb5_n_fold(constant, len, k, DES3_BLOCK_SIZE);
-        for(i = 0; i < nblocks; i++) {
-            if(i > 0)
+        for (i = 0; i < nblocks; i++) {
+            if (i > 0)
                 memcpy(k + i * DES3_BLOCK_SIZE, k + (i - 1) * DES3_BLOCK_SIZE, DES3_BLOCK_SIZE);
 
             memset(ivec, 0x00, sizeof(ivec));
@@ -197,8 +198,7 @@ static inline void derive_key(const void *constant, int len, krb5_key *krb5key) 
                     DES3_BLOCK_SIZE, &s[0], &s[1], &s[2], (DES_cblock *) ivec, 1);
         }
     } else {
-        printf("Error, should never get here\n");
-        exit(1);
+        error_msg("Error, should never get here\n");
     }
 
     // keytype dependent post-processing
@@ -211,7 +211,7 @@ static inline void derive_key(const void *constant, int len, krb5_key *krb5key) 
 /**
  * Heimdal based string_to_key_derived function          // {{{
  */
-static inline void string_to_key_derived(const void *passwd, int len, krb5_key *krb5key) {
+inline static void string_to_key_derived(const void *passwd, int len, krb5_key *krb5key) {
 
     unsigned char *tmp;
 

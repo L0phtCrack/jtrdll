@@ -1,4 +1,5 @@
-/* Fast cracker for SSH RSA / DSA key files. Hacked together during October
+/*
+ * Fast cracker for SSH RSA / DSA key files. Hacked together during October
  * of 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * Support for cracking new openssh key format (bcrypt pbkdf) was added by
@@ -11,10 +12,8 @@
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without modification,
- * are permitted. */
-
-#include "arch.h"
-#if !AC_BUILT || HAVE_BIO_NEW
+ * are permitted.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_sshng;
@@ -23,28 +22,27 @@ john_register_one(&fmt_sshng);
 #else
 
 #include <string.h>
-#include "aes.h"
+#include <stdint.h>
 #include <openssl/des.h>
-#include <assert.h>
-#include <ctype.h>
-#include <errno.h>
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
-#define OMP_SCALE               512 // Tuned K8-dual HT
+#define OMP_SCALE           16 // adjust this dynamically based on the hash type?
 #endif
 #endif
 
+#include "arch.h"
+#include "aes.h"
 #include "jumbo.h"
 #include "common.h"
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "john_stdint.h"
 #include "md5.h"
-#include "memdbg.h"
+#include "bcrypt_pbkdf.h"
 #include "asn1.h"
+#include "memdbg.h"
 
 #define FORMAT_LABEL        "SSH-ng"
 #define FORMAT_NAME         ""
@@ -74,14 +72,20 @@ static struct fmt_tests sshng_tests[] = {
 	/* DSA test vectors */
 	{"$sshng$0$8$78DAEB836ED0A646$448$95d5a4abd38c957a969a322aa6936798d3c8523e6e553d762e4068b130294db89b4e67b790825bd6e0de1b60528557d8faf0ce4d413d92818f0cbb315b5b7902df845722032bc6883b4b87b5e5cce406c15f6d0b2d45916d156a661b0cc6a421dc7dd794788df9085a59c6f87c5baed7c6bc4a48a64c5a439d9b9f7e808397fce1fc1ed789e0114cb03cd392bf660541041c1f964476044d39dd71eb240231f4111494b3fbe85a35f2bbe32d93927aedecf959e786a51be450ade61e746b8eae6174016e8dabf59a358a518c3445c93b4824e61c065664f24b3e773643c0e47996b7c348cefe63407303cbb37e672905bb0a4fd51e4cfd920563863987f96f9fa2098d0ed5c9244f21ba4df28d9826fd8e0f525af349f7b54f0c83bee8de8e1d3702a6edc0a396af85b8805d3ac4a0b01f053d0454856fa3a450f199637ae0333670483a454769b5bcbb5a6329d07c0ad6ac847f11e32ccb835650fb9404880c1ad19548cfb57107d43cc8610b9869165a8b116867b118f97ef74f09ab285114512f599d066d46dae846a1b04787f3e30410b234e5fc098e8a39419a2dbdb5a25c709b13fd31eb2d0e6994e11df0e32ff45b1a3c95c153ce606912a8dc966daf", "television"},
 #ifdef DEBUG
-	/* this key is SUPER slow, now that OMP_SCALE has been increased. */
+	/* this key is SUPER slow. */
 	/* it would be nice to get one of these with rounds set to 2,     */
 	/* instead of the rounds=64 of this hash  (pass_gen.pl update)    */
 	/* new ssh key format */
-	{"$sshng$2$16$cc2c3c68c39e0ba6289ed36cb92c3a73$1334$6f70656e7373682d6b65792d7631000000000a6165733235362d636263000000066263727970740000001800000010cc2c3c68c39e0ba6289ed36cb92c3a73000000400000000100000117000000077373682d727361000000030100010000010100af9bf6a900464f154916fac3d80476e0ee739ff7f25a96b562ff9f4262db1972992947dfa89da47f9fa5f4d9e54a2d103ce63779746888c298693663310f054af1c1dc90f62b22f630703726631c03ff217c29a32fd9f9bc178aabe9666c37c2c2bf4a2b4c528efe51e755053216d41e860ef996b549184cd15bd17641128690d2946a76261954edfee942bbefbb182df320d3da7f46a5fcddc15b5ecbf9b1b822cbc9ef978e8b639e8eab2e3b1229d429da4f6bdc27af2f2aab0e187a6cce91b95a8ac6f5602773d0014f1e8124a89e43e502bebb4d21f6a148e208e2d591391d1aede6a0a6d499a3de9996474310dd9d3233e3f05e9d0e85aba44715e838bd000003d08168da8d056f904faf9d80b22c08141e8b068a3af64ace3b5ffbad24b884cd37ae7ad89546031ab834d612b44266b95263a5c38f0d628d704caf70944629ad66d3cef974ec4faaaeb7d7df67f1321bb606ec6e14060c0de1a63a5732ca89b94ae765cb0671a4a1a76b42c06c220546bbf0f8a88471c0bf4200a0cbe0d346be67f688dcf76a3666f7c4447b3ced2d0c9a2fa50abc6ca222ddd70aeb82d65f8fefa313b3db76c5a03478bebc9e0942e17c07ae11d1fbe1b0b380ca2506a26aaf5cdb8668af186d1bc293844bd9c2cc8bb40530387f9a5e11770484593af69384fc003beb82beffa00c1b23f7d6a9bd8f6153cb7abd9531008df384a3455d7cdd7020df4dc507f34e697ad437f01989271b17b93045265f20e6fd02f63ac1e13ec85f8224bc60dd91e15dcfa2ec4f6986e3b37ea6bd571ca18089402f80c121323eb774708cc6ab470e05a53428b65dede47ded97c4f5941be44f6290d5ccdd9bea95b06190efee6c64d874798b6045c5d553a1f68c95f143d0a6893877796fff452851d64ac73c007b91dd6058a5c31165003d9d66b4a1a40c2f82e5c3be6820b109addc0f088c84576e30c7202da3304636de4035f3ca8b032885aa2bedb4d1e134c1615139fb6ed7fa924c2e8abdfcd75da029e910ee8a9d4af594e2a9732115237b6ba3c24f8dfd4bed0a7cb4d96e114bff30e9c68226ae04de6fee2340b41c49cd08982a3f21169853366882a4af43e256cb0d09c88856c46f2ad8a7bcc3896efe5f4f104ef9b595cd08b4b76d6ac074f4fa4a488f508c6106603cb4ca65af819d2222a086ddd16a63021627f337ab9d86b33150808313bfe7368737bf38e7dee410cf08f2effef780d161e2cb734135bba36fe2ee3319cda95242b89b50673c88eb3dfa331e987e3fbde92cec7e019990d97b11c71d5b04b8ec451549abc9ed195a080aefb1d77eff476f9de4315fca5bf6386438869a8d59a5f0badda70b337bb9bdcff966229d631286d3c5b97c41f3ef5daa6ef4416577815214733e8602ef7f8abc3a19ee58f48b10c8ab1d5c76f01febdb29b36910d615d4022849ec117f02b6ae898cc0ff67e61df43284d3ff739ab4c34fe2854797ae0b66e0ba234e236daba6eb9172e9e1f4a0f5283ae9b336059d2ab2c7145e0a4de4b5bed3baf87c90ad4d47b94eb1c01b07510191f06b9eaf014e225b2bce46d5a7080c6d1daf64460836d7630c157e44afc9483a777d76fcafbfc2c4f299211c0465f0151f13707f815700944ad6a17e23e63dd0eecb5cdb5284ad92dd853e0ce136bc77633fef514e6aadeb61e7fe885fe399076cbd5464a6d17efa1e116853e80cf08adea7e550b0d27e6a96d835069674fd7bcc$64", "12345"},
+	{"$sshng$2$16$cc2c3c68c39e0ba6289ed36cb92c3a73$1334$6f70656e7373682d6b65792d7631000000000a6165733235362d636263000000066263727970740000001800000010cc2c3c68c39e0ba6289ed36cb92c3a73000000400000000100000117000000077373682d727361000000030100010000010100af9bf6a900464f154916fac3d80476e0ee739ff7f25a96b562ff9f4262db1972992947dfa89da47f9fa5f4d9e54a2d103ce63779746888c298693663310f054af1c1dc90f62b22f630703726631c03ff217c29a32fd9f9bc178aabe9666c37c2c2bf4a2b4c528efe51e755053216d41e860ef996b549184cd15bd17641128690d2946a76261954edfee942bbefbb182df320d3da7f46a5fcddc15b5ecbf9b1b822cbc9ef978e8b639e8eab2e3b1229d429da4f6bdc27af2f2aab0e187a6cce91b95a8ac6f5602773d0014f1e8124a89e43e502bebb4d21f6a148e208e2d591391d1aede6a0a6d499a3de9996474310dd9d3233e3f05e9d0e85aba44715e838bd000003d08168da8d056f904faf9d80b22c08141e8b068a3af64ace3b5ffbad24b884cd37ae7ad89546031ab834d612b44266b95263a5c38f0d628d704caf70944629ad66d3cef974ec4faaaeb7d7df67f1321bb606ec6e14060c0de1a63a5732ca89b94ae765cb0671a4a1a76b42c06c220546bbf0f8a88471c0bf4200a0cbe0d346be67f688dcf76a3666f7c4447b3ced2d0c9a2fa50abc6ca222ddd70aeb82d65f8fefa313b3db76c5a03478bebc9e0942e17c07ae11d1fbe1b0b380ca2506a26aaf5cdb8668af186d1bc293844bd9c2cc8bb40530387f9a5e11770484593af69384fc003beb82beffa00c1b23f7d6a9bd8f6153cb7abd9531008df384a3455d7cdd7020df4dc507f34e697ad437f01989271b17b93045265f20e6fd02f63ac1e13ec85f8224bc60dd91e15dcfa2ec4f6986e3b37ea6bd571ca18089402f80c121323eb774708cc6ab470e05a53428b65dede47ded97c4f5941be44f6290d5ccdd9bea95b06190efee6c64d874798b6045c5d553a1f68c95f143d0a6893877796fff452851d64ac73c007b91dd6058a5c31165003d9d66b4a1a40c2f82e5c3be6820b109addc0f088c84576e30c7202da3304636de4035f3ca8b032885aa2bedb4d1e134c1615139fb6ed7fa924c2e8abdfcd75da029e910ee8a9d4af594e2a9732115237b6ba3c24f8dfd4bed0a7cb4d96e114bff30e9c68226ae04de6fee2340b41c49cd08982a3f21169853366882a4af43e256cb0d09c88856c46f2ad8a7bcc3896efe5f4f104ef9b595cd08b4b76d6ac074f4fa4a488f508c6106603cb4ca65af819d2222a086ddd16a63021627f337ab9d86b33150808313bfe7368737bf38e7dee410cf08f2effef780d161e2cb734135bba36fe2ee3319cda95242b89b50673c88eb3dfa331e987e3fbde92cec7e019990d97b11c71d5b04b8ec451549abc9ed195a080aefb1d77eff476f9de4315fca5bf6386438869a8d59a5f0badda70b337bb9bdcff966229d631286d3c5b97c41f3ef5daa6ef4416577815214733e8602ef7f8abc3a19ee58f48b10c8ab1d5c76f01febdb29b36910d615d4022849ec117f02b6ae898cc0ff67e61df43284d3ff739ab4c34fe2854797ae0b66e0ba234e236daba6eb9172e9e1f4a0f5283ae9b336059d2ab2c7145e0a4de4b5bed3baf87c90ad4d47b94eb1c01b07510191f06b9eaf014e225b2bce46d5a7080c6d1daf64460836d7630c157e44afc9483a777d76fcafbfc2c4f299211c0465f0151f13707f815700944ad6a17e23e63dd0eecb5cdb5284ad92dd853e0ce136bc77633fef514e6aadeb61e7fe885fe399076cbd5464a6d17efa1e116853e80cf08adea7e550b0d27e6a96d835069674fd7bcc$64$358", "12345"},
 #endif
 	// EC private key
 	{"$sshng$3$16$00B535FBA963402F20C12648A59D7258$128$dfa09369ff38f33c9789d33760d16fdd47730311b41b51a0c7b1dd1dec850c5c2ff523710af12839f25a709f0076cdd3e3643fab2ea1d17c6fae52a797b55e752b71a1fdd46d5bd889b51ddc2a01922340e5be914a67dabf666aff1c88275bd8ec3529e26386279adeb480446ab869dc27c160bd8fe469d5f993b90aaffef8ce", "password123"},
+	// RSA key encrypted with 3DES, this caught the incorrect padding check bug
+	{"$sshng$0$8$F1621D1A561534C3$616$ab1925ec002675445db989f2591a5bf7a31a80e10131b6eebb20bc2d2b70e2a21f431bfc70228f3873b4e0bb902156a1cf829d50fa09bc035d5ddf04f2a403f4fd7bfe32b5219d6c74dd594d0babd07e28075be4eef6f015d1ce5be91fcd81a55f886d867995d4719bd8e0890e8fe4c8abc171d272442e1c6805b29e1cb996a2b2cd3e82e70df0270d98d88c8cd32a1164ebe6e1390e64ce15cc166054281619a125bf4776c7433cf653a87d40d3ae6b494d536c2d2974e697d34b8965239d976e9e1d8a3f1503c7bb6ebacd8f852f65b96e58e5a280411ea7737ba1410ec273722b1b3b91c83eba4c3a0c187be3bdb05d3fe9be55cfbde501adc8ff6ff257ecbd4efceb8d8e7a859af411565b3f3fb0fc3d9df056a265836ec18b234f7b6956a4202ae75e5ed2890d33e9abb355763cc56438509a199c4fe3e48e12fa3f6cc2e55f8f3b134ba2dec87b4d37d6209bbf84826d74cac0d96cf4303654c36476edc38f750d4d7d0a495aac5f6ec8ffc6fcceb482985b81636fb66f05502d00c00e5e8b39a17afe46faf18ac590cb4fd59cf88b62209378c47be74b902956b555bdeaba14f447a8b0e4522ea6d0f492045f3b14a49c3d7d9f6cd3f8782cb1fce3bacd57e71e918726a514a39a474661c6989796a9fab1d8f6cc684b4963ced9982a01ee50e076937dfccc4a1d00870b238f30fc4fa258dd6a62d3c7a79bb9f23b0be25261bf222681859058fc56660d59124d114d7528e98b8c2eb8d465514894a6796b07f244bb8334bb4a440245d5a942a05fd401634cbc6f32ee223b4ec49446fd0fc2b30ed05324837ba8a2415c23bc4fc526ee15766c6a29047ba5bb05f38a122160ed91c769ae", "albert"},
+	// /ssh-keygen -o -N test12345 -t ecdsa -f test
+	{"$sshng$2$16$6931efeeafd9d3fefc5d3f220d6e32f3$375$6f70656e7373682d6b65792d7631000000000a6165733235362d6362630000000662637279707400000018000000106931efeeafd9d3fefc5d3f220d6e32f30000001000000001000000680000001365636473612d736861322d6e69737470323536000000086e6973747032353600000041043da6ae45fd7e65967e3434e5af68d1f92c08b2dbc837ba50f14f58c3fe9f715062f61d3485d0426dec2b021b69f4a8272bdeaf90d9be5b3bd101f2381e9a1758000000c0d876c4b88fc4b76a43b95813d68e37000e6bea260da8cde01144a8ea052e66e5e42bb488b1c39822541147bc21a16cc6be613fa76d6e524073a68e94d944723abb34cec635dc4e3ffa0411695452467c294b95c78f34466c2154bb97f54d5712b7cc08d2902a0f874543eb6660c4c4adccbf1528cfb5348451d93a70d8318a3716819a624299aa5e9c21ec6526377c7bbc3f30173dd9a9b3bc0ef0193a9a21210db076c93c228fd23eaa83796d4f6a4848760db010054f1b9aed7445061a3512$16$183", "test12345"},
+	// /ssh-keygen -o -N test12345 -t ed25519 -f test
+	{"$sshng$2$16$a439509f8aefc40a17a504ac81c46601$290$6f70656e7373682d6b65792d7631000000000a6165733235362d636263000000066263727970740000001800000010a439509f8aefc40a17a504ac81c466010000001000000001000000330000000b7373682d65643235353139000000200b31c6439dc6b42c9de146c70c752e33877baa7a5875c37ce092e5689dadadee000000a013bbe4b8cd8e0880a7c5dba953fdc5b0e4380b1904c631cb10c9f19ddadd52341160120f459ea1325681bc8f5c40f45a5ef055bc79ea9a05bc94bf668e2808ea6cf88a5ff3f418c4b13664c02456086671776969ce9cb21699818d16b4deae2dd30f03f0f85fc8dd54901a7ad884c35a2b28bd08b418d15ee7d8ec0332649eeff4fab6299eca59f096c2b56f753de0dcc226c0d8404bf44a73a608de2589545c$16$130", "test12345"},
 	{NULL}
 };
 
@@ -95,15 +99,13 @@ static struct custom_salt {
 	int ctl;
 	int sl;
 	int rounds;
+	int ciphertext_begin_offset;
 } *cur_salt;
 
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -120,6 +122,10 @@ static void done(void)
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	static char buf[sizeof(struct custom_salt)+100];
+
+	if (strstr(ciphertext, "$SOURCE_HASH$"))
+		return ciphertext;
+
 	strnzcpy(buf, ciphertext, sizeof(buf));
 	strlwr(buf);
 	return buf;
@@ -129,6 +135,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
 	int len, cipher, extra;
+
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -169,6 +176,22 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (cipher != 0 && cipher != 1 && cipher != 2 && cipher != 3) {
 		fprintf(stderr, "[ssh-ng] cipher value of %d is not supported!\n", cipher);
 		goto err;
+	if (cipher == 2) {
+		if ((p = strtokm(NULL, "$")) == NULL)	/* rounds */
+			goto err;
+		if (!isdec(p))
+			goto err;
+		if ((p = strtokm(NULL, "$")) == NULL)	/* ciphertext_begin_offset */
+			goto err;
+		if (!isdec(p))
+			goto err;
+		if (atoi(p) + 16 > len)
+		       goto err;
+	}
+
+	if (cipher != 0 && cipher != 1 && cipher != 2 && cipher != 3) {
+		fprintf(stderr, "[ssh-ng] cipher value of %d is not supported!\n", cipher);
+		goto err;
 	}
 
 	MEM_FREE(keeptr);
@@ -186,7 +209,9 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	int i;
 	static struct custom_salt cs;
+
 	memset(&cs, 0, sizeof(struct custom_salt));
+	cs.rounds = 1;
 	ctcopy += FORMAT_TAG_LEN;	/* skip over "$sshng$" */
 	p = strtokm(ctcopy, "$");
 	cs.cipher = atoi(p);
@@ -205,8 +230,11 @@ static void *get_salt(char *ciphertext)
 	if (cs.cipher == 2) {
 		p = strtokm(NULL, "$");
 		cs.rounds = atoi(p);
+		p = strtokm(NULL, "$");
+		cs.ciphertext_begin_offset = atoi(p);
 	}
 	MEM_FREE(keeptr);
+
 	return (void *)&cs;
 }
 
@@ -240,14 +268,14 @@ static void generate_key_bytes(int nbytes, unsigned char *password, unsigned cha
 		else
 			size = nbytes;
 		/* copy part of digest to keydata */
-		for(i = 0; i < size; i++)
+		for (i = 0; i < size; i++)
 			key[keyidx++] = digest[i];
 		nbytes -= size;
 	}
 }
 #endif
 
-static inline void generate16key_bytes(unsigned char *password,
+inline static void generate16key_bytes(unsigned char *password,
                                        unsigned char *key)
 {
 	MD5_CTX ctx;
@@ -262,7 +290,7 @@ static inline void generate16key_bytes(unsigned char *password,
 	MD5_Final(key, &ctx);
 }
 
-static inline void generate24key_bytes(unsigned char *password,
+inline static void generate24key_bytes(unsigned char *password,
                                        unsigned char *key)
 {
 	unsigned char digest[16];
@@ -290,26 +318,7 @@ static inline void generate24key_bytes(unsigned char *password,
 	memcpy(&key[16], digest, 8);
 }
 
-static inline int check_padding_only(unsigned char *out, int length)
-{
-	int pad;
-	int i;
-
-	// check padding
-	pad = out[length - 1];
-	if(pad > 16 || length < 16)
-		return -1;
-	if (pad < 4) { // XXX is this possible? if yes, will killing this result in too many false positives?
-		return -1;
-	}
-	for(i = length - 1; i > pad; i--) // check for 0102030405060708090a like sequence
-		if(out[i] - 1 != out[i - 1])
-			return -1;
-
-	return 0; // valid padding!
-}
-
-static inline int check_padding_and_structure_EC(unsigned char *out, int length, int strict_mode)
+inline static int check_padding_and_structure_EC(unsigned char *out, int length, int strict_mode)
 {
 	struct asn1_hdr hdr;
 	const uint8_t *pos, *end;
@@ -362,13 +371,13 @@ bad:
 	return -1;
 }
 
-static inline int check_padding_and_structure(unsigned char *out, int length, int strict_mode)
+inline static int check_padding_and_structure(unsigned char *out, int length, int strict_mode, int blocksize)
 {
 	struct asn1_hdr hdr;
 	const uint8_t *pos, *end;
 
 	// First check padding
-	if (check_pkcs_pad(out, length, 16) < 0)
+	if (check_pkcs_pad(out, length, blocksize) < 0)
 		return -1;
 
 	/* check BER decoding, private key file contains:
@@ -435,10 +444,6 @@ bad:
 	return -1;
 }
 
-int bcrypt_pbkdf(const char *pass, size_t passlen, const uint8_t *salt, size_t saltlen,
-	uint8_t *key, size_t keylen, unsigned int rounds);
-
-
 static void common_crypt_code(char *password, unsigned char *out, int full_decrypt)
 {
 	if (cur_salt->cipher == 0) {
@@ -486,7 +491,8 @@ static void common_crypt_code(char *password, unsigned char *out, int full_decry
 		bcrypt_pbkdf(password, strlen((const char*)password), cur_salt->salt, 16, key, 32 + 16, cur_salt->rounds);
 		AES_set_decrypt_key(key, 256, &akey);
 		memcpy(iv, key + 32, 16);
-		AES_cbc_encrypt(cur_salt->ct + cur_salt->ctl - 32, out, 32, &akey, iv, AES_DECRYPT); // decrypt 2 blocks
+		AES_cbc_encrypt(cur_salt->ct + cur_salt->ciphertext_begin_offset, out, 16, &akey, iv, AES_DECRYPT); // decrypt 1 block for "check bytes" check
+		// AES_cbc_encrypt(cur_salt->ct + cur_salt->ctl - 32, out, 32, &akey, iv, AES_DECRYPT); // decrypt 2 blocks for padding check, iv doesn't matter
 	} else if (cur_salt->cipher == 3) { // EC keys with AES-128
 		unsigned char key[16] = {0};
 		AES_KEY akey;
@@ -502,23 +508,30 @@ static void common_crypt_code(char *password, unsigned char *out, int full_decry
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		unsigned char out[N];
 		common_crypt_code(saved_key[index], out, 0); // don't do full decryption (except for EC keys)
 
-		if (cur_salt->cipher == 0 || cur_salt->cipher == 1) {
-			if (check_padding_and_structure(out, cur_salt->ctl, 0) == 0)
+		if (cur_salt->cipher == 0) { // 3DES
+			if (check_padding_and_structure(out, cur_salt->ctl, 0, 8) == 0)
+				cracked[index] = 1;
+			else
+				cracked[index] = 0;
+		} else if (cur_salt->cipher == 1) {
+			if (check_padding_and_structure(out, cur_salt->ctl, 0, 16) == 0)
 				cracked[index] = 1;
 			else
 				cracked[index] = 0;
 		} else if (cur_salt->cipher == 2) {  // new ssh key format handling
-			if (check_padding_only(out + 16, 16) == 0) /* always check the last block (16 bytes) */
+			// if (check_padding_only(out + 16, 16) == 0 && out[31] >= 8)  // this padding check is quite unreliable in practice!
+
+			// all keys don't have a non-zero length padding, so we use the "check bytes" check instead
+			if (memcmp(out, out + 4, 4) == 0)
 				cracked[index] = 1;
 			else
 				cracked[index] = 0;
@@ -536,6 +549,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 static int cmp_all(void *binary, int count)
 {
 	int index;
+
 	for (index = 0; index < count; index++)
 		if (cracked[index])
 			return 1;
@@ -550,18 +564,17 @@ static int cmp_one(void *binary, int index)
 static int cmp_exact(char *source, int index)
 {
 	unsigned char out[N];
+
 	common_crypt_code(saved_key[index], out, 1); // do full decryption!
 
-	if (cur_salt->cipher == 0 || cur_salt->cipher == 1) {
-		if (check_padding_and_structure(out, cur_salt->ctl, 1) == 0)
+	if (cur_salt->cipher == 0) { // 3DES
+		if (check_padding_and_structure(out, cur_salt->ctl, 1, 8) == 0)
 			return 1;
-		else
-			return 0;
+	} else if (cur_salt->cipher == 1) {
+		if (check_padding_and_structure(out, cur_salt->ctl, 1, 16) == 0)
+			return 1;
 	} else if (cur_salt->cipher == 2) {  /* new ssh key format handling */
-		if (check_padding_only(out + 16, 16) == 0) /* always check the last block (16 bytes) */
-			return 1;
-		else
-			return 0;
+		return 1; // XXX add more checks!
 	} else if (cur_salt->cipher == 3) { // EC keys
 		return 1;
 	}
@@ -571,16 +584,29 @@ static int cmp_exact(char *source, int index)
 
 static void sshng_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
 {
 	return saved_key[index];
+}
+
+static unsigned int sshng_kdf(void *salt)
+{
+	struct custom_salt *cur_salt = salt;
+
+	if (cur_salt->cipher == 2)
+		return 2; // bcrypt-pbkdf
+	else
+		return 1; // regular "ssh kdf"
+}
+
+static unsigned int sshng_iteration_count(void *salt)
+{
+	struct custom_salt *cur_salt = salt;
+
+	return cur_salt->rounds;
 }
 
 struct fmt_main fmt_sshng = {
@@ -598,8 +624,11 @@ struct fmt_main fmt_sshng = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT | FMT_SPLIT_UNIFIES_CASE,
-		{ NULL },
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT | FMT_SPLIT_UNIFIES_CASE | FMT_HUGE_INPUT,
+		{
+			"kdf",
+			"iteration count",
+		},
 		{ FORMAT_TAG },
 		sshng_tests
 	}, {
@@ -611,10 +640,13 @@ struct fmt_main fmt_sshng = {
 		split,
 		fmt_default_binary,
 		get_salt,
-		{ NULL },
+		{
+			sshng_kdf,
+			sshng_iteration_count,
+		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -624,7 +656,7 @@ struct fmt_main fmt_sshng = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,
@@ -633,4 +665,3 @@ struct fmt_main fmt_sshng = {
 };
 
 #endif /* plugin stanza */
-#endif /* HAVE_BIO_NEW */

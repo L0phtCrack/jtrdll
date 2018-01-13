@@ -23,7 +23,7 @@
 //
 
 #include "arch.h"
-#if defined(SIMD_COEF_32) && (SIMD_COEF_32 < 16 || ARCH_BITS >= 64) && !_MSC_VER && !__ARM_NEON
+#if defined(SIMD_COEF_32) && (SIMD_COEF_32 < 16 || ARCH_BITS >= 64) && !_MSC_VER && !__ARM_NEON && ARCH_LITTLE_ENDIAN==1
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_sha1_ng;
@@ -45,6 +45,7 @@ john_register_one(&fmt_sha1_ng);
 #endif
 
 #include <string.h>
+#include <stdint.h>
 
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
@@ -53,7 +54,6 @@ john_register_one(&fmt_sha1_ng);
 #endif
 
 #include "stdbool.h"
-#include "john_stdint.h"
 #if SIMD_COEF_32 > 8
 #include "int128.h"
 #endif
@@ -70,18 +70,17 @@ john_register_one(&fmt_sha1_ng);
 #define VWIDTH SIMD_COEF_32
 #define VWIDTHx4 SIMD_COEF_32x4
 
-#define SHA1_BLOCK_SIZE         64
 #define SHA1_BLOCK_WORDS        16
-#define SHA1_DIGEST_SIZE        20
 #define SHA1_DIGEST_WORDS        5
-#define SHA1_PARALLEL_HASH     512 // This must be a multiple of max VWIDTH.
+#define SHA1_PARALLEL_HASH       (SIMD_COEF_32 * 32)
+
 #ifdef __MIC__
 #ifndef OMP_SCALE
-#define OMP_SCALE              128
+#define OMP_SCALE              512
 #endif
 #else
 #ifndef OMP_SCALE
-#define OMP_SCALE             2048 // Multiplier to hide OMP overhead
+#define OMP_SCALE             8192 // Tuned w/ MKPC for core i7
 #endif
 #endif
 
@@ -161,7 +160,7 @@ static uint32_t *N;
 static uint32_t *MD;
 
 /* unused
-static inline uint32_t __attribute__((const)) rotateright(uint32_t value, uint8_t count)
+inline static uint32_t __attribute__((const)) rotateright(uint32_t value, uint8_t count)
 {
 	register uint32_t result;
 
@@ -174,7 +173,7 @@ static inline uint32_t __attribute__((const)) rotateright(uint32_t value, uint8_
 }
 */
 
-static inline uint32_t __attribute__((const)) rotateleft(uint32_t value, uint8_t count)
+inline static uint32_t __attribute__((const)) rotateleft(uint32_t value, uint8_t count)
 {
 	register uint32_t result;
 #if (__MINGW32__ || __MINGW64__) && __STRICT_ANSI__
@@ -194,7 +193,7 @@ static inline uint32_t __attribute__((const)) rotateleft(uint32_t value, uint8_t
 // GCC < 4.3 does not have __builtin_bswap32(), provide an alternative.
 #if !__INTEL_COMPILER && GCC_VERSION < 40300
 #define __builtin_bswap32 bswap32
-static inline uint32_t __attribute__((const)) bswap32(uint32_t value)
+inline static uint32_t __attribute__((const)) bswap32(uint32_t value)
 {
 	register uint32_t result;
 #if (__MINGW32__ || __MINGW64__) && __STRICT_ANSI__
@@ -213,13 +212,7 @@ static inline uint32_t __attribute__((const)) bswap32(uint32_t value)
 
 static void sha1_fmt_init(struct fmt_main *self)
 {
-#ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
+	omp_autotune(self, OMP_SCALE);
 
 	M   = mem_calloc_align(self->params.max_keys_per_crypt, sizeof(*M),
 	                       MEM_ALIGN_CACHE);
@@ -720,7 +713,7 @@ static int sha1_fmt_cmp_all(void *binary, int count)
 	return M;
 }
 
-static inline int sha1_fmt_get_hash(int index)
+inline static int sha1_fmt_get_hash(int index)
 {
 	return MD[index];
 }
@@ -733,7 +726,7 @@ static int sha1_fmt_get_hash4(int index) { return sha1_fmt_get_hash(index) & PH_
 static int sha1_fmt_get_hash5(int index) { return sha1_fmt_get_hash(index) & PH_MASK_5; }
 static int sha1_fmt_get_hash6(int index) { return sha1_fmt_get_hash(index) & PH_MASK_6; }
 
-static inline int sha1_fmt_get_binary(void *binary)
+inline static int sha1_fmt_get_binary(void *binary)
 {
 	return *(uint32_t*)(binary);
 }

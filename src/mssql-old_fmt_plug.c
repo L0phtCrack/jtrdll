@@ -62,7 +62,11 @@ john_register_one(&fmt_mssql);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
+#if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 ) //for endianity conversion
+#else
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 ) //for endianity conversion
+#endif
 #if (SIMD_COEF_32==2)
 #define SALT_EXTRA_LEN          0x40004
 #else
@@ -116,8 +120,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	int i;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH) return 0;
-	if(memcmp(ciphertext, "0x0100", 6))
+	if (strncmp(ciphertext, "0x0100", 6))
+		return 0;
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 	for (i = 6; i < CIPHERTEXT_LENGTH; i++){
 		if (!(  (('0' <= ciphertext[i])&&(ciphertext[i] <= '9')) ||
@@ -140,7 +145,7 @@ static void * get_salt(char * ciphertext)
 
 	if (!out2) out2 = mem_alloc_tiny(SALT_SIZE, MEM_ALIGN_WORD);
 
-	for(l=0;l<SALT_SIZE;l++)
+	for (l=0;l<SALT_SIZE;l++)
 	{
 		out2[l] = atoi16[ARCH_INDEX(ciphertext[l*2+6])]*16
 			+ atoi16[ARCH_INDEX(ciphertext[l*2+7])];
@@ -188,7 +193,7 @@ static void set_key(char *key, int index) {
 
 #ifdef SIMD_COEF_32
 	((unsigned int *)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] = (2*utf8len+SALT_SIZE)<<3;
-	for(i=0;i<utf8len;i++)
+	for (i=0;i<utf8len;i++)
 		saved_key[GETPOS((i*2), index)] = utf8[i];
 	saved_key[GETPOS((i*2+SALT_SIZE) , index)] = 0x80;
 #else
@@ -223,14 +228,19 @@ static void set_key_enc(char *key, int index) {
 
 #ifdef SIMD_COEF_32
 	((unsigned int *)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] = (2*utf16len+SALT_SIZE)<<3;
-	for(i=0;i<utf16len;i++)
+	for (i=0;i<utf16len;i++)
 	{
+#if ARCH_LITTLE_ENDIAN==1
 		saved_key[GETPOS((i*2), index)] = (char)utf16key[i];
 		saved_key[GETPOS((i*2+1), index)] = (char)(utf16key[i]>>8);
+#else
+		saved_key[GETPOS((i*2), index)] = (char)(utf16key[i]>>8);
+		saved_key[GETPOS((i*2+1), index)] = (char)utf16key[i];
+#endif
 	}
 	saved_key[GETPOS((i*2+SALT_SIZE) , index)] = 0x80;
 #else
-	for(i=0;i<utf16len;i++)
+	for (i=0;i<utf16len;i++)
 	{
 		unsigned char *uc = (unsigned char*)&(utf16key[i]);
 		saved_key[(i<<1)  ] = uc[0];
@@ -263,7 +273,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; ++index)
 	{
 		unsigned len = (((((unsigned int *)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32]) >> 3) & 0xff) - SALT_SIZE;
-		for(i=0;i<SALT_SIZE;i++)
+		for (i=0;i<SALT_SIZE;i++)
 			saved_key[GETPOS((len+i), index)] = cursalt[i];
 	}
 	SIMDSHA1body(saved_key, (unsigned int *)crypt_key, NULL, SSEi_REVERSE_STEPS | SSEi_MIXED_IN);
@@ -280,19 +290,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static void *get_binary(char *ciphertext)
 {
-	static uint32_t out[SHA_BUF_SIZ];
+	static uint32_t out[DIGEST_SIZE/4];
 	char *realcipher = (char*)out;
 	int i;
 
 	ciphertext += 54;
 
-	for(i=0;i<DIGEST_SIZE;i++)
+	for (i=0;i<DIGEST_SIZE;i++)
 	{
 		realcipher[i] = atoi16[ARCH_INDEX(ciphertext[i*2])]*16 + atoi16[ARCH_INDEX(ciphertext[i*2+1])];
 	}
 
 #ifdef SIMD_COEF_32
+#if ARCH_LITTLE_ENDIAN==1
 	alter_endianity(realcipher, DIGEST_SIZE);
+#endif
 #ifdef REVERSE_STEPS
 	sha1_reverse(out);
 #endif
@@ -346,7 +358,9 @@ static int cmp_exact(char *source, int index)
 	SHA1_Update(&ctx, cursalt, SALT_SIZE);
 	SHA1_Final((void*)crypt_key, &ctx);
 
+#if ARCH_LITTLE_ENDIAN==1
 	alter_endianity(crypt_key, DIGEST_SIZE);
+#endif
 #ifdef REVERSE_STEPS
 	sha1_reverse(crypt_key);
 #endif

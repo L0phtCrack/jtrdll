@@ -22,13 +22,14 @@ john_register_one(&fmt_IPB2);
 #include "arch.h"
 #include "misc.h"
 #include "md5.h"
+#include "johnswap.h"
 #include "common.h"
 #include "formats.h"
 #include "simd-intrinsics.h"
 
 #if defined(_OPENMP)
 #include <omp.h>
-static unsigned int omp_t = 1;
+static unsigned int threads = 1;
 #ifdef SIMD_COEF_32
 #ifndef OMP_SCALE
 #define OMP_SCALE			512  // Tuned K8-dual HT
@@ -39,7 +40,7 @@ static unsigned int omp_t = 1;
 #endif
 #endif
 #else
-#define omp_t				1
+#define threads				1
 #endif
 
 #include "memdbg.h"
@@ -69,8 +70,13 @@ static unsigned int omp_t = 1;
 #define NBKEYS					(SIMD_COEF_32 * SIMD_PARA_MD5)
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
-#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&12)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
+#if ARCH_LITTLE_ENDIAN==1
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
+#else
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
+#endif
 #else
 #define NBKEYS                  1
 #define MIN_KEYS_PER_CRYPT		1
@@ -146,14 +152,14 @@ static void init(struct fmt_main *self)
 	unsigned int i;
 #endif
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
+	threads = omp_get_max_threads();
+	self->params.min_keys_per_crypt *= threads;
+	threads *= OMP_SCALE;
 	// these 2 lines of change, allows the format to work with
 	// [Options] FormatBlockScaleTuneMultiplier= without other format change
-	omp_t *= self->params.max_keys_per_crypt;
-	omp_t /= NBKEYS;
-	self->params.max_keys_per_crypt = (omp_t*NBKEYS);
+	threads *= self->params.max_keys_per_crypt;
+	threads /= NBKEYS;
+	self->params.max_keys_per_crypt = (threads*NBKEYS);
 #endif
 #if SIMD_COEF_32
 	key_buf   = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -194,7 +200,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 
 	if (ciphertext[16] != '$')
@@ -221,6 +227,9 @@ static void *get_binary(char *ciphertext)
 			(atoi16[ARCH_INDEX(ciphertext[i*2])] << 4)
 			+ atoi16[ARCH_INDEX(ciphertext[i*2+1])];
 
+#if !ARCH_LITTLE_ENDIAN && defined (SIMD_COEF_32)
+	alter_endianity(out, BINARY_SIZE);
+#endif
 	return (void*)out;
 }
 
@@ -258,28 +267,15 @@ static void set_salt(void *salt)
 #else
 	int index;
 
-	for (index = 0; index < omp_t * MAX_KEYS_PER_CRYPT; index++)
+	for (index = 0; index < threads * MAX_KEYS_PER_CRYPT; index++)
 		memcpy(saved_key[index], salt, MD5_HEX_SIZE);
 #endif
 }
 
-#ifndef SIMD_COEF_32
-static inline int strnfcpy_count(char *dst, char *src, int size)
-{
-	char *dptr = dst, *sptr = src;
-	int count = size;
-
-	while (count--)
-		if (!(*dptr++ = *sptr++)) break;
-
-	return size-count-1;
-}
-#endif
-
 static void set_key(char *key, int index)
 {
 #ifdef SIMD_COEF_32
-	strcpy(saved_plain[index], key);
+	strnzcpy(saved_plain[index], key, sizeof(*saved_plain));
 	new_key = 1;
 #else
 	unsigned char key_hash[BINARY_SIZE];
@@ -289,7 +285,7 @@ static void set_key(char *key, int index)
 	int i, len;
 	MD5_CTX ctx;
 
-	len = strnfcpy_count(saved_plain[index], key, PLAINTEXT_LENGTH);
+	len = strnzcpyn(saved_plain[index], key, sizeof(*saved_plain));
 
 	MD5_Init(&ctx);
 	MD5_Update(&ctx, key, len);
@@ -315,7 +311,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if defined(_OPENMP)
 	int t;
 #pragma omp parallel for
-	for (t = 0; t < omp_t; t++)
+	for (t = 0; t < threads; t++)
 #define ti (t*NBKEYS+index)
 #else
 #define t  0
@@ -327,20 +323,25 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		if (new_salt)
 		for (index = 0; index < NBKEYS; index++) {
 			const uint32_t *sp = cur_salt;
+#if ARCH_LITTLE_ENDIAN
 			uint32_t *kb = (uint32_t*)&saved_key[GETPOS(0, ti)];
-
 			for (i = 0; i < MD5_HEX_SIZE / 4; i++, kb += SIMD_COEF_32)
 				*kb = *sp++;
+#else
+			uint32_t *kb = (uint32_t*)&saved_key[GETPOS(3, ti)];
+			for (i = 0; i < MD5_HEX_SIZE / 4; i++, kb += SIMD_COEF_32)
+				*kb = JOHNSWAP(*sp++);
+#endif
 		}
 
 		if (new_key)
 		for (index = 0; index < NBKEYS; index++) {
 			const uint32_t *key = (uint32_t*)saved_plain[ti];
+			int len = 0, temp;
+#if ARCH_LITTLE_ENDIAN
 			uint32_t *kb = (uint32_t*)&key_buf[GETPOS(0, ti)];
 			uint32_t *keybuffer = kb;
-			int len, temp;
 
-			len = 0;
 			while((unsigned char)(temp = *key++)) {
 				if (!(temp & 0xff00)) {
 					*kb = (unsigned char)temp | (0x80 << 8);
@@ -358,6 +359,32 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 					goto key_cleaning;
 				}
 				*kb = temp;
+#else
+			uint32_t *kb = (uint32_t*)&key_buf[GETPOS(3, ti)];
+			uint32_t *keybuffer = kb;
+
+			while((temp = *key++) & 0xff000000) {
+				if (!(temp & 0xff0000))
+				{
+					*kb = JOHNSWAP((temp & 0xff000000) | (0x80 << 16));
+					len++;
+					goto key_cleaning;
+				}
+				if (!(temp & 0xff00))
+				{
+					*kb = JOHNSWAP((temp & 0xffff0000) | (0x80 << 8));
+					len+=2;
+					goto key_cleaning;
+				}
+				if (!(temp & 0xff))
+				{
+					*kb = JOHNSWAP(temp | 0x80U);
+					len+=3;
+					goto key_cleaning;
+				}
+				*kb = JOHNSWAP(temp);
+#endif
+
 				len += 4;
 				kb += SIMD_COEF_32;
 			}
@@ -412,15 +439,14 @@ key_cleaning:
 
 static int cmp_all(void *binary, int count) {
 #ifdef SIMD_COEF_32
-	unsigned int x,y=0;
+	unsigned int x, y;
 #ifdef _OPENMP
-	for(;y<SIMD_PARA_MD5*omp_t;y++)
+	for (y = 0; y < SIMD_PARA_MD5*threads; y++)
 #else
-	for(;y<SIMD_PARA_MD5;y++)
+	for (y = 0; y < SIMD_PARA_MD5; y++)
 #endif
-		for(x = 0; x < SIMD_COEF_32; x++)
-		{
-			if( ((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+x] )
+		for (x = 0; x < SIMD_COEF_32; x++) {
+			if ( ((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+x] )
 				return 1;
 		}
 	return 0;
@@ -444,7 +470,7 @@ static int cmp_one(void * binary, int index)
 	unsigned int i,x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	for(i=0;i<(BINARY_SIZE/4);i++)
+	for (i=0;i<(BINARY_SIZE/4);i++)
 		if ( ((uint32_t*)binary)[i] != ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+i*SIMD_COEF_32+x] )
 			return 0;
 	return 1;
@@ -453,24 +479,9 @@ static int cmp_one(void * binary, int index)
 #endif
 }
 
-#ifdef SIMD_COEF_32
-#define HASH_OFFSET (index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*4
-static int get_hash_0(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_0; }
-static int get_hash_1(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_1; }
-static int get_hash_2(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_2; }
-static int get_hash_3(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_3; }
-static int get_hash_4(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_4; }
-static int get_hash_5(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_5; }
-static int get_hash_6(int index) { return *(uint32_t*)crypt_key[index] & PH_MASK_6; }
-#endif
+#define COMMON_GET_HASH_SIMD32 4
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -525,13 +536,8 @@ struct fmt_main fmt_IPB2 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

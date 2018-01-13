@@ -16,12 +16,6 @@
 
 #ifdef HAVE_OPENCL
 
-#ifdef JTRDLL
-#ifdef _WIN32
-#include<Windows.h>
-#endif
-#endif
-
 #define _BSD_SOURCE 1           // setenv()
 #define _DEFAULT_SOURCE 1       // setenv()
 #define NEED_OS_TIMER
@@ -68,9 +62,11 @@
 
 #define LOG_SIZE 1024*16
 
+#if !defined(__CYGWIN__)
 // If true, use realpath(3) for translating eg. "-I./kernels" into an absolute
 // path before submitting as JIT compile option to OpenCL.
 #define I_REALPATH 1
+#endif
 
 // If we are a release build, only output OpenCL build log if
 // there was a fatal error (or --verbosity was increased).
@@ -200,6 +196,15 @@ int get_number_of_devices_in_use()
 	return --i;
 }
 
+int get_number_of_requested_devices()
+{
+	int i = 0;
+
+	while (requested_devices[i++] != -1);
+
+	return --i;
+}
+
 int get_platform_id(int sequential_id)
 {
 	int pos = 0, i = 0;
@@ -280,8 +285,8 @@ static char *remove_spaces(char *str) {
 
 	char *out = str, *put = str;
 
-	for(; *str; str++) {
-		if(*str != ' ')
+	for (; *str; str++) {
+		if (*str != ' ')
 			*put++ = *str;
 	}
 	*put = '\0';
@@ -334,7 +339,7 @@ static char *opencl_driver_info(int sequential_id)
 		fprintf(stderr, "Driver: %i, %i -> %s , %s\n",
 			conf_major, conf_minor, name, recommendation);
 #endif
-    	} while ((line = line->next));
+	} while ((line = line->next));
 
 	if (gpu_amd(device_info[sequential_id])) {
 
@@ -681,6 +686,9 @@ static void add_device_to_list(int sequential_id)
 		gpu_device_list[get_number_of_devices_in_use()] = sequential_id;
 
 	}
+	// The full list of requested devices.
+	requested_devices[get_number_of_requested_devices() + 1] = -1;
+	requested_devices[get_number_of_requested_devices()] = sequential_id;
 }
 
 static void add_device_type(cl_ulong device_type)
@@ -778,6 +786,8 @@ void opencl_preinit(void)
 
 		gpu_device_list[0] = -1;
 		gpu_device_list[1] = -1;
+		requested_devices[0] = -1;
+		requested_devices[1] = -1;
 
 		gpu_temp_limit = cfg_get_int(SECTION_OPTIONS, SUBSECTION_GPU,
 		                             "AbortTemperature");
@@ -791,7 +801,7 @@ void opencl_preinit(void)
 			struct list_entry *current;
 
 			/* New syntax, sequential --device */
-			if ((current = options.gpu_devices->head)) {
+			if ((current = options.acc_devices->head)) {
 				do {
 					device_list[n++] = current->data;
 				} while ((current = current->next));
@@ -801,7 +811,7 @@ void opencl_preinit(void)
 				gpu_id = -1;
 		}
 
-		if (!options.gpu_devices->head && gpu_id < 0) {
+		if (!options.acc_devices->head && gpu_id < 0) {
 			char *devcfg;
 
 			if ((devcfg = cfg_get_param(SECTION_OPTIONS,
@@ -1130,9 +1140,9 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	    get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
 	        "-D__MESA__" : opencl_get_dev_info(sequential_id),
 #ifdef __APPLE__
-		"-D__OS_X__ ",
+	        "-D__OS_X__ ",
 #else
-	    gpu_nvidia(device_info[sequential_id]) ? "-cl-nv-verbose " : "",
+	        (options.verbosity >= VERB_LEGACY && gpu_nvidia(device_info[sequential_id])) ? "-cl-nv-verbose " : "",
 #endif
 	    get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
 	    : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
@@ -1332,7 +1342,6 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 	int number_of_events = 0;
 	void *salt;
 	int amd_bug;
-	char *ciphertext;
 
 	for (i = 0; i < MAX_EVENTS; i++)
 		benchEvent[i] = NULL;
@@ -1368,13 +1377,24 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 
 	// Set salt
 	dyna_salt_init(self);
-	if (!self->params.tests[0].fields[1])
-		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
-	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
-	ciphertext = self->methods.split(ciphertext, 0, self);
-	salt = self->methods.salt(ciphertext);
-	if (salt)
-		dyna_salt_create(salt);
+	if (self->methods.tunable_cost_value[0] && autotune_db->real) {
+		struct db_main *db = autotune_db->real;
+		struct db_salt *s = db->salts;
+
+		while (s->next && s->cost[0] < db->max_cost[0])
+			s = s->next;
+		salt = s->salt;
+	} else {
+		char *ciphertext;
+
+		if (!self->params.tests[0].fields[1])
+			self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
+		ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+		ciphertext = self->methods.split(ciphertext, 0, self);
+		salt = self->methods.salt(ciphertext);
+		if (salt)
+			dyna_salt_create(salt);
+	}
 	self->methods.set_salt(salt);
 
 	// Activate events. Then clear them later.
@@ -1390,7 +1410,8 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 			fprintf(stderr, " (error occurred)");
 		clear_profiling_events();
 		release_clobj();
-		dyna_salt_remove(salt);
+		if (!self->methods.tunable_cost_value[0] || !autotune_db->real)
+			dyna_salt_remove(salt);
 		return 0;
 	}
 
@@ -1464,7 +1485,10 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 
 	clear_profiling_events();
 	release_clobj();
-	dyna_salt_remove(salt);
+
+	if (!self->methods.tunable_cost_value[0] || !autotune_db->real)
+		dyna_salt_remove(salt);
+
 	return runtime;
 }
 
@@ -1512,7 +1536,6 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	cl_ulong startTime, endTime, kernelExecTimeNs = CL_ULONG_MAX;
 	cl_event benchEvent[MAX_EVENTS];
 	void *salt;
-	char *ciphertext;
 
 	for (i = 0; i < MAX_EVENTS; i++)
 		benchEvent[i] = NULL;
@@ -1581,13 +1604,24 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 
 	// Set salt
 	dyna_salt_init(self);
-	if (!self->params.tests[0].fields[1])
-		self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
-	ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
-	ciphertext = self->methods.split(ciphertext, 0, self);
-	salt = self->methods.salt(ciphertext);
-	if (salt)
-		dyna_salt_create(salt);
+	if (self->methods.tunable_cost_value[0] && autotune_db->real) {
+		struct db_main *db = autotune_db->real;
+		struct db_salt *s = db->salts;
+
+		while (s->next && s->cost[0] < db->max_cost[0])
+			s = s->next;
+		salt = s->salt;
+	} else {
+		char *ciphertext;
+
+		if (!self->params.tests[0].fields[1])
+			self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
+		ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
+		ciphertext = self->methods.split(ciphertext, 0, self);
+		salt = self->methods.salt(ciphertext);
+		if (salt)
+			dyna_salt_create(salt);
+	}
 	self->methods.set_salt(salt);
 
 	// Warm-up run
@@ -1708,7 +1742,8 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	local_work_size = optimal_work_group;
 	global_work_size = GET_EXACT_MULTIPLE(gws, local_work_size);
 
-	dyna_salt_remove(salt);
+	if (!self->methods.tunable_cost_value[0] || !autotune_db->real)
+		dyna_salt_remove(salt);
 }
 
 static char *human_speed(unsigned long long int speed)
@@ -1989,7 +2024,6 @@ size_t opencl_read_source(char *kernel_filename, char **kernel_source)
 	size_t source_size, read_size;
 
 	fp = fopen(full_path = path_expand_safe(kernel_filename), "rb");
-
 	MEM_FREE(full_path);
 
 	if (!fp)
@@ -2035,7 +2069,7 @@ static char *replace_str(char *string, char *from, char *to)
 	char *p;
 	int len;
 
-	if(!(p = strstr(string, from)))
+	if (!(p = strstr(string, from)))
 		return string;
 
 	len = p - string;
@@ -2552,6 +2586,8 @@ char *get_opencl_header_version()
 
 char *get_error_name(cl_int cl_error)
 {
+	char *message;
+	static char out[128];
 	static char *err_small[] = {
 		"CL_SUCCESS", "CL_DEVICE_NOT_FOUND", "CL_DEVICE_NOT_AVAILABLE",
 		"CL_COMPILER_NOT_AVAILABLE",
@@ -2589,14 +2625,14 @@ char *get_error_name(cl_int cl_error)
 		"CL_INVALID_DEVICE_PARTITION_COUNT"
 	};
 
-	if (cl_error <= 0 && cl_error >= -19) {
-		return err_small[-cl_error];
-	}
-	if (cl_error <= -30 && cl_error >= -68) {
-		return err_invalid[-cl_error - 30];
-	}
-
-	return "UNKNOWN OPENCL ERROR";
+	if (cl_error <= 0 && cl_error >= -19)
+		message = err_small[-cl_error];
+	else if (cl_error <= -30 && cl_error >= -68)
+		message = err_invalid[-cl_error - 30];
+	else
+		message = "UNKNOWN OPENCL ERROR";
+	sprintf(out, "%s (%d)", message, cl_error);
+	return out;
 }
 
 static char *human_format(size_t size)
@@ -2630,20 +2666,49 @@ void opencl_list_devices(void)
 	cl_ulong long_entries;
 	int i, j, sequence_nr = 0, err_type = 0, platform_in_use = -1;
 	size_t p_size;
+	int available_devices = 0;
+	cl_int ret;
+	cl_platform_id platform_list[MAX_PLATFORMS];
+	cl_uint num_platforms, num_devices;
 
-	/* Obtain list of platforms available */
-	if (!platforms[0].platform) {
+	/* Obtain a list of available platforms */
+	ret = clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
+
+	if (!num_platforms)
+	{
+		fprintf(stderr, "Error: No OpenCL-capable platforms were detected"
+		        " by the installed OpenCL driver.\n");
+		return;
+	}
+
+    if (ret != CL_SUCCESS && options.verbosity > VERB_LEGACY)
+		fprintf(stderr, "Throw clError: clGetPlatformIDs() = %d\n", ret);
+
+	for (i = 0; i < num_platforms; i++) {
+		platforms[i].platform = platform_list[i];
+		ret = clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
+		                     MAX_GPU_DEVICES, &devices[available_devices],
+		                     &num_devices);
+
+		if ((ret != CL_SUCCESS || num_devices < 1) &&
+		     options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "No OpenCL devices was found on platform #%d"
+			                 ", clGetDeviceIDs() = %d\n", i, ret);
+
+		available_devices += num_devices;
+		platforms[i].num_devices = num_devices;
+	}
+
+	if (!available_devices) {
 		fprintf(stderr, "Error: No OpenCL-capable devices were detected"
 		        " by the installed OpenCL driver.\n\n");
 		return;
 	}
-
-	if (get_number_of_available_devices() == 0) {
-		fprintf(stderr, "Error: No OpenCL-capable devices were detected"
-		        " by the installed OpenCL driver.\n\n");
-		return;
-	}
-
+	/* Initialize OpenCL environment */
+#ifndef JTRDLL
+	if (!getenv("_SKIP_OCL_INITIALIZATION"))
+		opencl_preinit();
+#endif
 	for (i = 0; platforms[i].platform; i++) {
 
 		/* Query devices for information */
@@ -2654,11 +2719,13 @@ void opencl_list_devices(void)
 			int ret, cpu;
 			int fan, temp, util, cl, ml;
 
-/*
-			if (!default_gpu_selected && !get_if_device_is_in_use(sequence_nr))
+#ifndef JTRDLL
+			if (!getenv("_SKIP_OCL_INITIALIZATION") &&
+			   (!default_gpu_selected && !get_if_device_is_in_use(sequence_nr)))
+				/* Nothing to do, skipping */
 				continue;
-*/
-			
+#endif
+
 			if (platform_in_use != i) {
 				/* Now, dealing with different platform. */
 				/* Obtain information about platform */
@@ -2687,8 +2754,8 @@ void opencl_list_devices(void)
 				p++;
 			printf("    Device #%d (%d) name:     %s\n", j, sequence_nr, p);
 
+#ifndef JTRDLL
 			// Check if device seems to be working.
-			/*
 			if (!start_opencl_device(sequence_nr, &err_type)) {
 
 				if (err_type == 1)
@@ -2698,7 +2765,8 @@ void opencl_list_devices(void)
 					printf("    Status:                 %s (%s)\n",
 					       "Queue creation error", get_error_name(ret_code));
 			}
-			*/
+#endif
+
 			ret = clGetDeviceInfo(devices[sequence_nr],
 			                      CL_DEVICE_BOARD_NAME_AMD, sizeof(dname), dname, NULL);
 			if (ret == CL_SUCCESS && strlen(dname))

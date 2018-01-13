@@ -1,13 +1,18 @@
-/* Password Safe cracker patch for JtR. Hacked together during May of
+/*
+ * Password Safe cracker patch for JtR. Hacked together during May of
  * 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
- * OpenCL port by Lukas Odzioba <ukasz at openwall.net>
- * Split kernel implemented and plaintext extension by Brian Wallace <brian.wallace9809 at gmail.com>
+ * OpenCL port by Lukas Odzioba <ukasz at openwall.net>.
  *
- * This software is Copyright (c) 2012-2013, Dhiru Kholia <dhiru.kholia at gmail.com> and Brian Wallace <brian.wallace9809 at gmail.com>,
- * and it is hereby released to the general public under the following terms:
+ * Split kernel implemented and plaintext extension by Brian Wallace <brian.wallace9809 at gmail.com>.
+ *
+ * This software is Copyright (c) 2012-2013, Dhiru Kholia <dhiru.kholia at
+ * gmail.com> and Brian Wallace <brian.wallace9809 at gmail.com>, and it is
+ * hereby released to the general public under the following terms:
+ *
  * Redistribution and use in source and binary forms, with or without modification,
- * are permitted. */
+ * are permitted.
+ */
 
 #ifdef HAVE_OPENCL
 
@@ -18,13 +23,11 @@ john_register_one(&fmt_opencl_pwsafe);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+#include <stdint.h>
 
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "params.h"
 #include "options.h"
@@ -33,18 +36,18 @@ john_register_one(&fmt_opencl_pwsafe);
 
 #define FORMAT_LABEL            "pwsafe-opencl"
 #define FORMAT_NAME             "Password Safe"
-#define FORMAT_TAG           "$pwsafe$*"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
+#define FORMAT_TAG              "$pwsafe$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME          "SHA256 OpenCL"
 #define BENCHMARK_COMMENT       ""
 #define BENCHMARK_LENGTH        -1
 #define PLAINTEXT_LENGTH        87
 #define BINARY_SIZE             0
-#define BINARY_ALIGN		1
-#define SALT_ALIGN			MEM_ALIGN_WORD
-#define KERNEL_INIT_NAME	"pwsafe_init"
-#define KERNEL_RUN_NAME   	"pwsafe_iter"
-#define KERNEL_FINISH_NAME	"pwsafe_check"
+#define BINARY_ALIGN            1
+#define SALT_ALIGN              MEM_ALIGN_WORD
+#define KERNEL_INIT_NAME        "pwsafe_init"
+#define KERNEL_RUN_NAME         "pwsafe_iter"
+#define KERNEL_FINISH_NAME      "pwsafe_check"
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
@@ -57,7 +60,7 @@ static const char * warn[] = {
 	", final: "  ,  ", result xfer: "
 };
 
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 cl_kernel init_kernel;
@@ -72,7 +75,7 @@ static size_t get_task_max_work_group_size()
 		autotune_get_task_max_work_group_size(FALSE, 0, finish_kernel));
 }
 
-# define SWAP32(n) \
+ #define SWAP32(n) \
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 
 static int split_events[3] = { 2, -1, -1 };
@@ -312,7 +315,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		0, NULL, multi_profilingEvent[1]), "Set ND range");
 
 	///Run kernel
-	for(i = 0; i < (ocl_autotune_running ? 1 : 8); i++)
+	for (i = 0; i < (ocl_autotune_running ? 1 : 8); i++)
 	{
 		BENCH_CLERROR(clEnqueueNDRangeKernel
 			(queue[gpu_id], crypt_kernel, 1, NULL, &global_work_size, lws,

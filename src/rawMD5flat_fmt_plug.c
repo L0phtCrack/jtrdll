@@ -8,8 +8,7 @@
  *
  */
 
-#include "arch.h"
-
+#include "arch.h" /* Needed for USE_EXPERIMENTAL as well as FAST_FORMATS_OMP */
 #if USE_EXPERIMENTAL
 
 #if FMT_EXTERNS_H
@@ -20,38 +19,36 @@ john_register_one(&fmt_rawMD5f);
 
 #include <string.h>
 
-#include "md5.h"
-#include "common.h"
-#include "formats.h"
-
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
-
 #ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048
-#endif
-#endif
 #include <omp.h>
 #endif
+
+#include "md5.h"
+#include "common.h"
+#include "formats.h"
 #include "simd-intrinsics.h"
 #include "memdbg.h"
+
+#ifndef OMP_SCALE
+#ifdef SIMD_COEF_32
+#define OMP_SCALE               4
+#else
+#define OMP_SCALE               128
+#endif
+#endif
 
 #ifdef SIMD_COEF_32
 #define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_MD5)
 #define PLAINTEXT_LENGTH        55
 #define MIN_KEYS_PER_CRYPT      NBKEYS
-#define MAX_KEYS_PER_CRYPT      NBKEYS
+#define MAX_KEYS_PER_CRYPT      (NBKEYS * 128)
 #else
 #define PLAINTEXT_LENGTH        125
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      32
 #endif
 
 #define FORMAT_LABEL            "Raw-MD5-flat"
@@ -76,6 +73,7 @@ static struct fmt_tests tests[] = {
 	{"5a105e8b9d40e1329780d62ea2265d8a", "test1"},
 	{FORMAT_TAG "5a105e8b9d40e1329780d62ea2265d8a", "test1"},
 	{"098f6bcd4621d373cade4e832627b4f6", "test"},
+	{"098F6BCD4621D373CADE4E832627B4F6", "test"},
 	{FORMAT_TAG "378e2c4a07968da2eca692320136433d", "thatsworking"},
 	{FORMAT_TAG "8ad8757baa8564dc136c1e07507f4a98", "test3"},
 	{"d41d8cd98f00b204e9800998ecf8427e", ""},
@@ -93,7 +91,6 @@ static struct fmt_tests tests[] = {
 #ifdef SIMD_COEF_32
 static uint32_t (*crypt_key)[DIGEST_SIZE/4*NBKEYS];
 static uint32_t (*saved_key)[64/4];
-static int sz;
 #else
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_key)[DIGEST_SIZE/4];
@@ -101,13 +98,8 @@ static uint32_t (*crypt_key)[DIGEST_SIZE/4];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
-	sz = self->params.max_keys_per_crypt * 64;
+	omp_autotune(self, OMP_SCALE);
+
 #ifndef SIMD_COEF_32
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -137,8 +129,6 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	q = p;
 	while (atoi16[ARCH_INDEX(*q)] != 0x7F) {
-		if (*q >= 'A' && *q <= 'F') /* support lowercase only */
-			return 0;
 		q++;
 	}
 	return !*q && q - p == CIPHERTEXT_LENGTH;
@@ -148,11 +138,12 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	static char out[TAG_LENGTH + CIPHERTEXT_LENGTH + 1];
 
-	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
-		return ciphertext;
+	if (ciphertext[0] == '$' &&
+			!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
+		ciphertext += TAG_LENGTH;
 
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
-	memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
+	memcpylwr(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
 	return out;
 }
 
@@ -219,18 +210,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
 	int index = 0;
-#ifdef _OPENMP
 #ifdef SIMD_COEF_32
-	const int inc = SIMD_COEF_32;
+	const int inc = NBKEYS;
 #else
 	const int inc = 1;
 #endif
-	const int loops = (count + MAX_KEYS_PER_CRYPT - 1) / MAX_KEYS_PER_CRYPT;
 
+#ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < loops; index += inc)
 #endif
-	{
+	for (index = 0; index < count; index += inc) {
 #if SIMD_COEF_32
 		SIMDmd5body(saved_key[index], crypt_key[index/NBKEYS], NULL, SSEi_FLAT_IN);
 #else
@@ -240,6 +229,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		MD5_Final((unsigned char *)crypt_key[index], &ctx);
 #endif
 	}
+
 	return count;
 }
 
@@ -312,7 +302,8 @@ struct fmt_main fmt_rawMD5f = {
 #ifdef _OPENMP
 		FMT_OMP | FMT_OMP_BAD |
 #endif
-		FMT_CASE | FMT_8_BIT,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		{ NULL },
 		{ FORMAT_TAG },
 		tests
 	}, {

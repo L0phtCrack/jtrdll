@@ -13,11 +13,11 @@ john_register_one(&fmt_opencl_phpass);
 
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
-#include "stdint.h"
 #include "misc.h"
 #include "options.h"
 #include "common-opencl.h"
@@ -62,7 +62,7 @@ static struct fmt_main *self;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {

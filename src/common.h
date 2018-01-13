@@ -16,9 +16,9 @@
 #define _JOHN_COMMON_H
 
 #if !defined(_OPENCL_COMPILER)
+#include <stdint.h>
 #include "arch.h"
 #include "memory.h"
-#include "stdint.h"
 #endif
 
 #ifndef MAX
@@ -26,6 +26,9 @@
 #endif
 #ifndef MIN
 #define MIN(a,b) ((a)<(b)?(a):(b))
+#endif
+#ifndef ABS
+#define ABS(a) ((a)<0?(0-(a)):(a))
 #endif
 
 /* sets v to the next higher even power of 2 */
@@ -43,19 +46,13 @@
 
 #if !defined(_OPENCL_COMPILER)
 
-#if ARCH_INT_GT_32
-typedef unsigned short ARCH_WORD_32;
-#else
-typedef unsigned int ARCH_WORD_32;
-#endif
-
 /* ONLY use this to check alignments of even power of 2 (2, 4, 8, 16, etc) byte counts (CNT).
    The cast to void* MUST be done, due to C spec. http://stackoverflow.com/a/1898487 */
 #define is_aligned(PTR, CNT) ((((ARCH_WORD)(const void *)(PTR))&(CNT-1))==0)
 
 #ifdef __GNUC__
 #if __GNUC__ >= 5
-#define MAYBE_INLINE __attribute__((gnu_inline)) inline
+#define MAYBE_INLINE __attribute__((gnu_inline)) __attribute__((always_inline)) inline
 #elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) || defined(__INTEL_COMPILER) || __NVCC__
 #define MAYBE_INLINE __attribute__((always_inline)) inline
 #elif __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
@@ -134,11 +131,13 @@ int ishexlcn(const char *q, int n);
 size_t hexlen(const char *q, int *extra_chars);
 size_t hexlenl(const char *q, int *extra_chars); /* lower cased only */
 size_t hexlenu(const char *q, int *extra_chars); /* upper cased only */
-/* is this a valid string for atoi() ONLY positive numbers are valid */
+/* Is this a valid number <=10digits and in the range [0 .... <= 0x7fffffff]
+ * ONLY positive numbers are valid. */
 int isdec(const char *q);
-/* is this a valid string for atoi() */
+/* Is this a valid number <=10digits.
+ * Positive [0..<= 0x7fffffff] and negative [ <= 0x80000000] numbers are valid */
 int isdec_negok(const char *q);
-/* is this a valid string for atou()?  atou() func == sprintf("%x",&val) */
+/* Is this a valid number <=10digits.ONLY positive [0..<=0xffffffff] numbers are valid */
 int isdecu(const char *q);
 
 #endif

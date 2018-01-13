@@ -10,7 +10,7 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  *
- * optimized Feb 2016, JimF.
+ * Optimized in Feb 2016, JimF.
  */
 
 #if FMT_EXTERNS_H
@@ -20,6 +20,7 @@ john_register_one(&fmt_hsrp);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 // OMP_SCALE tuned on core i7 4-core HT
@@ -90,11 +91,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_num_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -121,8 +118,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 	p = ciphertext;
 
-	if (!strncmp(p, FORMAT_TAG, TAG_LENGTH))
-		p += TAG_LENGTH;
+	if (strncmp(p, FORMAT_TAG, TAG_LENGTH))
+		return 0;
+
+	p += TAG_LENGTH;
 
 	q = strrchr(ciphertext, '$');
 	if (!q || q+1==p)
@@ -148,8 +147,8 @@ static void *get_salt(char *ciphertext)
 {
 	static struct custom_salt cs;
 	int i, len;
-	memset(&cs, 0, SALT_SIZE);
 
+	memset(&cs, 0, SALT_SIZE);
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
 
@@ -160,6 +159,7 @@ static void *get_salt(char *ciphertext)
 			atoi16[ARCH_INDEX(ciphertext[2 * i + 1])];
 
 	cs.length = len;
+
 	return &cs;
 }
 
@@ -172,6 +172,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '$') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -188,19 +189,16 @@ static void set_salt(void *salt)
 	cur_salt = (struct custom_salt *)salt;
 }
 
-// this place would normally contain "print_hex" but I do not want to piss of magnum (yet again)
-
 #define PUTCHAR(buf, index, val) ((unsigned char*)(buf))[index] = (val)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		MD5_CTX ctx;
 		int len = saved_len[index];
 		if (dirty) {
@@ -210,7 +208,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			// set bit
 			saved_key[index][len] = 0x80;
 			block[14] = len << 3;
-#if (ARCH_LITTLE_ENDIAN==0)
+#if !ARCH_LITTLE_ENDIAN
 			block[14] = JOHNSWAP(block[14]);
 #endif
 			MD5_Update(&saved_ctx[index], (unsigned char*)block, 64);
@@ -226,15 +224,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		MD5_Final((unsigned char*)crypt_out[index], &ctx);
 	}
 	dirty = 0;
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -253,11 +251,9 @@ static int cmp_exact(char *source, int index)
 static void hsrp_set_key(char *key, int index)
 {
 	int olen = saved_len[index];
-	int len= strlen(key);
-	saved_len[index] = len;
-	strcpy(saved_key[index], key);
-	if (olen > len)
-		memset(&(saved_key[index][len]), 0, olen-len);
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
+	if (olen > saved_len[index])
+		memset(&(saved_key[index][saved_len[index]]), 0, olen-saved_len[index]);
 	dirty = 1;
 }
 
@@ -281,7 +277,7 @@ struct fmt_main fmt_hsrp = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests
@@ -297,7 +293,7 @@ struct fmt_main fmt_hsrp = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -307,7 +303,7 @@ struct fmt_main fmt_hsrp = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

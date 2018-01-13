@@ -1,8 +1,32 @@
 #!/usr/bin/env python
 
-# jackjack's pywallet.py
-# https://github.com/jackjack-jj/pywallet
-# forked from Joric's pywallet.py
+# This software is Copyright (c) 2012, Dhiru Kholia <dhiru at openwall.com> and
+# it is hereby placed in the public domain.
+#
+# This utility (bitcoin2john.py) is based on jackjack's pywallet.py [1] which
+# is forked from Joric's pywallet.py whose licensing information follows,
+#
+# [1] https://github.com/jackjack-jj/pywallet
+#
+# PyWallet 1.2.1 (Public Domain)
+# http://github.com/joric/pywallet
+# Most of the actual PyWallet code placed in the public domain.
+# PyWallet includes portions of free software, listed below.
+#
+# BitcoinTools (wallet.dat handling code, MIT License)
+# https://github.com/gavinandresen/bitcointools
+# Copyright (c) 2010 Gavin Andresen
+#
+# python-ecdsa (EC_KEY implementation, MIT License)
+# http://github.com/warner/python-ecdsa
+# "python-ecdsa" Copyright (c) 2010 Brian Warner
+# Portions written in 2005 by Peter Pearson and placed in the public domain.
+#
+# SlowAES (aes.py code, Apache 2 License)
+# http://code.google.com/p/slowaes/
+# Copyright (c) 2008, Josh Davis (http://www.josh-davis.org),
+# Alex Martelli (http://www.aleax.it)
+# Ported from C code written by Laurent Haan (http://www.progressive-coding.com)
 
 missing_dep = []
 
@@ -636,7 +660,7 @@ def parse_wallet(db, item_callback):
                                 d['comment'] = vds.read_string()
                         elif type == "bestblock":
                                 d['nVersion'] = vds.read_int32()
-                                d.update(parse_BlockLocator(vds))
+                                # d.update(parse_BlockLocator(vds))
                         elif type == "ckey":
                                 d['public_key'] = kds.read_bytes(kds.read_compact_size())
                                 d['encrypted_private_key'] = vds.read_bytes(vds.read_compact_size())
@@ -734,7 +758,8 @@ def read_wallet(json_db, walletfile, print_wallet, print_wallet_transactions, tr
                         json_db['acentry'] = (d['account'], d['nCreditDebit'], d['otherAccount'], time.ctime(d['nTime']), d['n'], d['comment'])
 
                 elif type == "bestblock":
-                        json_db['bestblock'] = d['hashes'][0][::-1].encode('hex_codec')
+                        pass
+                        # json_db['bestblock'] = d['hashes'][0][::-1].encode('hex_codec')
 
                 elif type == "ckey":
                         crypted = True
@@ -802,6 +827,13 @@ if __name__ == '__main__':
         filename = sys.argv[i]
         if read_wallet(json_db, filename, True, True, "", False) == -1:
             continue
+
+        # Use btcrecover/btcrpass.py -> "Bitcoin Core" logic in case of problems
+        # with the code in this file.
+        minversion = json_db.get("minversion", None)
+        if minversion and minversion > max_version:
+            sys.stderr.write("WARNING: %s has previously unseen minversion '%s'!\n" %
+                             (os.path.basename(filename), minversion))
 
         cry_master = json_db['mkey']['encrypted_key'].decode('hex')
         cry_salt = json_db['mkey']['salt'].decode('hex')

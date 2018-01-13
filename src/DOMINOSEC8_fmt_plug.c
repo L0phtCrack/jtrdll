@@ -40,7 +40,7 @@ john_register_one(&fmt_DOMINOSEC8);
 #include <string.h>
 
 #ifdef DOMINOSEC_32BIT
-#include "stdint.h"
+#include <stdint.h>
 #endif
 
 #include "misc.h"
@@ -49,7 +49,6 @@ john_register_one(&fmt_DOMINOSEC8);
 #undef SIMD_COEF_32
 #include "pbkdf2_hmac_sha1.h"
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               128
@@ -177,10 +176,7 @@ static struct fmt_tests tests[] = {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out));
@@ -503,7 +499,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	unsigned int i;
 	unsigned char ch;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 
 	if (ciphertext[0] != '(' ||
@@ -541,22 +537,25 @@ static void decode(unsigned char *ascii_cipher, unsigned char *binary)
 				out <<= 6;
 				ch = *ascii_cipher;
 
-				if (ch < '0' || ch > '9')
-					if (ch < 'A' || ch > 'Z')
-						if (ch < 'a' || ch > 'z')
-							if (ch != '+')
-								if (ch == '/')
+				if (ch < '0' || ch > '9') {
+					if (ch < 'A' || ch > 'Z') {
+						if (ch < 'a' || ch > 'z') {
+							if (ch != '+') {
+								if (ch == '/') {
 									out += '?';
-								else
-									; /* shit happens */
-							else
+								}
+							} else {
 								out += '>';
-						else
+							}
+						} else {
 							out += ch-'=';
-					else
+						}
+					} else {
 						out += ch-'7';
-				else
+					}
+				} else {
 					out += ch-'0';
+				}
 				++ascii_cipher;
 			} while (--loop);
 		}
@@ -722,8 +721,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out_real[index], BINARY_SIZE))
 			return 1;
 	return 0;
@@ -739,13 +739,8 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
-static int get_hash_0(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_0; }
-static int get_hash_1(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_1; }
-static int get_hash_2(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_2; }
-static int get_hash_3(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_3; }
-static int get_hash_4(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_4; }
-static int get_hash_5(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_5; }
-static int get_hash_6(int index) { return *(uint32_t*)&crypt_out_real[index] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out_real
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -801,13 +796,8 @@ struct fmt_main fmt_DOMINOSEC8 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

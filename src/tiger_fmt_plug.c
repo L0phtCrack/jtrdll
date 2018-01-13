@@ -1,4 +1,5 @@
-/* Tiger cracker patch for JtR. Hacked together during April of 2013 by Dhiru
+/*
+ * Tiger cracker patch for JtR. Hacked together during April of 2013 by Dhiru
  * Kholia <dhiru at openwall.com>.
  *
  * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com> and
@@ -15,6 +16,11 @@ john_register_one(&fmt_tiger);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "sph_tiger.h"
 #include "misc.h"
@@ -22,33 +28,6 @@ john_register_one(&fmt_tiger);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#endif
-
-#ifdef _OPENMP
-static int omp_t = 1;
-#include <omp.h>
-// OMP_SCALE tuned on core i7 quad core HT
-// 1   -   235k
-// 64  -  7723k
-// 128 - 10311K
-// 256 - 12043K
-// 512 - 13543
-// 1k  - 14256k
-// 2k  - 14860k  ** this one chosen
-// 4k  - 15093k
-// 8k  - 14935k
-// 16k - 14931k
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE  128
-#else
-#define OMP_SCALE  (1024*2)
-#endif // __MIC__
-#endif // OMP_SCALE
-#endif // _OPENMP
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"Tiger"
@@ -64,8 +43,16 @@ static int omp_t = 1;
 #define BINARY_ALIGN		4
 #define SALT_ALIGN		1
 
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE  2
+#else
+#define OMP_SCALE  32 // Tuned w/ MKPC for core i7
+#endif
+#endif
+
 #define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MAX_KEYS_PER_CRYPT	64
 
 static struct fmt_tests tiger_tests[] = {
 	{"3293AC630C13F0245F92BBB1766E16167A4E58492DDE73F3", ""},
@@ -80,12 +67,8 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
+	omp_autotune(self, OMP_SCALE);
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
@@ -110,7 +93,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		return 0;
 
 	while(*p)
-		if(atoi16[ARCH_INDEX(*p++)]==0x7f)
+		if (atoi16[ARCH_INDEX(*p++)] == 0x7f)
 			return 0;
 	return 1;
 }
@@ -138,10 +121,8 @@ static void *get_binary(char *ciphertext)
 	char *p;
 	int i;
 
-	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
-		p = strrchr(ciphertext, '$') + 1;
-	else
-		p = ciphertext;
+	p = ciphertext + TAG_LENGTH;
+
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
 		    (atoi16[ARCH_INDEX(*p)] << 4) |
@@ -152,39 +133,33 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		sph_tiger_context ctx;
 
 		sph_tiger_init(&ctx);
 		sph_tiger(&ctx, saved_key[index], strlen(saved_key[index]));
 		sph_tiger_close(&ctx, (unsigned char*)crypt_out[index]);
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -202,11 +177,7 @@ static int cmp_exact(char *source, int index)
 
 static void tiger_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -229,10 +200,7 @@ struct fmt_main fmt_tiger = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-#ifdef _OPENMP
-		FMT_OMP | FMT_OMP_BAD |
-#endif
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		FMT_OMP | FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
 		{ NULL },
 		{ FORMAT_TAG },
 		tiger_tests
@@ -264,13 +232,8 @@ struct fmt_main fmt_tiger = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

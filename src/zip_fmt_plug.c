@@ -40,9 +40,13 @@ john_register_one(&fmt_zip);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include <ctype.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               1	// Tuned on core i7
+#endif
+#endif
 
 #include "arch.h"
 #include "crc32.h"
@@ -55,13 +59,6 @@ john_register_one(&fmt_zip);
 #include "pkzip.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "dyna_salt.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1	// Tuned on core i7
-#endif
-static int omp_t = 1;
-#endif
 #include "hmac_sha.h"
 #include "memdbg.h"
 
@@ -70,9 +67,9 @@ static int omp_t = 1;
 
 typedef struct my_salt_t {
 	dyna_salt dsalt;
-	uint32_t comp_len;
+	uint64_t comp_len;
 	struct {
-		uint16_t type     : 4;
+		uint16_t type : 4;
 		uint16_t mode : 4;
 	} v;
 	unsigned char passverify[2];
@@ -81,7 +78,6 @@ typedef struct my_salt_t {
 	unsigned char datablob[1];
 } my_salt;
 
-
 #define FORMAT_LABEL        "ZIP"
 #define FORMAT_NAME         "WinZip"
 #ifdef SIMD_COEF_32
@@ -89,7 +85,7 @@ typedef struct my_salt_t {
 #else
 #define ALGORITHM_NAME      "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
-#define PLAINTEXT_LENGTH	125
+#define PLAINTEXT_LENGTH    125
 #define BINARY_ALIGN        sizeof(uint32_t)
 #define SALT_SIZE           sizeof(my_salt*)
 #define SALT_ALIGN          sizeof(my_salt*)
@@ -129,10 +125,7 @@ static my_salt *saved_salt;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -149,7 +142,7 @@ static void done(void)
 
 static void *get_salt(char *ciphertext)
 {
-	int i;
+	uint64_t i;
 	my_salt salt, *psalt;
 	static unsigned char *ptr;
 	/* extract data from "ciphertext" */
@@ -171,7 +164,7 @@ static void *get_salt(char *ciphertext)
 	salt.passverify[0] = (atoi16[ARCH_INDEX(cp[0])]<<4) | atoi16[ARCH_INDEX(cp[1])];
 	salt.passverify[1] = (atoi16[ARCH_INDEX(cp[2])]<<4) | atoi16[ARCH_INDEX(cp[3])];
 	cp = strtokm(NULL, "*");	// data len
-	sscanf((const char *)cp, "%x", &salt.comp_len);
+	sscanf((const char *)cp, "%"PRIx64, &salt.comp_len);
 
 	// later we will store the data blob in our own static data structure, and place the 64 bit LSB of the
 	// MD5 of the data blob into a field in the salt. For the first POC I store the entire blob and just
@@ -252,11 +245,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -285,6 +274,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		int something_hit = 0, hits[MAX_KEYS_PER_CRYPT] = {0};
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
+
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			lens[i] = strlen(saved_key[i+index]);
 			pin[i] = (unsigned char*)saved_key[i+index];
@@ -323,6 +313,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			uint32_t w;
 		} x;
 		unsigned char *pwd_ver = x.pwd_ver;
+
 		pbkdf2_sha1((unsigned char *)saved_key[index], strlen(saved_key[index]),
 		            saved_salt->salt, SALT_LENGTH(saved_salt->v.mode),
 		            KEYING_ITERATIONS, pwd_ver, 2,
@@ -381,7 +372,7 @@ struct fmt_main fmt_zip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ WINZIP_FORMAT_TAG },
 		winzip_common_tests
@@ -397,7 +388,7 @@ struct fmt_main fmt_zip = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_dyna_salt_hash,
 		NULL,
@@ -407,7 +398,7 @@ struct fmt_main fmt_zip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

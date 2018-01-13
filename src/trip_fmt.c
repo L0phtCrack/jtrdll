@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 2011,2012 by Solar Designer
+ * Copyright (c) 2011,2012,2017 by Solar Designer
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -8,6 +8,7 @@
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  */
 
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 
@@ -44,8 +45,8 @@ static struct fmt_tests tests[] = {
 
 #define ALGORITHM_NAME			DES_BS_ALGORITHM_NAME
 
-#define BINARY_SIZE			sizeof(ARCH_WORD_32)
-#define BINARY_ALIGN			sizeof(ARCH_WORD_32)
+#define BINARY_SIZE			sizeof(uint32_t)
+#define BINARY_ALIGN			sizeof(uint32_t)
 
 #define TRIPCODE_SCALE			0x40
 
@@ -203,43 +204,38 @@ static void *get_binary(char *ciphertext)
 
 static int binary_hash_0(void *binary)
 {
-	return *(ARCH_WORD_32 *)binary & 0xF;
+	unsigned int w = *(uint32_t *)binary;
+	return ((w >> 1) & 0x80) | (w & 0x7F);
 }
 
 static int binary_hash_1(void *binary)
 {
-	unsigned int w = *(ARCH_WORD_32 *)binary;
-	return ((w >> 1) & 0x80) | (w & 0x7F);
+	unsigned int w = *(uint32_t *)binary;
+	return ((w >> 1) & 0xF80) | (w & 0x7F);
 }
 
 static int binary_hash_2(void *binary)
 {
-	unsigned int w = *(ARCH_WORD_32 *)binary;
-	return ((w >> 1) & 0xF80) | (w & 0x7F);
+	unsigned int w = *(uint32_t *)binary;
+	return ((w >> 2) & 0xC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
 }
 
 static int binary_hash_3(void *binary)
 {
-	unsigned int w = *(ARCH_WORD_32 *)binary;
-	return ((w >> 2) & 0xC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
+	unsigned int w = *(uint32_t *)binary;
+	return ((w >> 2) & 0xFC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
 }
 
 static int binary_hash_4(void *binary)
 {
-	unsigned int w = *(ARCH_WORD_32 *)binary;
-	return ((w >> 2) & 0xFC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
-}
-
-static int binary_hash_5(void *binary)
-{
-	unsigned int w = *(ARCH_WORD_32 *)binary;
+	unsigned int w = *(uint32_t *)binary;
 	return ((w >> 3) & 0xE00000) |
 	    ((w >> 2) & 0x1FC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
 }
 
-static int binary_hash_6(void *binary)
+static int binary_hash_5(void *binary)
 {
-	unsigned int w = *(ARCH_WORD_32 *)binary;
+	unsigned int w = *(uint32_t *)binary;
 	return ((w >> 3) & 0x7E00000) |
 	    ((w >> 2) & 0x1FC000) | ((w >> 1) & 0x3F80) | (w & 0x7F);
 }
@@ -280,13 +276,12 @@ static int NAME(int index) \
 	} \
 }
 
-define_get_hash(get_hash_0, DES_bs_get_hash_0)
+define_get_hash(get_hash_0, DES_bs_get_hash_0t)
 define_get_hash(get_hash_1, DES_bs_get_hash_1t)
 define_get_hash(get_hash_2, DES_bs_get_hash_2t)
 define_get_hash(get_hash_3, DES_bs_get_hash_3t)
 define_get_hash(get_hash_4, DES_bs_get_hash_4t)
 define_get_hash(get_hash_5, DES_bs_get_hash_5t)
-define_get_hash(get_hash_6, DES_bs_get_hash_6t)
 
 #else
 
@@ -300,11 +295,7 @@ static int binary_hash_1(void *binary)
 	return DES_STD_HASH_1(*(ARCH_WORD *)binary);
 }
 
-static int binary_hash_2(void *binary)
-{
-	return DES_STD_HASH_2(*(ARCH_WORD *)binary);
-}
-
+#define binary_hash_2 NULL
 #define binary_hash_3 NULL
 #define binary_hash_4 NULL
 #define binary_hash_5 NULL
@@ -312,7 +303,10 @@ static int binary_hash_2(void *binary)
 
 static int get_hash_0(int index)
 {
-	return DES_STD_HASH_0(buffer[index].aligned.binary[0]);
+	ARCH_WORD binary;
+
+	binary = buffer[index].aligned.binary[0];
+	return DES_STD_HASH_0(binary);
 }
 
 static int get_hash_1(int index)
@@ -323,14 +317,7 @@ static int get_hash_1(int index)
 	return DES_STD_HASH_1(binary);
 }
 
-static int get_hash_2(int index)
-{
-	ARCH_WORD binary;
-
-	binary = buffer[index].aligned.binary[0];
-	return DES_STD_HASH_2(binary);
-}
-
+#define get_hash_2 NULL
 #define get_hash_3 NULL
 #define get_hash_4 NULL
 #define get_hash_5 NULL
@@ -529,7 +516,7 @@ static int cmp_one(void *binary, int index)
 	int block = buffer[index].block;
 	MAYBE_T0;
 	blkcpy(DES_bs_all.B, crypt_out[block], 32);
-	return DES_bs_cmp_one((ARCH_WORD_32 *)binary, 32, buffer[index].index);
+	return DES_bs_cmp_one((uint32_t *)binary, 32, buffer[index].index);
 }
 
 static int cmp_exact(char *source, int index)
@@ -638,7 +625,7 @@ struct fmt_main fmt_trip = {
 			binary_hash_3,
 			binary_hash_4,
 			binary_hash_5,
-			binary_hash_6
+			NULL
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -654,7 +641,7 @@ struct fmt_main fmt_trip = {
 			get_hash_3,
 			get_hash_4,
 			get_hash_5,
-			get_hash_6
+			NULL
 		},
 		cmp_all,
 		cmp_one,

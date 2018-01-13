@@ -33,7 +33,7 @@ john_register_one(&fmt_FGT);
 #include "misc.h"
 
 #include "sha.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include "simd-intrinsics.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -71,8 +71,6 @@ john_register_one(&fmt_FGT);
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
 
-
-
 static struct fmt_tests fgt_tests[] =
 {
 	{"AK1wTiFOMv7mZOTvQNmKQBAY98hZZjSRLxAY8vZp8NlDWU=", "fortigate"},
@@ -90,12 +88,7 @@ static uint32_t (*crypt_key)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int omp_t = 1;
-
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -130,7 +123,8 @@ static void * get_salt(char *ciphertext)
 	} out;
 	char buf[SALT_SIZE+BINARY_SIZE+1];
 
-	base64_decode(ciphertext+3, CIPHERTEXT_LENGTH, buf);
+	base64_convert(ciphertext+3, e_b64_mime, CIPHERTEXT_LENGTH, buf, e_b64_raw, sizeof(buf), flg_Base64_NO_FLAGS, 0);
+
 	memcpy(out.b, buf, SALT_SIZE);
 
 	return out.b;
@@ -144,8 +138,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH+1);
-	saved_key_len[index] = strlen(key);
+	saved_key_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char * get_key(int index)
@@ -162,7 +155,8 @@ static void * get_binary(char *ciphertext)
 	char buf[SALT_SIZE+BINARY_SIZE+1];
 
 	memset(buf, 0, sizeof(buf));
-	base64_decode(ciphertext+3, CIPHERTEXT_LENGTH, buf);
+	base64_convert(ciphertext+3, e_b64_mime, CIPHERTEXT_LENGTH, buf, e_b64_raw, sizeof(buf), flg_Base64_NO_FLAGS, 0);
+
 	// skip over the 12 bytes of salt and get only the hashed password
 	memcpy(bin.b, buf+SALT_SIZE, BINARY_SIZE);
 
@@ -222,15 +216,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 }
 
 
-
-static int get_hash_0(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((uint32_t *)(crypt_key[index]))[0] & PH_MASK_6; }
-
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -285,13 +272,8 @@ struct fmt_main fmt_FGT = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

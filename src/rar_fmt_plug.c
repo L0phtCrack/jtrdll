@@ -41,6 +41,10 @@
  *
  */
 
+#include "arch.h"
+
+#if ARCH_ALLOWS_UNALIGNED
+
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_rar;
 #elif FMT_REGISTERS_H
@@ -52,13 +56,12 @@ john_register_one(&fmt_rar);
 #endif
 
 #include <string.h>
-#include <errno.h>
 #if AC_BUILT
 #include "autoconfig.h"
 #endif
 #if _MSC_VER || __MINGW32__ || __MINGW64__ || __CYGWIN__ || HAVE_WINDOWS_H
 #include "win32_memmap.h"
-#if !defined(__CYGWIN__) && !defined(__MINGW64__)
+#if !defined(__CYGWIN__) && !defined(__MINGW64__) && !defined(__MINGW32__)
 #include "mmap-windows.c"
 #elif defined HAVE_MMAP
 #include <sys/mman.h>
@@ -67,7 +70,6 @@ john_register_one(&fmt_rar);
 #include <sys/mman.h>
 #endif
 
-#include "arch.h"
 #include "sha.h"
 #include "crc32.h"
 #include "misc.h"
@@ -102,7 +104,11 @@ john_register_one(&fmt_rar);
 #ifdef SIMD_COEF_32
 #include "simd-intrinsics.h"
 #define NBKEYS (SIMD_COEF_32*SIMD_PARA_SHA1)
+#if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i,idx) ( (idx&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)idx/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 )
+#else
+#define GETPOS(i,idx) ( (idx&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)idx/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 )
+#endif
 #define HASH_IDX(idx) (((unsigned int)idx&(SIMD_COEF_32-1))+(unsigned int)idx/SIMD_COEF_32*5*SIMD_COEF_32)
 
 #define ALGORITHM_NAME		"SHA1 " SHA1_ALGORITHM_NAME " AES"
@@ -142,9 +148,9 @@ static uint32_t (*tmp_out)[NBKEYS*5];
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	self->params.max_keys_per_crypt *= omp_t;
+	threads = omp_get_max_threads();
+	self->params.min_keys_per_crypt *= threads;
+	self->params.max_keys_per_crypt *= threads;
 #endif /* _OPENMP */
 
 	// Length is a cost. We sort in buckets but we need them to be mostly full
@@ -153,7 +159,7 @@ static void init(struct fmt_main *self)
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
 
-	unpack_data = mem_calloc(omp_t, sizeof(unpack_data_t));
+	unpack_data = mem_calloc(threads, sizeof(unpack_data_t));
 	cracked = mem_calloc(self->params.max_keys_per_crypt,
 	                     sizeof(*cracked));
 	// allocate 1 more slot to handle the tail of vector buffer
@@ -281,7 +287,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 					for (k = RawLength; k < 64; ++k)
 						tempin[GETPOS(k, j)] = 0;
 					tempin[GETPOS(RawLength, j)] = 0x80;
+#if ARCH_LITTLE_ENDIAN==1
 					tail = (uint32_t*)&tempin[GETPOS(64 - 1, j)];
+#else
+					tail = (uint32_t*)&tempin[GETPOS(64 - 1 - 3, j)];
+#endif
 					*tail = cur_len*8;
 				}
 				if (i == 0)
@@ -311,7 +321,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		for (j = 0; j < NBKEYS; ++j) {
 			uint32_t *tail;
 			RawPsw[0][GETPOS(0, j)] = 0x80;
-			tail = (uint32_t*)&RawPsw[0][GETPOS(64 - 1, j)];
+#if ARCH_LITTLE_ENDIAN==1
+			tail =  (uint32_t*)&RawPsw[0][GETPOS(64 - 1, j)];
+#else
+			tail =  (uint32_t*)&RawPsw[0][GETPOS(64 - 1 - 3, j)];
+#endif
+
 			*tail = cur_len*8;
 		}
 		SIMDSHA1body(RawPsw[0], digest, digest, SSEi_MIXED_IN | SSEi_RELOAD);
@@ -320,7 +335,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			for (i = 0; i < 4; ++i) {
 				int idx = indices[index + j];
 				uint32_t *dst = (uint32_t*)&aes_key[idx*16];
+#if ARCH_LITTLE_ENDIAN==1
 				dst[i] = digest[HASH_IDX(j) + i*SIMD_COEF_32];
+#else
+				dst[i] = JOHNSWAP(digest[HASH_IDX(j) + i*SIMD_COEF_32]);
+#endif
 			}
 		}
 	}
@@ -386,7 +405,7 @@ struct fmt_main fmt_rar = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		cpu_tests
@@ -419,5 +438,15 @@ struct fmt_main fmt_rar = {
 		cmp_exact
 	}
 };
-
 #endif /* plugin stanza */
+
+#else
+#if !defined(FMT_EXTERNS_H) && !defined(FMT_REGISTERS_H)
+#ifdef __GNUC__
+#warning ": target system requires aligned memory access, rar format disabled:"
+#elif _MSC_VER
+#pragma message(": target system requires aligned memory access, rar format disabled:")
+#endif
+#endif
+
+#endif	/* ARCH_ALLOWS_UNALIGNED */

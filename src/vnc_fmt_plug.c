@@ -1,16 +1,17 @@
-/* VNC cracker patch for JtR. Hacked together during March of 2012 by
+/*
+ * VNC cracker patch for JtR. Hacked together during March of 2012 by
  * Dhiru Kholia <dhiru.kholia at gmail.com>
  *
  * On Windows, Use Ettercap to get VNC challenge-response pairs in
  * JtR format. E.g. ettercap -Tq -r /home/user/sample.pcap
  *
  * On other platforms, vncpcap2john.cpp should be able to parse
- * .pcap files and output VNC challenge-response pairs in JtR format
+ * .pcap files and output VNC challenge-response pairs in JtR format.
  *
  * bit_flip table and encryption algorithm are taken fron VNCcrack.
  *
  * (C) 2003, 2004, 2006, 2008 Jack Lloyd <lloyd@randombit.net>
- * Licensed under the GNU GPL v2
+ * Licensed under the GNU GPL v2.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,7 +21,8 @@
  * You should have received a copy of the GNU General Public
  * License along with this program; if not, write to the Free
  * Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
- * 02111-1307 USA. */
+ * 02111-1307 USA.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_vnc;
@@ -30,16 +32,8 @@ john_register_one(&fmt_vnc);
 
 #include <openssl/des.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #ifdef __MIC__
@@ -49,22 +43,29 @@ static int omp_t = 1;
 #endif // __MIC__
 #endif // OMP_SCALE
 #endif // _OPENMP
+
+#include "arch.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"VNC"
-#define FORMAT_NAME		""
-#define FORMAT_TAG           "$vnc$*"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"DES 32/" ARCH_BITS_STR
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
-#define PLAINTEXT_LENGTH	8
-#define BINARY_SIZE		16
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		1
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define FORMAT_LABEL            "VNC"
+#define FORMAT_NAME             ""
+#define FORMAT_TAG              "$vnc$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "DES 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        0
+#define PLAINTEXT_LENGTH        8
+#define BINARY_SIZE             16
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 
 /* DES_set_odd_parity() already applied */
 static const unsigned char bit_flip[256] = {
@@ -125,8 +126,8 @@ static struct fmt_tests vnc_tests[] = {
 };
 
 static struct custom_salt {
-	char unsigned challenge[16];
-	char unsigned response[16];
+	unsigned char challenge[16];
+	unsigned char response[16];
 } *cur_salt;
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
@@ -134,12 +135,8 @@ static unsigned char (*des_key)[PLAINTEXT_LENGTH];
 static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
-
-#if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+#ifdef _OPENMP
+	omp_autotune(self, OMP_SCALE);
 #endif
 	des_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*des_key));
@@ -190,6 +187,8 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	char *ctcopy = strdup(ciphertext);
 	char *p, *keeptr = ctcopy;
+
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += FORMAT_TAG_LEN;	/* skip over "$vnc$*" */
 	p = strtokm(ctcopy, "*");
 	for (i = 0; i < 16; i++)
@@ -223,13 +222,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -239,35 +233,34 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		DES_key_schedule schedule;
 		unsigned char encrypted_challenge[16];
 		/* process key (note, moved to get_key) */
 		DES_set_key_unchecked(&des_key[index], &schedule);
 		/* do encryption (switched to ECB crypting) */
 		DES_ecb_encrypt((const_DES_cblock *)cur_salt->challenge, (DES_cblock*)&encrypted_challenge[0], &schedule, DES_ENCRYPT);
-		if(memcmp(encrypted_challenge, cur_salt->response, 8) == 0) {
+		if (memcmp(encrypted_challenge, cur_salt->response, 8) == 0) {
 			DES_ecb_encrypt((const_DES_cblock *)&cur_salt->challenge[8], (DES_cblock*)&encrypted_challenge[8], &schedule, DES_ENCRYPT);
 			memcpy((unsigned char*)crypt_out[index], encrypted_challenge, 16);
 		} else {
 			crypt_out[index][0] = crypt_out[index][1] = 0;
 		}
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -347,13 +340,8 @@ struct fmt_main fmt_vnc = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -33,7 +33,7 @@ struct fmt_main;
  * Maximum number of different tunable cost parameters
  * that can be reported for a single format
  */
-#define FMT_TUNABLE_COSTS	3
+#define FMT_TUNABLE_COSTS	4
 
 /*
  * Maximum number of different signatures
@@ -72,7 +72,7 @@ struct db_salt;
 #define FMT_UTF8			0x00000008
 /*
  * Mark password->binary = NULL immediately after a hash is cracked. Must be
- * set for formats that reads salt->list in crypt_all for the purpose of
+ * set for formats that read salt->list in crypt_all for the purpose of
  * identification of uncracked hashes for this salt.
  */
 #define FMT_REMOVE			0x00000010
@@ -85,10 +85,15 @@ struct db_salt;
  */
 #define FMT_NOT_EXACT			0x00000100
 /*
- * this format uses a dynamic sized salt, and its salt structure
+ * This format uses a dynamic sized salt, and its salt structure
  * 'derives' from the dyna_salt type defined in dyna_salt.h
  */
 #define FMT_DYNA_SALT			0x00000200
+/*
+ * This format supports huge ciphertexts (larger than LINE_BUFFER_SIZE)
+ * and may/will consequently truncate its pot lines with $SOURCE_HASH$
+ */
+#define FMT_HUGE_INPUT			0x00000400
 /* Uses a bitslice implementation */
 #define FMT_BS				0x00010000
 /* The split() method unifies the case of characters in hash encodings */
@@ -108,6 +113,9 @@ struct db_salt;
 #endif
 /* We've already warned the user about hashes of this type being present */
 #define FMT_WARNED			0x80000000
+
+/* Format's length before calling init() */
+extern int fmt_raw_len;
 
 /*
  * A password to test the methods for correct operation.
@@ -416,5 +424,10 @@ extern int fmt_default_binary_hash_6(void * binary);
  * Dummy hash function to use for salts with no hash table.
  */
 #define fmt_dummy_hash fmt_default_get_hash
+
+/*
+ * This is for all formats that want to use omp_autotune()
+ */
+#include "omp_autotune.h"
 
 #endif

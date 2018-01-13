@@ -30,9 +30,15 @@ SORT = sort
 STRIP = strip
 MAKE_ORIG = +$(MAKE) -f Makefile.legacy
 
-JTR_GIT_VERSION = \"$(shell git describe --tags --dirty=+ 2>/dev/null)\"
-ifeq ($(JTR_GIT_VERSION), \"\")
-JTR_GIT_VERSION = JOHN_VERSION
+JTR_GIT_COMMIT = \"-$(shell git rev-parse --short HEAD 2>/dev/null)\"
+ifeq ($(JTR_GIT_COMMIT), \"-\")
+F = "" # for tarballs or zip files not created using git archive
+# this format string will be replaced by git archive:
+JTR_ARCHIVE_VERSION_STRING = $Format:-%h %ci$
+JTR_GIT_VERSION = JUMBO_VERSION "\"$(shell echo "$(JTR_ARCHIVE_VERSION_STRING)" | "$(SED)" 's/ormat:-%h %ci/-/g')\""
+else
+JTR_GIT_HEAD_TS = \" $(shell git show -s --format=%ci HEAD 2>/dev/null)\"
+JTR_GIT_VERSION = JUMBO_VERSION "$(JTR_GIT_COMMIT) $(JTR_GIT_HEAD_TS)"
 endif
 
 ## Uncomment the line below for MPI (can be used together with OMP as well)
@@ -99,14 +105,14 @@ OPT_INLINE = -Os -funroll-loops -finline-functions
 
 # Works with Solaris make, and GNU make
 PLUGFORMATS_SRCS: sh =echo *_plug.c
-PLUGFORMATS_SRCS += $(wildcard *_plug.c)
+PLUGFORMATS_SRCS += $(sort $(wildcard *_plug.c))
 PLUGFORMATS_OBJS = $(PLUGFORMATS_SRCS:.c=.o)
 
 JOHN_OBJS = \
 	jumbo.o john-mpi.o \
 	DES_fmt.o DES_std.o DES_bs.o DES_bs_b.o \
 	BSDI_fmt.o \
-	MD5_fmt.o MD5_std.o cryptmd5_common.o \
+	MD5_fmt.o MD5_std.o md5crypt_common.o \
 	BF_fmt.o BF_std.o BF_common.o \
 	scrypt_fmt.o \
 	escrypt/crypto_scrypt-best.o escrypt/crypto_scrypt-common.o \
@@ -117,30 +123,25 @@ JOHN_OBJS = \
 	KeccakDuplex.o KeccakF-1600-opt64.o KeccakHash.o KeccakSponge.o \
 	NT_fmt.o \
 	whirlpool.o haval.o skein.o md2.o panama.o \
-	timer.o \
+	timer.o omp_autotune.o \
 	md5.o \
 	rc4.o \
 	hmacmd5.o \
-	base64.o base64_convert.o \
+	base64_convert.o \
 	md4.o sha2.o \
 	dynamic_fmt.o dynamic_parser.o dynamic_preloads.o dynamic_utils.o dynamic_big_crypt.o \
 	dynamic_compiler.o dynamic_compiler_lib.o \
 	ripemd.o tiger.o \
-	pfx2john.o \
 	unrarcmd.o unrarfilter.o unrarhlp.o unrar.o unrarppm.o unrarvm.o \
 	rar2john.o \
 	zip2john.o pkzip.o \
-	racf2john.o \
-	dmg2john.o \
-	keepass2john.o \
-	hccap2john.o \
 	$(PLUGFORMATS_OBJS) \
 	dyna_salt.o dummy.o \
 	gost.o \
 	common-gpu.o \
 	batch.o bench.o charset.o common.o compiler.o config.o cracker.o \
 	crc32.o external.o formats.o getopt.o idle.o inc.o john.o list.o \
-	loader.o logger.o mask.o mask_ext.o math.o memory.o misc.o options.o \
+	loader.o logger.o mask.o mask_ext.o memory.o misc.o options.o \
 	params.o path.o recovery.o rpp.o rules.o signals.o single.o status.o \
 	tty.o wordlist.o \
 	mkv.o mkvlib.o \
@@ -153,7 +154,8 @@ JOHN_OBJS = \
 	unafs.o \
 	undrop.o \
 	regex.o pp.o \
-	unique.o putty2john.o gpg2john.o memdbg.o
+	lzma/LzmaDec.o lzma/Lzma2Dec.o \
+	unique.o gpg2john.o memdbg.o
 
 OCL_OBJS = common-opencl.o opencl_autotune.o bt.o bt_hash_type_64.o bt_hash_type_128.o bt_hash_type_192.o bt_twister.o
 
@@ -167,7 +169,7 @@ BENCH_DES_BS_OBJS_DEPEND = \
 	DES_bs_b.o
 
 BENCH_MD5_OBJS_DEPEND = \
-	MD5_fmt.o MD5_std.o cryptmd5_common.o
+	MD5_fmt.o MD5_std.o md5crypt_common.o
 
 BENCH_BF_OBJS_DEPEND = \
 	BF_fmt.o BF_std.o BF_common.o
@@ -178,7 +180,7 @@ BENCH_OBJS = \
 	DES_bsg.o $(BENCH_DES_BS_OBJS_DEPEND) \
 	$(BENCH_MD5_OBJS_DEPEND) \
 	$(BENCH_BF_OBJS_DEPEND) \
-	bench-t.o best.o common_g.o config_g.o formats_g.o jumbo.o math.o dyna_salt.o \
+	bench-t.o best.o common_g.o config_g.o formats_g.o jumbo.o dyna_salt.o \
 	memory.o miscnl.o params.o path.o signals_g.o tty.o memdbg.o
 
 GENMKVPWD_OBJS = \
@@ -188,8 +190,8 @@ PROJ = find_version ../run/john ../run/unshadow ../run/unafs ../run/unique ../ru
 	../run/rar2john ../run/zip2john \
 	../run/genmkvpwd ../run/mkvcalcproba ../run/calc_stat \
 	../run/tgtsnarf ../run/racf2john ../run/hccap2john \
-	../run/raw2dyna ../run/keepass2john ../run/pfx2john \
-	../run/dmg2john ../run/putty2john john.local.conf ../run/uaf2john \
+	../run/raw2dyna \
+	../run/uaf2john \
 	../run/wpapcap2john \
 	../run/gpg2john ../run/cprepair ../run/base64conv
 PROJ_DOS = find_version ../run/john.bin ../run/john.com \
@@ -197,28 +199,20 @@ PROJ_DOS = find_version ../run/john.bin ../run/john.com \
 	../run/undrop.com \
 	../run/rar2john.com ../run/zip2john \
 	../run/racf2john.com ../run/hccap2john.com \
-	../run/keepass2john.com ../run/pfx2john.com \
-	../run/dmg2john.com ../run/putty2john.com john.local.conf \
 	../run/gpg2john.com
 PROJ_WIN32 = find_version ../run/john.exe \
 	../run/unshadow.exe ../run/unafs.exe ../run/unique.exe \
 	../run/undrop.exe \
 	../run/rar2john.exe ../run/zip2john.exe \
 	../run/genmkvpwd.exe ../run/mkvcalcproba.exe ../run/calc_stat.exe \
-	../run/racf2john.exe ../run/hccap2john.exe \
-	../run/raw2dyna.exe ../run/keepass2john.exe \
-	../run/pfx2john.exe \
-	../run/dmg2john.exe ../run/putty2john.exe \
-	john.local.conf ../run/gpg2john.exe ../run/base64conv.exe
+	../run/raw2dyna.exe \
+	../run/gpg2john.exe ../run/base64conv.exe
 PROJ_WIN32_MINGW = find_version ../run/john-mingw.exe \
 	../run/unshadow.exe ../run/unafs.exe ../run/unique.exe \
 	../run/undrop.exe \
 	../run/rar2john.exe ../run/zip2john.exe \
 	../run/genmkvpwd.exe ../run/mkvcalcproba.exe ../run/calc_stat.exe \
-	../run/racf2john.exe ../run/hccap2john.exe \
-	../run/raw2dyna.exe ../run/keepass2john.exe \
-	../run/pfx2john.exe \
-	../run/putty2john.exe john.local.conf \
+	../run/raw2dyna.exe \
 	../run/gpg2john.exe ../run/base64conv.exe
 PROJ_PCAP = ../run/SIPdump ../run/vncpcap2john
 default:
@@ -258,7 +252,7 @@ default:
 	@echo "linux-sparc              Linux, SPARC 32-bit"
 	@echo "linux-ppc32-altivec      Linux, PowerPC w/AltiVec (best)"
 	@echo "linux-ppc32              Linux, PowerPC 32-bit"
-#	@echo "linux-ppc64-altivec      Linux, PowerPC 64-bit w/AltiVec"
+	@echo "linux-ppc64-altivec      Linux, PowerPC 64-bit w/AltiVec"
 	@echo "linux-ppc64              Linux, PowerPC 64-bit"
 	@echo "linux-ia64               Linux, IA-64"
 	@echo "freebsd-x86-64           FreeBSD, x86-64 with SSE2 (best)"
@@ -319,6 +313,7 @@ default:
 	@echo "win32-cygwin-x86-opencl  Win32, Cygwin, x86 with SSE2 and OpenCL"
 	@echo "win32-cygwin-x86-mmx     Win32, Cygwin, x86 with MMX"
 	@echo "win32-cygwin-x86-any     Win32, Cygwin, x86"
+	@echo "win32-cygwin-x86-anyomp  Win32, Cygwin, x86 (OpenMP enabled)"
 	@echo "win32-mingw-x86-sse2[i]  Win32, MinGW, x86 with SSE2 (best if 32-bit)"
 	@echo "win32-mingw-x86-mmx      Win32, MinGW, x86 with MMX"
 	@echo "win32-mingw-x86-any      Win32, MinGW, x86"
@@ -740,7 +735,7 @@ linux-ppc32-altivec:
 		JOHN_OBJS="$(JOHN_OBJS) c3_fmt.o" \
 		CFLAGS="$(CFLAGS) -DHAVE_CRYPT -DHAVE_LIBDL -D_LARGEFILE64_SOURCE" \
 		LDFLAGS="$(LDFLAGS) -lcrypt -ldl" \
-		OPT_INLINE="-finline-functions -finline-limit=4000 -maltivec"
+		OPT_INLINE="-finline-functions -finline-limit=4000 -fno-strict-aliasing -maltivec"
 	@echo "Failing after this point just means some helper tools did not build:"
 	$(MAKE_ORIG) $(PROJ_PCAP)
 	@echo "All done"
@@ -756,7 +751,6 @@ linux-ppc32:
 	$(MAKE_ORIG) $(PROJ_PCAP)
 	@echo "All done"
 
-# This is slightly slower than linux-ppc32-altivec for most hash types.
 linux-ppc64-altivec:
 	$(LN) ppc64alt.h arch.h
 	@echo "#define JOHN_BLD" '"'$@'"' > john_build_rule.h
@@ -764,7 +758,7 @@ linux-ppc64-altivec:
 		JOHN_OBJS="$(JOHN_OBJS) c3_fmt.o" \
 		CFLAGS="$(CFLAGS) -m64 -DHAVE_CRYPT -DHAVE_LIBDL" \
 		LDFLAGS="$(LDFLAGS) -m64 -lcrypt -ldl" \
-		OPT_INLINE="-finline-functions -finline-limit=4000 -maltivec"
+		OPT_INLINE="-finline-functions -finline-limit=4000 -fno-strict-aliasing -maltivec"
 	@echo "Failing after this point just means some helper tools did not build:"
 	$(MAKE_ORIG) $(PROJ_PCAP) CFLAGS="$(CFLAGS) -m64"
 	@echo "All done"
@@ -1585,6 +1579,19 @@ win32-cygwin-x86-any:
 	$(MAKE_ORIG) $(PROJ_PCAP)
 	@echo "All done"
 
+win32-cygwin-x86-anyomp:
+	$(CP) x86-any.h arch.h
+	@echo "#define JOHN_BLD" '"'$@'"' > john_build_rule.h
+	$(MAKE_ORIG) $(PROJ_WIN32) \
+		JOHN_OBJS="$(JOHN_OBJS) x86.o" \
+		CFLAGS="$(CFLAGS) -mpreferred-stack-boundary=2 -fopenmp" \
+		CFLAGS_MAIN="$(CFLAGS) -O0 -fopenmp" \
+		ASFLAGS="$(ASFLAGS) -DUNDERSCORES -fopenmp" \
+		LDFLAGS="$(LDFLAGS) -fopenmp"
+	@echo "Failing after this point just means some helper tools did not build:"
+	$(MAKE_ORIG) $(PROJ_PCAP)
+	@echo "All done"
+
 win32-mingw-x86-sse2:
 	$(CP) x86-sse.h arch.h
 	@echo "#define JOHN_BLD" '"'$@'"' > john_build_rule.h
@@ -1667,7 +1674,7 @@ dynamic_big_crypt.c: dynamic_big_crypt_hash.cin dynamic_big_crypt_header.cin dyn
 	$(shell ./dynamic_big_crypt_generator.sh)
 	@if [ ! -f dynamic_big_crypt.c ] ; then $(CP_PRESERVE) unused/dynamic_big_crypt.c dynamic_big_crypt.c ; fi
 
-dynamic_big_crypt.o:	dynamic_big_crypt.c arch.h misc.h common.h formats.h sha.h sha2.h md5.h md4.h stdint.h gost.h sph_haval.h sph_ripemd.h sph_tiger.h sph_whirlpool.h dynamic.h johnswap.h simd-intrinsics.h dynamic_types.h memdbg.h
+dynamic_big_crypt.o:	dynamic_big_crypt.c arch.h misc.h common.h formats.h sha.h sha2.h md5.h md4.h gost.h sph_haval.h sph_ripemd.h sph_tiger.h sph_whirlpool.h dynamic.h johnswap.h simd-intrinsics.h dynamic_types.h memdbg.h
 
 
 options.o: version.h options.c
@@ -1678,7 +1685,7 @@ find_version:
 	echo "#define JTR_GIT_VERSION $(JTR_GIT_VERSION)" > version.h.new
 	diff >/dev/null 2>/dev/null version.h.new version.h && $(RM) version.h.new || $(MV) version.h.new version.h
 
-SUBDIRS = aes
+SUBDIRS = aes secp256k1
 
 .PHONY: subdirs $(SUBDIRS) find_version
 
@@ -1688,7 +1695,7 @@ $(SUBDIRS):
 	$(MAKE_ORIG) -C $@ all CC=$(CC)
 
 ../run/john: $(JOHN_OBJS) $(SUBDIRS)
-	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a -o ../run/john
+	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a secp256k1/secp256k1.a -o ../run/john
 
 ../run/unshadow: ../run/john
 	$(RM) ../run/unshadow
@@ -1702,18 +1709,6 @@ $(SUBDIRS):
 	$(RM) ../run/undrop
 	ln -s john ../run/undrop
 
-../run/putty2john: ../run/john
-	$(RM) ../run/putty2john
-	ln -s john ../run/putty2john
-
-../run/pfx2john: ../run/john
-	$(RM) ../run/pfx2john
-	ln -s john ../run/pfx2john
-
-../run/keepass2john: ../run/john
-	$(RM) ../run/keepass2john
-	ln -s john ../run/keepass2john
-
 ../run/zip2john: ../run/john
 	$(RM) ../run/zip2john
 	ln -s john ../run/zip2john
@@ -1725,18 +1720,6 @@ $(SUBDIRS):
 ../run/rar2john: ../run/john
 	$(RM) ../run/rar2john
 	ln -s john ../run/rar2john
-
-../run/racf2john: ../run/john
-	$(RM) ../run/racf2john
-	ln -s john ../run/racf2john
-
-../run/dmg2john: ../run/john
-	$(RM) ../run/dmg2john
-	ln -s john ../run/dmg2john
-
-../run/hccap2john: ../run/john
-	$(RM) ../run/hccap2john
-	ln -s john ../run/hccap2john
 
 ../run/base64conv: ../run/john
 	$(RM) ../run/base64conv
@@ -1763,23 +1746,8 @@ $(SUBDIRS):
 ../run/undrop.com: john.com
 	copy john.com ..\run\undrop.com
 
-../run/putty2john.com: john.com
-	copy john.com ..\run\putty2john.com
-
-../run/pfx2john.com: john.com
-	copy john.com ..\run\pfx2john.com
-
-../run/keepass2john.com: john.com
-	copy john.com ..\run\keepass2john.com
-
 ../run/rar2john.com: john.com
 	copy john.com ..\run\rar2john.com
-
-../run/racf2john.com: john.com
-	copy john.com ..\run\racf2john.com
-
-../run/dmg2john.com: john.com
-	copy john.com ..\run\dmg2john.com
 
 ../run/zip2john.com: john.com
 	copy john.com ..\run\zip2john.com
@@ -1787,15 +1755,8 @@ $(SUBDIRS):
 ../run/gpg2john.com: john.com
 	copy john.com ..\run\gpg2john.com
 
-../run/hccap2john.com: john.com
-	copy john.com ..\run\hccap2john.com
-
 ../run/unique.com: john.com
 	copy john.com ..\run\unique.com
-
-# This must not be specified with path because "make clean" would delete it.
-john.local.conf:
-	[ -f ../run/john.local.conf ] || touch ../run/john.local.conf
 
 john.com: john.asm
 	@echo Use Borland TASM/TLINK to make JOHN.COM
@@ -1807,7 +1768,7 @@ john.com: john.asm
 #	$(LD) $(JOHN_OBJS) -lkernel32 -lcrypto -o ../run/john.exe
 
 ../run/john.exe: $(JOHN_OBJS) $(SUBDIRS)
-	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a -lkernel32 -o ../run/john.exe
+	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a secp256k1/secp256k1.a -lkernel32 -o ../run/john.exe
 	$(STRIP) ../run/john.exe
 
 # this LD line removed from the ../run/john-mingw.exe rule (MinGW32 builds)
@@ -1816,7 +1777,7 @@ john.com: john.asm
 #	$(LD) $(JOHN_OBJS) $(LDFLAGS) -lkernel32 -o ../run/john-mingw.exe
 
 ../run/john-mingw.exe: $(JOHN_OBJS)
-	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a -lkernel32 -o ../run/john-mingw.exe
+	$(LD) $(JOHN_OBJS) $(LDFLAGS) aes/aes.a secp256k1/secp256k1.a -lkernel32 -o ../run/john-mingw.exe
 	$(STRIP) ../run/john-mingw.exe
 	cp ../run/john-mingw.exe ../run/john.exe
 
@@ -1832,29 +1793,9 @@ john.com: john.asm
 	$(CC) symlink.c -o ../run/undrop.exe
 	$(STRIP) ../run/undrop.exe
 
-../run/putty2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/putty2john.exe
-	$(STRIP) ../run/putty2john.exe
-
-../run/pfx2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/pfx2john.exe
-	$(STRIP) ../run/pfx2john.exe
-
-../run/keepass2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/keepass2john.exe
-	$(STRIP) ../run/keepass2john.exe
-
 ../run/rar2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/rar2john.exe
 	$(STRIP) ../run/rar2john.exe
-
-../run/racf2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/racf2john.exe
-	$(STRIP) ../run/racf2john.exe
-
-../run/dmg2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/dmg2john.exe
-	$(STRIP) ../run/dmg2john.exe
 
 ../run/zip2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/zip2john.exe
@@ -1863,10 +1804,6 @@ john.com: john.asm
 ../run/gpg2john.exe: symlink.c
 	$(CC) symlink.c -o ../run/gpg2john.exe
 	$(STRIP) ../run/gpg2john.exe
-
-../run/hccap2john.exe: symlink.c
-	$(CC) symlink.c -o ../run/hccap2john.exe
-	$(STRIP) ../run/hccap2john.exe
 
 ../run/base64conv.exe: symlink.c
 	$(CC) symlink.c -o ../run/base64conv.exe
@@ -1882,31 +1819,31 @@ john.com: john.asm
 ../run/genmkvpwd.exe: $(GENMKVPWD_OBJS)
 	$(LD) $(GENMKVPWD_OBJS) $(LDFLAGS_MKV) -o ../run/genmkvpwd.exe
 
-../run/mkvcalcproba: mkvcalcproba.o
+../run/mkvcalcproba: mkvcalcproba.o memdbg.o
 	$(LD) mkvcalcproba.o memdbg.o $(LDFLAGS) $(OMPFLAGS) -o ../run/mkvcalcproba
 
-../run/mkvcalcproba.exe: mkvcalcproba.o
+../run/mkvcalcproba.exe: mkvcalcproba.o memdbg.o
 	$(LD) mkvcalcproba.o memdbg.o $(LDFLAGS_MKV) $(OMPFLAGS) -o ../run/mkvcalcproba.exe
 
-../run/calc_stat: calc_stat.o
+../run/calc_stat: calc_stat.o memdbg.o
 	$(LD) calc_stat.o memdbg.o $(LDFLAGS) $(OMPFLAGS) -o ../run/calc_stat
 
-../run/calc_stat.exe: calc_stat.o
+../run/calc_stat.exe: calc_stat.o memdbg.o
 	$(LD) calc_stat.o memdbg.o $(LDFLAGS_MKV) $(OMPFLAGS) -o ../run/calc_stat.exe
 
-../run/raw2dyna: raw2dyna.o
+../run/raw2dyna: raw2dyna.o memdbg.o
 	$(LD) raw2dyna.o memdbg.o $(LDFLAGS) $(OMPFLAGS) -o ../run/raw2dyna
 
-../run/raw2dyna.exe: raw2dyna.o
+../run/raw2dyna.exe: raw2dyna.o memdbg.o
 	$(LD) raw2dyna.o memdbg.o $(LDFLAGS) $(OMPFLAGS) -o ../run/raw2dyna.exe
 
-../run/SIPdump: SIPdump.o
+../run/SIPdump: SIPdump.o memdbg.o
 	$(LD) SIPdump.o memdbg.o $(LDFLAGS) -lpcap $(OMPFLAGS) -o ../run/SIPdump
 
-../run/vncpcap2john: vncpcap2john.o
-	$(CC) -Wall vncpcap2john.o memdbg.o -lpcap $(OMPFLAGS) -o ../run/vncpcap2john
+../run/vncpcap2john: vncpcap2john.o memdbg.o
+	$(CC) $(JOHN_CFLAGS) -Wall vncpcap2john.o memdbg.o -lpcap $(OMPFLAGS) -o ../run/vncpcap2john
 
-../run/uaf2john: uaf2john.o uaf_encode.o
+../run/uaf2john: uaf2john.o uaf_encode.o memdbg.o
 	$(LD) $(LDFLAGS) uaf2john.o uaf_encode.o memdbg.o $(OMPFLAGS) -o ../run/uaf2john
 
 ../run/wpapcap2john: wpapcap2john.o jumbo.o memdbg.o
@@ -1917,8 +1854,14 @@ john.com: john.asm
 	$(CC) -Wall -O3 -s -DNOT_JOHN -D_JOHN_MISC_NO_LOG cprepair.c unicode.c \
 	misc.c memdbg.c -o ../run/cprepair
 
-../run/tgtsnarf: tgtsnarf.o
+../run/tgtsnarf: tgtsnarf.o memdbg.o
 	$(LD) tgtsnarf.o memdbg.o $(LDFLAGS) $(OMPFLAGS) -o ../run/tgtsnarf
+
+../run/racf2john: racf2john.o jumbo.o memdbg.o
+	$(LD) $(LDFLAGS) racf2john.o jumbo.o memdbg.o -o ../run/racf2john
+
+../run/hccap2john: common.o hccap2john.o jumbo.o memdbg.o
+	$(LD) $(LDFLAGS) common.o hccap2john.o jumbo.o memdbg.o -o ../run/hccap2john
 
 # Inlining the S-boxes produces faster code as long as they fit in the cache.
 DES_bs_b.o: DES_bs_b.c sboxes.c nonstd.c sboxes-s.c
@@ -1954,10 +1897,10 @@ bench-t.o: bench.c
 	@
 
 fmt_externs.h: $(PLUGFORMATS_SRCS) Makefile.legacy *_fmt_plug.c
-	$(CC) -E -P $(CFLAGS) -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $(GREP) "extern struct fmt_main" | LC_ALL=C $(SORT) > fmt_externs.h
+	$(CC) -E -P $(CFLAGS) -DFMT_EXTERNS_H *_fmt_plug.c | LC_ALL=C $(GREP) "extern struct fmt_main" | LC_ALL=C $(SORT) -f > fmt_externs.h
 
 fmt_registers.h: $(PLUGFORMATS_SRCS) Makefile.legacy *_fmt_plug.c
-	$(CC) -E -P $(CFLAGS) -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $(GREP) "john_register_one" | LC_ALL=C $(SORT) > fmt_registers.h
+	$(CC) -E -P $(CFLAGS) -DFMT_REGISTERS_H *_fmt_plug.c | LC_ALL=C $(GREP) "john_register_one" | LC_ALL=C $(SORT) -f > fmt_registers.h
 
 john.o: john.c fmt_externs.h fmt_registers.h
 	$(CC) $(CFLAGS_MAIN) $(OPT_NORMAL) -O0 $*.c
@@ -2031,12 +1974,14 @@ clean:
 	$(RM) $(PROJ_PCAP)
 	$(RM) ../run/john.exe john-macosx-* *.o escrypt/*.o *.bak core
 	$(RM) ../run/kernels/*.cl ../run/kernels/*.h ../run/kernels/*.bin
+	$(RM) lzma/*.o
 	$(RM) detect bench generic.h arch.h tmp.s
 	$(RM) *~
 	$(RM) dynamic_big_crypt.c fmt_registers.h fmt_externs.h john_build_rule.h version.h version.h.new
 	$(CP) $(NULL) Makefile.dep
 	+$(MAKE_ORIG) -C aes clean
 	+$(MAKE_ORIG) -C escrypt clean
+	+$(MAKE_ORIG) -C secp256k1 clean
 
 
 # These are mostly for internal use.

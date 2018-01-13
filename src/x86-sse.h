@@ -38,7 +38,9 @@
 #define ARCH_INT_GT_32			0
 #endif
 
+#if !defined(ARCH_ALLOWS_UNALIGNED)
 #define ARCH_ALLOWS_UNALIGNED		1
+#endif
 #define ARCH_INDEX(x)			((unsigned int)(unsigned char)(x))
 
 #define CPU_DETECT			1
@@ -71,19 +73,13 @@
 #endif
 
 #ifdef __XOP__
+#define CPU_REQ_XOP			1
+#undef CPU_NAME
+#define CPU_NAME			"XOP"
 #define JOHN_XOP			1
 #endif
 #if defined(__AVX__) || defined(JOHN_XOP)
 #define JOHN_AVX			1
-#endif
-
-#ifdef __SSSE3__
-#undef CPU_NAME
-#define CPU_NAME		"SSSE3"
-#endif
-#ifdef __SSE4_1__
-#undef CPU_NAME
-#define CPU_NAME		"SSE4.1"
 #endif
 
 #define DES_ASM				1
@@ -201,7 +197,20 @@
 			 + __GNUC_PATCHLEVEL__)
 #endif
 
-#if __AVX512__
+#if __AVX512__ || __AVX512BW__
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX512BW		1
+#undef CPU_NAME
+#define CPU_NAME			"AVX512BW"
+#define SIMD_COEF_32 16
+#define SIMD_COEF_64 8
+#elif __AVX512F__
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX512F			1
+#undef CPU_NAME
+#define CPU_NAME			"AVX512F"
 #define SIMD_COEF_32 16
 #define SIMD_COEF_32x4 64
 #define SIMD_COEF_64 8
@@ -314,6 +323,8 @@
 
 #define SHA_BUF_SIZ			16
 
+#ifndef JOHN_NO_SIMD
 #define NT_SSE2
+#endif
 
 #endif

@@ -64,7 +64,8 @@ john_register_one(&fmt_saltedsha);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
-#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianity conversion
+#define FMT_IS_BE
+#include "common-simd-getpos.h"
 #else
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
@@ -86,22 +87,17 @@ static struct s_salt *saved_salt;
 static uint32_t (*saved_key)[SHA_BUF_SIZ*NBKEYS];
 static uint32_t (*crypt_key)[BINARY_SIZE/4*NBKEYS];
 static unsigned int *saved_len;
-static unsigned char out[PLAINTEXT_LENGTH + 1];
 static int last_salt_size;
 #else
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_key)[BINARY_SIZE / 4];
+static unsigned int *saved_len;
 #endif
 
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t;
-
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 #ifndef SIMD_COEF_32
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -109,127 +105,61 @@ static void init(struct fmt_main *self)
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_key));
 #else
-	saved_len = mem_calloc(self->params.max_keys_per_crypt,
-	                       sizeof(*saved_len));
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
 	                             sizeof(*saved_key), MEM_ALIGN_SIMD);
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
 	                             sizeof(*crypt_key), MEM_ALIGN_SIMD);
 #endif
+	saved_len = mem_calloc(self->params.max_keys_per_crypt,
+	                       sizeof(*saved_len));
 }
 
 static void done(void)
 {
 	MEM_FREE(crypt_key);
 	MEM_FREE(saved_key);
-#ifdef SIMD_COEF_32
 	MEM_FREE(saved_len);
-#endif
 }
 
 static void * get_binary(char *ciphertext) {
 	static char *realcipher;
 
-	if (!realcipher) realcipher = mem_alloc_tiny(BINARY_SIZE + MAX_SALT_LEN + 4, MEM_ALIGN_WORD);
+	if (!realcipher) realcipher = mem_alloc_tiny(CIPHERTEXT_LENGTH, MEM_ALIGN_WORD);
 
 	ciphertext += NSLDAP_MAGIC_LENGTH;
 	memset(realcipher, 0, BINARY_SIZE);
-	base64_convert(ciphertext, e_b64_mime, strlen(ciphertext), realcipher, e_b64_raw, BINARY_SIZE+MAX_SALT_LEN, 0, 0);
-#ifdef SIMD_COEF_32
+	base64_convert(ciphertext, e_b64_mime, strlen(ciphertext), realcipher, e_b64_raw, CIPHERTEXT_LENGTH, flg_Base64_DONOT_NULL_TERMINATE, 0);
+#if defined(SIMD_COEF_32) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity((unsigned char *)realcipher, BINARY_SIZE);
 #endif
 	return (void *)realcipher;
 }
 
-static void set_key(char *key, int index)
-{
-#ifdef SIMD_COEF_32
-#if ARCH_ALLOWS_UNALIGNED
-	const uint32_t *wkey = (uint32_t*)key;
-#else
-	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint32_t));
-	const uint32_t *wkey = (uint32_t*)(is_aligned(key, sizeof(uint32_t)) ?
-	                                       key : strcpy(buf_aligned, key));
-#endif
-	uint32_t *keybuffer = &((uint32_t*)saved_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32];
-	uint32_t *keybuf_word = keybuffer;
-	unsigned int len;
-	uint32_t temp;
-
-	len = 0;
-	while((unsigned char)(temp = *wkey++)) {
-		if (!(temp & 0xff00))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xff) | (0x80 << 8));
-			len++;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff0000))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xffff) | (0x80 << 16));
-			len+=2;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff000000))
-		{
-			*keybuf_word = JOHNSWAP(temp | (0x80U << 24));
-			len+=3;
-			goto key_cleaning;
-		}
-		*keybuf_word = JOHNSWAP(temp);
-		len += 4;
-		keybuf_word += SIMD_COEF_32;
-	}
-	*keybuf_word = 0x80000000;
-
-key_cleaning:
-	keybuf_word += SIMD_COEF_32;
-	while(*keybuf_word) {
-		*keybuf_word = 0;
-		keybuf_word += SIMD_COEF_32;
-	}
-
-	saved_len[index] = len;
-#else
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH + 1);
-#endif
-}
+#define SET_SAVED_LEN
+#include "common-simd-setkey32.h"
 
 static void * get_salt(char * ciphertext)
 {
 	static struct s_salt cursalt;
-	char realcipher[BINARY_SIZE + MAX_SALT_LEN + 4];
+	char realcipher[BINARY_SIZE + MAX_SALT_LEN];
 	int len;
 
 	ciphertext += NSLDAP_MAGIC_LENGTH;
 	memset(realcipher, 0, sizeof(realcipher));
 	memset(&cursalt, 0, sizeof(struct s_salt));
 	len = strlen(ciphertext);
-	cursalt.len = base64_convert(ciphertext, e_b64_mime, len, realcipher, e_b64_raw, BINARY_SIZE+MAX_SALT_LEN, 0, 0) - BINARY_SIZE;
+	cursalt.len = base64_convert(ciphertext, e_b64_mime, len, realcipher, e_b64_raw, BINARY_SIZE+MAX_SALT_LEN, flg_Base64_DONOT_NULL_TERMINATE, 0) - BINARY_SIZE;
 
 	memcpy(cursalt.data.c, realcipher+BINARY_SIZE, cursalt.len);
 	return &cursalt;
 }
 
-static char *get_key(int index) {
-#ifdef SIMD_COEF_32
-	unsigned int i,s;
-
-	s = saved_len[index];
-	for(i=0;i<s;i++)
-		out[i] = ((char*)saved_key)[GETPOS(i, index)];
-	out[i] = 0;
-	return (char *) out;
-#else
-	return saved_key[index];
-#endif
-}
-
 static int cmp_all(void *binary, int count) {
 	unsigned int index;
+
 	for (index = 0; index < count; index++)
 #ifdef SIMD_COEF_32
-        if (((uint32_t *) binary)[0] == ((uint32_t*)crypt_key)[(index&(SIMD_COEF_32-1)) + index/SIMD_COEF_32*5*SIMD_COEF_32])
+		if (((uint32_t *) binary)[0] == ((uint32_t*)crypt_key)[(index&(SIMD_COEF_32-1)) + index/SIMD_COEF_32*5*SIMD_COEF_32])
 #else
 		if ( ((uint32_t*)binary)[0] == ((uint32_t*)&(crypt_key[index][0]))[0] )
 #endif
@@ -239,16 +169,17 @@ static int cmp_all(void *binary, int count) {
 
 static int cmp_exact(char *source, int index)
 {
-	return (1);
+	return 1;
 }
 
 static int cmp_one(void * binary, int index)
 {
 #ifdef SIMD_COEF_32
-    int i;
+	int i;
+
 	for (i = 0; i < BINARY_SIZE/sizeof(uint32_t); i++)
-        if (((uint32_t *) binary)[i] != ((uint32_t*)crypt_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32+i*SIMD_COEF_32])
-            return 0;
+		if (((uint32_t *) binary)[i] != ((uint32_t*)crypt_key)[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32+i*SIMD_COEF_32])
+			return 0;
 	return 1;
 #else
 	return !memcmp(binary, crypt_key[index], BINARY_SIZE);
@@ -260,12 +191,12 @@ static void set_salt(void *salt) {
 }
 
 #ifdef SIMD_COEF_32
-static inline void set_onesalt(int index)
+inline static void set_onesalt(int index)
 {
 	unsigned int i, idx=index%NBKEYS;
 	unsigned char *sk = (unsigned char*)&saved_key[index/NBKEYS];
 
-	for(i=0;i<saved_salt->len;++i)
+	for (i=0;i<saved_salt->len;++i)
 		sk[GETPOS(i+saved_len[index], idx)] = saved_salt->data.c[i];
 	sk[GETPOS(i+saved_len[index], idx)] = 0x80;
 
@@ -279,23 +210,21 @@ static inline void set_onesalt(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
+	int inc = 1;
+
+#ifdef SIMD_COEF_32
+	inc = NBKEYS;
+#endif
 
 #ifdef _OPENMP
-#ifdef SIMD_COEF_32
-	int inc = NBKEYS;
-#else
-	int inc = 1;
-#endif
-
 #pragma omp parallel for
-	for (index=0; index < count; index += inc)
 #endif
-	{
+	for (index = 0; index < count; index += inc) {
 #ifdef SIMD_COEF_32
 		unsigned int i;
 
-		for(i=0;i<NBKEYS;i++)
+		for (i=0;i<NBKEYS;i++)
 			set_onesalt(i+index);
 		SIMDSHA1body(saved_key[index/NBKEYS], crypt_key[index/NBKEYS], NULL, SSEi_MIXED_IN);
 #else
@@ -312,28 +241,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	return count;
 }
 
-#ifdef SIMD_COEF_32
-#define HASH_OFFSET	(index&(SIMD_COEF_32-1))+(((unsigned int)index%NBKEYS)/SIMD_COEF_32)*SIMD_COEF_32*5
-static int get_hash_0(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index/NBKEYS][HASH_OFFSET] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
-#endif
+#define COMMON_GET_HASH_SIMD32 5
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
-	struct s_salt * mysalt = salt;
+	struct s_salt *mysalt = salt;
+
 	return mysalt->data.w32 & (SALT_HASH_SIZE - 1);
 }
 
@@ -384,13 +299,8 @@ struct fmt_main fmt_saltedsha = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

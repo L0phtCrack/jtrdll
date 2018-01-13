@@ -9,7 +9,7 @@
  */
 
 #if HAVE_OPENCL
-#undef FMT_STRUCT
+
 #define FMT_STRUCT fmt_ocl_tc
 #if FMT_EXTERNS_H
 extern struct fmt_main FMT_STRUCT;
@@ -108,7 +108,7 @@ static size_t insize, outsize, settingsize;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {
@@ -561,7 +561,7 @@ struct fmt_main FMT_STRUCT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ TAG_RIPEMD160 },
 		tests_ripemd160

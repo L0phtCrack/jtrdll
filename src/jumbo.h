@@ -37,7 +37,22 @@
 #if !AC_BUILT && (_MSC_VER || __MINGW32__ || __MINGW64__)
 #define HAVE__ATOI64 1
 #endif
-#include "john_stdint.h"
+
+#include <stdint.h>
+#define __STDC_FORMAT_MACROS
+#if (!AC_BUILT || HAVE_INTTYPES_H) && ! defined(_MSC_VER)
+#include <inttypes.h>
+#else
+#ifndef PRIx64
+#define PRIx64    "llx"
+#endif
+#ifndef PRIu64
+#define PRIu64    "llu"
+#endif
+#ifndef PRId64
+#define PRId64    "lld"
+#endif
+#endif
 
 /******************************************/
 /* here we try to 'find' a usable fseek64 */
@@ -79,15 +94,15 @@
 // back to using fseek (and warn the user)
 #if defined (__CYGWIN32__) && !defined (__CYGWIN64__)
    extern  int fseeko64 (FILE* stream, int64_t offset, int whence);
-#  define jtr_fseek64 fseeko64
+  #define jtr_fseek64 fseeko64
 #elif defined (__CYGWIN64__)
    extern  int fseeko (FILE* stream, int64_t offset, int whence);
-#  define jtr_fseek64 fseeko
+  #define jtr_fseek64 fseeko
 #else
-#  if defined(__GNUC__) && defined (AC_BUILT)
-#    warning Using 32-bit fseek(). Files larger than 2GB will be handled unreliably
-#  endif
-#  define jtr_fseek64 fseek
+  #if defined(__GNUC__) && defined (AC_BUILT)
+    #warning Using 32-bit fseek(). Files larger than 2GB will be handled unreliably
+  #endif
+  #define jtr_fseek64 fseek
 #endif
 
 #endif /* fseek */
@@ -121,15 +136,15 @@
 // back to using ftell (and warn the user)
 #if defined (__CYGWIN32__) && !defined (__CYGWIN64__)
    extern  int64_t ftello64 (FILE* stream);
-#  define jtr_ftell64 ftello64
+  #define jtr_ftell64 ftello64
 #elif defined (__CYGWIN64__)
    extern  int64_t ftello (FILE* stream);
-#  define jtr_ftell64 ftello
+  #define jtr_ftell64 ftello
 #else
-#  if defined(__GNUC__) && defined (AC_BUILT)
-#    warning Using 32-bit ftell(). Files larger than 2GB will be handled unreliably
-#  endif
-#  define jtr_ftell64 ftell
+  #if defined(__GNUC__) && defined (AC_BUILT)
+    #warning Using 32-bit ftell(). Files larger than 2GB will be handled unreliably
+  #endif
+  #define jtr_ftell64 ftell
 #endif
 
 #endif /* ftell */
@@ -138,13 +153,13 @@
 /* here we figure out if we use fopen or fopen64 */
 /*************************************************/
 #if SIZEOF_LONG == 8
-#  define jtr_fopen fopen
+  #define jtr_fopen fopen
 #elif HAVE_FOPEN64
-#  define jtr_fopen fopen64
+  #define jtr_fopen fopen64
 #elif HAVE__FOPEN64
-#  define jtr_fopen _fopen64
+  #define jtr_fopen _fopen64
 #else
-#  define jtr_fopen fopen
+  #define jtr_fopen fopen
 #endif
 #if __CYGWIN32__ || _MSC_VER
    extern  FILE *_fopen64 (const char *Fname, const char *type);
@@ -211,7 +226,7 @@ extern void *memmem(const void *haystack, size_t haystack_len,
 // We configure search for unix sleep(seconds) function, MSVC and MinGW do not have this,
 // so we replicate it with Win32 Sleep(ms) function.
 #if (AC_BUILT && !HAVE_SLEEP) || (!AC_BUILT && (_MSC_VER || __MINGW32__ || __MINGW64__))
-extern int sleep(int i);
+extern unsigned int sleep(unsigned int i);
 #endif
 
 #if !AC_BUILT
@@ -282,6 +297,8 @@ extern long long jtr_atoll(const char *);
 #endif
 #endif
 
+void memcpylwr(char *, const char *, size_t);
+
 #if (__MINGW32__ || __MINGW64__) && __STRICT_ANSI__
 // since we added -std=c99 for Mingw builds (to handle printf/scanf %xxx specifiers better),
 // we had to make some 'changes'. Mostly, some of the string types are undeclared (but will
@@ -315,6 +332,11 @@ extern int fileno(FILE *);
 #define strlwr _strlwr
 #define open _open
 #define fdopen _fdopen
+#pragma warning(disable: 4244) // possible loss of data
+#pragma warning(disable: 4334) // 32 bit shift implictly converted to 64 bits
+#pragma warning(disable: 4133) // function imcompatible types
+#pragma warning(disable: 4146) // unary minus applied to unsigned
+#pragma warning(disable: 4715) // not all control paths return a value
 #endif
 
 #if (AC_BUILT && !HAVE_SNPRINTF && HAVE_SPRINTF_S) || (!AC_BUILT && _MSC_VER)

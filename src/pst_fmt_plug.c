@@ -1,14 +1,16 @@
-/* PST cracker patch for JtR. Hacked together during July of 2012 by
+/*
+ * PST cracker patch for JtR. Hacked together during July of 2012 by
  * Dhiru Kholia <dhiru.kholia at gmail.com>
  *
- * Optimizations and shift to pkzip CRC32 code done by JimF
+ * Optimizations and shift to pkzip CRC32 code done by JimF.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  *
- * Uses code from crc32_fmt_plug.c written by JimF */
+ * Uses code from crc32_fmt_plug.c written by JimF.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_pst;
@@ -17,48 +19,45 @@ john_register_one(&fmt_pst);
 #else
 
 #include <string.h>
+
 #include "arch.h"
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "crc32.h"
+#include "memdbg.h"
 
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#endif
+#define FORMAT_LABEL            "PST"
+#define FORMAT_NAME             "custom CRC-32"
+#define FORMAT_TAG              "$pst$"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        8
+#define BINARY_SIZE             4
+#define SALT_SIZE               0
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1024
 
-#ifdef _OPENMP
-#include <omp.h>
 #ifdef __MIC__
 #ifndef OMP_SCALE
 #define OMP_SCALE               1024
 #endif
 #else
 #ifndef OMP_SCALE
-#define OMP_SCALE               16384 // core i7 no HT
+#define OMP_SCALE               16 // Tuned w/ MKPC for core i7
 #endif
 #endif
-static int omp_t = 1;
-#endif
-#include "memdbg.h"
-
-#define FORMAT_LABEL			"PST"
-#define FORMAT_NAME			"custom CRC-32"
-#define FORMAT_TAG           "$pst$"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME			"32/" ARCH_BITS_STR
-
-#define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		-1
-
-#define PLAINTEXT_LENGTH		8
-#define BINARY_SIZE			4
-#define SALT_SIZE			0
-#define BINARY_ALIGN		sizeof(uint32_t)
-#define SALT_ALIGN			1
-
-#define MIN_KEYS_PER_CRYPT		1
-#define MAX_KEYS_PER_CRYPT		256
 
 static struct fmt_tests tests[] = {
 	{"$pst$a9290513", "openwall"}, /* "jfuck jw" works too ;) */
@@ -76,12 +75,8 @@ static uint32_t (*crypt_out);
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
+	omp_autotune(self, OMP_SCALE);
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
@@ -108,12 +103,13 @@ static int valid(char *ciphertext, struct fmt_main *self)
 }
 
 static void set_key(char *key, int index) {
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH+1);
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static int cmp_all(void *binary, int count)
 {
 	uint32_t crc=*((uint32_t*)binary), i;
+
 	for (i = 0; i < count; ++i)
 		if (crc == crypt_out[i]) return 1;
 	return 0;
@@ -150,9 +146,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 static void *get_binary(char *ciphertext)
 {
 	static uint32_t *out;
+
 	if (!out)
 		out = mem_alloc_tiny(sizeof(uint32_t), MEM_ALIGN_WORD);
-	sscanf(&ciphertext[5], "%x", out);
+	sscanf(&ciphertext[FORMAT_TAG_LEN], "%x", out);
+
 	return out;
 }
 
@@ -161,13 +159,8 @@ static char *get_key(int index)
 	return saved_key[index];
 }
 
-static int get_hash_0(int index) { return crypt_out[index] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 struct fmt_main fmt_pst = {
 	{
@@ -219,13 +212,8 @@ struct fmt_main fmt_pst = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -63,7 +63,10 @@ volatile int event_ticksafety = 0;
 volatile int event_mpiprobe = 0, event_poll_files = 0;
 
 volatile int timer_abort = 0, timer_status = 0;
-static int timer_save_interval, timer_save_value;
+static int timer_save_interval;
+#ifndef BENCH_BUILD
+static int timer_save_value;
+#endif
 static clock_t timer_ticksafety_interval, timer_ticksafety_value;
 volatile int aborted_by_timer = 0;
 static int abort_grace_time = 30;
@@ -227,28 +230,33 @@ static void sig_remove_reload(void)
 
 void check_abort(int be_async_signal_safe)
 {
+	char *abort_msg = (aborted_by_timer) ?
+		"Session stopped (max run-time reached)\n" :
+#ifdef JTRDLL
+		"";
+#else
+		"Session aborted\n";
+#endif
+
 	if (!event_abort) return;
 
 	tty_done();
 
 	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 
-	if (be_async_signal_safe) {
-		if (john_main_process) {
-			if (aborted_by_timer)
-				write_loop(2, "Session stopped (max run-time"
-				           " reached)\n", 39);
-#ifndef JTRDLL
-			else
-				write_loop(2, "Session aborted\n", 16);
+#ifndef BENCH_BUILD
+	if (john_max_cands && status.cands >= john_max_cands)
+		abort_msg = "Session stopped (max candidates reached)\n";
 #endif
-		}
+
+	if (be_async_signal_safe) {
+		if (john_main_process)
+			write_loop(2, abort_msg, strlen(abort_msg));
 		_exit(1);
 	}
 
 	if (john_main_process)
-		fprintf(stderr, "Session %s\n", (aborted_by_timer) ?
-		        "stopped (max run-time reached)" : "aborted");
+		fprintf(stderr, "%s", abort_msg);
 	error();
 }
 
@@ -260,7 +268,7 @@ void sig_handle_abort(int signum)
 	int saved_errno = errno;
 
 #if OS_FORK
-	if (john_main_process) {
+	if (john_main_process && !aborted_by_timer) {
 /*
  * We assume that our children are running on the same tty with us, so if we
  * receive a SIGINT they probably do as well without us needing to forward the
@@ -611,11 +619,7 @@ void sig_init(void)
 		abort_grace_time =
 			cfg_get_int(SECTION_OPTIONS, NULL, "AbortGraceTime");
 	}
-#if OS_TIMER
-	timer_save_value = timer_save_interval;
-#elif !defined(BENCH_BUILD)
-	timer_save_value = status_get_time() + timer_save_interval;
-#endif
+
 	timer_ticksafety_interval = (clock_t)1 << (sizeof(clock_t) * 8 - 4);
 	timer_ticksafety_interval /= clk_tck;
 	if ((timer_ticksafety_interval /= TIMER_INTERVAL) <= 0)
@@ -624,13 +628,36 @@ void sig_init(void)
 
 	atexit(sig_done);
 
-#ifndef _MSC_VER
-	sig_install(sig_handle_update, SIGHUP);
-#endif
 	sig_install_abort();
+}
+
+void sig_init_late(void)
+{
+#ifndef BENCH_BUILD
+	unsigned int time;
+
+#if OS_TIMER
+	timer_save_value = timer_save_interval;
+
+	time = 0;
+#else
+	timer_save_value = status_get_time() + timer_save_interval;
+	time = status_get_time();
+#endif
+#endif
+
+	sig_install(sig_handle_update, SIGHUP);
 	sig_install_timer();
+#ifdef JTRDLL
 #ifdef _WIN32
 	install_potwatch();
+#endif
+#endif
+#ifndef BENCH_BUILD
+	if (options.max_run_time)
+		timer_abort = time + abs(options.max_run_time);
+	if (options.status_interval)
+		timer_status = time + options.status_interval;
 #endif
 }
 
@@ -641,9 +668,6 @@ void sig_init_child(void)
 #endif
 #ifdef SIGUSR2
 	sig_remove_reload();
-#endif
-#if OS_TIMER
-	sig_init_timer();
 #endif
 }
 

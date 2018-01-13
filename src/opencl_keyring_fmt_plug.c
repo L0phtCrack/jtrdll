@@ -14,8 +14,8 @@ extern struct fmt_main fmt_opencl_keyring;
 john_register_one(&fmt_opencl_keyring);
 #else
 
+#include <stdint.h>
 #include <string.h>
-#include "aes.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -26,9 +26,9 @@ john_register_one(&fmt_opencl_keyring);
 #include "misc.h"
 #include "common-opencl.h"
 #include "options.h"
+#include "aes.h"
 #include "sha2.h"
 #include "md5.h"
-#include "john_stdint.h"
 
 #define FORMAT_LABEL		"keyring-opencl"
 #define FORMAT_NAME		"GNOME Keyring"
@@ -103,7 +103,7 @@ static const char * warn[] = {
 };
 
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 /* ------- Helper functions ------- */

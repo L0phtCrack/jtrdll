@@ -46,7 +46,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "common.h"
-#define __MEMDBG__
+#define __MEMDBG_C_FILE__
 #include "memdbg.h"
 #include "pseudo_intrinsics.h"
 #include "jumbo.h"
@@ -240,7 +240,7 @@ void MemDbg_Display(FILE *fp) {
 				cp = (char*)p->mdbg_hdr2->mdbg_fpst;
 				cp -= 16;
 				for (i = 0; i < 20; ++i) {
-					if(*cp < ' ' || *cp > '~')
+					if (*cp < ' ' || *cp > '~')
 						fprintf(fp, ".");
 					else
 						fprintf(fp, "%c", *cp);
@@ -254,7 +254,7 @@ void MemDbg_Display(FILE *fp) {
 			char *cp = ((char*)p)+RESERVE_SZ;
 			fprintf(fp, "  ");
 			for (i = 0; i < 20 && i < p->mdbg_size; ++i) {
-				if(*cp < ' ' || *cp > '~')
+				if (*cp < ' ' || *cp > '~')
 					fprintf(fp, ".");
 				else
 					fprintf(fp, "%c", *cp);
@@ -318,7 +318,7 @@ void MemDbg_Validate_msg2(int level, const char *pMsg, int bShowExMessages) {
 			MEMDBG_HDR  volatile *p2 = p->mdbg_next;
 			while (p2) {
 				if (p2 == p || p2 == p2->mdbg_next) {
-					fprintf (stderr, "Error, internal loop in the memdbg linked list, aborting\n");
+					fprintf(stderr, "Error, internal loop in the memdbg linked list, aborting\n");
 					break;
 				}
 				p2 = p2->mdbg_next;
@@ -365,7 +365,7 @@ void MemDbg_Validate_msg2(int level, const char *pMsg, int bShowExMessages) {
 			MEMDBG_HDR  *p2 = p->mdbg_next;
 			while (p2) {
 				if (p2 == p || p2 == p2->mdbg_next) {
-					fprintf (stderr, "Error, internal loop in the memdbg linked list, aborting\n");
+					fprintf(stderr, "Error, internal loop in the memdbg linked list, aborting\n");
 					break;
 				}
 				p2 = p2->mdbg_next;
@@ -416,7 +416,7 @@ void MemDbg_Validate_msg2(int level, const char *pMsg, int bShowExMessages) {
 			MEMDBG_HDR  *p2 = p->mdbg_next;
 			while (p2) {
 				if (p2 == p || p2 == p2->mdbg_next) {
-					fprintf (stderr, "Error, internal loop in the memdbg linked list, aborting\n");
+					fprintf(stderr, "Error, internal loop in the memdbg linked list, aborting\n");
 					break;
 				}
 				p2 = p2->mdbg_next;
@@ -458,7 +458,7 @@ void MemDbg_Validate_msg2(int level, const char *pMsg, int bShowExMessages) {
 			MEMDBG_HDR  *p2 = p->mdbg_next;
 			while (p2) {
 				if (p2 == p || p2 == p2->mdbg_next) {
-					fprintf (stderr, "Error, internal loop in the memdbg linked list, aborting\n");
+					fprintf(stderr, "Error, internal loop in the memdbg linked list, aborting\n");
 					break;
 				}
 				p2 = p2->mdbg_next;

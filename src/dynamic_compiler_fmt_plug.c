@@ -19,6 +19,18 @@
  */
 
 #include "arch.h"
+
+#if defined(SIMD_COEF_32) && !ARCH_LITTLE_ENDIAN
+	#undef SIMD_COEF_32
+	#undef SIMD_COEF_64
+	#undef SIMD_PARA_MD5
+	#undef SIMD_PARA_MD4
+	#undef SIMD_PARA_SHA1
+	#undef SIMD_PARA_SHA256
+	#undef SIMD_PARA_SHA512
+	#define BITS ARCH_BITS_STR
+#endif
+
 #ifndef DYNAMIC_DISABLED
 
 #if FMT_EXTERNS_H
@@ -72,6 +84,7 @@ static int dyna_hash_type_len;
 static struct fmt_main *pDynamic;
 static void our_init(struct fmt_main *self);
 static void get_ptr();
+static char* (*dyna_split)(char *ciphertext, int index, struct fmt_main *self);
 
 /* this function converts a 'native' @dynamic= signature string into a $dynamic_6xxx$ syntax string */
 static char *Convert(char *Buf, char *ciphertext, int in_load)
@@ -103,7 +116,7 @@ static char *Convert(char *Buf, char *ciphertext, int in_load)
 static char *our_split(char *ciphertext, int index, struct fmt_main *self)
 {
 	ciphertext = dynamic_compile_split(ciphertext);
-	return ciphertext;
+	return dyna_split(ciphertext, index, self);
 }
 extern char *load_regen_lost_salt_Prepare(char *split_fields1);
 static char *our_prepare(char **fields, struct fmt_main *self)
@@ -131,6 +144,9 @@ static int our_valid(char *ciphertext, struct fmt_main *self)
 	get_ptr();
 //	if (strncmp(ciphertext, dyna_signature, dyna_sig_len) != 0)
 //		return 0;
+
+	if (strnlen(ciphertext, sizeof(Conv_Buf)) >= sizeof(Conv_Buf))
+		return 0;
 
 	return pDynamic->methods.valid(Convert(Conv_Buf, ciphertext, 0), pDynamic);
 }
@@ -197,6 +213,7 @@ static void link_funcs() {
 	}
 	fmt_CompiledDynamic.methods.salt   = our_salt;
 	fmt_CompiledDynamic.methods.binary = our_binary;
+	dyna_split = fmt_CompiledDynamic.methods.split;
 	fmt_CompiledDynamic.methods.split = our_split;
 	fmt_CompiledDynamic.methods.prepare = our_prepare;
 	fmt_CompiledDynamic.methods.done = our_done;
@@ -250,7 +267,7 @@ static void our_init(struct fmt_main *self)
 static void get_ptr() {
 	if (!pDynamic) {
 		dynamic_LOCAL_FMT_FROM_PARSER_FUNCTIONS(dyna_script, &dyna_type, &fmt_CompiledDynamic, Convert);
-		sprintf (dyna_hash_type, "$dynamic_%d$", dyna_type);
+		sprintf(dyna_hash_type, "$dynamic_%d$", dyna_type);
 		dyna_hash_type_len = strlen(dyna_hash_type);
 		pDynamic = dynamic_THIN_FORMAT_LINK(&fmt_CompiledDynamic, Convert(Conv_Buf, (char*)dyna_line[0], 0), "@dynamic=", 0);
 		link_funcs();

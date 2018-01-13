@@ -21,6 +21,9 @@ john_register_one(&fmt_mozilla);
 #else
 
 #include <string.h>
+#include <stdint.h>
+#include <openssl/des.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -36,10 +39,8 @@ john_register_one(&fmt_mozilla);
 #include "johnswap.h"
 #include "params.h"
 #include "options.h"
-#include "memdbg.h"
-#include "john_stdint.h"
-#include <openssl/des.h>
 #include "sha.h"
+#include "memdbg.h"
 
 #define FORMAT_LABEL            "Mozilla"
 #define FORMAT_NAME             "Mozilla key3.db"
@@ -78,11 +79,7 @@ static  struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_num_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -113,14 +110,14 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	++p;
 	if ((p = strtokm(p, "*")) == NULL) /* version */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res != 3)  /* we only know about this particular version */
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL) /* local_salt_length */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res > 20)
@@ -135,7 +132,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL) /* oidDatalen */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res > 20)
@@ -148,7 +145,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL) /* password_check_length */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res > 20)
@@ -161,7 +158,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL) /* global_salt_length */
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res > 20)
@@ -274,13 +271,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -291,12 +283,11 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		SHA_CTX ctx, ctxi, ctxo;
 		int i;
 		union {
@@ -376,10 +367,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -397,8 +387,7 @@ static int cmp_exact(char *source, int index)
 
 static void mozilla_set_key(char *key, int index)
 {
-	saved_len[index] = strlen(key);
-	strncpy(saved_key[index], key, sizeof(saved_key[0]));
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -453,13 +442,8 @@ struct fmt_main fmt_mozilla = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

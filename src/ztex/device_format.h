@@ -12,9 +12,12 @@
  *
  */
 
+#include "../list.h"
+
 // (re-)initializes hardware.
 // Saves pointers to 'struct fmt_params', 'struct device_bitstream'.
-void device_format_init(struct fmt_main *fmt_main, struct device_bitstream *bitstream);
+void device_format_init(struct fmt_main *fmt_main,
+		struct device_bitstream *bitstream, struct list_main *devices_allow);
 
 void device_format_done();
 
@@ -28,6 +31,14 @@ void device_format_set_key(char *key, int index);
 
 // Performs computation of keys_buffer using given salt
 int device_format_crypt_all(int *pcount, struct db_salt *salt);
+
+int device_format_get_hash_0(int index);
+int device_format_get_hash_1(int index);
+int device_format_get_hash_2(int index);
+int device_format_get_hash_3(int index);
+int device_format_get_hash_4(int index);
+int device_format_get_hash_5(int index);
+int device_format_get_hash_6(int index);
 
 int device_format_cmp_all(void *binary, int count);
 

@@ -3,6 +3,9 @@
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
+ *
+ * salt length increase. HAS to match pbkdf2_hmac_sha256_kernel.cl code
+ *  Now uses a common header file.  Dec 2017, JimF.
  */
 #ifdef HAVE_OPENCL
 
@@ -12,14 +15,15 @@ extern struct fmt_main fmt_opencl_pbkdf2_hmac_sha256;
 john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #else
 
+#include <stdint.h>
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
+
 #include "misc.h"
 #include "arch.h"
 #include "base64_convert.h"
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "options.h"
 #include "common-opencl.h"
@@ -31,7 +35,6 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 
 #define SALT_ALIGN		1
 
-#define PLAINTEXT_LENGTH	55
 #define SALT_SIZE		sizeof(salt_t)
 
 #define KERNEL_NAME		"pbkdf2_sha256_kernel"
@@ -40,28 +43,7 @@ john_register_one(&fmt_opencl_pbkdf2_hmac_sha256);
 #define HASH_LOOPS		(13*71) // factors 13, 13, 71
 #define ITERATIONS		12000
 
-typedef struct {
-	uint8_t length;
-	uint8_t v[PLAINTEXT_LENGTH];
-} pass_t;
-
-typedef struct {
-	uint32_t hash[8];
-} crack_t;
-
-typedef struct {
-	uint8_t length;
-	uint8_t salt[PBKDF2_32_MAX_SALT_SIZE];
-	uint32_t rounds;
-} salt_t;
-
-typedef struct {
-	uint32_t ipad[8];
-	uint32_t opad[8];
-	uint32_t hash[8];
-	uint32_t W[8];
-	uint32_t rounds;
-} state_t;
+#include "opencl_pbkdf2_hmac_sha256.h"
 
 //#define DEBUG
 static pass_t *host_pass;			      /** plain ciphertexts **/
@@ -82,7 +64,7 @@ static const char * warn[] = {
 static int split_events[] = { 2, -1, -1 };
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
@@ -247,7 +229,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
 		1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
 
-	for(i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
+	for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
 			1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
 		BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");

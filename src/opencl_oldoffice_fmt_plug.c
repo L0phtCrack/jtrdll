@@ -17,11 +17,10 @@ extern struct fmt_main FORMAT_STRUCT;
 john_register_one(&FORMAT_STRUCT);
 #else
 
+#include <stdint.h>
 #include <string.h>
-#include <errno.h>
 
 #include "common-opencl.h"
-#include "john_stdint.h"
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -54,7 +53,7 @@ static struct fmt_tests oo_tests[] = {
 	{"$oldoffice$1*de17a7f3c3ff03a39937ba9666d6e952*2374d5b6ce7449f57c9f252f9f9b53d2*e60e1185f7aecedba262f869c0236f81", "test"},
 	{"$oldoffice$0*e40b4fdade5be6be329c4238e2099b8a*259590322b55f7a3c38cb96b5864e72d*2e6516bfaf981770fe6819a34998295d", "123456789012345"},
 	{"$oldoffice$4*163ae8c43577b94902f58d0106b29205*87deff24175c2414cb1b2abdd30855a3*4182446a527fe4648dffa792d55ae7a15edfc4fb", "Google123"},
-	/* Meet-in-the-middle candidate produced with oclHashcat -m9710 */
+	/* Meet-in-the-middle candidate produced with hashcat -m9710 */
 	/* Real pw is "hashcat", one collision is "zvDtu!" */
 	{"", "zvDtu!", {"", "$oldoffice$1*d6aabb63363188b9b73a88efb9c9152e*afbbb9254764273f8f4fad9a5d82981f*6f09fd2eafc4ade522b5f2bee0eaf66d","f2ab1219ae"} },
 #if PLAINTEXT_LENGTH >= 24
@@ -116,7 +115,7 @@ static struct fmt_main *self;
 #define SEED			1024
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char *warn[] = {
@@ -448,7 +447,7 @@ static void *get_salt(char *ciphertext)
 		cs.verifier[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtokm(NULL, "*");
-	if(cs.type < 3) {
+	if (cs.type < 3) {
 		for (i = 0; i < 16; i++)
 			cs.verifierHash[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 				+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
@@ -480,59 +479,6 @@ static void *get_salt(char *ciphertext)
 
 	ptr = mem_alloc_copy(&cs, sizeof(custom_salt), MEM_ALIGN_WORD);
 	return &ptr;
-}
-
-static char *source(char *source, void *binary)
-{
-	static char Buf[CIPHERTEXT_LENGTH];
-	unsigned char *cpi, *cp = (unsigned char*)Buf;
-	int i, len;
-
-	cp += sprintf(Buf, "%s%d*", FORMAT_TAG, cur_salt->type);
-
-	cpi = cur_salt->salt;
-	for (i = 0; i < 16; i++) {
-		*cp++ = itoa16[*cpi >> 4];
-		*cp++ = itoa16[*cpi & 0xf];
-		cpi++;
-	}
-	*cp++ = '*';
-
-	cpi = cur_salt->verifier;
-	for (i = 0; i < 16; i++) {
-		*cp++ = itoa16[*cpi >> 4];
-		*cp++ = itoa16[*cpi & 0xf];
-		cpi++;
-	}
-	*cp++ = '*';
-
-	len = (cur_salt->type < 3) ? 16 : 20;
-	cpi = cur_salt->verifierHash;
-	for (i = 0; i < len; i++) {
-		*cp++ = itoa16[*cpi >> 4];
-		*cp++ = itoa16[*cpi & 0xf];
-		cpi++;
-	}
-	*cp = 0;
-
-	if (cur_salt->has_mitm && !bench_running) {
-		static int last;
-		char out[11];
-
-		if (last != hex_hash(Buf)) {
-			last = hex_hash(Buf);
-			cpi = cur_salt->mitm;
-			for (i = 0; i < 5; i++) {
-				out[2 * i + 0] = itoa16[*cpi >> 4];
-				out[2 * i + 1] = itoa16[*cpi & 0xf];
-				cpi++;
-			}
-			out[10] = 0;
-			fprintf(stderr, "MITM key: %s\n", out);
-		}
-	}
-
-	return Buf;
 }
 
 static void set_salt(void *salt)
@@ -598,6 +544,21 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
+	extern volatile int bench_running;
+
+	if (cur_salt->type < 4 && !bench_running) {
+		unsigned char *cp, out[11];
+		int i;
+
+		cp = cur_salt->mitm;
+		for (i = 0; i < 5; i++) {
+			out[2 * i + 0] = itoa16[*cp >> 4];
+			out[2 * i + 1] = itoa16[*cp & 0xf];
+			cp++;
+		}
+		out[10] = 0;
+		fprintf(stderr, "MITM key: %s\n", out);
+	}
 	return 1;
 }
 
@@ -727,7 +688,7 @@ struct fmt_main FORMAT_STRUCT = {
 		{
 			oo_hash_type,
 		},
-		source,
+		fmt_default_source,
 		{
 			fmt_default_binary_hash
 		},

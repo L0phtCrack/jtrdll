@@ -35,25 +35,26 @@
 #include <sys/types.h>
 #elif _MSC_VER || __MINGW32__
 #include <windows.h>
+char CPU_req_name[48];
 #endif
 #if (!AC_BUILT || HAVE_UNISTD_H) && !_MSC_VER
 #include <unistd.h>
 #endif
 #include <errno.h>
 #if !AC_BUILT
-# include <string.h>
-# ifndef _MSC_VER
-#  include <strings.h>
-# endif
+ #include <string.h>
+ #ifndef _MSC_VER
+  #include <strings.h>
+ #endif
 #else
-# if STRING_WITH_STRINGS
-#  include <string.h>
-#  include <strings.h>
-# elif HAVE_STRING_H
-#  include <string.h>
-# elif HAVE_STRINGS_H
-#  include <strings.h>
-# endif
+ #if STRING_WITH_STRINGS
+  #include <string.h>
+  #include <strings.h>
+ #elif HAVE_STRING_H
+  #include <string.h>
+ #elif HAVE_STRINGS_H
+  #include <strings.h>
+ #endif
 #endif
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -119,7 +120,6 @@ static int john_omp_threads_new;
 #include "common-gpu.h"
 #endif
 #if HAVE_OPENCL
-#undef __SSE2__
 #include "common-opencl.h"
 #endif
 #ifdef NO_JOHN_BLD
@@ -141,6 +141,7 @@ static int john_omp_threads_new;
 #define _MP_VERSION ""
 #endif
 #endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifdef JTRDLL
@@ -149,6 +150,7 @@ static int john_omp_threads_new;
 
 #if CPU_DETECT
 extern int CPU_detect(void);
+extern char CPU_req_name[];
 #endif
 
 extern struct fmt_main fmt_DES, fmt_BSDI, fmt_MD5, fmt_BF;
@@ -162,6 +164,7 @@ extern struct fmt_main fmt_dummy;
 extern struct fmt_main fmt_NT;
 #ifdef HAVE_ZTEX
 extern struct fmt_main fmt_ztex_descrypt;
+extern struct fmt_main fmt_ztex_bcrypt;
 #endif
 
 #include "fmt_externs.h"
@@ -172,15 +175,9 @@ extern int unique(int argc, char **argv);
 extern int undrop(int argc, char **argv);
 
 extern int base64conv(int argc, char **argv);
-extern int hccap2john(int argc, char **argv);
 extern int zip2john(int argc, char **argv);
 extern int gpg2john(int argc, char **argv);
-extern int pfx2john(int argc, char **argv);
-extern int keepass2john(int argc, char **argv);
 extern int rar2john(int argc, char **argv);
-extern int racf2john(int argc, char **argv);
-extern int dmg2john(int argc, char **argv);
-extern int putty2john(int argc, char **argv);
 
 int john_main_process = 1;
 #if OS_FORK
@@ -189,15 +186,14 @@ int *john_child_pids = NULL;
 #endif
 char *john_terminal_locale ="C";
 
+unsigned long long john_max_cands;
+
 static int children_ok = 1;
 
 static struct db_main database;
 static struct fmt_main dummy_format;
 
 static int exit_status = 0;
-
-
-
 
 static void john_register_one(struct fmt_main *format)
 {
@@ -226,11 +222,11 @@ static void john_register_one(struct fmt_main *format)
 		}
 
 		if (pos) {
-			// Wildcard, as in --format=office*
+			/* Wildcard, as in --format=office* */
 			if (strncasecmp(format->params.label, options.format,
 			                (int)(pos - options.format)))
 				return;
-			// Trailer wildcard, as in *office or raw*ng
+			/* Trailer wildcard, as in *office or raw*ng */
 			if (pos[1]) {
 				int wild_len = strlen(++pos);
 				int label_len = strlen(format->params.label);
@@ -248,7 +244,7 @@ static void john_register_one(struct fmt_main *format)
 		           (pos = strchr(options.format, '@'))) {
 			char *reject, *algo = strdup(++pos);
 
-			// Rejections
+			/* Rejections */
 			if ((reject = strcasestr(algo, "-dynamic"))) {
 				if (format->params.flags & FMT_DYNAMIC) {
 					MEM_FREE (algo);
@@ -263,7 +259,7 @@ static void john_register_one(struct fmt_main *format)
 				}
 				memmove(reject, reject + 7, strlen(reject + 6));
 			}
-			// Algo match, as in --format=@xop or --format=@sha384
+			/* Algo match, eg. --format=@xop or --format=@sha384 */
 			if (!strcasestr(format->params.algorithm_name, algo)) {
 				MEM_FREE (algo);
 				return;
@@ -332,18 +328,18 @@ static void john_register_one(struct fmt_main *format)
 	                 format->params.label, 0)) {
 #ifdef DEBUG
 		if (format->params.flags & FMT_DYNAMIC) {
-			// in debug mode, we 'allow' dyna
+			/* in debug mode, we 'allow' dyna */
 		} else
 #else
 		if (options.format &&
 		    !strcasecmp(options.format, "dynamic-all") &&
 		    (format->params.flags & FMT_DYNAMIC)) {
-			// allow dyna if '-format=dynamic-all' was selected
+			/* allow dyna if '-format=dynamic-all' was selected */
 		} else
 #endif
 		if (options.format &&
 		    !strcasecmp(options.format, format->params.label)) {
-			// allow if specifically requested
+			/* allow if specifically requested */
 		} else
 			return;
 	}
@@ -359,14 +355,15 @@ static void john_register_all(void)
 #endif
 
 	if (options.format) {
-/* The case of the expression for this format is VERY important to keep */
+	/* The case of the expression for this format is significant */
 		if (strncasecmp(options.format, "dynamic=", 8))
 			strlwr(options.format);
 	}
 
-// Let ZTEX format appear before CPU format
+	/* Let ZTEX format appear before CPU format */
 #ifdef HAVE_ZTEX
 	john_register_one(&fmt_ztex_descrypt);
+	john_register_one(&fmt_ztex_bcrypt);
 #endif
 	john_register_one(&fmt_DES);
 	john_register_one(&fmt_BSDI);
@@ -377,21 +374,19 @@ static void john_register_all(void)
 	john_register_one(&fmt_AFS);
 	john_register_one(&fmt_trip);
 
+	/* Add all plug-in formats */
+#include "fmt_registers.h"
+
+	/* This format is deprecated so registers after plug-in NT formats */
+	john_register_one(&fmt_NT);
+
 #ifndef DYNAMIC_DISABLED
-	// NOTE, this MUST happen, before ANY format that links a 'thin' format
-	// to dynamic.
-	// Since gen(27) and gen(28) are MD5 and MD5a formats, we build the
-	// generic format first
+	/* Add dynamic formats last so they never have precedence */
 	cnt = dynamic_Register_formats(&selfs);
 
 	for (i = 0; i < cnt; ++i)
 		john_register_one(&(selfs[i]));
 #endif
-
-#include "fmt_registers.h"
-
-	// This format is deprecated so now registers after plug-in NT format.
-	john_register_one(&fmt_NT);
 
 	john_register_one(&fmt_dummy);
 #if HAVE_CRYPT
@@ -408,19 +403,45 @@ static void john_register_all(void)
 static void john_log_format(void)
 {
 	int min_chunk, chunk;
+	int enc_len, utf8_len;
+	char max_len_s[128];
 
 	/* make sure the format is properly initialized */
 #if HAVE_OPENCL
-	if (!(options.gpu_devices->count && options.fork &&
+	if (!(options.acc_devices->count && options.fork &&
 	      strstr(database.format->params.label, "-opencl")))
 #endif
 	fmt_init(database.format);
 
-	log_event("- Hash type: %.100s%s%.100s (lengths up to %d%s)",
+	utf8_len = enc_len = database.format->params.plaintext_length;
+	if (options.target_enc == UTF_8)
+		utf8_len /= 3;
+
+	if (!(database.format->params.flags & FMT_8_BIT) ||
+	    options.target_enc != UTF_8) {
+		/* Not using UTF-8 so length is not ambiguous */
+		snprintf(max_len_s, sizeof(max_len_s), "%d", enc_len);
+	} else if (!fmt_raw_len || fmt_raw_len == enc_len) {
+		/* Example: Office and thin dynamics */
+		snprintf(max_len_s, sizeof(max_len_s),
+		         "%d [worst case UTF-8] to %d [ASCII]",
+		         utf8_len, enc_len);
+	} else if (enc_len == 3 * fmt_raw_len) {
+		/* Example: NT */
+		snprintf(max_len_s, sizeof(max_len_s), "%d", utf8_len);
+	} else {
+		/* Example: SybaseASE */
+		snprintf(max_len_s, sizeof(max_len_s),
+		         "%d [worst case UTF-8] to %d [ASCII]",
+		         utf8_len, fmt_raw_len);
+	}
+
+	log_event("- Hash type: %.100s%s%.100s (min-len %d, max-len %s%s)",
 	    database.format->params.label,
 	    database.format->params.format_name[0] ? ", " : "",
 	    database.format->params.format_name,
-	    database.format->params.plaintext_length,
+	    database.format->params.plaintext_min_length,
+	    max_len_s,
 	    (database.format == &fmt_DES || database.format == &fmt_LM) ?
 	    ", longer passwords split" : "");
 
@@ -488,12 +509,13 @@ static void john_omp_maybe_adjust_or_fallback(char **argv)
 
 static void john_omp_show_info(void)
 {
-	if (options.verbosity >= VERB_LEGACY)
+	if (options.verbosity >= VERB_DEFAULT)
 #if HAVE_MPI
 	if (mpi_p == 1)
 #endif
 	if (database.format && database.format->params.label &&
-	        !strstr(database.format->params.label, "-opencl"))
+	        !strstr(database.format->params.label, "-opencl") &&
+	        !strstr(database.format->params.label, "-ztex"))
 	if (!options.fork && john_omp_threads_orig > 1 &&
 	    database.format && database.format != &dummy_format &&
 	    !rec_restoring_now) {
@@ -502,15 +524,17 @@ static void john_omp_show_info(void)
 			msg = "no OpenMP support";
 		else if ((database.format->params.flags & FMT_OMP_BAD))
 			msg = "poor OpenMP scalability";
-		if (msg)
+		if (msg) {
 #if OS_FORK
+		if (!(options.flags & (FLG_PIPE_CHK | FLG_STDIN_CHK)))
 			fprintf(stderr, "Warning: %s for this hash type, "
 			    "consider --fork=%d\n",
 			    msg, john_omp_threads_orig);
-#else
+		else
+#endif
 			fprintf(stderr, "Warning: %s for this hash type\n",
 			    msg);
-#endif
+		}
 	}
 
 /*
@@ -543,16 +567,16 @@ static void john_omp_show_info(void)
 	 * mpirun -x OMP_NUM_THREADS=4 -np 4 -host ...
 	 */
 	if (mpi_p > 1) {
-		if(getenv("OMP_NUM_THREADS") == NULL &&
+		if (getenv("OMP_NUM_THREADS") == NULL &&
 		   cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI,
 		                "MPIOMPmutex", 1)) {
-			if(cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI,
+			if (cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI,
 			                "MPIOMPverbose", 1) && mpi_id == 0)
 				fprintf(stderr, "MPI in use, disabling OMP "
 				        "(see doc/README.mpi)\n");
 			omp_set_num_threads(1);
 			john_omp_threads_orig = 0; /* Mute later warning */
-		} else if(john_omp_threads_orig > 1 &&
+		} else if (john_omp_threads_orig > 1 &&
 		        cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI,
 		                "MPIOMPverbose", 1) && mpi_id == 0)
 			fprintf(stderr, "Note: Running both MPI and OMP"
@@ -624,20 +648,20 @@ static void john_fork(void)
 			options.node_min += i;
 			options.node_max = options.node_min;
 #if HAVE_OPENCL
-			// Poor man's multi-device support
-			if (options.gpu_devices->count &&
+			/* Poor man's multi-device support */
+			if (options.acc_devices->count &&
 			    strstr(database.format->params.label, "-opencl")) {
-				// Pick device to use for this child
+				/* Pick device to use for this child */
 				opencl_preinit();
 				gpu_id =
-				    gpu_device_list[i % get_number_of_devices_in_use()];
+				    requested_devices[i % get_number_of_requested_devices()];
 				platform_id = get_platform_id(gpu_id);
 
-				// Hide any other devices from list
+				/* Hide any other devices from list */
 				gpu_device_list[0] = gpu_id;
 				gpu_device_list[1] = -1;
 
-				// Postponed format init in forked process
+				/* Postponed format init in forked process */
 				fmt_init(database.format);
 			}
 #endif
@@ -660,18 +684,18 @@ static void john_fork(void)
 	}
 
 #if HAVE_OPENCL
-	// Poor man's multi-device support
-	if (options.gpu_devices->count &&
+	/* Poor man's multi-device support */
+	if (options.acc_devices->count &&
 	    strstr(database.format->params.label, "-opencl")) {
-		// Pick device to use for mother process
+		/* Pick device to use for mother process */
 		opencl_preinit();
 		gpu_id = gpu_device_list[0];
 		platform_id = get_platform_id(gpu_id);
 
-		// Hide any other devices from list
+		/* Hide any other devices from list */
 		gpu_device_list[1] = -1;
 
-		// Postponed format init in mother process
+		/* Postponed format init in mother process */
 		fmt_init(database.format);
 	}
 #endif
@@ -862,6 +886,16 @@ static void john_load_conf(void)
 			options.flags |= FLG_RULES;
 	}
 
+	/* EmulateBrokenEncoding feature */
+	options.replacement_character = 0;
+	if (cfg_get_bool(SECTION_OPTIONS, NULL, "EmulateBrokenEncoding", 0)) {
+		char *value;
+
+		value = cfg_get_param(SECTION_OPTIONS, NULL, "ReplacementCharacter");
+		if (value != NULL)
+			options.replacement_character = value[0];
+	}
+
 	options.secure = cfg_get_bool(SECTION_OPTIONS, NULL, "SecureMode", 0);
 	options.show_uid_in_cracks = cfg_get_bool(SECTION_OPTIONS, NULL, "ShowUIDinCracks", 0);
 	options.reload_at_crack =
@@ -925,7 +959,6 @@ static void john_load_conf_db(void)
 
 	options.report_utf8 = cfg_get_bool(SECTION_OPTIONS,
 	                                     NULL, "AlwaysReportUTF8", 0);
-
 
 	/* Unicode (UTF-16) formats may lack encoding support. We
 	   must stop the user from trying to use it because it will
@@ -1004,7 +1037,7 @@ static void load_extra_pots(struct db_main *db, void (*process_file)(struct db_m
 				struct dirent *ep;
 
 				while ((ep = readdir(dp))) {
-					char dname[PATH_BUFFER_SIZE];
+					char dname[2 * PATH_BUFFER_SIZE];
 					char *p;
 
 					if (!(p = strrchr(ep->d_name, '.')) ||
@@ -1063,9 +1096,6 @@ static void john_load(void)
 
 #ifndef _MSC_VER
 	umask(077);
-#else
-	int oldmode;
-	_umask_s(0, &oldmode);
 #endif
 
 	if (options.flags & FLG_EXTERNAL_CHK)
@@ -1121,12 +1151,14 @@ static void john_load(void)
 			options.loader.flags |= DB_CRACKED;
 			ldr_init_database(&database, &options.loader);
 
-			ldr_show_pot_file(&database, options.activepot);
+			if (!options.loader.showtypes) {
+				ldr_show_pot_file(&database, options.activepot);
 /*
  * Load optional extra (read-only) pot files. If an entry is a directory,
  * we read all files in it. We currently do NOT recurse.
  */
-			load_extra_pots(&database, &ldr_show_pot_file);
+				load_extra_pots(&database, &ldr_show_pot_file);
+			}
 
 			if ((current = options.passwd->head))
 			do {
@@ -1148,6 +1180,9 @@ static void john_load(void)
 				database.guess_count != 1 ? "es" : "",
 				database.password_count -
 				database.guess_count);
+
+			if (options.loader.showtypes_json)
+				puts("]");
 
 			fmt_all_done();
 
@@ -1186,7 +1221,7 @@ static void john_load(void)
 			log_event("Loaded a total of %s", john_loaded_counts());
 			/* make sure the format is properly initialized */
 #if HAVE_OPENCL
-			if (!(options.gpu_devices->count && options.fork &&
+			if (!(options.acc_devices->count && options.fork &&
 			      strstr(database.format->params.label, "-opencl")))
 #endif
 			fmt_init(database.format);
@@ -1204,6 +1239,7 @@ static void john_load(void)
 		}
 
 		total = database.password_count;
+
 		ldr_load_pot_file(&database, options.activepot);
 
 /*
@@ -1245,7 +1281,7 @@ static void john_load(void)
 				log_event("Cost %d (%s) is %u for all loaded hashes",
 				          i+1, database.format->params.tunable_cost_name[i],
 				          database.min_cost[i]);
-				if (options.verbosity >= VERB_LEGACY &&
+				if (options.verbosity >= VERB_DEFAULT &&
 				    john_main_process)
 				printf("Cost %d (%s) is %u for all loaded "
 				       "hashes\n", i+1,
@@ -1358,9 +1394,7 @@ static void john_load(void)
 #if CPU_DETECT
 static void CPU_detect_or_fallback(char **argv, int make_check)
 {
-	if (getenv("CPUID_DISABLE"))
-		return;
-
+	if (!getenv("CPUID_DISABLE"))
 	if (!CPU_detect()) {
 #if CPU_REQ
 #if CPU_FALLBACK
@@ -1382,15 +1416,22 @@ static void CPU_detect_or_fallback(char **argv, int make_check)
 		}
 #endif
 		fprintf(stderr, "Sorry, %s is required for this build\n",
-		    CPU_NAME);
+		    CPU_req_name);
 		if (make_check)
 			exit(0);
 		error();
 #endif
 	}
+
+	/*
+	 * Init the crc table here, so that tables are fully setup for any
+	 * ancillary program
+	 */
+	CRC32_Init_tab();
+
 }
 #else
-#define CPU_detect_or_fallback(argv, make_check)
+#define CPU_detect_or_fallback(argv, make_check) CRC32_Init_tab()
 #endif
 
 static void john_init(char *name, int argc, char **argv)
@@ -1423,20 +1464,7 @@ static void john_init(char *name, int argc, char **argv)
 	}
 
 #if (!AC_BUILT || HAVE_LOCALE_H)
-#ifdef _WIN32
-#if HAVE_OPENCL
-	if(GetConsoleCP()==437)
-	{
-		sprintf(gpu_degree_sign, "%ls", DEGREE_SIGN_CP437);
-	}
-	else if(GetConsoleCP()==1252)
-	{
-		sprintf(gpu_degree_sign, "%ls", DEGREE_SIGN_CP1252);
-	}
-#endif
-#else
 	if (setlocale(LC_ALL, "")) {
-
 		john_terminal_locale = str_alloc_copy(setlocale(LC_ALL, NULL));
 #if HAVE_OPENCL
 		if (strchr(john_terminal_locale, '.'))
@@ -1445,7 +1473,6 @@ static void john_init(char *name, int argc, char **argv)
 		/* We misuse ctype macros so this must be reset */
 		setlocale(LC_CTYPE, "C");
 	}
-#endif
 #endif
 
 	status_init(NULL, 1);
@@ -1464,21 +1491,21 @@ static void john_init(char *name, int argc, char **argv)
 		listconf_parse_early();
 
 	if (!make_check) {
-		if (options.config)
-		{
+		if (options.config) {
 			path_init_ex(options.config);
 			cfg_init(options.config, 0);
+#if JOHN_SYSTEMWIDE
+			cfg_init(CFG_PRIVATE_FULL_NAME, 1);
+#endif
 			cfg_init(CFG_FULL_NAME, 1);
 			cfg_init(CFG_ALT_NAME, 0);
 		}
-		else
-		{
+		else {
 #if JOHN_SYSTEMWIDE
 			cfg_init(CFG_PRIVATE_FULL_NAME, 1);
 			cfg_init(CFG_PRIVATE_ALT_NAME, 1);
 #endif
-			cfg_init(CFG_FULL_NAME, 1);
-			cfg_init(CFG_ALT_NAME, 0);
+			cfg_init(CFG_FULL_NAME, 0);
 		}
 	}
 
@@ -1494,7 +1521,8 @@ static void john_init(char *name, int argc, char **argv)
 #ifdef _OPENMP
 	john_omp_maybe_adjust_or_fallback(argv);
 #endif
-	if(!(options.flags & FLG_STDOUT))
+	omp_autotune_init();
+	if (!(options.flags & FLG_STDOUT))
 		john_register_all(); /* maybe restricted to one format by options */
 	common_init();
 	sig_init();
@@ -1529,10 +1557,6 @@ static void john_init(char *name, int argc, char **argv)
 	if ((options.subformat && !strcasecmp(options.subformat, "list")) ||
 	    options.listconf)
 		listconf_parse_late();
-
-	/* Start a resumed session by emitting a status line. */
-	if (rec_restored)
-		event_pending = event_status = 1;
 
 	/* Log the expanded command line used for this session. */
 	{
@@ -1631,20 +1655,21 @@ static void john_run(void)
 
 		if (!(options.flags & FLG_STDOUT)) {
 			struct db_main *test_db = 0;
-			char *where = NULL;
+			char *where;
 
-			if ((options.flags & FLG_NOTESTS) == 0)
-			{
-				test_db = ldr_init_test_db(database.format, &database);
-				where = fmt_self_test(database.format, test_db);
+			if (!(options.flags & FLG_NOTESTS))
+				test_db = ldr_init_test_db(database.format,
+				                           &database);
+			else
+				test_db = &database;
+			where = fmt_self_test(database.format, test_db);
+			if (!(options.flags & FLG_NOTESTS))
 				ldr_free_test_db(test_db);
-				if (where) {
-					fprintf(stderr, "Self test failed (%s)\n",
-					where);
-					error();
-				}
+			if (where) {
+				fprintf(stderr, "Self test failed (%s)\n",
+				    where);
+				error();
 			}
-			
 			trigger_reset = 1;
 			log_init(LOG_NAME, options.activepot,
 			         options.session);
@@ -1720,11 +1745,20 @@ static void john_run(void)
 		if (options.flags & FLG_MASK_CHK)
 			mask_init(&database, options.mask);
 
+		omp_autotune_run(&database);
+
 		if (trigger_reset)
 			database.format->methods.reset(&database);
 
 		if (options.flags & FLG_MASK_CHK)
 			mask_crk_init(&database);
+
+		/* Placed here to disregard load time. */
+		sig_init_late();
+
+		/* Start a resumed session by emitting a status line. */
+		if (rec_restored)
+			event_pending = event_status = 1;
 
 		if (options.flags & FLG_SINGLE_CHK)
 			do_single_crack(&database);
@@ -1780,30 +1814,28 @@ static void john_run(void)
 
 #ifndef JTRDLL
 		if (options.verbosity > 1)
-		{
-			if (john_main_process && database.password_count < remaining) {
-				char *might = "Warning: passwords printed above might";
-				char *partial = " be partial";
-				char *not_all = " not be all those cracked";
-				switch (database.options->flags &
-					(DB_SPLIT | DB_NODUP)) {
-				case DB_SPLIT:
-					fprintf(stderr, "%s%s\n", might, partial);
-					break;
-				case DB_NODUP:
-					fprintf(stderr, "%s%s\n", might, not_all);
-					break;
-				case (DB_SPLIT | DB_NODUP) :
-					fprintf(stderr, "%s%s and%s\n", might, partial, not_all);
-				}
-				fputs("Use the \"--show\" option to display all of "
-					"the cracked passwords reliably\n", stderr);
+		if (john_main_process && database.password_count < remaining) {
+			char *might = "Warning: passwords printed above might";
+			char *partial = " be partial";
+			char *not_all = " not be all those cracked";
+			switch (database.options->flags &
+			    (DB_SPLIT | DB_NODUP)) {
+			case DB_SPLIT:
+				fprintf(stderr, "%s%s\n", might, partial);
+				break;
+			case DB_NODUP:
+				fprintf(stderr, "%s%s\n", might, not_all);
+				break;
+			case (DB_SPLIT | DB_NODUP):
+				fprintf(stderr, "%s%s and%s\n",
+				    might, partial, not_all);
 			}
+			fputs("Use the \"--show\" option to display all of "
+			    "the cracked passwords reliably\n", stderr);
 		}
 #endif
 	}
 }
-
 
 static void john_done(void)
 {
@@ -1814,14 +1846,22 @@ static void john_done(void)
 	if ((options.flags & (FLG_CRACKING_CHK | FLG_STDOUT)) ==
 	    FLG_CRACKING_CHK) {
 		if (event_abort) {
-			log_event((aborted_by_timer) ?
+			char *abort_msg = (aborted_by_timer) ?
 			          "Session stopped (max run-time reached)" :
 #ifdef JTRDLL
-			          "");
+				  "";
 #else
-					  "Session aborted");
+			          "Session aborted";
 #endif
-			/* We have already printed to stderr from signals.c */
+
+			if (john_max_cands) {
+				if (status.cands >= john_max_cands)
+					abort_msg =
+						"Session stopped (max candidates reached)";
+			}
+
+			/* We already printed to stderr from signals.c */
+			log_event("%s", abort_msg);
 		} else if (children_ok) {
 			log_event("Session completed");
 			if (john_main_process)
@@ -1856,14 +1896,17 @@ static void john_done(void)
 	check_abort(0);
 }
 
+//#define TEST_MEMDBG_LOGIC
+
 #ifdef JTRDLL
 int jtrdll_entrypoint(int argc, char **argv)
+#elif defined(HAVE_LIBFUZZER)
+int main_dummy(int argc, char **argv)
 #else
 int main(int argc, char **argv)
 #endif
 {
 	char *name;
-	unsigned int time;
 
 #ifdef TEST_MEMDBG_LOGIC
 	int i,j;
@@ -1872,7 +1915,7 @@ int main(int argc, char **argv)
 		cp[i] = mem_alloc_align(43,i);
 		for (j = 0; j < 43; ++j)
 			cp[i][j] = 'x';
-		printf ("%03d offset %x  %x %x\n", i, cp[i], (unsigned)(cp[i])%i, (((unsigned)(cp[i]))/i)%i);
+		printf("%03d offset %x  %x %x\n", i, cp[i], (unsigned)(cp[i])%i, (((unsigned)(cp[i]))/i)%i);
 	}
 	for (i = 1; i < 257; ++i)
 		MEM_FREE(cp[i]);
@@ -1880,7 +1923,7 @@ int main(int argc, char **argv)
 	exit(0);
 #endif
 
-	sig_preinit(); // Mitigate race conditions
+	sig_preinit(); /* Mitigate race conditions */
 #ifdef __DJGPP__
 	if (--argc <= 0) return 1;
 	if ((name = strrchr(argv[0], '/')))
@@ -1910,12 +1953,16 @@ int main(int argc, char **argv)
 #endif
 
 #ifdef _MSC_VER
-	// Ok, I am making a simple way to debug external programs. in VC.  Prior to this, I would set
-	// break point below, right where the external name is, and then would modify IP to put me into
-	// the block that calls main() from the external.  Now, in VC mode, if the first command is:
-	// -external_command=COMMAND, then I set name == COMMAND, and pop the command line args off, just
-	// like the first one was not there.  So if the command was "-external_command=gpg2john secring.gpg"
-	// then we will be setup in gpg2john mode with command line arg of secring.gpg
+/*
+ * Ok, I am making a simple way to debug external programs. in VC.  Prior to
+ * this, I would set break point below, right where the external name is, and
+ * then would modify IP to put me into the block that calls main() from the
+ * external.  Now, in VC mode, if the first command is:
+ * -external_command=COMMAND, then I set name == COMMAND, and pop the command
+ * line args off, just like the first one was not there.  So if the command was
+ * "-external_command=gpg2john secring.gpg" then we will be setup in gpg2john
+ * mode with command line arg of secring.gpg
+ */
 	if (argc > 2 && !strncmp(argv[1], "-external_command=", 18)) {
 		int i;
 		name = &argv[1][18];
@@ -1926,10 +1973,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	/* put the crc table init here, so that tables are fully setup for any ancillary program */
-	CRC32_Init_tab();
-
-    /* Needed before CPU fallback */
+        /* Needed before CPU fallback */
 	path_init(argv);
 
 #ifndef JTRDLL
@@ -1954,59 +1998,24 @@ int main(int argc, char **argv)
 		return unique(argc, argv);
 	}
 
-	if (!strcmp(name, "putty2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return putty2john(argc, argv);
-	}
-
-#if !AC_BUILT || HAVE_BIO_NEW
-	if (!strcmp(name, "pfx2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return pfx2john(argc, argv);
-	}
-#endif
-
-	if (!strcmp(name, "keepass2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return keepass2john(argc, argv);
-	}
-
 	if (!strcmp(name, "rar2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return rar2john(argc, argv);
-	}
-
-	if (!strcmp(name, "racf2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return racf2john(argc, argv);
 	}
 
 	if (!strcmp(name, "gpg2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return gpg2john(argc, argv);
 	}
-#if !defined (_MSC_VER) && !defined (__MINGW32__)
-	if (!strcmp(name, "dmg2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return dmg2john(argc, argv);
-	}
-#endif
 
 	if (!strcmp(name, "zip2john")) {
 		CPU_detect_or_fallback(argv, 0);
 		return zip2john(argc, argv);
 	}
-	if (!strcmp(name, "hccap2john")) {
-		CPU_detect_or_fallback(argv, 0);
-		return hccap2john(argc, argv);
-	}
 	if (!strcmp(name, "base64conv")) {
 		CPU_detect_or_fallback(argv, 0);
 		return base64conv(argc, argv);
 	}
-
-#endif
-
 	john_init(name, argc, argv);
 
 #ifdef JTRDLL
@@ -2016,16 +2025,20 @@ int main(int argc, char **argv)
 	}
 #endif
 
-	/* Placed here to disregard load time. */
-#if OS_TIMER
-	time = 0;
-#else
-	time = status_get_time();
-#endif
-	if (options.max_run_time)
-		timer_abort = time + abs(options.max_run_time);
-	if (options.status_interval)
-		timer_status = time + options.status_interval;
+	if (options.max_cands) {
+		if (options.node_count) {
+			long long orig_max_cands = options.max_cands;
+
+			/* Split between nodes */
+			options.max_cands /= options.node_count;
+			if (options.node_min == 1)
+				options.max_cands +=
+					orig_max_cands % options.node_count;
+		}
+
+		/* Allow resuming, for another set of N candidates */
+		john_max_cands = status.cands + llabs(options.max_cands);
+	}
 
 	john_run();
 	john_done();
@@ -2034,3 +2047,27 @@ int main(int argc, char **argv)
 
 	return exit_status;
 }
+
+#ifdef HAVE_LIBFUZZER
+
+int LLVMFuzzerInitialize(int *argc, char ***argv)
+{
+	return 1;
+}
+
+// dummy fuzzing target
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)  // size is actually the length of Data
+{
+	static uint8_t buffer[8192];
+
+	if (size > sizeof(buffer) - 1) {
+		fprintf(stderr, "size (-max_len) is greater than supported value, aborting!\n");
+		exit(-1);
+	}
+	memcpy(buffer, data, size);
+	buffer[size] = 0;
+	jtr_basename((const char*)buffer);
+
+	return 0;
+}
+#endif

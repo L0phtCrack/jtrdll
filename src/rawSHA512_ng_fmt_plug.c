@@ -8,7 +8,7 @@
  */
 
 #include "arch.h"
-#if SIMD_COEF_32
+#if SIMD_COEF_32 && ARCH_LITTLE_ENDIAN==1
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_rawSHA512_ng;
@@ -37,7 +37,7 @@ john_register_one(&fmt_rawSHA512_ng);
 #endif
 #endif
 
-#include "john_stdint.h"
+#include <stdint.h>
 #include <string.h>
 
 #include "pseudo_intrinsics.h"
@@ -45,7 +45,6 @@ john_register_one(&fmt_rawSHA512_ng);
 #include "formats.h"
 #include "johnswap.h"
 #include "rawSHA512_common.h"
-
 #include "memdbg.h"
 
 #if __MIC__
@@ -190,12 +189,7 @@ static void init(struct fmt_main *self)
 {
     int i;
 #ifdef _OPENMP
-    int omp_t;
-
-    omp_t = omp_get_max_threads();
-    self->params.min_keys_per_crypt *= omp_t;
-    omp_t *= OMP_SCALE;
-    self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
     saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
                            sizeof(*saved_key), MEM_ALIGN_SIMD);
@@ -298,13 +292,12 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
     int count = *pcount;
-    int index = 0;
+    int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-    for (index = 0; index < count; index += VWIDTH)
 #endif
-    {
+    for (index = 0; index < count; index += VWIDTH) {
         int i;
 
         vtype a, b, c, d, e, f, g, h;

@@ -17,16 +17,16 @@ john_register_one(&fmt_opencl_strip);
 #else
 
 #include <string.h>
-#include "aes.h"
+#include <stdint.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 #include "arch.h"
+#include "aes.h"
 #include "formats.h"
 #include "options.h"
 #include "common.h"
-#include "stdint.h"
 #include "misc.h"
 #include "common-opencl.h"
 
@@ -98,7 +98,7 @@ static size_t insize, outsize, settingsize, cracked_size;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {
@@ -207,7 +207,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *keeptr;
 	char *p;
 	int extra;
-	
+
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -288,9 +288,10 @@ static int verify_page(unsigned char *page1)
 {
 	uint32_t pageSize;
 	uint32_t usableSize;
-	if (memcmp(page1, SQLITE_FILE_HEADER, 16) != 0) {
-		return -1;
-	}
+
+	//if (memcmp(page1, SQLITE_FILE_HEADER, 16) != 0) {
+	//	return -1;
+	//}
 
 	if (page1[19] > 2) {
 		return -1;
@@ -350,24 +351,26 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index++)
 	{
 		unsigned char master[32];
-		unsigned char output[1024];
+		unsigned char output[24];
 		unsigned char *iv_in;
 		unsigned char iv_out[16];
 		int size;
 		int page_sz = 1008; /* 1024 - strlen(SQLITE_FILE_HEADER) */
 		int reserve_sz = 16; /* for HMAC off case */
 		AES_KEY akey;
+
 		memcpy(master, outbuffer[index].v, 32);
-		memcpy(output, SQLITE_FILE_HEADER, FILE_HEADER_SZ);
+		//memcpy(output, SQLITE_FILE_HEADER, FILE_HEADER_SZ);
 		size = page_sz - reserve_sz;
 		iv_in = cur_salt->data + size + 16;
 		memcpy(iv_out, iv_in, 16);
 
-		if (AES_set_decrypt_key(master, 256, &akey) < 0) {
-			fprintf(stderr, "AES_set_decrypt_key failed!\n");
-		}
-		/* decrypting 24 bytes is enough */
-		AES_cbc_encrypt(cur_salt->data + 16, output + 16, 24, &akey, iv_out, AES_DECRYPT);
+		AES_set_decrypt_key(master, 256, &akey);
+		/*
+		 * decrypting 8 bytes from offset 16 is enough since the
+		 * verify_page function looks at output[16..23] only.
+		 */
+		AES_cbc_encrypt(cur_salt->data + 16, output + 16, 8, &akey, iv_out, AES_DECRYPT);
 		if (verify_page(output) == 0)
 		{
 			cracked[index] = 1;
@@ -410,7 +413,7 @@ struct fmt_main fmt_opencl_strip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_NOT_EXACT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		strip_tests

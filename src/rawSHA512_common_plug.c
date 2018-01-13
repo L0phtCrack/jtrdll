@@ -10,9 +10,8 @@
 
 #include "formats.h"
 #include "johnswap.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include "rawSHA512_common.h"
-#include "johnswap.h"
 #include "memdbg.h"
 
 struct fmt_tests sha512_common_tests_rawsha512_111[] = {
@@ -188,9 +187,28 @@ void * sha512_common_binary(char *ciphertext)
 		p += 2;
 	}
 
-#ifdef SIMD_COEF_64
+#if defined(SIMD_COEF_64) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity_to_BE64(out, DIGEST_SIZE/8);
 #endif
+	return out;
+}
+
+void *sha512_common_binary_BE(char *ciphertext)
+{
+	static unsigned char * out;
+	char *p;
+	int i;
+
+	if (!out) out = mem_calloc_tiny(DIGEST_SIZE, BINARY_ALIGN);
+
+	p = ciphertext + TAG_LENGTH;
+	for (i = 0; i < DIGEST_SIZE; i++) {
+		out[i] =
+				(atoi16[ARCH_INDEX(*p)] << 4) |
+				 atoi16[ARCH_INDEX(p[1])];
+		p += 2;
+	}
+	alter_endianity_to_BE64(out, DIGEST_SIZE/8);
 	return out;
 }
 
@@ -240,9 +258,31 @@ void * sha512_common_binary_xsha512(char *ciphertext)
 		p += 2;
 	}
 
-#ifdef SIMD_COEF_64
+#if defined(SIMD_COEF_64) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity_to_BE64(out, DIGEST_SIZE/8);
 #endif
+	return out;
+}
+
+void *sha512_common_binary_xsha512_BE(char *ciphertext)
+{
+	static union {
+		unsigned char out[DIGEST_SIZE];
+		uint64_t x;
+	} x;
+	unsigned char *out = x.out;
+	char *p;
+	int i;
+
+	ciphertext += XSHA512_TAG_LENGTH;
+	p = ciphertext + 8;
+	for (i = 0; i < DIGEST_SIZE; i++) {
+		out[i] =
+				(atoi16[ARCH_INDEX(*p)] << 4) |
+				 atoi16[ARCH_INDEX(p[1])];
+		p += 2;
+	}
+	alter_endianity_to_BE64(out, DIGEST_SIZE/8);
 	return out;
 }
 
@@ -281,9 +321,9 @@ void *sha512_common_binary_nsldap(char *ciphertext) {
 	char *realcipher = x.out;
 
 	ciphertext += NSLDAP_TAG_LENGTH;
-	base64_decode(ciphertext, strlen(ciphertext), realcipher);
+	base64_convert(ciphertext, e_b64_mime, strlen(ciphertext), realcipher, e_b64_raw, sizeof(x.out), flg_Base64_DONOT_NULL_TERMINATE, 0);
 
-#ifdef SIMD_COEF_64
+#if defined(SIMD_COEF_64) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity_to_BE64 (realcipher, DIGEST_SIZE/8);
 #endif
 	return (void*)realcipher;
@@ -294,13 +334,9 @@ void *sha512_common_binary_nsldap(char *ciphertext) {
 char * sha512_common_prepare_xsha512(char *split_fields[10], struct fmt_main *self)
 {
 	static char Buf[XSHA512_TAG_LENGTH + XSHA512_CIPHERTEXT_LENGTH + 1];
-	if (!strncmp(split_fields[1], XSHA512_FORMAT_TAG, XSHA512_TAG_LENGTH))
-		return split_fields[1];
-	if (split_fields[0] && ishex(split_fields[0]) && strlen(split_fields[0]) == XSHA512_CIPHERTEXT_LENGTH) {
-		sprintf(Buf, "%s%s", XSHA512_FORMAT_TAG, split_fields[0]);
-		return Buf;
-	}
-	if (ishex(split_fields[1]) && strlen(split_fields[1]) == XSHA512_CIPHERTEXT_LENGTH) {
+
+	if (strnlen(split_fields[1], XSHA512_CIPHERTEXT_LENGTH + 1) ==
+	    XSHA512_CIPHERTEXT_LENGTH && ishex(split_fields[1])) {
 		sprintf(Buf, "%s%s", XSHA512_FORMAT_TAG, split_fields[1]);
 		return Buf;
 	}
@@ -316,8 +352,7 @@ char * sha512_common_split(char *ciphertext, int index, struct fmt_main *self)
 		ciphertext += TAG_LENGTH;
 
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
-	memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
-	strlwr(out + TAG_LENGTH);
+	memcpylwr(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
 	return out;
 }
 
@@ -329,7 +364,6 @@ char * sha512_common_split_xsha512(char *ciphertext, int index, struct fmt_main 
 		return ciphertext;
 
 	memcpy(out, XSHA512_FORMAT_TAG, XSHA512_TAG_LENGTH);
-	memcpy(out + XSHA512_TAG_LENGTH, ciphertext, XSHA512_CIPHERTEXT_LENGTH + 1);
-	strlwr(out + XSHA512_TAG_LENGTH);
+	memcpylwr(out + XSHA512_TAG_LENGTH, ciphertext, XSHA512_CIPHERTEXT_LENGTH + 1);
 	return out;
 }

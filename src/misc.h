@@ -21,31 +21,27 @@
 #include "jumbo.h"
 
 #if !AC_BUILT
-# include <string.h>
-# ifndef _MSC_VER
-#  include <strings.h>
-# endif
+ #include <string.h>
+ #ifndef _MSC_VER
+  #include <strings.h>
+ #endif
 #else
-# include "autoconfig.h"
-# if STRING_WITH_STRINGS
-#  include <string.h>
-#  include <strings.h>
-# elif HAVE_STRING_H
-#  include <string.h>
-# elif HAVE_STRINGS_H
-#  include <strings.h>
-# endif
+ #include "autoconfig.h"
+ #if STRING_WITH_STRINGS
+  #include <string.h>
+  #include <strings.h>
+ #elif HAVE_STRING_H
+  #include <string.h>
+ #elif HAVE_STRINGS_H
+  #include <strings.h>
+ #endif
 #endif
 
 /*
  * Exit on error. Logs the event, closes john.pot and the log file, and
  * terminates the process with non-zero exit status.
  */
-extern 
-#ifdef _MSC_VER
-__declspec(noreturn) 
-#endif
-void real_error(char *file, int line)
+extern void real_error(char *file, int line)
 #ifdef __GNUC__
 	__attribute__ ((__noreturn__));
 #else
@@ -117,9 +113,19 @@ extern char *strnfcpy(char *dst, const char *src, int size);
 extern char *strnzcpy(char *dst, const char *src, int size);
 
 /*
+ * Similar to the above, but also converts to lowercase in a single pass
+ */
+extern char *strnzcpylwr(char *dst, const char *src, int size);
+
+/*
  * Similar to the strnzcpy, but returns the length of the string.
  */
 extern int strnzcpyn(char *dst, const char *src, int size);
+
+/*
+ * Similar to the strnzcpylwr, but returns the length of the string.
+ */
+extern int strnzcpylwrn(char *dst, const char *src, int size);
 
 /*
  * Similar to strncat(), but total buffer size is supplied, and always NUL
@@ -143,7 +149,7 @@ extern unsigned atou(const char *src);
 char *strtokm(char *s1, const char *delimit);
 
 #ifndef __has_feature
-# define __has_feature(x) 0
+ #define __has_feature(x) 0
 #endif
 
 #if /* is ASAN enabled? */ \

@@ -81,7 +81,6 @@ john_register_one(&fmt_blizzard);
 #endif
 #include "memdbg.h"
 
-
 #define FORMAT_LABEL		"WoWSRP"
 #define FORMAT_NAME		"Battlenet"
 #define ALGORITHM_NAME		"SHA1 32/" ARCH_BITS_STR EXP_STR
@@ -138,11 +137,9 @@ static int max_keys_per_crypt;
 static void init(struct fmt_main *self)
 {
 	int i;
+
 #if defined (_OPENMP)
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -258,19 +255,22 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt) {
 		}
 		return split_fields[1];
 	}
-	strnzcpy(ct, split_fields[1], 128);
-	cp = &ct[strlen(ct)];
-	*cp++ = '*';
-	strnzcpy(cp, split_fields[0], USERNAMELEN);
-	// upcase user name
-	enc_strupper(cp);
-	// Ok, if there are leading 0's for that binary resultant value, then remove them.
-	if (ct[WOWSIGLEN] == '0') {
-		char ct2[128+32+1];
-		StripZeros(ct, ct2, sizeof(ct2));
-		strcpy(ct, ct2);
+	if (strnlen(split_fields[1], 129) <= 128) {
+		strnzcpy(ct, split_fields[1], 128);
+		cp = &ct[strlen(ct)];
+		*cp++ = '*';
+		strnzcpy(cp, split_fields[0], USERNAMELEN);
+		// upcase user name
+		enc_strupper(cp);
+		// Ok, if there are leading 0's for that binary resultant value, then remove them.
+		if (ct[WOWSIGLEN] == '0') {
+			char ct2[128+32+1];
+			StripZeros(ct, ct2, sizeof(ct2));
+			strcpy(ct, ct2);
+		}
+		return ct;
 	}
-	return ct;
+	return split_fields[1];
 }
 
 static char *split(char *ciphertext, int index, struct fmt_main *pFmt) {
@@ -366,13 +366,8 @@ static void *get_salt(char *ciphertext)
 	return out.b;
 }
 
-static int get_hash_0(int index)       { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index)       { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index)       { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index)       { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index)       { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index)       { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index)       { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -404,7 +399,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH+1);
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 	enc_strupper(saved_key[index]);
 }
 
@@ -440,7 +435,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		// Ok, now Tmp is v
 
 		//if (!strcmp(saved_key[j], "ENTERNOW__1") && !strcmp((char*)user_id, "DIP")) {
-		//	printf ("salt=%s user=%s  pass=%s, ", (char*)saved_salt, (char*)user_id, saved_key[j]);
+		//	printf("salt=%s user=%s  pass=%s, ", (char*)saved_salt, (char*)user_id, saved_key[j]);
 		//	dump_stuff_msg("sha$h  ", Tmp, 20);
 		//}
 
@@ -562,13 +557,8 @@ struct fmt_main fmt_blizzard = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

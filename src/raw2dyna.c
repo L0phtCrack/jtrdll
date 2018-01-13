@@ -68,7 +68,18 @@ void Setup() {
 	atoi16['f'] = atoi16['F'] = 15;
 }
 
+#ifdef HAVE_LIBFUZZER
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	return 0;
+}
+#endif
+
+#ifdef HAVE_LIBFUZZER
+int main_dummy(int argc, char **argv) {
+#else
 int main(int argc, char **argv) {
+#endif
 	char Buf[1024], *cps, *cph, usr_id[512];;
 
 	Setup();
@@ -90,12 +101,12 @@ int main(int argc, char **argv) {
 		if (!leading_salt) {
 			recurse=0;
 			if (!find_items(Buf, &cph, &cps, usr_id)) {
-				fprintf (stderr, "invalid line:   %s\n", Buf);
+				fprintf(stderr, "invalid line:   %s\n", Buf);
 				FGETS(Buf, sizeof(Buf), stdin);
 				continue;
 			}
 			if (recurse > 1) {
-				fprintf (stderr, "multiple recurse line (usrid may be wrong):   %s\n", Buf);
+				fprintf(stderr, "multiple recurse line (usrid may be wrong):   %s\n", Buf);
 			}
 		} else {
 			cps = Buf;
@@ -162,7 +173,7 @@ int simple_convert() {
 	unsigned char *p = (unsigned char*)raw_str;
 	if (simple_to_from_hex==1) {
 		// convert a raw value into hex
-		printf ("$HEX$");
+		printf("$HEX$");
 		while (*p)
 			printf("%02x", *p++);
 	} else {

@@ -37,15 +37,22 @@
 #include"jtrdll.h"
 #endif
 
+extern void wordlist_hybrid_fix_state(void);
+extern void mkv_hybrid_fix_state(void);
+extern void inc_hybrid_fix_state(void);
+extern void pp_hybrid_fix_state(void);
+extern void ext_hybrid_fix_state(void);
+
 static mask_parsed_ctx parsed_mask;
 static mask_cpu_context cpu_mask_ctx, rec_ctx;
 static int *template_key_offsets;
 static char *mask = NULL, *template_key;
 static int max_keylen, fmt_maxlen, rec_len, restored_len, restored;
-static unsigned long long rec_cl, cand_length;
+static uint64_t rec_cl, cand_length;
 static struct fmt_main *mask_fmt;
 static int mask_bench_index;
-int mask_add_len, mask_num_qw, mask_cur_len;
+static int parent_fix_state_pending;
+int mask_add_len, mask_num_qw, mask_cur_len, mask_maxlength_computed = 0;
 
 /*
  * This keeps track of whether we have any 8-bit in our non-hybrid mask.
@@ -57,10 +64,10 @@ static int mask_has_8bit;
  * cand and rec_cand is the number of remaining candidates.
  * So, its value decreases as cracking progress.
  */
-static unsigned long long cand, rec_cand;
+static uint64_t cand, rec_cand;
 
-unsigned long long mask_tot_cand;
-unsigned long long mask_parent_keys;
+uint64_t mask_tot_cand;
+uint64_t mask_parent_keys;
 
 #define BUILT_IN_CHARSET "ludsaLUDSAbhBH123456789"
 
@@ -210,7 +217,7 @@ static char* plhdr2string(char p, int fmt_case)
 
 	/*
 	 * Force lowercase for case insignificant formats. Dupes will
-	 * be removed, so eg. ?l?u == ?l.
+	 * be removed, so e.g. ?l?u == ?l.
 	 */
 	if (!fmt_case) {
 		if (p == 'u')
@@ -934,7 +941,7 @@ static char* plhdr2string(char p, int fmt_case)
  * brackets are already given, as in [?d], output is still [0123456789]
  *
  * This function must pass any escaped characters on, as-is (still escaped).
- * It may also have to ADD escapes to ranges produced from eg. ?s.
+ * It may also have to ADD escapes to ranges produced from e.g. ?s.
  */
 static char* expand_plhdr(char *string, int fmt_case)
 {
@@ -1534,7 +1541,7 @@ static MAYBE_INLINE char* mask_cp_to_utf8(char *in)
 		ranges(ps).chars[ranges(ps).iter];
 
 static int generate_keys(mask_cpu_context *cpu_mask_ctx,
-			  unsigned long long *my_candidates)
+			  uint64_t *my_candidates)
 {
 	char key_e[PLAINTEXT_BUFFER_SIZE];
 	char *key;
@@ -1616,7 +1623,7 @@ done:
 }
 
 static int bench_generate_keys(mask_cpu_context *cpu_mask_ctx,
-                               unsigned long long *my_candidates)
+                               uint64_t *my_candidates)
 {
 	int ps1 = MAX_NUM_MASK_PLHDR, ps2 = MAX_NUM_MASK_PLHDR,
 	    ps3 = MAX_NUM_MASK_PLHDR, ps4 = MAX_NUM_MASK_PLHDR, ps ;
@@ -1741,9 +1748,9 @@ static void skip_position(mask_cpu_context *cpu_mask_ctx, int *arr)
 		}
 }
 
-static unsigned long long divide_work(mask_cpu_context *cpu_mask_ctx)
+static uint64_t divide_work(mask_cpu_context *cpu_mask_ctx)
 {
-	unsigned long long offset, my_candidates, total_candidates, ctr;
+	uint64_t offset, my_candidates, total_candidates, ctr;
 	int ps;
 	double fract;
 
@@ -1793,37 +1800,34 @@ static unsigned long long divide_work(mask_cpu_context *cpu_mask_ctx)
  */
 static double get_progress(void)
 {
-	double try;
-	unsigned long long total = mask_tot_cand;
+	uint64_t total = mask_tot_cand;
 
 	emms();
-
-	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
 
 	if (!mask_tot_cand)
 		return -1;
 
 #ifdef MASK_DEBUG
 	fprintf(stderr, "%s() try %.0f candlen %llu tot %llu\n", __FUNCTION__,
-	        try, cand_length, total);
+	        status.cands, cand_length, total);
 #endif
 
 	if (cand_length)
 		total += cand_length;
 
-	return 100.0 * try / total;
+	return 100.0 * status.cands / total;
 }
 
 void mask_save_state(FILE *file)
 {
 	int i;
 
-	fprintf(file, ""LLu"\n", rec_cand + 1);
+	fprintf(file, "%"PRIu64"\n", rec_cand + 1);
 	fprintf(file, "%d\n", rec_ctx.count);
 	fprintf(file, "%d\n", rec_ctx.offset);
 	if (!(options.flags & FLG_MASK_STACKED) && options.req_minlength >= 0) {
 		fprintf(file, "%d\n", rec_len);
-		fprintf(file, ""LLu"\n", cand_length + 1);
+		fprintf(file, "%"PRIu64"\n", cand_length + 1);
 	}
 	for (i = 0; i < rec_ctx.count; i++)
 		fprintf(file, "%u\n", (unsigned)rec_ctx.ranges[i].iter);
@@ -1833,10 +1837,10 @@ int mask_restore_state(FILE *file)
 {
 	int i, d;
 	unsigned cu;
-	unsigned long long ull;
+	uint64_t ull;
 	int fail = !(options.flags & FLG_MASK_STACKED);
 
-	if (fscanf(file, LLu"\n", &ull) == 1)
+	if (fscanf(file, "%"PRIu64"\n", &ull) == 1)
 		cand = ull;
 	else
 		return fail;
@@ -1856,7 +1860,7 @@ int mask_restore_state(FILE *file)
 			restored_len = d;
 		else
 			return fail;
-		if (fscanf(file, LLu"\n", &ull) == 1)
+		if (fscanf(file, "%"PRIu64"\n", &ull) == 1)
 			rec_cl = ull;
 		else
 			return fail;
@@ -1876,6 +1880,10 @@ void mask_fix_state(void)
 {
 	int i;
 
+	if (parent_fix_state_pending) {
+		crk_fix_state();
+		parent_fix_state_pending = 0;
+	}
 	rec_cand = cand;
 	rec_ctx.count = cpu_mask_ctx.count;
 	rec_ctx.offset = cpu_mask_ctx.offset;
@@ -1923,7 +1931,7 @@ char *stretch_mask(char *mask, mask_parsed_ctx *parsed_mask)
 			if (!k) j--;
 		}
 		if (mask[i] == '\\') {
-			if(!k) j++;
+			if (!k) j++;
 			strnzcpy(stretched_mask + j, mask + i, 3);
 			j += 2;
 		}
@@ -1979,7 +1987,7 @@ char *stretch_mask(char *mask, mask_parsed_ctx *parsed_mask)
  * Note that de-hex comes after UTF-8 conversion so any 8-bit hex escaped
  * characters will be parsed as the *internal* encoding.
  *
- * Hex characters *can* compose ranges, eg. "\x80-\xff", but can not end up as
+ * Hex characters *can* compose ranges, e.g. "\x80-\xff", but can not end up as
  * placeholders. Eg. "\x3fd" ("?d" after de-hex) must be parsed literally as
  * "?d" and not a digits range.
  *
@@ -2000,6 +2008,9 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	mask_fmt = db->format;
 
 	fmt_maxlen = mask_fmt->params.plaintext_length;
+
+	// Track to know whether max-length is specified or computed
+	mask_maxlength_computed = (options.req_maxlength == 0);
 
 	if (options.req_minlength >= 0 && !options.req_maxlength)
 		options.req_maxlength = fmt_maxlen;
@@ -2041,10 +2052,8 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 
 	if (!(options.flags & FLG_MASK_STACKED)) {
 		log_event("Proceeding with mask mode");
-#ifndef JTRDLL
 		if (rec_restored && john_main_process)
 			fprintf(stderr, "Proceeding with mask:%s\n", options.mask);
-#endif
 	}
 
 	/* Load defaults for custom placeholders ?1..?9 from john.conf */
@@ -2236,14 +2245,6 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 				cand *= cpu_mask_ctx.ranges[i].count;
 	}
 	mask_tot_cand = cand * mask_int_cand.num_int_cand;
-
-#ifdef JTRDLL
-	if (jtrdll_is_preflight)
-	{
-		jtrdll_preflight_mask_candidates = mask_tot_cand;
-	}
-#endif
-
 }
 
 void mask_crk_init(struct db_main *db)
@@ -2269,8 +2270,7 @@ void mask_done()
 			MEM_FREE(mask);
 		/* For reporting DONE regardless of rounding errors */
 		if (!event_abort) {
-			mask_tot_cand = (((unsigned long long)status.cands.hi << 32) +
-				status.cands.lo);
+			mask_tot_cand = status.cands;
 			cand_length = 0;
 		}
 		if (!(options.flags & FLG_TEST_CHK)) {
@@ -2289,34 +2289,10 @@ void mask_done()
 	mask_int_cand_target = 0;
 }
 
-extern void(*crk_fix_state)(void);
-static void(*saved_crk_fix_state)(void);
-static void save_fix_state(void(*new_crk_fix_state)(void))
-{
-	saved_crk_fix_state = crk_fix_state;
-	crk_fix_state = new_crk_fix_state;
-}
-static void restore_fix_state(void)
-{
-	crk_fix_state = saved_crk_fix_state;
-}
-
-
 int do_mask_crack(const char *extern_key)
 {
 	int key_len = extern_key ? strlen(extern_key) : 0;
 	int i;
-
-#ifdef JTRDLL
-	if (jtrdll_is_preflight)
-	{
-		// Stop here if we're just preflighting
-//		exit(0);
-		return 1;
-	}
-#endif
-
-	save_fix_state(mask_fix_state);
 
 #ifdef MASK_DEBUG
 	fprintf(stderr, "%s(%s)\n", __FUNCTION__, extern_key);
@@ -2336,18 +2312,13 @@ int do_mask_crack(const char *extern_key)
 
 		if (mask_cur_len == 0) {
 			if (crk_process_key(fmt_null_key))
-			{
-				restore_fix_state();
 				return 1;
-			}
 			mask_cur_len++;
 		}
 
 		for (i = mask_cur_len; i <= max_len; i++) {
 			mask_cur_len = max_keylen = i;
-			cand_length = rec_cl ? rec_cl - 1 :
-				((unsigned long long)status.cands.hi << 32) +
-				status.cands.lo;
+			cand_length = rec_cl ? rec_cl - 1 : status.cands;
 			rec_cl = 0;
 
 			assert(extern_key == NULL);
@@ -2372,16 +2343,10 @@ int do_mask_crack(const char *extern_key)
 
 			if (options.flags & FLG_TEST_CHK) {
 				if (bench_generate_keys(&cpu_mask_ctx, &cand))
-				{
-					restore_fix_state();
 					return 1;
-				}
 			} else {
 				if (generate_keys(&cpu_mask_ctx, &cand))
-				{
-					restore_fix_state();
 					return 1;
-				}
 			}
 
 			if (i < max_len && cfg_get_bool("Mask", NULL,
@@ -2421,19 +2386,28 @@ int do_mask_crack(const char *extern_key)
 		}
 		if (options.flags & FLG_TEST_CHK) {
 			if (bench_generate_keys(&cpu_mask_ctx, &cand))
-			{
-				restore_fix_state();
 				return 1;
-			}
 		} else {
 			if (generate_keys(&cpu_mask_ctx, &cand))
-			{
-				restore_fix_state();
 				return 1;
-			}
 		}
 	}
 
-	restore_fix_state();
+	if (options.flags & FLG_MASK_STACKED) {
+		if (options.flags & FLG_WORDLIST_CHK)
+			wordlist_hybrid_fix_state();
+		else if (options.flags & FLG_MKV_CHK)
+			mkv_hybrid_fix_state();
+		else if (options.flags & FLG_INC_CHK)
+			inc_hybrid_fix_state();
+#if HAVE_LIBGMP || HAVE_INT128 || HAVE___INT128 || HAVE___INT128_T
+		else if (options.flags & FLG_PRINCE_CHK)
+			pp_hybrid_fix_state();
+#endif
+		else if (options.flags & FLG_EXTERNAL_CHK)
+			ext_hybrid_fix_state();
+		parent_fix_state_pending = 1;
+	}
+
 	return event_abort;
 }

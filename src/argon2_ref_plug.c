@@ -12,9 +12,9 @@
  *
  */
 
-#ifndef __SSE2__
+#if defined (JOHN_NO_SIMD) || !defined(__SSE2__)
 
-#include "stdint.h"
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -234,7 +234,7 @@ void argon2_fill_segment(const argon2_instance_t *instance,
             /* version 1.2.1 and earlier: overwrite, not XOR */
             fill_block(instance->memory + prev_offset, ref_block, curr_block);
         } else {
-            if(0 == position.pass) {
+            if (0 == position.pass) {
                 fill_block(instance->memory + prev_offset, ref_block,
                            curr_block);
             } else {

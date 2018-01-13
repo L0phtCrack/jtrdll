@@ -7,28 +7,28 @@
  *
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  *
- *  Functions and data which is common among the GPG crackers
- *  (CPU, OpenCL)
+ * This file contains functions and data which are common among the GPG
+ * crackers (CPU, and OpenCL formats).
  */
 
 #include "dyna_salt.h"
 
-#define BENCHMARK_COMMENT		   ""
-#define BENCHMARK_LENGTH		   -1001
+#define BENCHMARK_COMMENT    ""
+#define BENCHMARK_LENGTH     -1000
 #define FORMAT_TAG           "$gpg$*"
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define BINARY_SIZE                        0
-#define BINARY_ALIGN                       MEM_ALIGN_WORD
-#define SALT_LENGTH                        8
-#define SALT_ALIGN                         (sizeof(void*))
-#define PLAINTEXT_LENGTH                   125
+#define BINARY_SIZE          0
+#define BINARY_ALIGN         MEM_ALIGN_WORD
+#define SALT_LENGTH          8
+#define SALT_ALIGN           (sizeof(void*))
+#define PLAINTEXT_LENGTH     125
 
 // Minimum number of bits when checking the first BN
 #define MIN_BN_BITS 64
 
 extern struct fmt_tests gpg_common_gpg_tests[];
 
-extern int gpg_common_valid(char *ciphertext, struct fmt_main *self);
+extern int gpg_common_valid(char *ciphertext, struct fmt_main *self, int is_CPU);
 extern int gpg_common_check(unsigned char *keydata, int ks);
 extern void *gpg_common_get_salt(char *ciphertext);
 
@@ -43,7 +43,6 @@ enum {
 	SPEC_SALTED = 1,
 	SPEC_ITERATED_SALTED = 3
 };
-
 
 enum {
 	PKA_UNKNOWN = 0,

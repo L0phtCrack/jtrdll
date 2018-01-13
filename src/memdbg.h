@@ -99,7 +99,7 @@ extern void *MEMDBG_realloc(void *, size_t, char *, int);
 extern void MEMDBG_free(const void *, char *, int);
 extern char *MEMDBG_strdup(const char *, char *, int);
 
-#if !defined(__MEMDBG__)
+#if !defined(__MEMDBG_C_FILE__)
 /* we get here on every file compiled EXCEPT memdbg.c */
 #undef malloc
 #undef realloc
@@ -117,7 +117,7 @@ extern char *MEMDBG_strdup(const char *, char *, int);
 #define free(a)       MEMDBG_free((a),__FILE__,__LINE__)
 #define strdup(a)     MEMDBG_strdup((a),__FILE__,__LINE__)
 
-#endif /* !defined __MEMDBG__ */
+#endif /* !defined __MEMDBG_C_FILE__ */
 
 /* pass the file handle to write to (normally stderr) */
 #define MEMDBG_PROGRAM_EXIT_CHECKS(a) do { \
@@ -190,8 +190,8 @@ extern void *MEMDBG_libc_calloc(size_t count, size_t size);
 
 #define MEMDBG_HANDLE int
 #define MEMDBG_getSnapshot(a) 0
-#define MEMDBG_checkSnapshot(a) if(a) printf(" \b")
-#define MEMDBG_checkSnapshot_possible_exit_on_error(a, b) if(a) printf(" \b")
+#define MEMDBG_checkSnapshot(a) if (a) printf(" \b")
+#define MEMDBG_checkSnapshot_possible_exit_on_error(a, b) if (a) printf(" \b")
 
 #endif /* MEMDBG_ON */
 

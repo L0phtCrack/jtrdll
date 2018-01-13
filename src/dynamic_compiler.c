@@ -18,8 +18,8 @@
  *    This expression language will be very similar to the expression language in pass_gen.pl
  *
  *  Valid items in EXPR
- *     md5(EXPR)   Perform MD5.   Results in lowcase hex (unless it's the outter EXPR)
- *     sha1(EXPR)  Perform SHA1.  Results in lowcase hex (unless it's the outter EXPR)
+ *     md5(EXPR)   Perform MD5.   Results in lowcase hex (unless it's the outer EXPR)
+ *     sha1(EXPR)  Perform SHA1.  Results in lowcase hex (unless it's the outer EXPR)
  *     md4(EXPR), sha256(EXPR), sha224(EXPR), sha384(EXPR), sha512(EXPR), gost(EXPR),
  *     whirlpool(EXPR) tiger(EXPR), ripemd128(EXPR), ripemd160(EXPR), ripemd256(EXPR),
  *     ripemd320(EXPR) all act like md5() and sha1, but use the hash listed.
@@ -153,12 +153,24 @@ DONE: #define MGF_KEYS_BASE16_IN1_RIPEMD320    0x0D00000000000004ULL
 
 #include "arch.h"
 
+#if defined(SIMD_COEF_32) && !ARCH_LITTLE_ENDIAN
+	#undef SIMD_COEF_32
+	#undef SIMD_COEF_64
+	#undef SIMD_PARA_MD5
+	#undef SIMD_PARA_MD4
+	#undef SIMD_PARA_SHA1
+	#undef SIMD_PARA_SHA256
+	#undef SIMD_PARA_SHA512
+	#define BITS ARCH_BITS_STR
+#endif
+
 #ifndef DYNAMIC_DISABLED
+#include <stdint.h>
 #include <ctype.h>
 #include <stdarg.h>
+
 #include "misc.h"	// error()
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "list.h"
 #include "crc32.h"
@@ -337,7 +349,7 @@ static void DumpParts(char *part, char *cp) {
 	cp = strtok(cp, "\n");
 	while (cp) {
 		if (!strncmp(cp, part, len))
-			printf ("%s\n", cp);
+			printf("%s\n", cp);
 		cp = strtok(NULL, "\n");
 	}
 }
@@ -349,7 +361,7 @@ static void DumpParts2(char *part, char *cp, char *comment) {
 		if (!strncmp(cp, part, len)) {
 			if (first)
 				printf("%s\n", comment);
-			printf ("%s\n", cp);
+			printf("%s\n", cp);
 			first = 0;
 		}
 		cp = strtok(NULL, "\n");
@@ -373,26 +385,26 @@ static void dump_HANDLE(void *_p) {
 	// order does not matter for the dyna-parser, BUT putting in good form
 	// will help anyone wanting to learn how to properly code in the dyna
 	// script language.
-	printf ("##############################################################\n");
-	printf ("#  Dynamic script for expression %s%s\n", p->pExpr, p->pExtraParams);
-	printf ("##############################################################\n");
+	printf("##############################################################\n");
+	printf("#  Dynamic script for expression %s%s\n", p->pExpr, p->pExtraParams);
+	printf("##############################################################\n");
 	cp = str_alloc_copy(p->pScript);
 	DumpParts("Expression", cp);
 	cp = str_alloc_copy(p->pScript);
-	printf ("#  Flags for this format\n");
+	printf("#  Flags for this format\n");
 	DumpParts("Flag=", cp);
 	cp = str_alloc_copy(p->pScript);
-	printf ("#  Lengths used in this format\n");
+	printf("#  Lengths used in this format\n");
 	DumpParts("SaltLen=", cp);
 	cp = str_alloc_copy(p->pScript);
 	DumpParts("MaxInput", cp);
 	cp = str_alloc_copy(p->pScript);
-	printf ("#  The functions in the script\n");
+	printf("#  The functions in the script\n");
 	DumpParts("Func=", cp);
 	cp = str_alloc_copy(p->pScript);
 	DumpParts2("Const", cp, "#  Constants used by this format");
 	cp = str_alloc_copy(p->pScript);
-	printf ("#  The test hashes that validate this script\n");
+	printf("#  The test hashes that validate this script\n");
 	DumpParts("Test", cp);
 
 	exit(0);
@@ -408,7 +420,7 @@ int dynamic_compile(const char *expr, DC_HANDLE *p) {
 	if (!strstr(expr, ",nolib") && (OLvL || strstr(expr, ",O"))) {
 		pHand = dynamic_compile_library(expr, crc32);
 		if (pHand && strstr(expr, ",debug")) {
-			printf ("Code from dynamic_compiler_lib.c\n");
+			printf("Code from dynamic_compiler_lib.c\n");
 			dump_HANDLE(pHand);
 		}
 	}
@@ -800,7 +812,7 @@ static const char *comp_get_symbol(const char *pInput) {
 					  return comp_push_sym(TmpBuf, fpNull, pInput+3, 0);
 		}
 	}
-	// these are functions, BUT can not be used for 'outter' function (i.e. not the final hash)
+	// these are functions, BUT can not be used for 'outer' function (i.e. not the final hash)
 	// Note this may 'look' small, but it is a large IF block, once the macro's expand
 	LastTokIsFunc = 1;
 	LOOKUP_IF_BLK(md5,MD5,5,5,3,16)
@@ -1210,7 +1222,7 @@ static int comp_do_lexi(DC_struct *p, const char *pInput) {
 					// expression is VALID and syntax check successful
 #ifdef WITH_MAIN
 					if (!GEN_BIG)
-					printf ("The expression checks out as valid\n");
+					printf("The expression checks out as valid\n");
 #endif
 					return nSyms;
 				}
@@ -1230,7 +1242,7 @@ static int comp_do_lexi(DC_struct *p, const char *pInput) {
 					// expression is VALID and syntax check successful
 #ifdef WITH_MAIN
 					if (!GEN_BIG)
-						printf ("The expression checks out as valid\n");
+						printf("The expression checks out as valid\n");
 #endif
 					return nSyms;
 				}
@@ -1534,10 +1546,10 @@ static int compile_keys_base16_in1_type(char *pExpr, DC_struct *_p, int salt_hex
 #undef ELSEIF
 #define IF(C,L,F) if (!strncasecmp(pExpr, #C, L)) { \
 	comp_add_script_line("Func=DynamicFunc__" #C "_crypt_input%d_to_output1_FINAL\n",side); \
-	if(F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); } }
+	if (F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); } }
 #define ELSEIF(C,L,F) else if (!strncasecmp(pExpr, #C, L)) { \
 	comp_add_script_line("Func=DynamicFunc__" #C "_crypt_input%d_to_output1_FINAL\n",side); \
-	if(F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); } }
+	if (F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); } }
 
 	// now compute just what hash function was used.
 	IF(MD5,3,0) ELSEIF(MD4,3,0) ELSEIF(SHA1,4,20)
@@ -1683,7 +1695,7 @@ static int parse_expression(DC_struct *p) {
 	// we have to dump these items here.  The current code generator smashes them.
 	if (compile_debug)
 		for (i = 0; i <nCode; ++i)
-			printf ("%s\n", pCode[i]);
+			printf("%s\n", pCode[i]);
 
 	if (bNeedS || bNeedU || Const[1])
 		comp_add_script_line("SaltLen=%d\n", nSaltLen ? nSaltLen : -32);
@@ -1820,11 +1832,11 @@ static int parse_expression(DC_struct *p) {
 							else if (!strncmp(pCode[x], "IN1", 3)) {
 								comp_add_script_line("Func=DynamicFunc__append_input%s_from_input\n", use_inp1?"":"2"); if (use_inp1) { len_comp<<=1; ex_cnt<<=1; inp_cnt<<=1; salt_cnt<<=1; } else { len_comp2+=len_comp; ex_cnt2+=ex_cnt; inp_cnt2+=inp_cnt; salt_cnt2+=salt_cnt; } }
 							else if (!strcmp(pCode[x], "pad16")) {
-								comp_add_script_line("Func=DynamicFunc__append_keys_pad16\n"); if(use_inp1) len_comp += 16; else len_comp2 += 16; }
+								comp_add_script_line("Func=DynamicFunc__append_keys_pad16\n"); if (use_inp1) len_comp += 16; else len_comp2 += 16; }
 							else if (!strcmp(pCode[x], "pad20")) {
-								comp_add_script_line("Func=DynamicFunc__append_keys_pad20\n"); if(use_inp1) len_comp += 20; else len_comp2 += 20; }
+								comp_add_script_line("Func=DynamicFunc__append_keys_pad20\n"); if (use_inp1) len_comp += 20; else len_comp2 += 20; }
 							else if (!strcmp(pCode[x], "pad100")) {
-								comp_add_script_line("Func=DynamicFunc__set_input_len_100\n"); if(use_inp1) len_comp += 100; else len_comp2 += 100; }
+								comp_add_script_line("Func=DynamicFunc__set_input_len_100\n"); if (use_inp1) len_comp += 100; else len_comp2 += 100; }
 
 							*pCode[x] = 'X';
 						}
@@ -1849,7 +1861,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt) max_inp_len -= (len_comp-239+(inp_cnt-1))/inp_cnt;
 									else max_inp_len = (239-len_comp);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 64 bit SIMD subexpression that is longer than the 239 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 239-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 64 bit SIMD subexpression that is longer than the 239 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 239-max_inp_len);
 								}
 							} else if (!strncasecmp(pCode[i], "f5", 2 ) || !strncasecmp(pCode[i], "f4", 2) ||
 									   !strncasecmp(pCode[i], "f1", 2) || !strncasecmp(pCode[i], "f224", 4 ) ||
@@ -1859,7 +1871,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt) max_inp_len -= (len_comp-247+(inp_cnt-1))/inp_cnt;
 									else max_inp_len = (247-len_comp);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 32 bit SIMD subexpression that is longer than the 247 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 247-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 32 bit SIMD subexpression that is longer than the 247 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 247-max_inp_len);
 								}
 							} else {
 								// non SIMD code can use full 256 byte buffers.
@@ -1867,7 +1879,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt) max_inp_len -= (len_comp-256+(inp_cnt-1))/inp_cnt;
 									else max_inp_len = (256-len_comp);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a subexpression that is longer than the 256 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 256-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a subexpression that is longer than the 256 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 256-max_inp_len);
 
 								}
 							}
@@ -1883,7 +1895,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt2) max_inp_len -= (len_comp2-239+(inp_cnt2-1))/inp_cnt2;
 									else max_inp_len = (239-len_comp2);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 64 bit SIMD subexpression that is longer than the 239 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 239-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 64 bit SIMD subexpression that is longer than the 239 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 239-max_inp_len);
 								}
 							} else if (!strncasecmp(pCode[i], "f5", 2 ) || !strncasecmp(pCode[i], "f4", 2) ||
 									   !strncasecmp(pCode[i], "f1", 2) || !strncasecmp(pCode[i], "f224", 4 ) ||
@@ -1893,7 +1905,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt2) max_inp_len -= (len_comp2-247+(inp_cnt2-1))/inp_cnt2;
 									else  max_inp_len = (247-len_comp2);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 32 bit SIMD subexpression that is longer than the 247 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 247-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a 32 bit SIMD subexpression that is longer than the 247 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 247-max_inp_len);
 								}
 							} else {
 								// non SIMD code can use full 256 byte buffers.
@@ -1901,7 +1913,7 @@ static int parse_expression(DC_struct *p) {
 									if (inp_cnt2) max_inp_len -= (len_comp2-256+(inp_cnt2-1))/inp_cnt2;
 									else max_inp_len = (256-len_comp2);
 									if (max_inp_len <= 0)
-										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a subexpression that is longer than the 256 byte max. It's length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 256-max_inp_len);
+										error_msg("This expression can not be handled by the Dynamic engine.\nThere is a subexpression that is longer than the 256 byte max. Its length is %d bytes long, even with 0 byte PLAINTEXT_LENGTH\n", 256-max_inp_len);
 								}
 							}
 							len_comp2 = 0;
@@ -1921,10 +1933,10 @@ static int parse_expression(DC_struct *p) {
 #undef ELSEIF
 #define IF(C,T,L,F) if (!strncasecmp(pCode[i], #T, L)) { \
 	comp_add_script_line("Func=DynamicFunc__" #C "_crypt_input%s_to_output1_FINAL\n", use_inp1?"1":"2"); \
-	if(F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); outer_hash_len = F; } else outer_hash_len = 16; }
+	if (F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); outer_hash_len = F; } else outer_hash_len = 16; }
 #define ELSEIF(C,T,L,F) else if (!strncasecmp(pCode[i], #T, L)) { \
 	comp_add_script_line("Func=DynamicFunc__" #C "_crypt_input%s_to_output1_FINAL\n", use_inp1?"1":"2"); \
-	if(F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); outer_hash_len = F; } else outer_hash_len = 16; }
+	if (F) { comp_add_script_line("Flag=MGF_INPUT_" #F "_BYTE\n"); outer_hash_len = F; } else outer_hash_len = 16; }
 
 							IF(SHA512,f512,4,64)
 							ELSEIF(MD5,f5,2,0)
@@ -2218,6 +2230,11 @@ int looks_like_bare_hash(const char *fld1) {
 char *dynamic_compile_prepare(char *fld0, char *fld1) {
 	static char Buf[1024], tmp1[64];
 	char *cpExpr=0;
+
+	/* Quick cancel of huge lines (eg. zip archives) */
+	if (strnlen(fld1, LINE_BUFFER_SIZE + 1) > LINE_BUFFER_SIZE)
+		return fld1;
+
 	if (!strncmp(fld1, "$dynamic_", 9)) {
 		int num;
 		if (strlen(fld1) > 490)
@@ -2445,16 +2462,16 @@ int big_gen_one(int Num, char *cpExpr) {
 
 	ret = dynamic_compile(cpExpr, &p);
 	p2 = (DC_struct *)p;
-	if (ret || !p2->pScript) return !!printf ("Error, null script variable in type %d\n", Num);
-	printf ("static struct fmt_tests _Preloads_%d[] = {\n", Num);
+	if (ret || !p2->pScript) return !!printf("Error, null script variable in type %d\n", Num);
+	printf("static struct fmt_tests _Preloads_%d[] = {\n", Num);
 	/*
 	 * FIXME This should be rewritten, using DC_NUM_VECTORS and not
 	 * hard coding stuff:
 	 */
-	printf ("    {\"$dynamic_%d$%s\",\"abc\"},\n",Num, strchr(&(p2->pLine[0][1]), '@')+1);
-	printf ("    {\"$dynamic_%d$%s\",\"john\"},\n",Num, strchr(&(p2->pLine[1][1]), '@')+1);
-	printf ("    {\"$dynamic_%d$%s\",\"passweird\"},\n",Num, strchr(&(p2->pLine[2][1]), '@')+1);
-	printf ("    {NULL}};\n");
+	printf("    {\"$dynamic_%d$%s\",\"abc\"},\n",Num, strchr(&(p2->pLine[0][1]), '@')+1);
+	printf("    {\"$dynamic_%d$%s\",\"john\"},\n",Num, strchr(&(p2->pLine[1][1]), '@')+1);
+	printf("    {\"$dynamic_%d$%s\",\"passweird\"},\n",Num, strchr(&(p2->pLine[2][1]), '@')+1);
+	printf("    {NULL}};\n");
 	return 0;
 }
 int big_gen(char *cpType, char *cpNum) {
@@ -2471,8 +2488,8 @@ int big_gen(char *cpType, char *cpNum) {
 	ret = dynamic_compile(szExpr, &p);
 	if (ret) return 1;
 
-	printf ("/*** Large hash group for %s dynamic_%d to dynamic_%d ***/\n", cpType, Num, Num+8);
-	printf ("DYNA_PRE_DEFINE_LARGE_HASH(%s,%s,%d)\n", cpTypeU, cpNum, (int)strlen(gen_conv)); // gen_conv still holds the last hash from the simple hash($p) expression.
+	printf("/*** Large hash group for %s dynamic_%d to dynamic_%d ***/\n", cpType, Num, Num+8);
+	printf("DYNA_PRE_DEFINE_LARGE_HASH(%s,%s,%d)\n", cpTypeU, cpNum, (int)strlen(gen_conv)); // gen_conv still holds the last hash from the simple hash($p) expression.
 
 	if (big_gen_one(Num++, szExpr)) return 1;
 	sprintf(szExpr, "dynamic=%s($s.$p)", cpType); //161
@@ -2506,7 +2523,7 @@ int main(int argc, char **argv) {
 	printf("processing this expression: %s\n\n", argv[1]);
 	ret = dynamic_compile(argv[1], &p);
 	p2 = (DC_struct *)p;
-	if (ret || !p2->pScript) return !!printf ("Error, null script variable\n");
+	if (ret || !p2->pScript) return !!printf("Error, null script variable\n");
 
 	printf("Script:\n-------------\n%s\n\n", p2->pScript);
 	printf("Expression:  %s\n", p2->pExpr);

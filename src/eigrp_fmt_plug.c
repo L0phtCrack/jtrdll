@@ -18,6 +18,7 @@ john_register_one(&fmt_eigrp);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 // OMP_SCALE on Intel core i7
@@ -31,11 +32,11 @@ john_register_one(&fmt_eigrp);
 // 128k - 17795k/14663k  --test=0 has a tiny delay, but not bad.
 #ifdef __MIC__
 #ifndef OMP_SCALE
-#define OMP_SCALE 8192
+#define OMP_SCALE               8192
 #endif
 #else
 #ifndef OMP_SCALE
-#define OMP_SCALE 131072
+#define OMP_SCALE               131072
 #endif
 #endif
 #endif
@@ -47,8 +48,8 @@ john_register_one(&fmt_eigrp);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "memdbg.h"
 #include "escrypt/sha256.h"
+#include "memdbg.h"
 
 #define FORMAT_LABEL            "eigrp"
 #define FORMAT_NAME             "EIGRP MD5 / HMAC-SHA-256 authentication"
@@ -96,11 +97,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_num_threads();
-
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -190,8 +187,8 @@ static void *get_salt(char *ciphertext)
 	static struct custom_salt cs;
 	int i, len;
 	char *p, *q;
-	memset(&cs, 0, SALT_SIZE);
 
+	memset(&cs, 0, SALT_SIZE);
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
 
@@ -248,6 +245,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '$') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -269,12 +267,11 @@ static unsigned char zeropad[16] = {0};
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		MD5_CTX ctx;
 
 		if (cur_salt->algo_type == 2) {
@@ -307,10 +304,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -357,7 +353,7 @@ struct fmt_main fmt_eigrp = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{
 			"algorithm [2:MD5 3:HMAC-SHA-256]",
 		},
@@ -377,7 +373,7 @@ struct fmt_main fmt_eigrp = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -387,7 +383,7 @@ struct fmt_main fmt_eigrp = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

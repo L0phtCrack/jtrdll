@@ -19,7 +19,7 @@ john_register_one(&fmt_saltedsha2);
 #include "johnswap.h"
 #include "common.h"
 #include "sha2.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include "simd-intrinsics.h"
 #include <string.h>
 #include "rawSHA512_common.h"
@@ -75,14 +75,16 @@ struct s_salt
 static struct s_salt *saved_salt;
 
 #ifdef SIMD_COEF_64
-#define GETPOS(i, index)        ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#define FMT_IS_64BIT
+#define FMT_IS_BE
+#include "common-simd-getpos.h"
 static uint64_t (*saved_key)[SHA_BUF_SIZ*SIMD_COEF_64];
 static uint64_t (*crypt_out)[8*SIMD_COEF_64];
 static uint64_t (**len_ptr64);
 static int max_count;
 #else
 static uint32_t (*crypt_out)[DIGEST_SIZE / 4];
-static uint64_t (*saved_key)[PLAINTEXT_LENGTH + 1];
+static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 #endif
 static int *saved_len;
 
@@ -91,11 +93,9 @@ static void init(struct fmt_main *self)
 #ifdef SIMD_COEF_64
 	unsigned int i, j;
 #endif
+
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_len));
@@ -134,86 +134,8 @@ static void done(void)
 	MEM_FREE(saved_len);
 }
 
-#ifdef SIMD_COEF_64
-static void set_key(char *key, int index) {
-#if ARCH_ALLOWS_UNALIGNED
-	const uint64_t *wkey = (uint64_t*)key;
-#else
-	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint64_t));
-	const uint64_t *wkey = is_aligned(key, sizeof(uint64_t)) ?
-			(uint64_t*)key : (uint64_t*)strcpy(buf_aligned, key);
-#endif
-	uint64_t *keybuffer = &((uint64_t *)saved_key)[(index&(SIMD_COEF_64-1)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
-	uint64_t *keybuf_word = keybuffer;
-	unsigned int len;
-	uint64_t temp;
-
-	len = 0;
-	while((unsigned char)(temp = *wkey++)) {
-		if (!(temp & 0xff00))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xff);
-			len++;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff0000))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffff);
-			len+=2;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff000000))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffffff);
-			len+=3;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff00000000ULL))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffffffff);
-			len+=4;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff0000000000ULL))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffffffffffULL);
-			len+=5;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff000000000000ULL))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffffffffffffULL);
-			len+=6;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff00000000000000ULL))
-		{
-			*keybuf_word = JOHNSWAP64(temp & 0xffffffffffffffULL);
-			len+=7;
-			goto key_cleaning;
-		}
-		*keybuf_word = JOHNSWAP64(temp);
-		len += 8;
-		keybuf_word += SIMD_COEF_64;
-	}
-
-key_cleaning:
-	saved_len[index] = len;
-	keybuf_word += SIMD_COEF_64;
-	while(*keybuf_word && keybuf_word < &keybuffer[15*SIMD_COEF_64]) {
-		*keybuf_word = 0;
-		keybuf_word += SIMD_COEF_64;
-	}
-}
-#else
-static void set_key(char *key, int index)
-{
-	int len = strlen(key);
-
-	saved_len[index] = len;
-	memcpy(saved_key[index], key, len + 1);
-}
-#endif
+#define SET_SAVED_LEN
+#include "common-simd-setkey64.h"
 
 static void * get_salt(char * ciphertext)
 {
@@ -226,7 +148,7 @@ static void * get_salt(char * ciphertext)
 	memset(realcipher, 0, sizeof(realcipher));
 	memset(&cursalt, 0, sizeof(struct s_salt));
 	len = strlen(ciphertext);
-	base64_decode(ciphertext, len, realcipher);
+	base64_convert(ciphertext, e_b64_mime, len, realcipher, e_b64_raw, sizeof(realcipher), flg_Base64_DONOT_NULL_TERMINATE, 0);
 
 	// We now support any salt length up to NSLDAP_SALT_SIZE
 	cursalt.len = (len + 3) / 4 * 3 - DIGEST_SIZE;
@@ -237,25 +159,6 @@ static void * get_salt(char * ciphertext)
 	memcpy(cursalt.data.c, realcipher+DIGEST_SIZE, cursalt.len);
 	return &cursalt;
 }
-
-#ifdef SIMD_COEF_64
-static char *get_key(int index) {
-	unsigned i;
-	uint64_t s;
-	static char out[PLAINTEXT_LENGTH + 1];
-	unsigned char *wucp = (unsigned char*)saved_key;
-
-	s = saved_len[index];
-	for(i=0;i<(unsigned)s;i++)
-		out[i] = wucp[ GETPOS(i, index) ];
-	out[i] = 0;
-	return (char*) out;
-}
-#else
-static char *get_key(int index) {
-	return (char*)saved_key[index];
-}
-#endif
 
 static int cmp_all(void *binary, int count) {
 	unsigned int index;
@@ -340,6 +243,13 @@ static int get_hash_3 (int index) { return crypt_out[(unsigned int)index/SIMD_CO
 static int get_hash_4 (int index) { return crypt_out[(unsigned int)index/SIMD_COEF_64][index&(SIMD_COEF_64-1)] & PH_MASK_4; }
 static int get_hash_5 (int index) { return crypt_out[(unsigned int)index/SIMD_COEF_64][index&(SIMD_COEF_64-1)] & PH_MASK_5; }
 static int get_hash_6 (int index) { return crypt_out[(unsigned int)index/SIMD_COEF_64][index&(SIMD_COEF_64-1)] & PH_MASK_6; }
+static int binary_hash_0 (void *p) { return *((uint64_t*)p) & PH_MASK_0; }
+static int binary_hash_1 (void *p) { return *((uint64_t*)p) & PH_MASK_1; }
+static int binary_hash_2 (void *p) { return *((uint64_t*)p) & PH_MASK_2; }
+static int binary_hash_3 (void *p) { return *((uint64_t*)p) & PH_MASK_3; }
+static int binary_hash_4 (void *p) { return *((uint64_t*)p) & PH_MASK_4; }
+static int binary_hash_5 (void *p) { return *((uint64_t*)p) & PH_MASK_5; }
+static int binary_hash_6 (void *p) { return *((uint64_t*)p) & PH_MASK_6; }
 #else
 static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
 static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
@@ -387,6 +297,15 @@ struct fmt_main fmt_saltedsha2 = {
 		{ NULL },
 		fmt_default_source,
 		{
+#ifdef SIMD_COEF_64
+			binary_hash_0,
+			binary_hash_1,
+			binary_hash_2,
+			binary_hash_3,
+			binary_hash_4,
+			binary_hash_5,
+			binary_hash_6
+#else
 			fmt_default_binary_hash_0,
 			fmt_default_binary_hash_1,
 			fmt_default_binary_hash_2,
@@ -394,6 +313,7 @@ struct fmt_main fmt_saltedsha2 = {
 			fmt_default_binary_hash_4,
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
+#endif
 		},
 		salt_hash,
 		NULL,

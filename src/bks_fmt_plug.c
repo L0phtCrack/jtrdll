@@ -89,11 +89,7 @@ static int *cracked, any_cracked;  // "cracked array" approach is required for U
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	static int omp_t = 1;
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*saved_key));
@@ -205,17 +201,23 @@ static void *get_salt(char *ciphertext)
 	p = strtokm(NULL, "$");
 	cs.saltlen = atoi(p);
 	p = strtokm(NULL, "$");
-	for(i = 0; i < cs.saltlen; i++)
+	for (i = 0; i < cs.saltlen; i++)
 		cs.salt[i] = (atoi16[ARCH_INDEX(p[2*i])] << 4) | atoi16[ARCH_INDEX(p[2*i+1])];
 	p = strtokm(NULL, "$");
 	cs.store_data_length = hexlenl(p, 0) / 2;
-	for(i = 0; i < cs.store_data_length; i++)
+	for (i = 0; i < cs.store_data_length; i++)
 		cs.store_data[i] = (atoi16[ARCH_INDEX(p[2*i])] << 4) | atoi16[ARCH_INDEX(p[2*i+1])];
 	p = strtokm(NULL, "$");
 	if (cs.format == 0) { // BKS keystore
-		for(i = 0; i < 20; i++)
+		for (i = 0; i < 20; i++)
 			cs.store_hmac[i] = (atoi16[ARCH_INDEX(p[2*i])] << 4) | atoi16[ARCH_INDEX(p[2*i+1])];
+#if !ARCH_LITTLE_ENDIAN && !defined(SIMD_COEF_32)
+		alter_endianity(cs.store_hmac, 20);
+#endif
 	}
+#if !ARCH_LITTLE_ENDIAN && !defined(SIMD_COEF_32)
+	alter_endianity(cs.store_hmac, 20);
+#endif
 	MEM_FREE(keeptr);
 
 	return (void *)&cs;
@@ -239,10 +241,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
-#endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 #if !defined(SIMD_COEF_32)
 		if (cur_salt->format == 0) {
 			unsigned char mackey[20];
@@ -440,7 +439,7 @@ struct fmt_main fmt_bks = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests
@@ -456,7 +455,7 @@ struct fmt_main fmt_bks = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -466,7 +465,7 @@ struct fmt_main fmt_bks = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

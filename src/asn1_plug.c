@@ -14,11 +14,11 @@
 
 // #include "includes.h"
 #include <stdio.h>
-#include "john_stdint.h"
+#include <stdint.h>
 #include "asn1.h"
 #include "jumbo.h"
 
-#define printf(...)
+#define wpa_printf(...)
 #ifdef _MSC_VER
 #define snprintf _snprintf
 #endif
@@ -41,12 +41,12 @@ int asn1_get_next(const uint8_t *buf, size_t len, struct asn1_hdr *hdr)
         hdr->tag = 0;
         do {
             if (pos >= end) {
-                printf("ASN.1: Identifier "
+                wpa_printf("ASN.1: Identifier "
                         "underflow");
                 return -1;
             }
             tmp = *pos++;
-            printf("ASN.1: Extended tag data: "
+            wpa_printf("ASN.1: Extended tag data: "
                     "0x%02x", tmp);
             hdr->tag = (hdr->tag << 7) | (tmp & 0x7f);
         } while (tmp & 0x80);
@@ -56,19 +56,19 @@ int asn1_get_next(const uint8_t *buf, size_t len, struct asn1_hdr *hdr)
     tmp = *pos++;
     if (tmp & 0x80) {
         if (tmp == 0xff) {
-            printf("ASN.1: Reserved length "
+            wpa_printf("ASN.1: Reserved length "
                     "value 0xff used");
             return -1;
         }
         tmp &= 0x7f; /* number of subsequent octets */
         hdr->length = 0;
         if (tmp > 4) {
-            printf("ASN.1: Too long length field");
+            wpa_printf("ASN.1: Too long length field");
             return -1;
         }
         while (tmp--) {
             if (pos >= end) {
-                printf("ASN.1: Length "
+                wpa_printf("ASN.1: Length "
                         "underflow");
                 return -1;
             }
@@ -80,7 +80,7 @@ int asn1_get_next(const uint8_t *buf, size_t len, struct asn1_hdr *hdr)
     }
 
     if (end < pos || hdr->length > (unsigned int) (end - pos)) {
-        printf("ASN.1: Contents underflow");
+        wpa_printf("ASN.1: Contents underflow");
         return -1;
     }
 
@@ -111,7 +111,7 @@ int asn1_parse_oid(const uint8_t *buf, size_t len, struct asn1_oid *oid)
         } while (tmp & 0x80);
 
         if (oid->len >= ASN1_MAX_OID_LEN) {
-            printf("ASN.1: Too long OID value");
+            wpa_printf("ASN.1: Too long OID value");
             return -1;
         }
         if (oid->len == 0) {
@@ -142,7 +142,7 @@ int asn1_get_oid(const uint8_t *buf, size_t len, struct asn1_oid *oid,
         return -1;
 
     if (hdr.class != ASN1_CLASS_UNIVERSAL || hdr.tag != ASN1_TAG_OID) {
-        printf("ASN.1: Expected OID - found class %d "
+        wpa_printf("ASN.1: Expected OID - found class %d "
                 "tag 0x%x", hdr.class, hdr.tag);
         return -1;
     }
@@ -210,10 +210,11 @@ unsigned long asn1_bit_string_to_long(const uint8_t *buf, size_t len)
         val |= ((unsigned long) rotate_bits(*pos++)) << 16;
     if (len >= 5)
         val |= ((unsigned long) rotate_bits(*pos++)) << 24;
-    if (len >= 6)
-        printf("X509: %s - some bits ignored "
+    if (len >= 6) {
+        wpa_printf("X509: %s - some bits ignored "
                 "(BIT STRING length %lu)",
-                __func__, (unsigned long) len);
+                __FUNCTION__, (unsigned long) len);
+    }
 
     return val;
 }

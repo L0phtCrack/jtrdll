@@ -60,9 +60,20 @@ static DYNAMIC_primitive_funcp _Funcs_1[] =
 
 #include "arch.h"
 
+#if defined(SIMD_COEF_32) && !ARCH_LITTLE_ENDIAN
+	#undef SIMD_COEF_32
+	#undef SIMD_COEF_64
+	#undef SIMD_PARA_MD5
+	#undef SIMD_PARA_MD4
+	#undef SIMD_PARA_SHA1
+	#undef SIMD_PARA_SHA256
+	#undef SIMD_PARA_SHA512
+	#define BITS ARCH_BITS_STR
+#endif
+
 #if !FAST_FORMATS_OMP
 #ifdef _OPENMP
-#  define FORCE_THREAD_MD5_body
+  #define FORCE_THREAD_MD5_body
 #endif
 #undef _OPENMP
 #endif
@@ -135,7 +146,7 @@ static unsigned int m_ompt;
 #if (defined (_OPENMP)||defined(FORCE_THREAD_MD5_body)) && defined (_MSC_VER)
 unsigned DES_bs_max_kpc, DES_bs_min_kpc, DES_bs_all_p;
 #undef MD5_body
-extern void MD5_body(MD5_word x[15],MD5_word out[4]);
+extern void MD5_body(uint32_t x[15],uint32_t out[4]);
 #endif
 
 #define STRINGIZE2(s) #s
@@ -160,14 +171,14 @@ unsigned *nLargeOff;
 #define MD5_swap2(a,b,c,d,e)
 #else
 extern char *MD5_DumpHexStr(void *p);
-static void MD5_swap(MD5_word *x, MD5_word *y, int count)
+static void MD5_swap(uint32_t *x, uint32_t *y, int count)
 {
 	do {
 		*y++ = JOHNSWAP(*x++);
 	} while (--count);
 }
 #if MD5_X2
-static void MD5_swap2(MD5_word *x, MD5_word *x2, MD5_word *y, MD5_word *y2, int count)
+static void MD5_swap2(uint32_t *x, uint32_t *x2, uint32_t *y, uint32_t *y2, int count)
 {
 	do {
 		*y++ = JOHNSWAP(*x++);
@@ -181,8 +192,8 @@ static void MD5_swap2(MD5_word *x, MD5_word *x2, MD5_word *y, MD5_word *y2, int 
 #define FORMAT_NAME         "Generic MD5"
 
 #ifdef SIMD_COEF_32
-# define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + ((i)&3) )
-# define SHAGETPOS(i, index)	( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) ) //for endianity conversion
+ #define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + ((i)&3) )
+ #define SHAGETPOS(i, index)	( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3) )*SIMD_COEF_32 + (3-((i)&3)) ) //for endianity conversion
 #endif
 
 #define BENCHMARK_COMMENT		""
@@ -411,10 +422,14 @@ static int valid(char *ciphertext, struct fmt_main *pFmt)
 	if (strncmp(ciphertext, pPriv->dynamic_WHICH_TYPE_SIG, strlen(pPriv->dynamic_WHICH_TYPE_SIG)))
 		return 0;
 
+	/* Quick cancel of huge lines (eg. zip archives) */
+	if (strnlen(ciphertext, LINE_BUFFER_SIZE + 1) > LINE_BUFFER_SIZE)
+		return 0;
+
 	// this is now simply REMOVED totally, if we detect it.  Doing this solves MANY other problems
 	// of leaving it in there. The ONLY problem we still have is NULL bytes.
 	if (strstr(ciphertext, "$HEX$")) {
-		if (strlen(ciphertext) < sizeof(fixed_ciphertext))
+		if (strnlen(ciphertext, sizeof(fixed_ciphertext) + 1) < sizeof(fixed_ciphertext))
 			ciphertext = RemoveHEX(fixed_ciphertext, ciphertext);
 	}
 
@@ -534,7 +549,7 @@ static int valid(char *ciphertext, struct fmt_main *pFmt)
 	if (pPriv->FldMask) {
 		for (i = 0; i < 10; ++i) {
 			if ((pPriv->FldMask & (MGF_FLDx_BIT<<i)) == (MGF_FLDx_BIT<<i)) {
-				char Fld[5];
+				char Fld[8];
 				sprintf(Fld, "$$F%d", i);
 				if (!strstr(&ciphertext[pPriv->dynamic_SALT_OFFSET-1], Fld))
 					return 0;
@@ -565,7 +580,7 @@ const unsigned int OMP_SHA1_INC = (SIMD_PARA_SHA1*SIMD_COEF_32);
 #endif // SIMD_COEF_32
 #endif // _OPENMP
 
-static inline void __nonMP_DynamicFunc__SSEtoX86_switch_output2()
+inline static void __nonMP_DynamicFunc__SSEtoX86_switch_output2()
 {
 #ifdef _OPENMP
 	DynamicFunc__SSEtoX86_switch_output2(0,m_count,0);
@@ -574,7 +589,7 @@ static inline void __nonMP_DynamicFunc__SSEtoX86_switch_output2()
 #endif
 }
 
-static inline void __nonMP_DynamicFunc__append_from_last_output2_to_input1_as_base16()
+inline static void __nonMP_DynamicFunc__append_from_last_output2_to_input1_as_base16()
 {
 #ifdef _OPENMP
 	DynamicFunc__append_from_last_output2_to_input1_as_base16(0,m_count,0);
@@ -602,12 +617,12 @@ void __nonMP_nLargeOff(unsigned val)
 	nLargeOff[0] = val;
 }
 
-static inline void md5_unicode_convert_set(int what, int tid)
+inline static void md5_unicode_convert_set(int what, int tid)
 {
 	md5_unicode_convert[tid] = what;
 }
 
-static inline int md5_unicode_convert_get(int tid)
+inline static int md5_unicode_convert_get(int tid)
 {
 	return md5_unicode_convert[tid];
 }
@@ -631,7 +646,7 @@ void __nonMP_md5_unicode_convert(int what)
 #define nLargeOff_get(tid)        nLargeOff_get(0)
 #endif
 
-static inline void __nonMP_DynamicFunc__append_keys2()
+inline static void __nonMP_DynamicFunc__append_keys2()
 {
 #ifdef _OPENMP
 	DynamicFunc__append_keys2(0,m_count,0);
@@ -844,7 +859,7 @@ static void init(struct fmt_main *pFmt)
 	fmt_Dynamic.params.benchmark_length   = pFmt->params.benchmark_length;
 // we allow for 3 bytes of utf8 data to make up the number of plaintext_length unicode chars.
 	if ( (pFmt->params.flags&FMT_UNICODE) && options.target_enc == UTF_8 ) {
-		//printf ("Here pFmt->params.plaintext_length=%d pPriv->pSetup->MaxInputLen=%d\n", pFmt->params.plaintext_length, pPriv->pSetup->MaxInputLen);
+		//printf("Here pFmt->params.plaintext_length=%d pPriv->pSetup->MaxInputLen=%d\n", pFmt->params.plaintext_length, pPriv->pSetup->MaxInputLen);
 		pFmt->params.plaintext_length = MIN(125, pFmt->params.plaintext_length * 3);
 	}
 	else
@@ -936,7 +951,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 
 	// ANY field[1] longer than 490 will simply be ignored, and returned 'as is'.
 	// the rest of this function makes this assumption.
-	if (!cpBuilding || strlen(cpBuilding) > 490)
+	if (!cpBuilding || strnlen(cpBuilding, 491) > 490)
 		return cpBuilding;
 
 	// mime. We want to strip off ALL trailing '=' characters to 'normalize' them
@@ -982,7 +997,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 	// At this point, max length of cpBuilding is 491 (if it was a md5_gen signature)
 
 	// allow a raw hash, if there is a $u but no salt
-	if (pPriv->nUserName && strlen(split_fields[0]) && !strchr(cpBuilding, '$') && strcmp(split_fields[0], "?")) {
+	if (pPriv->nUserName && split_fields[0][0] && !strchr(cpBuilding, '$') && strcmp(split_fields[0], "?")) {
 		static char ct[496];
 		strcpy(ct, cpBuilding);
 		strcat(ct, "$$U");
@@ -1053,7 +1068,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 	// at this point max length is still < 512.  491 + strlen($dynamic_xxxxx$) is 506
 
 	if (pPriv->nUserName && !strstr(cpBuilding, "$$U")) {
-		if (split_fields[0] && strlen(split_fields[0]) && strcmp(split_fields[0], "?")) {
+		if (split_fields[0] && split_fields[0][0] && strcmp(split_fields[0], "?")) {
 			char *userName=split_fields[0], *cp;
 			static char ct[1024];
 			// assume field[0] is in format: username OR DOMAIN\\username  If we find a \\, then  use the username 'following' it.
@@ -1061,7 +1076,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 			if (cp)
 				userName = &cp[1];
 			userName = HandleCase(userName, pPriv->nUserName);
-			snprintf (ct, sizeof(ct), "%s$$U%s", cpBuilding, userName);
+			snprintf(ct, sizeof(ct), "%s$$U%s", cpBuilding, userName);
 			cpBuilding = ct;
 		}
 	}
@@ -1069,10 +1084,10 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 		for (i = 0; i < 10; ++i) {
 			if (pPriv->FldMask&(MGF_FLDx_BIT<<i)) {
 				sprintf(Tmp, "$$F%d", i);
-				if (split_fields[i] && strlen(split_fields[i]) && strcmp(split_fields[i], "/") && !strstr(cpBuilding, Tmp)) {
+				if (split_fields[i] && split_fields[i][0] && strcmp(split_fields[i], "/") && !strstr(cpBuilding, Tmp)) {
 					static char ct[1024];
 					char ct2[1024];
-					snprintf (ct2, sizeof(ct2), "%s$$F%d%s", cpBuilding, i, split_fields[i]);
+					snprintf(ct2, sizeof(ct2), "%s$$F%d%s", cpBuilding, i, split_fields[i]);
 					strcpy(ct, ct2);
 					cpBuilding = ct;
 				}
@@ -1086,17 +1101,22 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
 {
 	static char out[1024];
+	char search_char = '$';
 	private_subformat_data *pPriv = pFmt->private.data;
 
-	if (strlen(ciphertext) > 950)
+	if (strnlen(ciphertext, 951) > 950)
 		return ciphertext;
 
+	if (!strncmp(ciphertext, "@dynamic=", 9))
+		search_char = '@';
+
 	// mime. We want to strip off ALL trailing '=' characters to 'normalize' them
-	if (pPriv->dynamic_base64_inout == 3 && !strncmp(ciphertext, "$dynamic_", 9))
+	if (pPriv->dynamic_base64_inout == 3 &&
+	    (!strncmp(ciphertext, "$dynamic_", 9) || !strncmp(ciphertext, "@dynamic=", 9)))
 	{
 		static char ct[496];
 		unsigned int len;
-		char *cp = strchr(&ciphertext[9], '$'), *cp2;
+		char *cp = strchr(&ciphertext[9], search_char), *cp2;
 		if (cp) {
 			++cp;
 			len = base64_valid_length(cp, e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT, 0);
@@ -1112,7 +1132,8 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
 		}
 	}
 
-	if (!strncmp(ciphertext, "$dynamic", 8)) {
+	if (!strncmp(ciphertext, "$dynamic", 8) ||
+	    !strncmp(ciphertext, "@dynamic=", 9)) {
 		if (strstr(ciphertext, "$HEX$"))
 			return RemoveHEX(out, ciphertext);
 		return ciphertext;
@@ -1135,6 +1156,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *pFmt)
 static char *split_UC(char *ciphertext, int index, struct fmt_main *pFmt)
 {
 	static char out[1024];
+	char search_char = '$';
 	private_subformat_data *pPriv = pFmt->private.data;
 
 	if (!strncmp(ciphertext, "$dynamic", 8)) {
@@ -1142,6 +1164,12 @@ static char *split_UC(char *ciphertext, int index, struct fmt_main *pFmt)
 			RemoveHEX(out, ciphertext);
 		else
 			strcpy(out, ciphertext);
+	} else if (!strncmp(ciphertext, "@dynamic=", 9)) {
+		if (strstr(ciphertext, "$HEX$"))
+			RemoveHEX(out, ciphertext);
+		else
+			strcpy(out, ciphertext);
+		search_char = '@';
 	} else {
 		if (!strncmp(ciphertext, "md5_gen(", 8)) {
 			ciphertext += 8;
@@ -1154,7 +1182,7 @@ static char *split_UC(char *ciphertext, int index, struct fmt_main *pFmt)
 		} else
 			sprintf(out, "%s%s", pPriv->dynamic_WHICH_TYPE_SIG, ciphertext);
 	}
-	ciphertext = strchr(&out[8], '$')+1;
+	ciphertext = strchr(&out[8], search_char)+1;
 	while (*ciphertext && *ciphertext != '$') {
 		if (*ciphertext >= 'A' && *ciphertext <= 'Z')
 			*ciphertext += 0x20; // ASCII specific, but I really do not care.
@@ -1175,7 +1203,11 @@ static void set_salt(void *salt)
 		saltlen = 0;
 		return;
 	}
-	cpsalt = *((unsigned char**)salt);
+#if ARCH_ALLOWS_UNALIGNED
+        cpsalt = *((unsigned char**)salt);
+#else
+        memcpy(((void*)&(cpsalt)), ((unsigned char **)salt), sizeof(void*));
+#endif
 	saltlen = *cpsalt++ - '0';
 	saltlen <<= 3;
 	saltlen += *cpsalt++ - '0';
@@ -1311,7 +1343,7 @@ key_cleaning:
 		if (len > 110) // we never do UTF-8 -> UTF-16 in this mode
 			len = 110;
 
-//		if(index==0) {
+//		if (index==0) {
 			// we 'have' to use full clean here. NOTE 100% sure why, but 10 formats fail if we do not.
 //			__nonMP_DynamicFunc__clean_input_full();
 //		}
@@ -1328,7 +1360,7 @@ key_cleaning:
 		len = strlen(key);
 		if (len > 110 && !(fmt_Dynamic.params.flags & FMT_UNICODE))
 			len = 110;
-//		if(index==0) {
+//		if (index==0) {
 //			__nonMP_DynamicFunc__clean_input_full();
 //		}
 		keys_dirty = 1;
@@ -1381,7 +1413,7 @@ static char *get_key(int index)
 //			s = saved_key_len[index];  // NOTE, we now have to get the length from the buffer, we do NOT store it into a saved_key_len buffer.
 			uint32_t *keybuffer = &input_buf[idx].w[index&(SIMD_COEF_32-1)];
 			s = keybuffer[14*SIMD_COEF_32] >> 3;
-			for(i=0;i<s;i++)
+			for (i=0;i<s;i++)
 				out[i] = input_buf[idx].c[GETPOS(i, index&(SIMD_COEF_32-1))];
 			out[i] = 0;
 			return (char*)out;
@@ -1394,7 +1426,7 @@ static char *get_key(int index)
 #endif
 			cp = input_buf_X86[index>>MD5_X2].x1.B;
 
-		for(i=0;i<saved_key_len[index];++i)
+		for (i=0;i<saved_key_len[index];++i)
 			out[i] = cp[i];
 		out[i] = 0;
 		return (char*)out;
@@ -1419,7 +1451,7 @@ static int cmp_all(void *binary, int count)
 		for (i = 0; i < cnt; ++i)
 		{
 			for (j = 0; j < SIMD_COEF_32; ++j)
-				if( *((uint32_t *)binary) == crypt_key[i].w[j])
+				if ( *((uint32_t *)binary) == crypt_key[i].w[j])
 					return 1;
 		}
 		return 0;
@@ -1454,7 +1486,7 @@ static int cmp_all_64_4x6(void *binary, int count)
 		for (i = 0; i < cnt; ++i)
 		{
 			for (j = 0; j < SIMD_COEF_32; ++j)
-				if( *((uint32_t *)binary) == (crypt_key[i].w[j] & MASK_4x6))
+				if ( *((uint32_t *)binary) == (crypt_key[i].w[j] & MASK_4x6))
 					return 1;
 		}
 		return 0;
@@ -1492,7 +1524,7 @@ static int cmp_one(void *binary, int index)
 #ifdef SIMD_COEF_32
 	if (dynamic_use_sse&1) {
 		unsigned int idx = ( ((unsigned int)index)/SIMD_COEF_32);
-		if( (((uint32_t *)binary)[0] == ((uint32_t *)&(crypt_key[idx].c))[0*SIMD_COEF_32+(index&(SIMD_COEF_32-1))]) &&
+		if ( (((uint32_t *)binary)[0] == ((uint32_t *)&(crypt_key[idx].c))[0*SIMD_COEF_32+(index&(SIMD_COEF_32-1))]) &&
 			(((uint32_t *)binary)[1] == ((uint32_t *)&(crypt_key[idx].c))[1*SIMD_COEF_32+(index&(SIMD_COEF_32-1))]) &&
 			(((uint32_t *)binary)[2] == ((uint32_t *)&(crypt_key[idx].c))[2*SIMD_COEF_32+(index&(SIMD_COEF_32-1))]) &&
 			(((uint32_t *)binary)[3] == ((uint32_t *)&(crypt_key[idx].c))[3*SIMD_COEF_32+(index&(SIMD_COEF_32-1))]))
@@ -1524,7 +1556,7 @@ static int cmp_one_64_4x6(void *binary, int index)
 #ifdef SIMD_COEF_32
 	if (dynamic_use_sse==1) {
 		unsigned int idx = ( ((unsigned int)index)/SIMD_COEF_32);
-		if( (((uint32_t *)binary)[0] == (((uint32_t *)&(crypt_key[idx].c))[0*SIMD_COEF_32+(index&(SIMD_COEF_32-1))] & MASK_4x6)) &&
+		if ( (((uint32_t *)binary)[0] == (((uint32_t *)&(crypt_key[idx].c))[0*SIMD_COEF_32+(index&(SIMD_COEF_32-1))] & MASK_4x6)) &&
 			(((uint32_t *)binary)[1] == (((uint32_t *)&(crypt_key[idx].c))[1*SIMD_COEF_32+(index&(SIMD_COEF_32-1))] & MASK_4x6)) &&
 			(((uint32_t *)binary)[2] == (((uint32_t *)&(crypt_key[idx].c))[2*SIMD_COEF_32+(index&(SIMD_COEF_32-1))] & MASK_4x6)) &&
 			(((uint32_t *)binary)[3] == (((uint32_t *)&(crypt_key[idx].c))[3*SIMD_COEF_32+(index&(SIMD_COEF_32-1))] & MASK_4x6)))
@@ -1753,7 +1785,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	if ((curdat.pFmtMain->params.flags & FMT_OMP) == FMT_OMP) {
 		int j;
 		unsigned int inc = (m_count+m_ompt-1) / m_ompt;
-		//printf ("maxkeys=%d m_count=%d inc1=%d granularity=%d inc2=%d\n", curdat.pFmtMain->params.max_keys_per_crypt, m_count, inc, curdat.omp_granularity, ((inc + curdat.omp_granularity-1)/curdat.omp_granularity)*curdat.omp_granularity);
+		//printf("maxkeys=%d m_count=%d inc1=%d granularity=%d inc2=%d\n", curdat.pFmtMain->params.max_keys_per_crypt, m_count, inc, curdat.omp_granularity, ((inc + curdat.omp_granularity-1)/curdat.omp_granularity)*curdat.omp_granularity);
 		inc = ((inc + curdat.omp_granularity-1)/curdat.omp_granularity)*curdat.omp_granularity;
 #pragma omp parallel for shared(curdat, inc, m_count)
 		for (j = 0; j < m_count; j += inc) {
@@ -1785,7 +1817,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if 0
 		// Dump state (for debugging help)
 		if (i==0) printf("\npassword=%.*s\n", saved_key_len[0], saved_key[0]);
-		printf ("\nState after function: %s\n", dynamic_Find_Function_Name(curdat.dynamic_FUNCTIONS[i]));
+		printf("\nState after function: %s\n", dynamic_Find_Function_Name(curdat.dynamic_FUNCTIONS[i]));
 		// dump input 1
 #ifdef SIMD_COEF_32
 		dump_stuff_mmx_msg("input_buf[0]", input_buf[0].c, 64, 0);
@@ -1793,10 +1825,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		dump_stuff_mmx_msg("input_buf[2]", input_buf[0].c, 64, 2);
 		dump_stuff_mmx_msg("input_buf[3]", input_buf[0].c, 64, 3);
 #endif
-		printf ("input_buf86[0] : %*.*s\n", total_len_X86[0],total_len_X86[0],input_buf_X86[0].x1.b);
-		printf ("input_buf86[1] : %*.*s\n", total_len_X86[1],total_len_X86[1],input_buf_X86[1].x1.b);
-		printf ("input_buf86[2] : %*.*s\n", total_len_X86[2],total_len_X86[2],input_buf_X86[2].x1.b);
-		printf ("input_buf86[3] : %*.*s\n", total_len_X86[3],total_len_X86[3],input_buf_X86[3].x1.b);
+		printf("input_buf86[0] : %*.*s\n", total_len_X86[0],total_len_X86[0],input_buf_X86[0].x1.b);
+		printf("input_buf86[1] : %*.*s\n", total_len_X86[1],total_len_X86[1],input_buf_X86[1].x1.b);
+		printf("input_buf86[2] : %*.*s\n", total_len_X86[2],total_len_X86[2],input_buf_X86[2].x1.b);
+		printf("input_buf86[3] : %*.*s\n", total_len_X86[3],total_len_X86[3],input_buf_X86[3].x1.b);
 		// dump crypt 1
 #ifdef SIMD_COEF_32
 		dump_stuff_mmx_msg("crypt_key[0]", crypt_key[0].c, 16, 0);
@@ -1815,10 +1847,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		dump_stuff_mmx_msg("input_buf2[2]", input_buf2[0].c, 64, 2);
 		dump_stuff_mmx_msg("input_buf2[3]", input_buf2[0].c, 64, 3);
 #endif
-		printf ("input2_buf86[0] : %*.*s\n", total_len2_X86[0],total_len2_X86[0],input_buf2_X86[0].x1.b);
-		printf ("input2_buf86[1] : %*.*s\n", total_len2_X86[1],total_len2_X86[1],input_buf2_X86[1].x1.b);
-		printf ("input2_buf86[2] : %*.*s\n", total_len2_X86[2],total_len2_X86[2],input_buf2_X86[2].x1.b);
-		printf ("input2_buf86[3] : %*.*s\n", total_len2_X86[3],total_len2_X86[3],input_buf2_X86[3].x1.b);
+		printf("input2_buf86[0] : %*.*s\n", total_len2_X86[0],total_len2_X86[0],input_buf2_X86[0].x1.b);
+		printf("input2_buf86[1] : %*.*s\n", total_len2_X86[1],total_len2_X86[1],input_buf2_X86[1].x1.b);
+		printf("input2_buf86[2] : %*.*s\n", total_len2_X86[2],total_len2_X86[2],input_buf2_X86[2].x1.b);
+		printf("input2_buf86[3] : %*.*s\n", total_len2_X86[3],total_len2_X86[3],input_buf2_X86[3].x1.b);
 		// dump crypt 2
 #ifdef SIMD_COEF_32
 		dump_stuff_mmx_msg("crypt_key2[0]", crypt_key2[0].c, 16, 0);
@@ -2429,7 +2461,11 @@ static int salt_hash(void *salt)
 		return 0;
 
 	// salt is now a pointer, but WORD aligned.  We remove that word alingment, and simply use the next bits
+#if ARCH_ALLOWS_UNALIGNED
 	H = *((unsigned long*)salt);
+#else
+	memcpy(&H, salt, 8);
+#endif
 
 	// Mix up the pointer value (H^(H>>9)) so that if we have a fixed sized allocation
 	// that things do get 'stirred' up better.
@@ -2530,7 +2566,7 @@ static void *get_binary(char *_ciphertext)
 			;
 	}
 
-	for(i=0;i<BINARY_SIZE;i++)
+	for (i=0;i<BINARY_SIZE;i++)
 	{
 		realcipher[i] =
 			atoi16[ARCH_INDEX(ciphertext[i*2])]*16 +
@@ -2725,10 +2761,10 @@ static void * binary_b64b(char *ciphertext)
 
 #define TO_BINARY(b1, b2, b3) \
 	value = \
-		(MD5_word)atoi64[ARCH_INDEX(pos[0])] | \
-		((MD5_word)atoi64[ARCH_INDEX(pos[1])] << 6) | \
-		((MD5_word)atoi64[ARCH_INDEX(pos[2])] << 12) | \
-		((MD5_word)atoi64[ARCH_INDEX(pos[3])] << 18); \
+		(uint32_t)atoi64[ARCH_INDEX(pos[0])] | \
+		((uint32_t)atoi64[ARCH_INDEX(pos[1])] << 6) | \
+		((uint32_t)atoi64[ARCH_INDEX(pos[2])] << 12) | \
+		((uint32_t)atoi64[ARCH_INDEX(pos[3])] << 18); \
 	pos += 4; \
 	b[b1] = value >> 16; \
 	b[b2] = value >> 8; \
@@ -2737,7 +2773,7 @@ static void * binary_b64a(char *ciphertext)
 {
 	static unsigned char *b;
 	char *pos;
-	MD5_word value;
+	uint32_t value;
 
 	if (!b) b = mem_alloc_tiny(16, MEM_ALIGN_WORD);
 	pos = ciphertext;
@@ -2752,10 +2788,10 @@ static void * binary_b64a(char *ciphertext)
 	TO_BINARY(3, 9, 15);
 	TO_BINARY(4, 10, 5);
 	b[11] =
-		(MD5_word)atoi64[ARCH_INDEX(pos[0])] |
-		((MD5_word)atoi64[ARCH_INDEX(pos[1])] << 6);
+		(uint32_t)atoi64[ARCH_INDEX(pos[0])] |
+		((uint32_t)atoi64[ARCH_INDEX(pos[1])] << 6);
 
-	MD5_swap((MD5_word*)b,(MD5_word*)b, 4);
+	MD5_swap((uint32_t*)b,(uint32_t*)b, 4);
 	return b;
 }
 
@@ -2775,7 +2811,7 @@ static void * binary_b64_4x6(char *ciphertext)
 		while (*pos++ != '$')
 			;
 	}
-	for(i = 0; i < 4; i++) {
+	for (i = 0; i < 4; i++) {
 		b[i] =
 			atoi64[ARCH_INDEX(pos[i*4 + 0])] +
 			(atoi64[ARCH_INDEX(pos[i*4 + 1])] << 6) +
@@ -3011,8 +3047,8 @@ static void __SSE_append_output_base16_to_input_semi_aligned_2(unsigned int ip, 
     // 5113k/4382k  (core2,$dynamic_10$)
 	//  (ath64, $dynamic_9$)
 	//  (ath64, $dynamic_10$)
-# define inc SIMD_COEF_32
-# define incCRY ((SIMD_COEF_32 - 1) * 4)
+ #define inc SIMD_COEF_32
+ #define incCRY ((SIMD_COEF_32 - 1) * 4)
 	// Ok, here we are 1/2 off. We are starting in the 'middle' of a DWORD (and end
 	// in the middle of the last one).
 
@@ -3123,7 +3159,7 @@ static void __SSE_append_string_to_input_unicode(unsigned char *IPB, unsigned in
     if (len>1&&!(bf_ptr&1))
     {
         unsigned int w32_cnt;
-		if(bf_ptr&2) {
+		if (bf_ptr&2) {
 			cpO = &IPB[GETPOS(bf_ptr, idx_mod)];
 			bf_ptr += 2;
 			*cpO = *cp++;
@@ -3171,7 +3207,7 @@ static void __SSE_append_string_to_input(unsigned char *IPB, unsigned int idx_mo
 	unsigned char *cpO;
 	// if our insertion point is on an 'even' DWORD, then we use DWORD * copying, as long as we can
 	// This provides quite a nice speedup.
-#if ARCH_LITTLE_ENDIAN
+#if ARCH_LITTLE_ENDIAN && ARCH_ALLOWS_UNALIGNED
 	// if big-endian, we gain nothing from this function (since we would have to byte swap)
 	if (len>3&&(bf_ptr&3)) {
 		cpO = &IPB[GETPOS(bf_ptr, idx_mod)];
@@ -3227,7 +3263,7 @@ static void __SSE_append_string_to_input(unsigned char *IPB, unsigned int idx_mo
 #endif  // #ifdef SIMD_COEF_32 from way above.
 
 
-static inline void __append_string(DYNA_OMP_PARAMSm unsigned char *Str, unsigned int len)
+inline static void __append_string(DYNA_OMP_PARAMSm unsigned char *Str, unsigned int len)
 {
 	unsigned int j;
 	unsigned int til;
@@ -3343,7 +3379,7 @@ static inline void __append_string(DYNA_OMP_PARAMSm unsigned char *Str, unsigned
 	}
 }
 
-static inline void __append2_string(DYNA_OMP_PARAMSm unsigned char *Str, unsigned int len)
+inline static void __append2_string(DYNA_OMP_PARAMSm unsigned char *Str, unsigned int len)
 {
 	unsigned int j;
 	unsigned int til;
@@ -5784,7 +5820,7 @@ void DynamicFunc__overwrite_from_last_output2_to_input1_as_base16_no_size_fix(DY
 	{
 		unsigned char *cpo, *cpi;
 		unsigned int i;
-		/* MD5_word *w; */
+		/* uint32_t *w; */
 #if MD5_X2
 		if (j&1)
 			{cpo = input_buf_X86[j>>MD5_X2].x2.B2; cpi = crypt_key2_X86[j>>MD5_X2].x2.B2; /* w=input_buf_X86[j>>MD5_X2].x2.w2; */}
@@ -5829,7 +5865,7 @@ void DynamicFunc__overwrite_from_last_output_as_base16_no_size_fix(DYNA_OMP_PARA
 	{
 		unsigned char *cpo, *cpi;
 		unsigned int i;
-		/* MD5_word *w; */
+		/* uint32_t *w; */
 #if MD5_X2
 		if (j&1)
 			{cpo = input_buf_X86[j>>MD5_X2].x2.B2; cpi = crypt_key_X86[j>>MD5_X2].x2.B2; /* w=input_buf_X86[j>>MD5_X2].x2.w2; */}
@@ -6025,7 +6061,7 @@ void DynamicFunc__overwrite_from_last_output_to_input2_as_base16_no_size_fix(DYN
 	for (; j < til; ++j)
 	{
 		unsigned char *cpo, *cpi;
-		/* MD5_word *w; */
+		/* uint32_t *w; */
 #if MD5_X2
 		if (j&1)
 			{cpo = input_buf2_X86[j>>MD5_X2].x2.B2; cpi = crypt_key_X86[j>>MD5_X2].x2.B2; /* w=input_buf_X86[j>>MD5_X2].x2.w2; */}
@@ -6066,7 +6102,7 @@ void DynamicFunc__overwrite_from_last_output2_to_input2_as_base16_no_size_fix(DY
 	for (; j < til; ++j)
 	{
 		unsigned char *cpo, *cpi;
-		/* MD5_word *w; */
+		/* uint32_t *w; */
 #if MD5_X2
 		if (j&1)
 			{cpo = input_buf2_X86[j>>MD5_X2].x2.B2; cpi = crypt_key2_X86[j>>MD5_X2].x2.B2; /* w=input_buf2_X86[j>>MD5_X2].x2.w2; */}
@@ -6111,7 +6147,7 @@ void DynamicFunc__overwrite_from_last_output2_as_base16_no_size_fix(DYNA_OMP_PAR
 	for (; j < til; ++j)
 	{
 		unsigned char *cpo, *cpi;
-		/* MD5_word *w; */
+		/* uint32_t *w; */
 #if MD5_X2
 		if (j&1)
 			{cpo = input_buf2_X86[j>>MD5_X2].x2.B2; cpi = crypt_key2_X86[j>>MD5_X2].x2.B2; /* w=input_buf_X86[j>>MD5_X2].x2.w2; */}
@@ -7131,7 +7167,7 @@ static int isBadOMPFunc(DYNAMIC_primitive_funcp p)
 }
 #endif
 
-#define RETURN_TRUE_IF_BIG_FUNC(H) if(p==DynamicFunc__##H##_crypt_input1_append_input2 || \
+#define RETURN_TRUE_IF_BIG_FUNC(H) if (p==DynamicFunc__##H##_crypt_input1_append_input2 || \
 		p==DynamicFunc__##H##_crypt_input2_append_input1    || \
 		p==DynamicFunc__##H##_crypt_input1_overwrite_input1 || \
 		p==DynamicFunc__##H##_crypt_input2_overwrite_input2 || \
@@ -7466,21 +7502,35 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 		pFmt->methods.get_hash[4] = get_hash_4_64x4;
 		pFmt->methods.get_hash[5] = get_hash_5_64x4;
 #endif
-		// Not enough bits in a single WORD to do the 7th one.
-		pFmt->methods.binary_hash[6] = NULL;
-		pFmt->methods.get_hash[6] = NULL;
+		// Not enough bits in a single WORD
+		if (PASSWORD_HASH_SIZE_6 >= 0x1000000) {
+			pFmt->methods.binary_hash[6] = NULL;
+			pFmt->methods.get_hash[6] = NULL;
+		}
+		if (PASSWORD_HASH_SIZE_5 >= 0x1000000) {
+			pFmt->methods.binary_hash[5] = NULL;
+			pFmt->methods.get_hash[5] = NULL;
+		}
+		if (PASSWORD_HASH_SIZE_4 >= 0x1000000) {
+			pFmt->methods.binary_hash[4] = NULL;
+			pFmt->methods.get_hash[4] = NULL;
+		}
+		if (PASSWORD_HASH_SIZE_3 >= 0x1000000) {
+			pFmt->methods.binary_hash[3] = NULL;
+			pFmt->methods.get_hash[3] = NULL;
+		}
 
 	}
-//	printf ("%.13s",Setup->szFORMAT_NAME);
+//	printf("%.13s",Setup->szFORMAT_NAME);
 	if ( (Setup->flags & (MGF_INPBASE64|MGF_INPBASE64_4x6|MGF_INPBASE64a|MGF_INPBASE64m|MGF_INPBASE64b)) == 0)  {
 		pFmt->params.flags |= FMT_SPLIT_UNIFIES_CASE;
-//		printf ("  Setting FMT_SPLIT_UNIFIES_CASE");
+//		printf("  Setting FMT_SPLIT_UNIFIES_CASE");
 		if (pFmt->methods.split == split) {
 			pFmt->methods.split = split_UC;
-//			printf ("  split set to split_UC()\n");
+//			printf("  split set to split_UC()\n");
 		}
 	}
-//	else printf ("  split set to split()\n");
+//	else printf("  split set to split()\n");
 	if (Setup->flags & MGF_UTF8)
 		pFmt->params.flags |= FMT_UTF8;
 	if (Setup->flags & MGF_INPBASE64a) {
@@ -7754,7 +7804,7 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 			// Ok, if we have made it here, the function is 'currently' still valid.  Load this pointer into our array of pointers.
 			pFuncs = ConvertFuncs(Setup->pFuncs[i], &cnt2);
 
-#define IS_FUNC_NAME(H,N) if(is##H##Func(pFuncs[x])){ if (!strcmp(pFmt->params.algorithm_name, ALGORITHM_NAME)) pFmt->params.algorithm_name = ALGORITHM_NAME_##N; \
+#define IS_FUNC_NAME(H,N) if (is##H##Func(pFuncs[x])){ if (!strcmp(pFmt->params.algorithm_name, ALGORITHM_NAME)) pFmt->params.algorithm_name = ALGORITHM_NAME_##N; \
 			else if (!strcmp(pFmt->params.algorithm_name, ALGORITHM_NAME_X86)) 	pFmt->params.algorithm_name = ALGORITHM_NAME_X86_##N; }
 
 			for (x = 0; x < cnt2; ++x) {
@@ -8208,7 +8258,7 @@ static char *FixupIfNeeded(char *ciphertext, private_subformat_data *pPriv)
 			int i;
 			for (i = 0; i < 10; ++i) {
 				if ((pPriv->FldMask & (MGF_FLDx_BIT<<i)) == (MGF_FLDx_BIT<<i)) {
-					char Fld[5];
+					char Fld[8];
 					sprintf(Fld, "$$F%d", i);
 					if (!strstr(&ciphertext[pPriv->dynamic_SALT_OFFSET-1], Fld))
 						return ciphertext;

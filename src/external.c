@@ -29,7 +29,6 @@
 #include "external.h"
 #include "mask.h"
 #include "regex.h"
-#include "options.h"
 #include "unicode.h"
 #include "memdbg.h"
 
@@ -294,6 +293,12 @@ void ext_init(char *mode, struct db_main *db)
 		if (john_main_process)
 			fprintf(stderr,
 			    "No filter() for external mode: %s\n", mode);
+		error();
+	}
+	if (f_new && options.flags & FLG_SINGLE_CHK) {
+		if (john_main_process)
+			fprintf(stderr,
+			        "Single mode can't be used with hybrid external mode\n");
 		error();
 	}
 	if (john_main_process &&

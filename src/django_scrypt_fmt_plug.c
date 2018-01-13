@@ -1,5 +1,6 @@
-/* scrypt cracker patch for JtR. Hacked together during May of 2013 by Dhiru
- * Kholia <dhiru at openwall.com>.
+/*
+ * Django scrypt cracker patch for JtR. Hacked together during May of 2013 by
+ * Dhiru Kholia <dhiru at openwall.com>.
  *
  * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com> and
  * it is hereby released to the general public under the following terms:
@@ -15,32 +16,33 @@ john_register_one(&fmt_django_scrypt);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               1 // So slow a format, a multiplier is NOT needed
+#endif
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "base64.h"
+#include "base64_convert.h"
 #include "escrypt/crypto_scrypt.h"
-#ifdef _OPENMP
-static int omp_t = 1;
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1 // So slow a format, a multiplier is NOT needed
-#endif
-#endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"django-scrypt"
 #define FORMAT_NAME		""
 #define FORMAT_TAG		"scrypt$"
 #define TAG_LENGTH		(sizeof(FORMAT_TAG)-1)
-#ifdef __XOP__
+#if !defined(JOHN_NO_SIMD) && defined(__XOP__)
 #define ALGORITHM_NAME		"Salsa20/8 128/128 XOP"
-#elif defined(__AVX__)
+#elif !defined(JOHN_NO_SIMD) && defined(__AVX__)
 #define ALGORITHM_NAME		"Salsa20/8 128/128 AVX"
-#elif defined(__SSE2__)
+#elif !defined(JOHN_NO_SIMD) && defined(__SSE2__)
 #define ALGORITHM_NAME		"Salsa20/8 128/128 SSE2"
 #else
 #define ALGORITHM_NAME		"Salsa20/8 32/" ARCH_BITS_STR
@@ -79,10 +81,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -161,23 +160,19 @@ static void *get_salt(char *ciphertext)
 static void *get_binary(char *ciphertext)
 {
 	static union {
-		unsigned char c[BINARY_SIZE + 1];
+		unsigned char c[BINARY_SIZE];
 		ARCH_WORD dummy;
 	} buf;
 	unsigned char *out = buf.c;
 	char *p;
+
 	p = strrchr(ciphertext, '$') + 1;
-	base64_decode(p, strlen(p), (char*)out);
+	base64_convert(p, e_b64_mime, strlen(p), (char*)out, e_b64_raw, sizeof(buf.c), flg_Base64_DONOT_NULL_TERMINATE, 0);
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -187,31 +182,29 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		if (crypto_scrypt((unsigned char*)saved_key[index], strlen((char*)saved_key[index]),
 				cur_salt->salt, strlen((char*)cur_salt->salt),
 				(1ULL) << cur_salt->N, cur_salt->r,
 				cur_salt->p, (unsigned char*)crypt_out[index],
-				BINARY_SIZE) == -1)
-		{
+				BINARY_SIZE) == -1) {
 			memset(crypt_out[index], 0, sizeof(crypt_out[index]));
 		}
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -229,11 +222,7 @@ static int cmp_exact(char *source, int index)
 
 static void scrypt_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -320,13 +309,8 @@ struct fmt_main fmt_django_scrypt = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -1,4 +1,5 @@
-/* PKZIP patch for john to handle 'old' pkzip passwords (old 'native' format)
+/*
+ * PKZIP patch for john to handle 'old' pkzip passwords (old 'native' format)
  *
  * Written by Jim Fougeron <jfoug at cox.net> in 2011.  No copyright
  * is claimed, and the software is hereby placed in the public domain.
@@ -18,6 +19,7 @@
 #if !AC_BUILT
 #define HAVE_LIBZ 1 /* legacy build has -lz in LDFLAGS */
 #endif
+
 #if HAVE_LIBZ
 
 #if FMT_EXTERNS_H
@@ -29,18 +31,17 @@ john_register_one(&fmt_pkzip);
 #include <string.h>
 #include <zlib.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "common.h"
 #include "misc.h"
 #include "formats.h"
 #define USE_PKZIP_MAGIC 1
 #include "pkzip.h"
-
 #include "pkzip_inffixed.h"  // This file is a data file, taken from zlib
 #include "loader.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "PKZIP"
@@ -60,16 +61,14 @@ john_register_one(&fmt_pkzip);
 #define BINARY_ALIGN        1
 
 #define SALT_SIZE           (sizeof(PKZ_SALT*))
-#define SALT_ALIGN          (sizeof(uint32_t))
+#define SALT_ALIGN          (sizeof(uint64_t))
 
 #define MIN_KEYS_PER_CRYPT  1
 #define MAX_KEYS_PER_CRYPT  64
-#ifndef OMP_SCALE
-#define OMP_SCALE           64
-#endif
 
-//#define ZIP_DEBUG 1
-//#define ZIP_DEBUG 2
+#ifndef OMP_SCALE
+#define OMP_SCALE           32 // Tuned w/ MKPC for core i7
+#endif
 
 /*
  * It is likely that this should be put into the arch.h files for the different systems,
@@ -190,14 +189,15 @@ static const char *ValidateZipContents(FILE *in, long offset, u32 offex, int len
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	c8 *p, *cp, *cpkeep;
-	int cnt, data_len, ret=0;
+	int cnt, ret=0;
+	u64 data_len;
 	u32 crc;
 	FILE *in;
 	const char *sFailStr;
 	long offset;
 	u32 offex;
 	int type;
-	int complen = 0;
+	u64 complen = 0;
 	int type2 = 0;
 
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)) {
@@ -242,7 +242,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 				sFailStr = "Invalid compressed length";
 				goto Bail;
 			}
-			sscanf(cp, "%x", &complen);
+			sscanf(cp, "%"PRIx64, &complen);
 			if ((cp = strtokm(NULL, "*")) == NULL || !cp[0] || !ishexlc_oddOK(cp)) {
 				sFailStr = "Invalid data length value";
 				goto Bail;
@@ -271,7 +271,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 			sFailStr = "Invalid data length value";
 			goto Bail;
 		}
-		sscanf(cp, "%x", &data_len);
+		sscanf(cp, "%"PRIx64, &data_len);
 		if ((cp = strtokm(NULL, "*")) == NULL || !ishexlc(cp) || strlen(cp) != 4) {
 			sFailStr = "invalid checksum value";
 			goto Bail;
@@ -341,7 +341,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 Bail:;
 #ifdef ZIP_DEBUG
-	if (!ret) fprintf (stderr, "pkzip validation failed [%s]  Hash is %s\n", sFailStr, ciphertext);
+	if (!ret) fprintf(stderr, "pkzip validation failed [%s]  Hash is %.64s\n", sFailStr, ciphertext);
 #endif
 	MEM_FREE(cpkeep);
 	return ret;
@@ -396,14 +396,9 @@ static void init(struct fmt_main *self)
 #ifdef PKZIP_USE_MULT_TABLE
 	unsigned short n=0;
 #endif
-#ifdef _OPENMP
-	int omp_t;
 
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
+	omp_autotune(self, OMP_SCALE);
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	K12 = mem_calloc(sizeof(*K12) * 3, self->params.max_keys_per_crypt);
 	chk = mem_calloc(sizeof(*chk), self->params.max_keys_per_crypt);
@@ -542,7 +537,7 @@ static void *get_salt(char *ciphertext)
 	/* NOTE, almost NO error checking at all in this function.  Proper error checking done in valid() */
 	static union alignment {
 		unsigned char c[8];
-		uint32_t a[1];
+		uint64_t a[1];	// salt alignment of 8 bytes required. uint64_t values in the salt.
 	} a;
 	unsigned char *salt_p = a.c;
 	PKZ_SALT *salt, *psalt;
@@ -550,7 +545,7 @@ static void *get_salt(char *ciphertext)
 	char *H[3] = {0,0,0};
 	long ex_len[3] = {0,0,0};
 	u32 offex;
-	int i, j;
+	size_t i, j;
 	c8 *p, *cp, *cpalloc = (char*)mem_alloc(strlen(ciphertext)+1);
 	int type2 = 0;
 
@@ -569,7 +564,7 @@ static void *get_salt(char *ciphertext)
 	sscanf(cp, "%x", &(salt->cnt));
 	cp = strtokm(NULL, "*");
 	sscanf(cp, "%x", &(salt->chk_bytes));
-	for(i = 0; i < salt->cnt; ++i) {
+	for (i = 0; i < salt->cnt; ++i) {
 		int data_enum;
 		cp = strtokm(NULL, "*");
 		data_enum = *cp - '0';
@@ -586,9 +581,9 @@ static void *get_salt(char *ciphertext)
 
 		if (data_enum > 1) {
 			cp = strtokm(NULL, "*");
-			sscanf(cp, "%x", &(salt->compLen));
+			sscanf(cp, "%"PRIx64, &(salt->compLen));
 			cp = strtokm(NULL, "*");
-			sscanf(cp, "%x", &(salt->deCompLen));
+			sscanf(cp, "%"PRIx64, &(salt->deCompLen));
 			cp = strtokm(NULL, "*");
 			sscanf(cp, "%x", &(salt->crc32));
 			cp = strtokm(NULL, "*");
@@ -599,7 +594,7 @@ static void *get_salt(char *ciphertext)
 		cp = strtokm(NULL, "*");
 		sscanf(cp, "%x", &(salt->H[i].compType));
 		cp = strtokm(NULL, "*");
-		sscanf(cp, "%x", &(salt->H[i].datlen));
+		sscanf(cp, "%"PRIx64, &(salt->H[i].datlen));
 		cp = strtokm(NULL, "*");
 
 		for (j = 0; j < 4; ++j) {
@@ -622,7 +617,7 @@ static void *get_salt(char *ciphertext)
 				FILE *fp;
 				fp = fopen(cp, "rb");
 				if (!fp) {
-					fprintf (stderr, "Error opening file for pkzip data:  %s\n", cp);
+					fprintf(stderr, "Error opening file for pkzip data:  %s\n", cp);
 					MEM_FREE(cpalloc);
 					return 0;
 				}
@@ -632,7 +627,7 @@ static void *get_salt(char *ciphertext)
 					ex_len[i] = salt->compLen;
 					H[i] = mem_alloc(salt->compLen);
 					if (fread(H[i], 1, salt->compLen, fp) != salt->compLen) {
-						fprintf (stderr, "Error reading zip file for pkzip data:  %s\n", cp);
+						fprintf(stderr, "Error reading zip file for pkzip data:  %s\n", cp);
 						fclose(fp);
 						MEM_FREE(cpalloc);
 						return 0;
@@ -649,7 +644,7 @@ static void *get_salt(char *ciphertext)
 					ex_len[i] = 384;
 					H[i] = mem_alloc(384);
 					if (fread(H[i], 1, 384, fp) != 384) {
-						fprintf (stderr, "Error reading zip file for pkzip data:  %s\n", cp);
+						fprintf(stderr, "Error reading zip file for pkzip data:  %s\n", cp);
 						fclose(fp);
 						MEM_FREE(cpalloc);
 						return 0;
@@ -709,10 +704,10 @@ static void *get_salt(char *ciphertext)
 	memcpy(psalt, salt, sizeof(*salt));
 	memcpy(psalt->zip_data, H[0], ex_len[0]);
 	MEM_FREE(H[0]);
-	if(salt->cnt > 1)
+	if (salt->cnt > 1)
 		memcpy(psalt->zip_data+ex_len[0]+1, H[1], ex_len[1]);
 	MEM_FREE(H[1]);
-	if(salt->cnt > 2)
+	if (salt->cnt > 2)
 		memcpy(psalt->zip_data+ex_len[0]+ex_len[1]+2, H[2], ex_len[2]);
 	MEM_FREE(H[2]);
 	MEM_FREE(salt);
@@ -722,15 +717,15 @@ static void *get_salt(char *ciphertext)
 	// set the JtR core linkage stuff for this dyna_salt
 	memcpy(salt_p, &psalt, sizeof(psalt));
 	psalt->dsalt.salt_cmp_offset = SALT_CMP_OFF(PKZ_SALT, cnt);
-	psalt->dsalt.salt_cmp_size = SALT_CMP_SIZE(PKZ_SALT, cnt, full_zip_idx, ex_len[0]+ex_len[1]+ex_len[2]+2);
-
+	psalt->dsalt.salt_cmp_size =
+		SALT_CMP_SIZE(PKZ_SALT, cnt, zip_data, ex_len[0]+ex_len[1]+ex_len[2]+2);
 	return salt_p;
 }
 
 static void set_key(char *key, int index)
 {
 	/* Keep the PW, so we can return it in get_key if asked to do so */
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH + 1);
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 	dirty = 1;
 }
 
@@ -815,11 +810,11 @@ static int cmp_exact_loadfile(int index)
 	/* Open the zip file, and 'seek' to the proper offset of the binary zip blob */
 	fp = fopen(salt->fname, "rb");
 	if (!fp) {
-		fprintf (stderr, "\nERROR, the zip file: %s has been removed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
+		fprintf(stderr, "\nERROR, the zip file: %s has been removed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
 		return 1;
 	}
 	if (fseek(fp, salt->offset, SEEK_SET)) {
-		fprintf (stderr, "\nERROR, the zip file: %s fseek() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
+		fprintf(stderr, "\nERROR, the zip file: %s fseek() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
 		fclose(fp);
 		return 1;
 	}
@@ -828,7 +823,7 @@ static int cmp_exact_loadfile(int index)
 	key0.u = K12[index*3], key1.u = K12[index*3+1], key2.u = K12[index*3+2];
 	k=12;
 	if (fread(in, 1, 12, fp) != 12) {
-		fprintf (stderr, "\nERROR, the zip file: %s fread() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
+		fprintf(stderr, "\nERROR, the zip file: %s fread() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
 		fclose(fp);
 		return 1;
 	}
@@ -877,7 +872,7 @@ static int cmp_exact_loadfile(int index)
 		if (ferror(fp)) {
 			inflateEnd(&strm);
 			fclose(fp);
-			fprintf (stderr, "\nERROR, the zip file: %s fread() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
+			fprintf(stderr, "\nERROR, the zip file: %s fread() failed.\nWe are a possible password has been found, but FULL validation can not be done!\n", salt->fname);
 			return 1;
 		}
 		if (strm.avail_in == 0)
@@ -1062,7 +1057,7 @@ static int validate_ascii(const u8 *out, int inplen)
 
 			if (out[i] > 0xC0) {
 				int len;
-				if(i > inplen-4)
+				if (i > inplen-4)
 					return 1;
 				len = isLegalUTF8_char(&out[i], 5);
 				if (len < 0) return 0;
@@ -1166,7 +1161,7 @@ MAYBE_INLINE static int check_inflate_CODE2(u8 *next)
 	if (257+(hold&0x1F) > 286)
 		return 0;	// nlen, but we do not use it.
 	hold >>= 5;
-	if(1+(hold&0x1F) > 30)
+	if (1+(hold&0x1F) > 30)
 		return 0;		// ndist, but we do not use it.
 	hold >>= 5;
 	ncode = 4+(hold&0xF);
@@ -1583,7 +1578,7 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 					if (!check_inflate_CODE2(curDecryBuf))
 						goto Failed_Bailout;
 #if (ZIP_DEBUG==2)
-					fprintf (stderr, "CODE2 Pass=%s  count = %u, found = %u\n", saved_key[idx], count, ++found);
+					fprintf(stderr, "CODE2 Pass=%s  count = %u, found = %u\n", saved_key[idx], count, ++found);
 #endif
 				}
 				else {
@@ -1604,7 +1599,7 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 					if (!check_inflate_CODE1(curDecryBuf, til))
 						goto Failed_Bailout;
 #if (ZIP_DEBUG==2)
-					fprintf (stderr, "CODE1 Pass=%s  count = %u, found = %u\n", saved_key[idx], count, ++found);
+					fprintf(stderr, "CODE1 Pass=%s  count = %u, found = %u\n", saved_key[idx], count, ++found);
 #endif
 				}
 			}
@@ -1733,7 +1728,7 @@ struct fmt_main fmt_pkzip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG, FORMAT_TAG2 },
 		tests
@@ -1749,7 +1744,7 @@ struct fmt_main fmt_pkzip = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_dyna_salt_hash,
 		NULL,
@@ -1759,7 +1754,7 @@ struct fmt_main fmt_pkzip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,
@@ -1768,4 +1763,15 @@ struct fmt_main fmt_pkzip = {
 };
 
 #endif /* plugin stanza */
+
+#else
+
+#if !defined(FMT_EXTERNS_H) && !defined(FMT_REGISTERS_H)
+#ifdef __GNUC__
+#warning pkzip format requires zlib to function. The format has been disabled
+#elif _MSC_VER
+#pragma message(": warning pkzip format requires zlib to function. The format has been disabled :")
+#endif
+#endif
+
 #endif /* HAVE_LIBZ */

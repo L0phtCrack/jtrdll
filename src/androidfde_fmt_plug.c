@@ -1,10 +1,9 @@
-/* androidfde.c
+/*
+ * This code is based on androidfde.c file from hashkill (a hash cracking tool)
+ * project. Copyright (C) 2010 Milen Rangelov <gat3way@gat3way.eu>.
  *
- * hashkill - a hash cracking tool
- * Copyright (C) 2010 Milen Rangelov <gat3way@gat3way.eu>
- *
- * Modified for JtR and made stuff more generic
- * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com>
+ * Modified for JtR and made stuff more generic - Dhiru.
+ * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com>.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,15 +29,16 @@ john_register_one(&fmt_fde);
 
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "os.h"
-#include "john_stdint.h"
+#include <stdint.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include "aes.h"
 
-#include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE           1
+#endif
+#endif
+
 #include "arch.h"
 #include "johnswap.h"
 #include "misc.h"
@@ -48,15 +48,8 @@ john_register_one(&fmt_fde);
 #include "options.h"
 #include "memory.h"
 #include "pbkdf2_hmac_sha1.h"
-// NOTE, this format FAILS for generic sha2.  It could be due to interaction between openssl/aes and generic sha2 code.
+#include "aes.h"
 #include "sha2.h"
-#ifdef _OPENMP
-static int omp_t = 1;
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           1
-#endif
-#endif
 #include "memdbg.h"
 
 #define FORMAT_TAG          "$fde$"
@@ -72,8 +65,8 @@ static int omp_t = 1;
 #define PLAINTEXT_LENGTH    64
 #define BENCHMARK_LENGTH    -1
 #define BINARY_SIZE         0
-#define BINARY_ALIGN		1
-#define SALT_ALIGN			sizeof(int)
+#define BINARY_ALIGN        1
+#define SALT_ALIGN          8
 #define SALT_SIZE           sizeof(struct custom_salt)
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
@@ -108,10 +101,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	max_cracked = self->params.max_keys_per_crypt;
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -234,7 +224,7 @@ static void AES_cbc_essiv(unsigned char *src, unsigned char *dst, unsigned char 
 	AES_cbc_encrypt(src, dst, size, &aeskey, essiv, AES_DECRYPT);
 }
 
-//		cracked[index] = hash_plugin_check_hash(saved_key[index]);
+// cracked[index] = hash_plugin_check_hash(saved_key[index]);
 void hash_plugin_check_hash(int index)
 {
 	unsigned char keycandidate2[255];
@@ -277,7 +267,7 @@ void hash_plugin_check_hash(int index)
 	AES_cbc_essiv(cur_salt->data + 1024, decrypted2, keycandidate2,2,128);
 
 	// Check for FAT
-	if ((memcmp(decrypted1+3,"MSDOS5.0",8)==0))
+	if (!memcmp(decrypted1 + 3, "MSDOS5.0", 8))
 	    cracked[index+j] = 1;
 	else {
 		// Check for extfs
@@ -338,11 +328,7 @@ static int cmp_exact(char *source, int index)
 
 static void fde_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -365,7 +351,7 @@ struct fmt_main fmt_fde = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		fde_tests
@@ -381,7 +367,7 @@ struct fmt_main fmt_fde = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -391,7 +377,7 @@ struct fmt_main fmt_fde = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

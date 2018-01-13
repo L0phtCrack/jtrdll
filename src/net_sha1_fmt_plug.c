@@ -202,7 +202,7 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 	if (cur_salt->magic != MAGIC) {
 		return pDynamicFmt->methods.crypt_all(pcount, salt);
@@ -210,8 +210,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index++)
-	{
+	for (index = 0; index < count; index++) {
 		SHA_CTX ctx;
 
 		SHA1_Init(&ctx);
@@ -224,11 +223,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
+	int index;
+
 	if (cur_salt->magic != MAGIC) {
 		return pDynamicFmt->methods.cmp_all(binary, count);
 	}
-	for (; index < count; index++)
+	for (index = 0; index < count; index++)
 		if (((uint32_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -288,7 +288,7 @@ struct fmt_main fmt_netsha1 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests
@@ -304,7 +304,7 @@ struct fmt_main fmt_netsha1 = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -314,7 +314,7 @@ struct fmt_main fmt_netsha1 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

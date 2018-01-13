@@ -83,7 +83,8 @@ john_register_one(&fmt_ctrxns);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT              NBKEYS
 #define MAX_KEYS_PER_CRYPT              NBKEYS
-#define GETPOS(i, index)                ((index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (((i)&3)^3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4) //for endianity conversion
+#define FMT_IS_BE
+#include "common-simd-getpos.h"
 #else
 #define MIN_KEYS_PER_CRYPT              1
 #define MAX_KEYS_PER_CRYPT              1
@@ -114,12 +115,7 @@ static uint32_t (*crypt_key)[BINARY_SIZE / 4];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t;
-
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt / NBKEYS,
@@ -153,12 +149,12 @@ static void *get_binary(char *ciphertext)
 
 	ciphertext += len - 2 * BINARY_SIZE;
 
-	for(i = 0; i < BINARY_SIZE; i++)
+	for (i = 0; i < BINARY_SIZE; i++)
 	{
 		realcipher[i] = atoi16[ARCH_INDEX(ciphertext[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(ciphertext[i * 2 + 1])];
 	}
-#ifdef SIMD_COEF_32
+#if defined(SIMD_COEF_32) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity(realcipher, BINARY_SIZE);
 #endif
 	return (void*)realcipher;
@@ -182,76 +178,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return 1;
 }
 
-static void set_key(char *key, int index)
-{
-#ifdef SIMD_COEF_32
-#if ARCH_ALLOWS_UNALIGNED
-	const uint32_t *wkey = (uint32_t*)key;
-#else
-	char buf_aligned[PLAINTEXT_LENGTH + 1] JTR_ALIGN(sizeof(uint32_t));
-	const uint32_t *wkey = (uint32_t*)(is_aligned(key, sizeof(uint32_t)) ?
-	                                       key : strcpy(buf_aligned, key));
-#endif
-	uint32_t *keybuf_word = (uint32_t*)&saved_key[0][GETPOS(SALT_SIZE ^ 3, index)];
-	unsigned int len;
-	uint32_t temp;
-
-	len = SALT_SIZE;
-	while((temp = *wkey++) & 0xff) {
-		if (!(temp & 0xff00))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xff) | (0x80 << 16));
-			len++;
-			goto key_cleaning;
-		}
-		if (!(temp & 0xff0000))
-		{
-			*keybuf_word = JOHNSWAP((temp & 0xffff) | (0x80U << 24));
-			len+=2;
-			goto key_cleaning;
-		}
-		*keybuf_word = JOHNSWAP(temp);
-		keybuf_word += SIMD_COEF_32;
-		if (!(temp & 0xff000000))
-		{
-			*keybuf_word = 0x80000000;
-			len+=3;
-			goto key_cleaning;
-		}
-		len += 4;
-	}
-	*keybuf_word = 0x00800000;
-
-key_cleaning:
-	keybuf_word += SIMD_COEF_32;
-	while(*keybuf_word) {
-		*keybuf_word = 0;
-		keybuf_word += SIMD_COEF_32;
-	}
-
-	len += 1; /* Trailing null is included */
-
-	((unsigned int*)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] = len << 3;
-#else
-	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH + 1);
-#endif
-}
-
-static char *get_key(int index)
-{
-#ifdef SIMD_COEF_32
-	unsigned int i, s;
-	static char out[PLAINTEXT_LENGTH + 1];
-
-	s = (((unsigned int*)saved_key)[15*SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32] >> 3) - SALT_SIZE - 1;
-	for(i = 0; i < s; i++)
-		out[i] = ((char*)saved_key)[GETPOS(SALT_SIZE + i, index)];
-	out[i] = 0;
-	return out;
-#else
-	return saved_key[index];
-#endif
-}
+// this is a salt appended format. It also 'keeps' the trailing null byte.
+#define SALT_PREPENDED SALT_SIZE
+#define INCLUDE_TRAILING_NULL
+#include "common-simd-setkey32.h"
 
 static void *get_salt(char *ciphertext)
 {
@@ -271,10 +201,12 @@ static void set_salt(void *salt)
 #ifdef SIMD_COEF_32
 	int i, index;
 
-	for (index = 0; index < kpc; index++)
+	for (index = 0; index < kpc; index++) {
+		int idx = index % NBKEYS;
+		unsigned char *sk = saved_key[index/NBKEYS];
 		for (i = 0; i < SALT_SIZE; i++)
-			saved_key[0][GETPOS(i, index)] =
-				((unsigned char*)salt)[i];
+			sk[GETPOS(i, idx)] = ((unsigned char*)salt)[i];
+	}
 #else
 	memcpy(saved_salt, salt, SALT_SIZE);
 #endif
@@ -283,24 +215,24 @@ static void set_salt(void *salt)
 static int cmp_all(void *binary, int count)
 {
 #ifdef SIMD_COEF_32
-	unsigned int x, y=0;
+	unsigned int x, y;
 
-	for(; y < kpc/SIMD_COEF_32; y++)
-		for(x = 0; x < SIMD_COEF_32; x++)
-		{
-			if(((uint32_t*)binary)[0] ==
+	for (y = 0; y < kpc/SIMD_COEF_32; y++) {
+		for (x = 0; x < SIMD_COEF_32; x++) {
+			if (((uint32_t*)binary)[0] ==
 			   ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5])
 				return 1;
 		}
+	}
+
 	return 0;
 #else
-	int index = 0;
+	int index;
 
-#ifdef _OPENMP
 	for (index = 0; index < count; index++)
-#endif
 		if (((uint32_t*)binary)[0] == crypt_key[index][0])
 			return 1;
+
 	return 0;
 #endif
 }
@@ -312,15 +244,15 @@ static int cmp_one(void *binary, int index)
 	x = index & (SIMD_COEF_32-1);
 	y = (unsigned int)index / SIMD_COEF_32;
 
-	if(((uint32_t*)binary)[0] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5])
+	if (((uint32_t*)binary)[0] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5])
 		return 0;
-	if(((uint32_t*)binary)[1] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*1])
+	if (((uint32_t*)binary)[1] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*1])
 		return 0;
-	if(((uint32_t*)binary)[2] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*2])
+	if (((uint32_t*)binary)[2] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*2])
 		return 0;
-	if(((uint32_t*)binary)[3] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*3])
+	if (((uint32_t*)binary)[3] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*3])
 		return 0;
-	if(((uint32_t*)binary)[4] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*4])
+	if (((uint32_t*)binary)[4] != ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32*5+SIMD_COEF_32*4])
 		return 0;
 	return 1;
 #else
@@ -330,21 +262,19 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	return (1);
+	return 1;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
-
-#ifdef _OPENMP
+	int index;
 	int loops = (count + MAX_KEYS_PER_CRYPT - 1) / MAX_KEYS_PER_CRYPT;
 
+#ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < loops; ++index)
 #endif
-	{
+	for (index = 0; index < loops; ++index) {
 #ifdef SIMD_COEF_32
 		SIMDSHA1body(saved_key[index], (unsigned int*)crypt_key[index], NULL, SSEi_MIXED_IN);
 #else
@@ -356,27 +286,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		SHA1_Final((unsigned char*)crypt_key[index], &ctx);
 #endif
 	}
+
 	return count;
 }
 
-#ifdef SIMD_COEF_32
-#define HASH_IDX ((index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*5)
-static int get_hash_0(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((uint32_t*)crypt_key)[HASH_IDX] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
-#endif
+#define COMMON_GET_HASH_SIMD32 5
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -430,13 +346,8 @@ struct fmt_main fmt_ctrxns = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

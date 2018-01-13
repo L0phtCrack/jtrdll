@@ -1,10 +1,12 @@
-/* STRIP cracker patch for JtR. Hacked together during September of
+/*
+ * STRIP cracker patch for JtR. Hacked together during September of
  * 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without modification,
- * are permitted. */
+ * are permitted.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_strip;
@@ -12,12 +14,18 @@ extern struct fmt_main fmt_strip;
 john_register_one(&fmt_strip);
 #else
 
-#include "aes.h"
 #include <string.h>
-#include "john_stdint.h"
-#include <assert.h>
-#include <errno.h>
+#include <stdint.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               4 // tuned on core i7
+#endif
+#endif
+
 #include "arch.h"
+#include "aes.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -25,33 +33,27 @@ john_register_one(&fmt_strip);
 #include "options.h"
 #include "johnswap.h"
 #include "pbkdf2_hmac_sha1.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4 // tuned on core i7
-#endif
-#endif
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"STRIP"
-#define FORMAT_NAME		"Password Manager"
-#define FORMAT_TAG          "$strip$*"
-#define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
+#define FORMAT_LABEL            "STRIP"
+#define FORMAT_NAME             "Password Manager"
+#define FORMAT_TAG              "$strip$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
+#define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME		"PBKDF2-SHA1 32/" ARCH_BITS_STR
+#define ALGORITHM_NAME          "PBKDF2-SHA1 32/" ARCH_BITS_STR
 #endif
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define BINARY_SIZE		0
-#define PLAINTEXT_LENGTH	125
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	1
-#define SALT_ALIGN		1
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define BINARY_SIZE             0
+#define PLAINTEXT_LENGTH        125
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            1
+#define SALT_ALIGN              1
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
@@ -83,11 +85,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = 1;
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
@@ -149,14 +147,15 @@ static void set_salt(void *salt)
 	cur_salt = (struct custom_salt *)salt;
 }
 
-/* verify validity of page */
+/* Verify validity of a page */
 static int verify_page(unsigned char *page1)
 {
 	uint32_t pageSize;
 	uint32_t usableSize;
-	if (memcmp(page1, SQLITE_FILE_HEADER, 16) != 0) {
-		return -1;
-	}
+
+	//if (memcmp(page1, SQLITE_FILE_HEADER, 16) != 0) {
+	//	return -1;
+	//}
 
 	if (page1[19] > 2) {
 		return -1;
@@ -183,15 +182,14 @@ static int verify_page(unsigned char *page1)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 		unsigned char master[MAX_KEYS_PER_CRYPT][32];
-		unsigned char output[1024];
+		unsigned char output[24];
 		unsigned char *iv_in;
 		unsigned char iv_out[16];
 		int size,i;
@@ -214,16 +212,17 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		       16, ITERATIONS, master[0], 32, 0);
 #endif
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
-			memcpy(output, SQLITE_FILE_HEADER, FILE_HEADER_SZ);
+			// memcpy(output, SQLITE_FILE_HEADER, FILE_HEADER_SZ);
 			size = page_sz - reserve_sz;
 			iv_in = cur_salt->data + size + 16;
 			memcpy(iv_out, iv_in, 16);
 
-			if (AES_set_decrypt_key(master[i], 256, &akey) < 0) {
-				fprintf(stderr, "AES_set_decrypt_key failed!\n");
-			}
-			/* decrypting 24 bytes is enough */
-			AES_cbc_encrypt(cur_salt->data + 16, output + 16, 24, &akey, iv_out, AES_DECRYPT);
+			AES_set_decrypt_key(master[i], 256, &akey);
+			/*
+			 * Decrypting 8 bytes from offset 16 is enough since the
+			 * verify_page function looks at output[16..23] only.
+			 */
+			AES_cbc_encrypt(cur_salt->data + 16, output + 16, 8, &akey, iv_out, AES_DECRYPT);
 			if (verify_page(output) == 0) {
 				cracked[index+i] = 1;
 			}
@@ -231,12 +230,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				cracked[index+i] = 0;
 		}
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
 	int index;
+
 	for (index = 0; index < count; index++)
 		if (cracked[index])
 			return 1;
@@ -250,16 +251,12 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-    return 1;
+	return 1;
 }
 
 static void strip_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -282,7 +279,7 @@ struct fmt_main fmt_strip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		strip_tests
@@ -298,7 +295,7 @@ struct fmt_main fmt_strip = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -308,7 +305,7 @@ struct fmt_main fmt_strip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

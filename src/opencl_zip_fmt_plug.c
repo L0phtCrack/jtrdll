@@ -18,6 +18,7 @@ john_register_one(&fmt_opencl_zip);
 #else
 
 #include <string.h>
+#include <stdint.h>
 #include <openssl/des.h>
 #ifdef _OPENMP
 #include <omp.h>
@@ -32,22 +33,21 @@ john_register_one(&fmt_opencl_zip);
 #include "dyna_salt.h"
 #include "hmac_sha.h"
 #include "options.h"
-#include "john_stdint.h"
 #define OPENCL_FORMAT 1
 #include "pbkdf2_hmac_sha1.h"
 
 #define FORMAT_LABEL		"zip-opencl"
 #define FORMAT_NAME		"ZIP"
-#define ALGORITHM_NAME		"PBKDF2-SHA1 OpenCL AES"
+#define ALGORITHM_NAME		"PBKDF2-SHA1 OpenCL"
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
-# define SWAP(n) \
+ #define SWAP(n) \
     (((n) << 24) | (((n) & 0xff00) << 8) | (((n) >> 8) & 0xff00) | ((n) >> 24))
 
-#define BINARY_ALIGN		MEM_ALIGN_NONE
+#define BINARY_ALIGN		sizeof(uint32_t)
 #define PLAINTEXT_LENGTH	64
 #define SALT_SIZE		sizeof(my_salt*)
-#define SALT_ALIGN		4
+#define SALT_ALIGN		sizeof(size_t)
 
 typedef struct {
 	uint32_t length;
@@ -81,7 +81,7 @@ typedef struct my_salt_t {
 
 static my_salt *saved_salt;
 
-static unsigned char (*crypt_key)[WINZIP_BINARY_SIZE];
+static unsigned char (*crypt_key)[((WINZIP_BINARY_SIZE + 4)/4)*4]; // ensure 32-bit alignment
 
 static cl_int cl_error;
 static zip_password *inbuffer;
@@ -96,7 +96,7 @@ static size_t insize, outsize, settingsize;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {
@@ -425,7 +425,7 @@ struct fmt_main fmt_opencl_zip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ WINZIP_FORMAT_TAG },
 		winzip_common_tests
@@ -441,7 +441,7 @@ struct fmt_main fmt_opencl_zip = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_dyna_salt_hash,
 		NULL,
@@ -451,7 +451,7 @@ struct fmt_main fmt_opencl_zip = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

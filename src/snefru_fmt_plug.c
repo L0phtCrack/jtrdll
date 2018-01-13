@@ -17,15 +17,8 @@ john_register_one(&fmt_snefru_128);
 #else
 
 #include <string.h>
-#include "arch.h"
-#include "snefru.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
+
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 // OMP_SCALE tuned on core i7 quad core HT
 //        128kb   256kb
@@ -39,6 +32,13 @@ static int omp_t = 1;
 #endif
 #endif
 
+#include "arch.h"
+#include "snefru.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
 #include "memdbg.h"
 
 // Snefru-128 and Snefru-256 are the real format labels
@@ -76,10 +76,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE256 / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	if (!saved_key) {
 		saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -180,43 +177,37 @@ static void *get_binary_128(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int crypt_256(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		snefru_ctx ctx;;
 
 		rhash_snefru256_init(&ctx);
 		rhash_snefru_update(&ctx, (unsigned char*)saved_key[index], strlen(saved_key[index]));
 		rhash_snefru_final(&ctx, (unsigned char*)crypt_out[index]);
 	}
+
 	return count;
 }
 
 static int crypt_128(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		snefru_ctx ctx;;
 
 		rhash_snefru128_init(&ctx);
@@ -224,15 +215,15 @@ static int crypt_128(int *pcount, struct db_salt *salt)
 		rhash_snefru_final(&ctx, (unsigned char*)crypt_out[index]);
 
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], CMP_SIZE))
 			return 1;
 	return 0;
@@ -250,11 +241,7 @@ static int cmp_exact(char *source, int index)
 
 static void snefru_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -309,13 +296,8 @@ struct fmt_main fmt_snefru_256 = {
 		fmt_default_clear_keys,
 		crypt_256,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,
@@ -371,13 +353,8 @@ struct fmt_main fmt_snefru_128 = {
 		fmt_default_clear_keys,
 		crypt_128,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

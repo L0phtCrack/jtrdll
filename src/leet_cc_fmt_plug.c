@@ -1,4 +1,5 @@
-/* Cracker for leet.cc hashes.
+/*
+ * Cracker for leet.cc hashes.
  *
  * hsh = bin2hex(hash("sha512", $password . $salt, true) ^ hash("whirlpool", $salt . $password, true))
  * $salt == username
@@ -64,8 +65,10 @@ john_register_one(&fmt_leet);
 
 #ifdef SIMD_COEF_64
 #define SHA512_TYPE          SHA512_ALGORITHM_NAME
+#define NBKEYS					(SIMD_COEF_64*SIMD_PARA_SHA512)
 #else
 #define SHA512_TYPE          "32/" ARCH_BITS_STR " " SHA2_LIB
+#define NBKEYS					1
 #endif
 
 #ifdef SIMD_COEF_64
@@ -85,13 +88,8 @@ john_register_one(&fmt_leet);
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define BINARY_ALIGN            sizeof(uint64_t)
 #define SALT_ALIGN              sizeof(int)
-#ifdef SIMD_COEF_64
-#define MIN_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
-#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
-#else
-#define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
-#endif
+#define MIN_KEYS_PER_CRYPT      NBKEYS
+#define MAX_KEYS_PER_CRYPT      NBKEYS
 
 static struct fmt_tests leet_tests[] = {
 	{"salt$f86036a85e3ff84e73bf10769011ecdbccbf5aaed9df0240310776b42f5bb8776e612ab15a78bbfc39e867448a08337d97427e182e72922bbaa903ee75b2bfd4", "password"},
@@ -112,17 +110,15 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
+	int keys;
+
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
-	saved_key = mem_calloc_align(sizeof(*saved_key),
-			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
-	saved_len = mem_calloc(self->params.max_keys_per_crypt,
-			sizeof(*saved_len));
-	crypt_out = mem_calloc_align(sizeof(*crypt_out), self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+	keys = self->params.max_keys_per_crypt;
+	saved_key = mem_calloc(sizeof(*saved_key), keys);
+	saved_len = mem_calloc(keys, sizeof(*saved_len));
+	crypt_out = mem_calloc_align(sizeof(*crypt_out), keys, sizeof(uint64_t));
 }
 
 static void done(void)
@@ -145,6 +141,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (q - p > 256)
 		return 0;
 
+	if (q - p == 0)
+		return 0;
+
 	q = strrchr(ciphertext, '$') + 1;
 	if (strlen(q) != BINARY_SIZE * 2)
 		goto err;
@@ -163,7 +162,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *self)
 
 	if (!split_fields[0])
 		return split_fields[1];
-	if (strlen(split_fields[1]) != BINARY_SIZE * 2)
+	if (strnlen(split_fields[1], BINARY_SIZE * 2 + 1) != BINARY_SIZE * 2)
 		return split_fields[1];
 	cp = mem_alloc(strlen(split_fields[0]) + strlen(split_fields[1]) + 2);
 	sprintf(cp, "%s$%s", split_fields[0], split_fields[1]);
@@ -192,7 +191,7 @@ static void *get_salt(char *ciphertext)
 static void *get_binary(char *ciphertext)
 {	static union {
 		unsigned char c[BINARY_SIZE+1];
-		ARCH_WORD dummy;
+		uint64_t dummy;
 	} buf;
 	int i;
 	unsigned char *out = buf.c;
@@ -209,13 +208,18 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+/* using our own binary_hash_x() functions allows us to avoid BE / LE issues */
+static int binary_hash_0(void *binary) { return *((uint64_t *)binary) & PH_MASK_0; }
+static int binary_hash_1(void *binary) { return *((uint64_t *)binary) & PH_MASK_1; }
+static int binary_hash_2(void *binary) { return *((uint64_t *)binary) & PH_MASK_2; }
+static int binary_hash_3(void *binary) { return *((uint64_t *)binary) & PH_MASK_3; }
+static int binary_hash_4(void *binary) { return *((uint64_t *)binary) & PH_MASK_4; }
+static int binary_hash_5(void *binary) { return *((uint64_t *)binary) & PH_MASK_5; }
+static int binary_hash_6(void *binary) { return *((uint64_t *)binary) & PH_MASK_6; }
+
+#define COMMON_GET_HASH_64BIT_HASH
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -225,37 +229,42 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += NBKEYS) {
 		sph_whirlpool_context wctx;
 		int i;
 		union {
 			unsigned char buf[BINARY_SIZE];
 			uint64_t p64[1];
-		} output1[MAX_KEYS_PER_CRYPT], output2;
+		} output1[NBKEYS], output2;
 #ifdef SIMD_COEF_64
 		// Not sure why JTR_ALIGN(MEM_ALIGN_SIMD) does n ot work here
 		// but if used, it cores travis-ci, so we use mem_align instead
 		unsigned char _in[8*16*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
 		unsigned char _out[8*8*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
-		uint64_t *in = mem_align(_in, MEM_ALIGN_SIMD);
-		uint64_t *out = mem_align(_out, MEM_ALIGN_SIMD);
+		uint64_t *in = (uint64_t*)mem_align(_in, MEM_ALIGN_SIMD);
+		uint64_t *out = (uint64_t*)mem_align(_out, MEM_ALIGN_SIMD);
 
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
-			char *cp = &((char*)in)[128*i];
+			int x80_off = saved_len[index+i]+cur_salt->saltlen;
+			unsigned char *cp = (unsigned char*)&(in[16*i]);
 			memcpy(cp, saved_key[index+i], saved_len[index+i]);
 			memcpy(&cp[saved_len[index+i]], cur_salt->salt, cur_salt->saltlen);
-			cp[saved_len[index+i]+cur_salt->saltlen] = 0x80;
-			in[i*16+15] = (saved_len[index+i]+cur_salt->saltlen)<<3;
-			memset(&cp[saved_len[index+i]+cur_salt->saltlen+1], 0, 120-(saved_len[index+i]+cur_salt->saltlen+1));
+			cp[x80_off] = 0x80;
+			memset(&cp[x80_off+1], 0, 120-(x80_off+1));
+			in[i*16+15] = x80_off<<3;
 		}
 		SIMDSHA512body(in, out, NULL, SSEi_FLAT_IN);
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+#if ARCH_LITTLE_ENDIAN==1
 			output1[i].p64[0] = JOHNSWAP64(out[((i/SIMD_COEF_64)*8*SIMD_COEF_64+i%SIMD_COEF_64)]);
+#else
+			output1[i].p64[0] = out[((i/SIMD_COEF_64)*8*SIMD_COEF_64+i%SIMD_COEF_64)];
+#endif
+		}
 #else
 		SHA512_CTX sctx;
 
@@ -264,7 +273,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		SHA512_Update(&sctx, cur_salt->salt, cur_salt->saltlen);
 		SHA512_Final(output1[0].buf, &sctx);
 #endif
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < NBKEYS; ++i) {
 			sph_whirlpool_init(&wctx);
 			sph_whirlpool(&wctx, cur_salt->salt, cur_salt->saltlen);
 			sph_whirlpool(&wctx, saved_key[index+i], saved_len[index+i]);
@@ -278,8 +287,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (((uint64_t*)binary)[0] == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -376,13 +386,13 @@ struct fmt_main fmt_leet = {
 		},
 		fmt_default_source,
 		{
-			fmt_default_binary_hash_0,
-			fmt_default_binary_hash_1,
-			fmt_default_binary_hash_2,
-			fmt_default_binary_hash_3,
-			fmt_default_binary_hash_4,
-			fmt_default_binary_hash_5,
-			fmt_default_binary_hash_6
+			binary_hash_0,
+			binary_hash_1,
+			binary_hash_2,
+			binary_hash_3,
+			binary_hash_4,
+			binary_hash_5,
+			binary_hash_6
 		},
 		salt_hash,
 		NULL,
@@ -392,13 +402,8 @@ struct fmt_main fmt_leet = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

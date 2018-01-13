@@ -1,4 +1,5 @@
-/* Modified in August, 2012 by Dhiru Kholia (dhiru at openwall.com) for MS SQL 2012
+/*
+ * Modified in August, 2012 by Dhiru Kholia (dhiru at openwall.com) for MS SQL 2012.
  *
  * This software is Copyright (c) 2010 bartavelle, <bartavelle at bandecon.com>,
  * and it is hereby released to the general public under the following terms:
@@ -7,7 +8,7 @@
  * Modified by Mathieu Perrin (mathieu at tpfh.org) 09/06
  * Microsoft MS-SQL05 password cracker
  *
- * UTF-8 support by magnum 2011, same terms as above
+ * UTF-8 support by magnum 2011, same terms as above.
  *
  * Creating MS SQL 2012 hashes:
  *
@@ -31,19 +32,16 @@ john_register_one(&fmt_mssql12);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
-
-//#undef _OPENMP
-//#undef SIMD_COEF_32
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
-
 /*
  * Only effective for SIMD.
  * Undef to disable reversing steps for benchmarking.
  */
 #define REVERSE_STEPS
-
 #include "misc.h"
 #include "params.h"
 #include "common.h"
@@ -54,8 +52,8 @@ john_register_one(&fmt_mssql12);
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "memdbg.h"
+
 #ifdef _OPENMP
-#include <omp.h>
 #ifdef SIMD_COEF_64
 #ifndef OMP_SCALE
 #define OMP_SCALE               2048
@@ -70,13 +68,10 @@ john_register_one(&fmt_mssql12);
 #define FORMAT_LABEL            "mssql12"
 #define FORMAT_NAME             "MS SQL 2012/2014"
 #define ALGORITHM_NAME          "SHA512 " SHA512_ALGORITHM_NAME
-
 #define BENCHMARK_COMMENT       ""
 #define BENCHMARK_LENGTH        0
-
 #define PLAINTEXT_LENGTH        ((111 - SALT_SIZE) / 2)
 #define CIPHERTEXT_LENGTH       54 + 44 * 2
-
 #define BINARY_SIZE             8
 #define DIGEST_SIZE             64
 #define BINARY_ALIGN            8
@@ -128,9 +123,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	int i;
 
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
-		return 0;
 	if (strncmp(ciphertext, "0x0200", 6))
+		return 0;
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 	for (i = 6; i < CIPHERTEXT_LENGTH; i++) {
 		if (!((('0' <= ciphertext[i])&&(ciphertext[i] <= '9')) ||
@@ -170,10 +165,7 @@ static void set_key_enc(char *_key, int index);
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 #ifdef SIMD_COEF_64
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -242,6 +234,10 @@ static void set_key(char *_key, int index)
 	keybuffer[15] = ((len << 1) + SALT_SIZE) << 3;
 
 	new_keys = 1;
+
+#if !ARCH_LITTLE_ENDIAN
+	alter_endianity_w16(saved_key[index], len<<1);
+#endif
 #endif
 }
 
@@ -285,7 +281,7 @@ static char *get_key(int index)
 
 	len = ((keybuffer[15] >> 3) - SALT_SIZE) >> 1;
 
-	for(i = 0; i < len; i++)
+	for (i = 0; i < len; i++)
 		out[i] = w16[i];
 
 	out[i] = 0;
@@ -305,7 +301,9 @@ static void *get_binary(char *ciphertext)
 			atoi16[ARCH_INDEX(ciphertext[i*2+15])];
 
 #ifdef SIMD_COEF_64
+#if ARCH_LITTLE_ENDIAN==1
 	alter_endianity_to_BE64 (realcipher, DIGEST_SIZE/8);
+#endif
 #ifdef REVERSE_STEPS
 	sha512_reverse(out);
 #endif
@@ -362,25 +360,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	return count;
 }
 
-#define HASH_IDX (((unsigned int)index&(SIMD_COEF_64-1))+(unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64)
+#define COMMON_GET_HASH_64BIT_HASH
+#define COMMON_GET_HASH_SIMD64 8
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
-#ifdef SIMD_COEF_64
-static int get_hash_0 (int index) { return crypt_out[HASH_IDX] & PH_MASK_0; }
-static int get_hash_1 (int index) { return crypt_out[HASH_IDX] & PH_MASK_1; }
-static int get_hash_2 (int index) { return crypt_out[HASH_IDX] & PH_MASK_2; }
-static int get_hash_3 (int index) { return crypt_out[HASH_IDX] & PH_MASK_3; }
-static int get_hash_4 (int index) { return crypt_out[HASH_IDX] & PH_MASK_4; }
-static int get_hash_5 (int index) { return crypt_out[HASH_IDX] & PH_MASK_5; }
-static int get_hash_6 (int index) { return crypt_out[HASH_IDX] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return (crypt_out[index])[0] & PH_MASK_0; }
-static int get_hash_1(int index) { return (crypt_out[index])[0] & PH_MASK_1; }
-static int get_hash_2(int index) { return (crypt_out[index])[0] & PH_MASK_2; }
-static int get_hash_3(int index) { return (crypt_out[index])[0] & PH_MASK_3; }
-static int get_hash_4(int index) { return (crypt_out[index])[0] & PH_MASK_4; }
-static int get_hash_5(int index) { return (crypt_out[index])[0] & PH_MASK_5; }
-static int get_hash_6(int index) { return (crypt_out[index])[0] & PH_MASK_6; }
-#endif
+#define HASH_IDX (((unsigned int)index&(SIMD_COEF_64-1))+(unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64)
 
 static int binary_hash_0(void *binary) { return ((uint64_t*)binary)[0] & PH_MASK_0; }
 static int binary_hash_1(void *binary) { return ((uint64_t*)binary)[0] & PH_MASK_1; }
@@ -433,7 +418,9 @@ static int cmp_exact(char *source, int index)
 	SHA512_Update(&ctx, cursalt, SALT_SIZE);
 	SHA512_Final((unsigned char*)crypt_out, &ctx);
 
+#if ARCH_LITTLE_ENDIAN==1
 	alter_endianity_to_BE64(crypt_out, DIGEST_SIZE/8);
+#endif
 #ifdef REVERSE_STEPS
 	sha512_reverse(crypt_out);
 #endif
@@ -501,13 +488,8 @@ struct fmt_main fmt_mssql12 = {
 #endif
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

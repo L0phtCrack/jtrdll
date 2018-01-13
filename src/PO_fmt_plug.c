@@ -38,9 +38,6 @@ john_register_one(&fmt_PO);
 #include "md5.h"
 #include "memdbg.h"
 
-typedef uint32_t MD5_word;
-typedef MD5_word MD5_binary[4];
-
 #define FORMAT_LABEL			"po"
 #define FORMAT_NAME			"Post.Office"
 #define ALGORITHM_NAME			"MD5 32/" ARCH_BITS_STR
@@ -69,7 +66,7 @@ static struct fmt_tests tests[] = {
 
 static char saved_key[PLAINTEXT_LENGTH + 1];
 static int saved_key_len;
-static char po_buf[SALT_SIZE * 2 + 2 + PLAINTEXT_LENGTH + 128 /* MD5 scratch space */];
+static unsigned char po_buf[SALT_SIZE * 2 + 2 + PLAINTEXT_LENGTH + 128 /* MD5 scratch space */];
 static uint32_t MD5_out[4];
 
 static void po_init(struct fmt_main *self) {
@@ -85,40 +82,8 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	return 0;
 }
 
-static int get_hash_0(int index)
-{
-	return MD5_out[0] & PH_MASK_0;
-}
-
-static int get_hash_1(int index)
-{
-	return MD5_out[0] & PH_MASK_1;
-}
-
-static int get_hash_2(int index)
-{
-	return MD5_out[0] & PH_MASK_2;
-}
-
-static int get_hash_3(int index)
-{
-	return MD5_out[0] & PH_MASK_3;
-}
-
-static int get_hash_4(int index)
-{
-	return MD5_out[0] & PH_MASK_4;
-}
-
-static int get_hash_5(int index)
-{
-	return MD5_out[0] & PH_MASK_5;
-}
-
-static int get_hash_6(int index)
-{
-	return MD5_out[0] & PH_MASK_6;
-}
+#define COMMON_GET_HASH_VAR MD5_out
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -129,8 +94,7 @@ static int salt_hash(void *salt)
 
 static void set_key(char *key, int index)
 {
-	strnfcpy(saved_key, key, PLAINTEXT_LENGTH);
-	saved_key_len = strlen(saved_key);
+	saved_key_len = strnzcpyn(saved_key, key, sizeof(saved_key));
 }
 
 static char *get_key(int index)
@@ -141,7 +105,7 @@ static char *get_key(int index)
 
 static int cmp_all(void *binary, int count)
 {
-	return *(MD5_word *)binary == MD5_out[0];
+	return *(uint32_t *)binary == MD5_out[0];
 }
 
 static int cmp_one(void *binary, int index)
@@ -154,11 +118,11 @@ static int cmp_exact(char *source, int index)
         static char fullmd5[16];
         int i;
 
-        for(i=0;i<16;i++)
+        for (i=0;i<16;i++)
         {
                 fullmd5[i] = atoi16[ARCH_INDEX(source[i*2])]*16 + atoi16[ARCH_INDEX(source[i*2+1])];
         }
-	return !memcmp(fullmd5, MD5_out, sizeof(MD5_binary));
+	return !memcmp(fullmd5, MD5_out, sizeof(fullmd5));
 }
 
 static void *get_binary(char *ciphertext)
@@ -168,7 +132,7 @@ static void *get_binary(char *ciphertext)
 
 	if (!binarycipher) binarycipher = mem_alloc_tiny(BINARY_SIZE, MEM_ALIGN_WORD);
 
-        for(i=0;i<BINARY_SIZE;i++)
+        for (i=0;i<BINARY_SIZE;i++)
         {
                 binarycipher[i] = atoi16[ARCH_INDEX(ciphertext[i*2])]*16 + atoi16[ARCH_INDEX(ciphertext[i*2+1])];
         }
@@ -250,13 +214,8 @@ struct fmt_main fmt_PO = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

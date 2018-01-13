@@ -274,7 +274,7 @@ static char *prepare(char *split_fields[10], struct fmt_main *pFmt)
 				ret = str_alloc_copy(split_fields[1]);
 				ret[(cp3-split_fields[1])+1] = '$';
 				ret[(cp3-split_fields[1])+2] = 0;
-				//printf ("Here is the cut item: %s\n", ret);
+				//printf("Here is the cut item: %s\n", ret);
 			}
 		}
 	}
@@ -335,7 +335,7 @@ static uint32_t *generate_des_format(uchar* binary)
 	for (chr = 0; chr < 24; chr=chr + 8)
 	{
 		dst = 0;
-		for(i=0; i<8; i++)
+		for (i=0; i<8; i++)
 		{
 			value = binary[chr + i];
 			mask = 0x80;
@@ -350,7 +350,7 @@ static uint32_t *generate_des_format(uchar* binary)
 	}
 
 	/* Apply initial permutation on ciphertext blocks */
-	for(i=0; i<6; i=i+2)
+	for (i=0; i<6; i=i+2)
 	{
 		ptr = DES_do_IP(&block[i]);
 		out[i] = ptr[1];
@@ -381,7 +381,7 @@ static void *get_binary(char *ciphertext)
 	return ptr;
 }
 
-static inline void setup_des_key(unsigned char key_56[], int index)
+inline static void setup_des_key(unsigned char key_56[], int index)
 {
 	char key[8];
 
@@ -570,7 +570,7 @@ static char *long_to_short(char *ciphertext) {
 	memcpy(&pos[16], &ciphertext[42], CIPHERTEXT_LENGTH+2);
 	pos[16+CIPHERTEXT_LENGTH+2] = '$';
 	pos[16+CIPHERTEXT_LENGTH+3] = 0;
-	//printf ("short=%s  original=%s\n", Buf, ciphertext);
+	//printf("short=%s  original=%s\n", Buf, ciphertext);
 	return Buf;
 }
 
@@ -582,8 +582,7 @@ static void set_salt(void *salt)
 
 static void mschapv2_set_key(char *key, int index)
 {
-	saved_len[index] = strlen(key);
-	memcpy(saved_plain[index], key, saved_len[index] + 1);
+	saved_len[index] = strnzcpyn(saved_plain[index], key, sizeof(*saved_plain));
 	keys_prepared = 0;
 }
 

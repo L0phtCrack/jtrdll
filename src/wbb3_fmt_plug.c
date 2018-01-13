@@ -1,4 +1,5 @@
-/* WoltLab Burning Board 3 (WBB3) cracker patch for JtR. Hacked together during
+/*
+ * WoltLab Burning Board 3 (WBB3) cracker patch for JtR. Hacked together during
  * May of 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
@@ -12,9 +13,8 @@
  *
  * type => 1, for sha1($salt.sha1($salt.sha1($pass))) hashing scheme
  *
- * JimF, July 2012.
- * Made small change in hex_encode 10x improvement in speed.  Also some other
- * changes.  Should be a thin dyanamic.
+ * JimF, July 2012. Made small change in hex_encode 10x improvement in speed.
+ * Also some other changes. This should be a thin dyanamic.
  */
 
 #if FMT_EXTERNS_H
@@ -23,40 +23,39 @@ extern struct fmt_main fmt_wbb3;
 john_register_one(&fmt_wbb3);
 #else
 
-#include "arch.h"
-#include "sha.h"
-
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               8 // tuned on core i7
 #endif
 #endif
+
+#include "arch.h"
+#include "sha.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"wbb3"
-#define FORMAT_NAME		"WoltLab BB3"
-#define FORMAT_TAG           "$wbb3$*"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"SHA1 32/" ARCH_BITS_STR
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
-#define PLAINTEXT_LENGTH	32
-#define BINARY_SIZE		20
+#define FORMAT_LABEL            "wbb3"
+#define FORMAT_NAME             "WoltLab BB3"
+#define FORMAT_TAG              "$wbb3$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "SHA1 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        0
+#define PLAINTEXT_LENGTH        32
+#define BINARY_SIZE             20
 #define MAX_SALT_LEN            40
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		sizeof(int)
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	64
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              sizeof(int)
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      64
 
 static struct fmt_tests wbb3_tests[] = {
 	{"$wbb3$*1*0b053db07dc02bc6f6e24e00462f17e3c550afa9*e2063f7c629d852302d3020599376016ff340399", "123456"},
@@ -69,7 +68,6 @@ static struct fmt_tests wbb3_tests[] = {
 	{NULL}
 };
 
-
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static unsigned char (*hexhash1)[40];
@@ -80,9 +78,10 @@ static struct custom_salt {
 	unsigned char salt[MAX_SALT_LEN+1];
 } *cur_salt;
 
-static inline void hex_encode(unsigned char *str, int len, unsigned char *out)
+inline static void hex_encode(unsigned char *str, int len, unsigned char *out)
 {
 	int i;
+
 	for (i = 0; i < len; ++i) {
 		out[0] = itoa16[str[i]>>4];
 		out[1] = itoa16[str[i]&0xF];
@@ -93,11 +92,7 @@ static inline void hex_encode(unsigned char *str, int len, unsigned char *out)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	static int omp_t = 1;
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -124,9 +119,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	strnzcpy(ctcopy, ciphertext, 255);
 	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "*"); /* type */
-	if(!p)
+	if (!p)
 		goto err;
-	if(!isdec(p))
+	if (!isdec(p))
 		goto err;
 	res = atoi(p);
 	if (res != 1)
@@ -160,6 +155,7 @@ static void *get_salt(char *ciphertext)
 	cs.type = atoi(p);
 	p = strtokm(NULL, "*");
 	strcpy((char *)cs.salt, p);
+
 	return (void *)&cs;
 }
 
@@ -172,6 +168,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '*') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -183,13 +180,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -199,14 +191,15 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
+
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index++)
-	{
+	for (index = 0; index < count; index++) {
 		unsigned char hexhash[40];
 		SHA_CTX ctx;
+
 		if (dirty) {
 			unsigned char out[20];
 			SHA1_Init(&ctx);
@@ -225,13 +218,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		SHA1_Final((unsigned char*)crypt_out[index], &ctx);
 	}
 	dirty = 0;
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (*((uint32_t*)binary) == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -250,11 +245,7 @@ static int cmp_exact(char *source, int index)
 
 static void wbb3_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 	dirty = 1;
 }
 
@@ -310,13 +301,8 @@ struct fmt_main fmt_wbb3 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

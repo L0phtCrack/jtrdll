@@ -89,7 +89,7 @@ static struct fmt_main *self;
 #define SEED			256
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static const char * warn[] = {
@@ -189,7 +189,7 @@ static void done(void)
 	}
 }
 
-static inline void copy_hash_back()
+inline static void copy_hash_back()
 {
     if (!hash_copy_back) {
         HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0,outsize, ghash, 0, NULL, NULL), "Copy data back");

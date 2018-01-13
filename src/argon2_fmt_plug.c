@@ -14,6 +14,7 @@ john_register_one(&fmt_argon2);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -34,6 +35,9 @@ john_register_one(&fmt_argon2);
 #define FORMAT_TAG_i            "$argon2i$"
 #define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG_d)-1)
 
+#if defined (JOHN_NO_SIMD)
+#define ALGORITHM_NAME          "Blake2"
+#else
 #if defined(__XOP__)
 #define ALGORITHM_NAME          "Blake2 XOP"
 #elif defined(__AVX__)
@@ -45,19 +49,20 @@ john_register_one(&fmt_argon2);
 #else
 #define ALGORITHM_NAME          "Blake2"
 #endif
+#endif
 
 #define BENCHMARK_COMMENT       ""
 #define BENCHMARK_LENGTH        0
 #define PLAINTEXT_LENGTH        100 //only in john
 #define BINARY_SIZE             256 //only in john
-#define BINARY_ALIGN            1
+#define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_SIZE               64  //only in john
-#define SALT_ALIGN              1
+#define SALT_ALIGN              sizeof(uint32_t)
 
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      2
 
-#define OMP_SCALE               16
+#define OMP_SCALE               8 // tuned w/ MKPC for core i7m
 
 #ifdef _OPENMP
 #define THREAD_NUMBER omp_get_thread_num()
@@ -89,38 +94,30 @@ static struct argon2_salt saved_salt;
 static region_t * memory;
 static void **pseudo_rands;
 
-static char *saved_key;
-static int threads;
+static char (*saved_key)[PLAINTEXT_LENGTH + 1];
+static int *saved_len;
+static int sc_threads = 1;
 static size_t saved_mem_size;
 static uint32_t saved_segment_length;
 
-static unsigned char *crypted;
+static unsigned char (*crypted)[BINARY_SIZE];
 
 static void *get_salt(char *ciphertext);
 
 static void init(struct fmt_main *self)
 {
 	int i;
-#ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	threads=omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#else
-	threads=1;
-#endif
+
+	sc_threads = omp_autotune(self, OMP_SCALE);
+
 	saved_key =
-	    malloc(self->params.max_keys_per_crypt * (PLAINTEXT_LENGTH + 1));
-	memset(saved_key, 0,
-	    self->params.max_keys_per_crypt * (PLAINTEXT_LENGTH + 1));
-	crypted = malloc(self->params.max_keys_per_crypt * (BINARY_SIZE));
-	memset(crypted, 0, self->params.max_keys_per_crypt * (BINARY_SIZE));
+	    mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_key));
+	crypted = mem_calloc(self->params.max_keys_per_crypt, (BINARY_SIZE));
+	saved_len = mem_calloc(self->params.max_keys_per_crypt, sizeof(int));
+	memory=mem_calloc(sc_threads, sizeof(region_t));
+	pseudo_rands=mem_calloc(sc_threads,sizeof(void*));
 
-	memory=malloc(threads*sizeof(region_t));
-	pseudo_rands=malloc(threads*sizeof(void*));
-
-	for(i=0;i<threads;i++)
+	for (i=0;i<sc_threads;i++)
 	{
 		init_region_t(&memory[i]);
 		pseudo_rands[i]=NULL;
@@ -133,27 +130,28 @@ static void init(struct fmt_main *self)
 static void done(void)
 {
 	int i;
-	free(saved_key);
-	free(crypted);
-	for(i=0;i<threads;i++)
+	for (i=0;i<sc_threads;i++)
 	{
 		free_region_t(&memory[i]);
-		free(pseudo_rands[i]);
+		MEM_FREE(pseudo_rands[i]);
 	}
-	free(memory);
-	free(pseudo_rands);
+	MEM_FREE(memory);
+	MEM_FREE(pseudo_rands);
+	MEM_FREE(saved_len);
+	MEM_FREE(crypted);
+	MEM_FREE(saved_key);
 }
 
 static void print_memory(double memory)
 {
-	char s[]="\0kMGT";
-	int i=0;
-	while(memory>=1024)
-	{
-		memory/=1024;
+	char s[] = "\0kMGT";
+	int i = 0;
+
+	while (memory >= 1024 && s[i + 1]) {
+		memory /= 1024;
 		i++;
 	}
-	printf("memory per hash : %.2lf %cB\n",memory,s[i]);
+	fprintf(stderr, "memory per hash : %.2lf %cB\n", memory, s[i]);
 }
 
 static void reset(struct db_main *db)
@@ -171,7 +169,7 @@ static void reset(struct db_main *db)
 				struct argon2_salt *salt;
 				salt=get_salt(tests[i].ciphertext);
 				m_cost = MAX(m_cost, salt->m_cost);
-				if(i==0)
+				if (i==0)
 				{
 					printf("\n");
 					prev_m_cost=m_cost;
@@ -179,7 +177,7 @@ static void reset(struct db_main *db)
 				}
 			}
 
-			if(prev_m_cost!=m_cost)
+			if (prev_m_cost!=m_cost)
 			{
 				printf("max ");
 				print_memory(sizeof(block)*m_cost);
@@ -229,7 +227,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	else
 		return 0;
 
-	if(res!=ARGON2_OK)
+	if (res!=ARGON2_OK || ctx.outlen < 8)
 	  return 0;
 
 	return 1;
@@ -237,17 +235,12 @@ static int valid(char *ciphertext, struct fmt_main *self)
 
 static void set_key(char *key, int index)
 {
-	int len;
-	len = strlen(key);
-	if (len > PLAINTEXT_LENGTH)
-		len = PLAINTEXT_LENGTH;
-	memcpy(saved_key + index * (PLAINTEXT_LENGTH + 1), key, len);
-	saved_key[index * (PLAINTEXT_LENGTH + 1) + len] = 0;
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
 {
-	return saved_key + index * (PLAINTEXT_LENGTH + 1);
+	return saved_key[index];
 }
 
 
@@ -312,24 +305,24 @@ static void set_salt(void *salt)
 
 	segment_length = memory_blocks / (saved_salt.lanes * ARGON2_SYNC_POINTS);
 
-	if(mem_size>saved_mem_size)
+	if (mem_size>saved_mem_size)
 	{
-		if(saved_mem_size>0)
-			for(i=0;i<threads;i++)
+		if (saved_mem_size>0)
+			for (i=0;i<sc_threads;i++)
 				free_region_t(&memory[i]);
-		for(i=0;i<threads;i++)
+		for (i=0;i<sc_threads;i++)
 			alloc_region_t(&memory[i],mem_size);
 
 		saved_mem_size=mem_size;
 	}
 
-	if(segment_length>saved_segment_length)
+	if (segment_length>saved_segment_length)
 	{
-		if(saved_segment_length>0)
-			for(i=0;i<threads;i++)
-				free(pseudo_rands[i]);
-		for(i=0;i<threads;i++)
-			pseudo_rands[i]=malloc(sizeof(uint64_t) * segment_length);
+		if (saved_segment_length>0)
+			for (i=0;i<sc_threads;i++)
+				MEM_FREE(pseudo_rands[i]);
+		for (i=0;i<sc_threads;i++)
+			pseudo_rands[i]=mem_calloc(sizeof(uint64_t), segment_length);
 
 		saved_segment_length=segment_length;
 	}
@@ -339,7 +332,7 @@ static int cmp_all(void *binary, int count)
 {
 	int i;
 	for (i = 0; i < count; i++) {
-		if (!memcmp(binary, crypted + i * BINARY_SIZE, saved_salt.hash_size))
+		if (!memcmp(binary, crypted[i], saved_salt.hash_size))
 			return 1;
 	}
 	return 0;
@@ -347,7 +340,7 @@ static int cmp_all(void *binary, int count)
 
 static int cmp_one(void *binary, int index)
 {
-	return !memcmp(binary, crypted + index * BINARY_SIZE,  saved_salt.hash_size);
+	return !memcmp(binary, crypted[index],  saved_salt.hash_size);
 }
 
 static int cmp_exact(char *source, int index)
@@ -364,54 +357,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #pragma omp parallel for
 #endif
 	for (i = 0; i < count; i++) {
-		argon2_hash(saved_salt.t_cost, saved_salt.m_cost, saved_salt.lanes, saved_key + i * (PLAINTEXT_LENGTH + 1), strlen(saved_key + i * (PLAINTEXT_LENGTH + 1)), saved_salt.salt,
-		    saved_salt.salt_length, crypted + i * BINARY_SIZE, saved_salt.hash_size, 0, 0, saved_salt.type, ARGON2_VERSION_NUMBER, memory[THREAD_NUMBER%threads].aligned, pseudo_rands[THREAD_NUMBER%threads]);
+		argon2_hash(saved_salt.t_cost, saved_salt.m_cost, saved_salt.lanes, saved_key[i], saved_len[i], saved_salt.salt,
+		    saved_salt.salt_length, crypted[i], saved_salt.hash_size, 0, 0, saved_salt.type, ARGON2_VERSION_NUMBER, memory[THREAD_NUMBER%sc_threads].aligned, pseudo_rands[THREAD_NUMBER%sc_threads]);
 	}
 
 	return count;
 }
 
-static int get_hash_0(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xF;
-}
-
-static int get_hash_1(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xFF;
-}
-
-static int get_hash_2(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xFFF;
-}
-
-static int get_hash_3(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xFFFF;
-}
-
-static int get_hash_4(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xFFFFF;
-}
-
-static int get_hash_5(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0xFFFFFF;
-}
-
-static int get_hash_6(int index)
-{
-	uint32_t *crypt = (uint32_t *) (crypted + index * BINARY_SIZE);
-	return crypt[0] & 0x7FFFFFF;
-}
+#define COMMON_GET_HASH_VAR crypted
+#include "common-get-hash.h"
 
 static int salt_hash(void *_salt)
 {
@@ -420,7 +374,7 @@ static int salt_hash(void *_salt)
 	unsigned int hash = 0;
 	char *p = salt->salt;
 
-	for(i=0;i<salt->salt_length;i++) {
+	for (i=0;i<salt->salt_length;i++) {
 		hash <<= 1;
 		hash += (unsigned char)*p++;
 		if (hash >> SALT_HASH_LOG) {
@@ -450,12 +404,17 @@ static unsigned int tunable_cost_m(void *_salt)
 	return salt->m_cost;
 }
 
-static unsigned int tunable_cost_l(void *_salt)
+static unsigned int tunable_cost_p(void *_salt)
 {
 	struct argon2_salt *salt=(struct argon2_salt *)_salt;
 	return salt->lanes;
 }
 
+static unsigned int tunable_cost_type(void *_salt)
+{
+	struct argon2_salt *salt=(struct argon2_salt *)_salt;
+	return (int)salt->type;
+}
 #endif
 
 struct fmt_main fmt_argon2 = {
@@ -480,7 +439,8 @@ struct fmt_main fmt_argon2 = {
 		{
 			"t",
 			"m",
-			"l"
+			"p",
+			"type [0:Argon2d 1:Argon2i]"
 		},
 		{0},
 		tests
@@ -496,7 +456,8 @@ struct fmt_main fmt_argon2 = {
 		{
 			tunable_cost_t,
 			tunable_cost_m,
-			tunable_cost_l
+			tunable_cost_p,
+			tunable_cost_type,
 		},
 		fmt_default_source,
 		{
@@ -516,13 +477,8 @@ struct fmt_main fmt_argon2 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

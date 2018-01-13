@@ -24,23 +24,21 @@ john_register_one(&fmt_o10glogon);
 
 #include <string.h>
 #include <openssl/des.h>
-#include <openssl/aes.h>
-
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "md5.h"
-#include "unicode.h"
-#include "base64_convert.h"
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               2048
 #endif
 #endif
 
+#include "arch.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "aes.h"
+#include "md5.h"
+#include "unicode.h"
+#include "base64_convert.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL                    "o10glogon"
@@ -96,14 +94,10 @@ static DES_key_schedule desschedule1;	// key 0x0123456789abcdef
 
 static void init(struct fmt_main *self)
 {
-	DES_set_key((DES_cblock *)"\x01\x23\x45\x67\x89\xab\xcd\xef", &desschedule1);
-
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
+	DES_set_key((DES_cblock *)"\x01\x23\x45\x67\x89\xab\xcd\xef", &desschedule1);
 	cur_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*cur_key));
 	plain_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -189,7 +183,7 @@ static void oracle_set_key(char *key, int index) {
 	UTF16 *c;
 	int key_length;
 
-	strcpy(plain_key[index], key);
+	strnzcpy(plain_key[index], key, sizeof(*plain_key));
 	// Can't use enc_to_utf16_be() because we need to do utf16_uc later
 	key_length = enc_to_utf16(cur_key_mixedcase, PLAINTEXT_LENGTH, (unsigned char*)key, strlen(key));
 
@@ -308,9 +302,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (idx = 0; idx < count; idx++)
 #endif
-	{
+	for (idx = 0; idx < count; idx++) {
 		unsigned char buf[256], buf1[256];
 		unsigned int l;
 		uint32_t iv[2];
@@ -364,6 +357,7 @@ static void *get_salt(char *ciphertext)
 	cp = strchr(cp+1, '$') + 1;
 	salt.auth_pass_len = strlen(cp)/2;
 	base64_convert(cp,e_b64_hex,salt.auth_pass_len*2,salt.auth_pass,e_b64_raw,salt.auth_pass_len,0,0);
+
 	return &salt;
 }
 

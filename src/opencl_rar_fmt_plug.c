@@ -49,7 +49,6 @@ john_register_one(&fmt_ocl_rar);
 #else
 
 #include <string.h>
-#include <errno.h>
 #if AC_BUILT
 #include "autoconfig.h"
 #endif
@@ -63,10 +62,12 @@ john_register_one(&fmt_ocl_rar);
 #elif defined(HAVE_MMAP)
 #include <sys/mman.h>
 #endif
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "arch.h"
 #include "sha.h"
-#include "aes.h"
 #include "crc32.h"
 #include "misc.h"
 #include "common.h"
@@ -101,13 +102,6 @@ john_register_one(&fmt_ocl_rar);
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE		32
-#endif
-#endif
-
 static const char * warn[] = {
 	"key xfer: "  ,  ", len xfer: "   , ", init: " , ", loop: " ,
 	", final: ", ", key xfer: ", ", iv xfer: "
@@ -119,7 +113,7 @@ static int split_events[] = { 3, -1, -1 };
 #define SEED			256
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 #define ITERATIONS		0x40000
@@ -128,8 +122,6 @@ static int split_events[] = { 3, -1, -1 };
 static int new_keys;
 static struct fmt_main *self;
 
-/* Determines when to use CPU instead (eg. Single mode, few keys in a call) */
-#define CPU_GPU_RATIO		32
 static cl_mem cl_saved_key, cl_saved_len, cl_salt, cl_OutputBuf, cl_round, cl_aes_key, cl_aes_iv;
 static cl_mem pinned_saved_key, pinned_saved_len, pinned_salt, pinned_aes_key, pinned_aes_iv;
 static cl_kernel RarInit, RarFinal;
@@ -281,13 +273,13 @@ static void init(struct fmt_main *_self)
 	}
 
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
+	threads = omp_get_max_threads();
 #endif /* _OPENMP */
 
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
 
-	unpack_data = mem_calloc(omp_t, sizeof(unpack_data_t));
+	unpack_data = mem_calloc(threads, sizeof(unpack_data_t));
 
 	/* CRC-32 table init, do it before we start multithreading */
 	{
@@ -369,7 +361,7 @@ struct fmt_main fmt_ocl_rar = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		cpu_tests // Changed in init if GPU

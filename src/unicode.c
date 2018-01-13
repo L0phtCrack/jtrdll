@@ -28,6 +28,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 
 #include "common.h"
 #include "arch.h"
@@ -38,7 +39,6 @@
 #include "encoding_data.h"
 #include "misc.h"
 #include "config.h"
-#include "stdint.h"
 #include "md4.h"
 #include "john.h"
 #include "memdbg.h"
@@ -373,7 +373,7 @@ int enc_to_utf16(UTF16 *dst, unsigned int maxdstlen, const UTF8 *src,
 #endif
 }
 
-static inline int cp_to_utf16(UTF16 *dst, unsigned int maxdstlen,
+inline static int cp_to_utf16(UTF16 *dst, unsigned int maxdstlen,
                               const UTF8 *src, unsigned int srclen)
 {
 	int i, trunclen = (int)srclen;
@@ -541,7 +541,7 @@ int E_md4hash(const UTF8 *passwd, unsigned int len, unsigned char *p16)
 
 	/* Password is converted to UTF-16LE */
 	trunclen = enc_to_utf16(wpwd, PLAINTEXT_BUFFER_SIZE, passwd, len);
-	if(trunclen < 0)
+	if (trunclen < 0)
 		len = strlen16(wpwd); /* From UTF-8 you can't know */
 	else
 		len = trunclen;
@@ -654,7 +654,7 @@ char *cp_to_utf8_r(char *src, char *dst, int dstlen)
 	return (char*)utf16_to_utf8_r((UTF8*)dst, dstlen, tmp16);
 }
 
-static inline UTF8 *utf16_to_cp_r(UTF8 *dst, int dst_len, const UTF16 *source)
+inline static UTF8 *utf16_to_cp_r(UTF8 *dst, int dst_len, const UTF16 *source)
 {
 	UTF8 *tgt = dst;
 	UTF8 *targetEnd = tgt + dst_len;
@@ -725,7 +725,7 @@ UTF8 *utf16_to_enc_r(UTF8 *dst, int dst_len, const UTF16 *source)
 }
 
 /* UTF-32 functions */
-static inline UTF8 *utf32_to_utf8(UTF8 *dst, int dst_len, const UTF32 *source)
+inline static UTF8 *utf32_to_utf8(UTF8 *dst, int dst_len, const UTF32 *source)
 {
 	UTF8 *tpt = dst;
 	UTF8 *targetEnd = tpt + dst_len;
@@ -763,7 +763,7 @@ static inline UTF8 *utf32_to_utf8(UTF8 *dst, int dst_len, const UTF32 *source)
 	return dst;
 }
 
-static inline int utf8_to_utf32(UTF32 *target, unsigned int len,
+inline static int utf8_to_utf32(UTF32 *target, unsigned int len,
                                 const UTF8 *source, unsigned int sourceLen)
 {
 	const UTF32 *targetStart = target;
@@ -826,7 +826,7 @@ static inline int utf8_to_utf32(UTF32 *target, unsigned int len,
 	return (target - targetStart);
 }
 
-static inline UTF8 *utf32_to_cp(UTF8 *dst, int dst_len, const UTF32 *source)
+inline static UTF8 *utf32_to_cp(UTF8 *dst, int dst_len, const UTF32 *source)
 {
 	UTF8 *tgt = dst;
 	UTF8 *targetEnd = tgt + dst_len;
@@ -840,7 +840,7 @@ static inline UTF8 *utf32_to_cp(UTF8 *dst, int dst_len, const UTF32 *source)
 	return dst;
 }
 
-static inline int cp_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
+inline static int cp_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
                               unsigned int srclen)
 {
 	int i, trunclen = (int)srclen;
@@ -1238,39 +1238,42 @@ void initUnicode(int type)
 			CP_to_Unicode[i] = ISO_8859_1_to_unicode_high128[i-128];
 		}
 	}
-	memset(CP_from_Unicode, 0, sizeof(CP_from_Unicode));
+	memset(CP_from_Unicode, options.replacement_character, sizeof(CP_from_Unicode));
 	for (i = 0; i < 128; ++i)
 		CP_from_Unicode[i] = i;
 
-	/* Best-effort conversion hack */
-	for (i = 0; i < 128; ++i) {
-		switch (cp_class(encoding)) {
+	/* EmulateBrokenEncoding hack */
+	if (options.replacement_character == 0) {
+		/* Best-effort conversion hack */
+		for (i = 0; i < 128; ++i) {
+			switch (cp_class(encoding)) {
 
-		case CP_DOS:
-		CP_from_Unicode[CP437_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP720_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP737_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP850_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP852_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP858_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP866_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP868_to_unicode_high128[i]] = i+128;
-		break;
+				case CP_DOS:
+					CP_from_Unicode[CP437_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP720_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP737_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP850_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP852_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP858_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP866_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP868_to_unicode_high128[i]] = i+128;
+					break;
 
-		case CP_WIN:
-		CP_from_Unicode[CP1250_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP1251_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP1252_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[CP1253_to_unicode_high128[i]] = i+128;
-		break;
+				case CP_WIN:
+					CP_from_Unicode[CP1250_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP1251_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP1252_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[CP1253_to_unicode_high128[i]] = i+128;
+					break;
 
-		default:
-		CP_from_Unicode[ISO_8859_1_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[ISO_8859_2_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[ISO_8859_7_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[ISO_8859_15_to_unicode_high128[i]] = i+128;
-		CP_from_Unicode[KOI8_R_to_unicode_high128[i]] = i+128;
+				default:
+					CP_from_Unicode[ISO_8859_1_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[ISO_8859_2_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[ISO_8859_7_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[ISO_8859_15_to_unicode_high128[i]] = i+128;
+					CP_from_Unicode[KOI8_R_to_unicode_high128[i]] = i+128;
 
+			}
 		}
 	}
 

@@ -15,6 +15,8 @@
 #ifndef _COMMON_OPENCL_H
 #define _COMMON_OPENCL_H
 
+#include <stdint.h>
+
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #include <OpenCL/cl_ext.h>
@@ -30,7 +32,6 @@
 #include "common.h"
 #include "formats.h"
 #include "path.h"
-#include "john_stdint.h"
 #include "opencl_device_info.h"
 
 #define MAX_PLATFORMS   8
@@ -100,7 +101,7 @@ typedef union {
 #endif
 
 #ifdef DEBUG_CL_ALLOC
-static inline cl_mem
+inline static cl_mem
 john_clCreateBuffer(int l, char *f, cl_context context, cl_mem_flags flags,
                     size_t size, void *host_ptr, cl_int *errcode_ret)
 {
@@ -165,6 +166,9 @@ unsigned int opencl_get_vector_width(int sequential_id, int size);
 
 /* Returns number of selected devices */
 int get_number_of_devices_in_use(void);
+
+/* Returns number of requested devices */
+int get_number_of_requested_devices(void);
 
 /* Initialize a specific device. If necessary, parse command line and get
  * information about all OpenCL devices. */

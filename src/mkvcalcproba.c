@@ -16,7 +16,6 @@
 #endif
 #include <string.h>
 
-#define MAX_LVL_LEN 28
 #define MAX_LEN 7
 
 #include "params.h"
@@ -31,7 +30,18 @@ unsigned char *proba1;
 unsigned char *proba2;
 unsigned char *first;
 
+#ifdef HAVE_LIBFUZZER
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	return 0;
+}
+#endif
+
+#ifdef HAVE_LIBFUZZER
+int main_dummy(int argc, char **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
 	FILE *fichier;
 	char *ligne;
@@ -39,7 +49,7 @@ int main(int argc, char **argv)
 	unsigned int j;
 	unsigned int k;
 	unsigned int l;
-	unsigned long long index;
+	uint64_t index;
 	unsigned char position[256];
 	unsigned int charset;
 	unsigned int nb_lignes;
@@ -173,7 +183,7 @@ int main(int argc, char **argv)
 			i++;
 		}
 		if (index < 8E18)
-			printf("\t%d\t%d\t" LLd "\t%d\n", k, i, index, l);
+			printf("\t%d\t%d\t%" PRIu64 "\t%d\n", k, i, index, l);
 		else
 			printf("\t%d\t%d\t-\t%d\n", k, i, l);
 	}

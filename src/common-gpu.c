@@ -42,6 +42,7 @@
 
 int gpu_id;
 int gpu_device_list[MAX_GPU_DEVICES];
+int requested_devices[MAX_GPU_DEVICES];
 hw_bus gpu_device_bus[MAX_GPU_DEVICES];
 
 int gpu_temp_limit;
@@ -524,7 +525,7 @@ void gpu_log_temp(void)
 {
 #if __linux__ && HAVE_LIBDL
 	int i;
-	
+
 	for (i = 0; i < MAX_GPU_DEVICES && gpu_device_list[i] != -1; i++)
 	if (dev_get_temp[gpu_device_list[i]]) {
 		char s_gpu[256] = "";

@@ -88,11 +88,32 @@ static int pristine_gecos;
 static int single_skip_login;
 #endif
 
-/* There should be legislation against adding a BOM to UTF-8 */
-static char *skip_bom(char *string)
+/*
+ * There should be legislation against adding a BOM to UTF-8, not to
+ * mention calling UTF-16 a "text file".
+ */
+static MAYBE_INLINE char *check_bom(char *string)
 {
-	if (!memcmp(string, "\xEF\xBB\xBF", 3))
-		string += 3;
+	static int warned;
+
+	if (((unsigned char*)string)[0] < 0xef)
+		return string;
+
+	if (!memcmp(string, "\xEF\xBB\xBF", 3)) {
+		if (options.input_enc == UTF_8)
+			string += 3;
+		else if (john_main_process && !warned++) {
+			fprintf(stderr,
+			        "Warning: UTF-8 BOM seen in input file - You probably want --input-encoding=UTF8\n");
+		}
+	}
+	if (options.input_enc == UTF_8 &&
+	    (!memcmp(string, "\xFE\xFF", 2) || !memcmp(string, "\xFF\xFE", 2))) {
+		if (john_main_process)
+			fprintf(stderr,
+			        "Error: UTF-16 BOM seen in input file.\n");
+		error();
+	}
 	return string;
 }
 
@@ -181,7 +202,7 @@ static void read_file(struct db_main *db, char *name, int flags,
 		cfg_get_bool(SECTION_OPTIONS, NULL, "WarnEncoding", 0);
 
 	if (flags & RF_ALLOW_DIR) {
-		if (utf8_stat(name, &file_stat)) {
+		if (stat(name, &file_stat)) {
 			if (flags & RF_ALLOW_MISSING)
 				if (errno == ENOENT) return;
 			pexit("stat: %s", path_expand(name));
@@ -196,7 +217,7 @@ static void read_file(struct db_main *db, char *name, int flags,
 
 	dyna_salt_init(db->format);
 	while ((ex_size_line = fgetll(line_buf, sizeof(line_buf), file))) {
-		line = skip_bom(ex_size_line);
+		line = check_bom(ex_size_line);
 
 		if (warn_enc) {
 			char *u8check;
@@ -380,8 +401,7 @@ static void ldr_set_encoding(struct fmt_main *format)
 {
 	if ((!options.target_enc || options.default_target_enc) &&
 	    !options.internal_cp) {
-		if (!strcasecmp(format->params.label, "LM") ||
-		    !strcasecmp(format->params.label, "lm-opencl") ||
+		if (!strncasecmp(format->params.label, "LM", 2) ||
 		    !strcasecmp(format->params.label, "netlm") ||
 		    !strcasecmp(format->params.label, "nethalflm")) {
 			options.target_enc =
@@ -433,6 +453,47 @@ static void ldr_set_encoding(struct fmt_main *format)
 	initUnicode(UNICODE_UNICODE);
 }
 
+static char *escape_json(char *in)
+{
+	char *ret;
+	size_t num = 0;
+	uint8_t c;
+	uint8_t *p = (uint8_t*)in;
+
+	while ((c = *p++)) {
+		if (c == '\\' || c == '"')
+			num++;
+		else if (c < ' ')
+			num += 5;
+	}
+	if (!num)
+		return in;
+
+	num += (p - (uint8_t*)in);
+	ret = mem_alloc_tiny(num, MEM_ALIGN_NONE);
+
+	p = (uint8_t*)ret - 1;
+	while ((*++p = *in++)) {
+		if (*p == '\\')
+			*++p = '\\';
+		else if (*p == '"') {
+			*p = '\\';
+			*++p = '"';
+		} else if (*p < ' ') {
+			const char* const hex = "0123456789abcdef";
+			uint8_t c = *p;
+
+			*p = '\\';
+			*++p = 'u';
+			*++p = '0';
+			*++p = '0';
+			*++p = hex[ARCH_INDEX(c >> 4)];
+			*++p = hex[ARCH_INDEX(c & 0xf)];
+		}
+	}
+	return ret;
+}
+
 static int ldr_split_line(char **login, char **ciphertext,
 	char **gecos, char **home, char **uid,
 	char *source, struct fmt_main **format,
@@ -441,9 +502,13 @@ static int ldr_split_line(char **login, char **ciphertext,
 	struct fmt_main *alt;
 	char *fields[10], *gid, *shell;
 	int i, retval;
+	int huge_line = 0;
+	static int line_no = 0;
 
 	fields[0] = *login = ldr_get_field(&line, db_opts->field_sep_char);
 	fields[1] = *ciphertext = ldr_get_field(&line, db_opts->field_sep_char);
+
+	line_no++;
 
 /* Check for NIS stuff */
 	if (((*login)[0] == '+' && (!(*login)[1] || (*login)[1] == '@')) &&
@@ -451,11 +516,21 @@ static int ldr_split_line(char **login, char **ciphertext,
 	    strncmp(*ciphertext, "$dummy$", 7)) {
 		if (db_opts->showtypes) {
 			int fs = db_opts->field_sep_char;
-			printf("%s%c%s%c2%c\n",
-			       *login,
-			       fs, *ciphertext,
-			       fs, /* 2, */
-			       fs);
+
+			if (db_opts->showtypes_json) {
+				printf("%s{\"lineNo\":%d,",
+				       line_no == 1 ? "[" : ",\n",
+				       line_no);
+				if (**login)
+					printf("\"login\":\"%s\",",
+					       escape_json(*login));
+				if (**ciphertext)
+					printf("\"ciphertext\":\"%s\",",
+					       escape_json(*ciphertext));
+				printf("\"consistencyMark\":2}");
+			} else
+				printf("%s%c%s%c2%c\n",
+				       *login, fs, *ciphertext, fs,/* 2, */fs);
 		}
 		return 0;
 	}
@@ -485,11 +560,21 @@ static int ldr_split_line(char **login, char **ciphertext,
 			if (p - *ciphertext < 13) {
 				if (db_opts->showtypes) {
 					int fs = db_opts->field_sep_char;
-					printf("%c%s%c3%c\n",
-					       /* empty, */
-					       fs, *ciphertext,
-					       fs, /* 3, */
-					       fs);
+
+					if (db_opts->showtypes_json) {
+						printf("%s{\"lineNo\":%d,",
+						       line_no == 1 ? "[" : ",\n",
+						       line_no);
+						if (**ciphertext)
+							printf("\"ciphertext\":\"%s\",",
+							       escape_json(*ciphertext));
+						printf("\"consistencyMark\":3}");
+					} else
+						printf("%c%s%c3%c\n",
+						       /* empty, */
+						       fs, *ciphertext,
+						       fs, /* 3, */
+						       fs);
 				}
 				return 0;
 			}
@@ -497,6 +582,10 @@ static int ldr_split_line(char **login, char **ciphertext,
 		*p = 0;
 		fields[0] = *login = no_username;
 		fields[1] = *ciphertext;
+		if (strnlen(*ciphertext, LINE_BUFFER_SIZE + 1) >
+		    LINE_BUFFER_SIZE) {
+			huge_line = 1;
+		}
 	}
 
 	if (source)
@@ -536,7 +625,10 @@ static int ldr_split_line(char **login, char **ciphertext,
 	gid = fields[3];
 	shell = fields[6];
 
-	if (SPLFLEN(2) == 32 || SPLFLEN(3) == 32) {
+	if (SPLFLEN(1) > LINE_BUFFER_SIZE) {
+		huge_line = 1;
+	}
+	else if (SPLFLEN(2) == 32 || SPLFLEN(3) == 32) {
 		/* PWDUMP */
 		/* user:uid:LMhash:NThash:comment:homedir: */
 		*uid = fields[1];
@@ -642,14 +734,42 @@ static int ldr_split_line(char **login, char **ciphertext,
 		 * then a parser have to match input line with output line
 		 * by number of line.
 		 */
-		printf("%s%c%s%c%s%c%s%c%s%c%s%c%s",
-		       *login,
-		       fs, *ciphertext,
-		       fs, *uid,
-		       fs, gid,
-		       fs, *gecos,
-		       fs, *home,
-		       fs, shell);
+		if (db_opts->showtypes_json) {
+			printf("%s{\"lineNo\":%d,",
+			       line_no == 1 ? "[" : ",\n",
+			       line_no);
+			if (strcmp(*login, "?"))
+				printf("\"login\":\"%s\",",
+				       escape_json(*login));
+			if (**ciphertext)
+				printf("\"ciphertext\":\"%s\",",
+				       escape_json(*ciphertext));
+			if (**uid)
+				printf("\"uid\":\"%s\",",
+				       escape_json(*uid));
+			if (*gid)
+				printf("\"gid\":\"%s\",",
+				       escape_json(gid));
+			if (**gecos && strcmp(*gecos, "/"))
+				printf("\"gecos\":\"%s\",",
+				       escape_json(*gecos));
+			if (**home && strcmp(*home, "/"))
+				printf("\"home\":\"%s\",",
+				       escape_json(*home));
+			if (*shell && strcmp(shell, "/"))
+				printf("\"shell\":\"%s\",",
+				       escape_json(shell));
+			printf("\"rowFormats\":[");
+		} else
+			printf("%s%c%s%c%s%c%s%c%s%c%s%c%s",
+			       *login,
+			       fs, *ciphertext,
+			       fs, *uid,
+			       fs, gid,
+			       fs, *gecos,
+			       fs, *home,
+			       fs, shell);
+
 		check_field_separator(*login);
 		check_field_separator(*ciphertext);
 		check_field_separator(*uid);
@@ -667,6 +787,9 @@ static int ldr_split_line(char **login, char **ciphertext,
 			int valid;
 			int part;
 			int is_dynamic = ((alt->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC);
+
+			if (huge_line && !(alt->params.flags & FMT_HUGE_INPUT))
+				continue;
 /* We enforce DynamicAlwaysUseBareHashes for each format. By default
  * dynamics do that only if a bare hash occurs on the first line. */
 #ifndef DYNAMIC_DISABLED
@@ -683,23 +806,52 @@ static int ldr_split_line(char **login, char **ciphertext,
 			ldr_set_encoding(alt);
 			/* Empty field between valid formats */
 			if (not_first_format) {
-				printf("%c", fs);
-			}
+				if (db_opts->showtypes_json)
+					printf(",{");
+				else
+					printf("%c", fs);
+			} else if (db_opts->showtypes_json)
+				printf("{");
 			not_first_format = 1;
-			printf("%c%s%c%d%c%d%c%d",
-			       fs, alt->params.label,
-			       fs, disabled,
-			       fs, is_dynamic,
-			       fs, prepared_eq_ciphertext);
+			if (db_opts->showtypes_json) {
+				printf("\"label\":\"%s\",",
+				       alt->params.label);
+				if (disabled)
+					printf("\"disabled\":true,");
+				if (is_dynamic)
+					printf("\"dynamic\":true,");
+				if (prepared_eq_ciphertext)
+					printf("\"prepareEqCiphertext\":true,");
+				printf("\"canonHash\":[");
+			} else
+				printf("%c%s%c%d%c%d%c%d",
+				       fs, alt->params.label,
+				       fs, disabled,
+				       fs, is_dynamic,
+				       fs, prepared_eq_ciphertext);
 			check_field_separator(alt->params.label);
 			/* Canonical hash or hashes (like halves of LM) */
 			for (part = 0; part < valid; part++) {
 				char *split = alt->methods.split(prepared, part, alt);
-				printf("%c%s", fs, split);
+
+				if (db_opts->showtypes_json)
+					printf("%s\"%s\"",
+					       part ? "," : "",
+					       escape_json(split));
+				else
+					printf("%c%s", fs, split);
 				check_field_separator(split);
 			}
+			if (db_opts->showtypes_json)
+				printf("]}");
 		} while ((alt = alt->next));
-		printf("%c%d%c\n", fs, bad_char, fs);
+		if (db_opts->showtypes_json) {
+			if (bad_char)
+				printf("],\"consistencyMark\":%d}", bad_char);
+			else
+				printf("]}");
+		} else
+			printf("%c%d%c\n", fs, bad_char, fs);
 		return 0;
 #undef check_field_separator
 	}
@@ -709,7 +861,10 @@ find_format:
 		char *prepared;
 		int valid;
 
-		prepared = (*format)->methods.prepare(fields, *format);
+		if (huge_line && !((*format)->params.flags & FMT_HUGE_INPUT))
+			prepared = NULL;
+		else
+			prepared = (*format)->methods.prepare(fields, *format);
 		if (prepared)
 			valid = (*format)->methods.valid(prepared, *format);
 		else
@@ -735,6 +890,10 @@ find_format:
 
 		alt = fmt_list;
 		do {
+			if (huge_line &&
+			    !(alt->params.flags & FMT_HUGE_INPUT))
+				continue;
+
 			if (alt == *format)
 				continue;
 			if (alt->params.flags & FMT_WARNED)
@@ -779,6 +938,8 @@ find_format:
 		char *prepared;
 		int valid;
 
+		if (huge_line && !(alt->params.flags & FMT_HUGE_INPUT))
+			continue;
 #ifdef HAVE_CRYPT
 /*
  * Only probe for support by the current system's crypt(3) if this is forced
@@ -814,7 +975,7 @@ find_format:
 			*ciphertext = prepared;
 			ldr_set_encoding(alt);
 #ifdef HAVE_OPENCL
-			if (options.gpu_devices->count && options.fork &&
+			if (options.acc_devices->count && options.fork &&
 			    strstr(alt->params.label, "-opencl"))
 				*format = alt;
 			else
@@ -917,7 +1078,7 @@ static void ldr_load_pw_line(struct db_main *db, char *line)
 
 	line_sb = line;
 	if (options.flags & FLG_FUZZ_CHK)
-		line_sb = skip_bom(line);
+		line_sb = check_bom(line);
 	count = ldr_split_line(&login, &ciphertext, &gecos, &home, &uid,
 		NULL, &db->format, db->options, line_sb);
 #else
@@ -1243,15 +1404,18 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	ldr_loading_testdb = 1;
 	bench_running++;
 	while (current->ciphertext) {
-		char *ex_len_line = NULL, _line[LINE_BUFFER_SIZE], *line = _line;
+		char *ex_len_line = NULL;
+		char _line[LINE_BUFFER_SIZE], *line = _line;
 		int i, pos = 0;
 
 		/*
 		 * FIXME: Change the "200" and "300" to something less arbitrary
 		 * or document why they are used.
 		 */
-		if (strlen(current->ciphertext) > LINE_BUFFER_SIZE-200) {
-			ex_len_line = mem_alloc(strlen(current->ciphertext)+300);
+		if (strnlen(current->ciphertext, LINE_BUFFER_SIZE) >
+		    LINE_BUFFER_SIZE - 200) {
+			ex_len_line =
+				mem_alloc(strlen(current->ciphertext) + 300);
 			line = ex_len_line;
 		}
 		if (!current->fields[0])
@@ -1273,7 +1437,7 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	ldr_fix_database(testdb);
 	ldr_loading_testdb = 0;
 
-	if (options.verbosity == VERB_MAX)
+	if (options.verbosity == VERB_MAX && john_main_process)
 		fprintf(stderr,
 		        "Loaded %d hashes with %d different salts to test db from test vectors\n",
 		        testdb->password_count, testdb->salt_count);
@@ -1553,7 +1717,8 @@ static void ldr_remove_marked(struct db_main *db)
 	struct db_salt *current_salt, *last_salt;
 	struct db_password *current_pw, *last_pw;
 
-	if (!(db->options->flags & DB_NEED_REMOVAL))
+	if (!options.loader.showuncracked &&
+	    !(db->options->flags & DB_NEED_REMOVAL))
 		return;
 
 	last_salt = NULL;
@@ -1811,8 +1976,8 @@ void ldr_fix_database(struct db_main *db)
 		ldr_filter_salts(db);
 		ldr_filter_costs(db);
 		ldr_remove_marked(db);
-		ldr_cost_ranges(db);
 	}
+	ldr_cost_ranges(db);
 	ldr_sort_salts(db);
 	ldr_init_hash(db);
 
@@ -1901,20 +2066,6 @@ static void ldr_show_pot_line(struct db_main *db, char *line)
 	ciphertext = ldr_get_field(&line, db->options->field_sep_char);
 
 	if (line) {
-		struct fmt_main *format = fmt_list;
-/*
- * Jumbo-specific; split() needed for legacy pot entries so we need to
- * enumerate formats and call valid(). This also takes care of the situation
- * where a specific format was requested.
- */
-		do {
-			if (ldr_trunc_valid(ciphertext, format) == 1)
-				break;
-		} while((format = format->next));
-
-		if (!format)
-			return;
-
 		pos = line;
 		do {
 			if (*pos == '\r' || *pos == '\n') *pos = 0;
@@ -1924,8 +2075,25 @@ static void ldr_show_pot_line(struct db_main *db, char *line)
 			list_add(db->plaintexts, line);
 			return;
 		}
+/*
+ * Jumbo-specific; split() needed for legacy pot entries so we need to
+ * enumerate formats and call valid(). This also takes care of the situation
+ * where a specific format was requested.
+ */
+		if (!(options.flags & FLG_MAKECHR_CHK)) {
+			struct fmt_main *format = fmt_list;
 
-		ciphertext = format->methods.split(ciphertext, 0, format);
+			do {
+				if (ldr_trunc_valid(ciphertext, format) == 1)
+					break;
+			} while((format = format->next));
+
+			if (!format)
+				return;
+
+			ciphertext =
+				format->methods.split(ciphertext, 0, format);
+		}
 		hash = ldr_cracked_hash(ciphertext);
 
 		last = db->cracked_hash[hash];
@@ -1977,7 +2145,7 @@ static void ldr_show_pw_line(struct db_main *db, char *line)
 	if (db->options->showinvalid) {
 		if (count == -1) {
 			db->password_count++;
-			printf ("%s\n", orig_line);
+			printf("%s\n", orig_line);
 		} else
 			db->guess_count += count;
 		goto free_and_return;
@@ -2024,7 +2192,7 @@ static void ldr_show_pw_line(struct db_main *db, char *line)
 		utf8source = mem_alloc(line_size + 3 * login_size);
 		login = cp_to_utf8_r(login, utf8login, 4 * login_size);
 		line_size += 3 * login_size;
-		source = realloc(source, line_size);
+		source = mem_realloc(source, line_size);
 		cp_to_utf8_r(source, utf8source, line_size);
 		strnzcpy(source, utf8source, line_size);
 		MEM_FREE(utf8source);

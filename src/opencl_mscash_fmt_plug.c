@@ -76,7 +76,7 @@ static const char *warn[] = {
 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 /* ------- Helper functions ------- */
@@ -345,7 +345,7 @@ static void init(struct fmt_main *_self)
 	mask_int_cand_target = opencl_speed_index(gpu_id) / 300;
 
 	mscash1_adjust_tests(self, options.target_enc, PLAINTEXT_LENGTH,
-	                     set_key, set_key, salt, salt);
+	                     set_key, set_key);
 }
 
 static void *salt(char *ciphertext)
@@ -360,11 +360,12 @@ static void *salt(char *ciphertext)
 	UTF8 csalt[3 * MSCASH1_MAX_SALT_LENGTH + 1];
 	int i, length = 0;
 	char *pos = ciphertext + FORMAT_TAG_LEN;
+	char *lasth = strrchr(ciphertext, '#');
 
 	memset(nt_buffer.w, 0, sizeof(nt_buffer.w));
 	memset(usalt, 0, sizeof(usalt));
 
-	while (*pos != '#' && length < 3 * MSCASH1_MAX_SALT_LENGTH)
+	while (pos < lasth)
 		csalt[length++] = *pos++;
 	csalt[length] = 0;
 

@@ -1,10 +1,12 @@
-/* GNOME Keyring cracker patch for JtR. Hacked together during Monsoon of
+/*
+ * GNOME Keyring cracker patch for JtR. Hacked together during Monsoon of
  * 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without modification,
- * are permitted. */
+ * are permitted.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_keyring;
@@ -13,8 +15,7 @@ john_register_one(&fmt_keyring);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -27,10 +28,6 @@ john_register_one(&fmt_keyring);
 #endif // _OPENMP
 
 #include "arch.h"
-
-//#undef _OPENMP
-//#undef SIMD_COEF_32
-
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -43,28 +40,33 @@ john_register_one(&fmt_keyring);
 #include "simd-intrinsics.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"keyring"
-#define FORMAT_NAME		"GNOME Keyring"
-#define FORMAT_TAG			"$keyring$"
-#define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"SHA256 AES " SHA256_ALGORITHM_NAME
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	125
-#define BINARY_SIZE		0
-#define SALT_SIZE		sizeof(*cur_salt)
-#define BINARY_ALIGN		1
-#define SALT_ALIGN			sizeof(int)
+#define FORMAT_LABEL            "keyring"
+#define FORMAT_NAME             "GNOME Keyring"
+#define FORMAT_TAG              "$keyring$"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "SHA256 AES " SHA256_ALGORITHM_NAME
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        125
+#define BINARY_SIZE             0
+#define SALT_SIZE               sizeof(*cur_salt)
+#define BINARY_ALIGN            1
+#define SALT_ALIGN              sizeof(int)
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT (SIMD_COEF_32*SIMD_PARA_SHA256)
-#define MAX_KEYS_PER_CRYPT (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define MIN_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
+#if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
+#endif
+#else
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
-#define SALTLEN 8
+#define SALTLEN                 8
+
 typedef unsigned char guchar;
 typedef unsigned int guint;
 typedef int gint;
@@ -90,13 +92,8 @@ static size_t cracked_size;
 
 static void init(struct fmt_main *self)
 {
-
-#if defined (_OPENMP)
-	int omp_t;
-
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	self->params.max_keys_per_crypt *= omp_t * OMP_SCALE;
+#ifdef _OPENMP
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -240,10 +237,18 @@ static void symkey_generate_simple(int index, unsigned char *salt, int n_salt, i
 		uint32_t *Optr32 = (uint32_t*)(key[i]);
 		uint32_t *Iptr32 = &keys32[(i/SIMD_COEF_32)*SIMD_COEF_32*16 + (i%SIMD_COEF_32)];
 		for (j = 0; j < 4; ++j)
+#if ARCH_LITTLE_ENDIAN==1
 			Optr32[j] = JOHNSWAP(Iptr32[j*SIMD_COEF_32]);
+#else
+			Optr32[j] = Iptr32[j*SIMD_COEF_32];
+#endif
 		Optr32 = (uint32_t*)(iv[i]);
 		for (j = 0; j < 4; ++j)
+#if ARCH_LITTLE_ENDIAN==1
 			Optr32[j] = JOHNSWAP(Iptr32[(j+4)*SIMD_COEF_32]);
+#else
+			Optr32[j] = Iptr32[(j+4)*SIMD_COEF_32];
+#endif
 	}
 }
 #else
@@ -353,11 +358,7 @@ static int cmp_exact(char *source, int index)
 
 static void keyring_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)

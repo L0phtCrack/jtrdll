@@ -1,5 +1,6 @@
-/* bitcoin-qt (bitcoin) wallet cracker patch for JtR. Hacked together during
- * April of 2013 by Dhiru Kholia <dhiru at openwall dot com>.
+/*
+ * Cracker for bitcoin-qt (bitcoin) wallet hashes. Hacked together during April
+ * of 2013 by Dhiru Kholia <dhiru at openwall dot com>.
  *
  * Also works for Litecoin-Qt (litecoin) wallet files!
  *
@@ -13,6 +14,8 @@
  * bitcoin => https://github.com/bitcoin/bitcoin
  *
  * Thanks to Solar for asking to add support for bitcoin wallet files.
+ *
+ * Works fine with bitcoin-core-0.14.0 from March, 2017.
  */
 
 #if FMT_EXTERNS_H
@@ -21,13 +24,14 @@ extern struct fmt_main fmt_bitcoin;
 john_register_one(&fmt_bitcoin);
 #else
 
+#include <stdint.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               1
 #endif
-static int omp_t = 1;
 #endif
 
 #include "arch.h"
@@ -37,48 +41,47 @@ static int omp_t = 1;
 #include "params.h"
 #include "options.h"
 #include "sha2.h"
-#include "john_stdint.h"
 #include "aes.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "jumbo.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"Bitcoin"
-#define FORMAT_NAME		""
-#define FORMAT_TAG           "$bitcoin$"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
+#define FORMAT_LABEL            "Bitcoin"
+#define FORMAT_NAME             "Bitcoin Core"
+#define FORMAT_TAG              "$bitcoin$"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 
 #ifdef SIMD_COEF_64
-#define ALGORITHM_NAME		"SHA512 AES " SHA512_ALGORITHM_NAME
+#define ALGORITHM_NAME          "SHA512 AES " SHA512_ALGORITHM_NAME
 #else
 #if ARCH_BITS >= 64
-#define ALGORITHM_NAME		"SHA512 AES 64/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME          "SHA512 AES 64/" ARCH_BITS_STR " " SHA2_LIB
 #else
-#define ALGORITHM_NAME		"SHA512 AES 32/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME          "SHA512 AES 32/" ARCH_BITS_STR " " SHA2_LIB
 #endif
 #endif
 
 #if !defined (SHA512_DIGEST_LENGTH)
-#define SHA512_DIGEST_LENGTH 64
+#define SHA512_DIGEST_LENGTH    64
 #endif
 
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	64
-#define BINARY_SIZE		0
-#define BINARY_ALIGN		1
-#define SALT_ALIGN			sizeof(int)
-#define SALT_SIZE		sizeof(struct custom_salt)
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1000
+#define PLAINTEXT_LENGTH        125
+#define BINARY_SIZE             0
+#define BINARY_ALIGN            1
+#define SALT_ALIGN              sizeof(int)
+#define SALT_SIZE               sizeof(struct custom_salt)
 #ifdef SIMD_COEF_64
-#define MIN_KEYS_PER_CRYPT	(SIMD_COEF_64*SIMD_PARA_SHA512)
-#define MAX_KEYS_PER_CRYPT	(SIMD_COEF_64*SIMD_PARA_SHA512)
+#define MIN_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
+#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_64*SIMD_PARA_SHA512)
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
-#define SZ 			128
+#define SZ                      128
 
 static struct fmt_tests bitcoin_tests[] = {
 	/* bitcoin wallet hashes */
@@ -87,6 +90,16 @@ static struct fmt_tests bitcoin_tests[] = {
 	{"$bitcoin$96$4eca412eeb04971428efec70c9e18fb9375be0aa105e7eec55e528d0ba33a07eb6302add36da86736054dee9140ec9b8$16$26049c64dda292d5$265155$96$62aee49c1967b5635b663fc3b047d8bc562f7000921453ab15b98e5a5f2d2adc74393e789fe15c5a3fbc4625536be98a$66$020027f255fbfa6d4c010a1a5984e487443c68e1b32869ccfde92e92005814fd27", "strongpassword"},
 	/* litecoin wallet hash */
 	{"$bitcoin$96$54401984b32448917b6d18b7a11debe91d62aaa343ab62ed98e1d3063f30817832c744360331df94cbf1dcececf6d00e$16$bfbc8ee2c07bbb4b$194787$96$07a206d5422640cfa65a8482298ad8e8598b94d99e2c4ce09c9d015b734632778cb46541b8c10284b9e14e5468b654b9$66$03fe6587bf580ee38b719f0b8689c80d300840bbc378707dce51e6f1fe20f49c20", "isyourpasswordstronger"},
+	/* bitcoin-core-0.14.0 wallet */
+	{"$bitcoin$96$8e7be42551c822c7e55a384e15b4fbfec69ceaed000925870dfb262d3381ed4405507f6c94defbae174a218eed0b5ce8$16$b469e6dbd76926cf$244139$96$ec03604094ada8a5d76bbdb455d260ac8b202ec475d5362d334314c4e7012a2f4b8f9cf8761c9862cd20892e138cd29e$66$03fdd0341a72d1a119ea1de51e477f0687a2bf601c07c032cc87ef82e0f8f49b19", "password@12345"},
+	/* bitcoin-core-0.14.0 wallet */
+	{"$bitcoin$96$2559c50151aeec013a9820c571fbee02e5892a3ead07607ee8de9d0ff55798cff6fe60dbd71d7873cb794a03e0d63b70$16$672204f8ab168ff6$136157$96$a437e8bd884c928603ee00cf85eaaf9245a071efa763db03ab485cb757f155976edc7294a6a731734f383850fcac4316$66$03ff84bb48f454662b91a6e588af8752da0674efa5dae82e7340152afcc38f4ba4", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+	/* bitcoin-core-0.15.1 wallet, 2017-12-26 */
+	{"$bitcoin$96$a05caebc15448da36badbfca2f17624fdf0aa606627213288ca282919b4347580cb161e9d15cb56f8df550c382d8da0a$16$2da7b13a38ef4fb1$148503$96$9d6d027ce45c3fb7a6d4f68c56577fb3b78c9b2d0686e76480cd17df82c88ee3b8616374895fb6edd2257dece6c1a6a6$66$03ffc099d1b6dc18b063fe4c4abc51ef0647d03296104288dc13a5a05d5d018fe1", "openwall123"},
+	/* bitcoin-0.7.0-win32-setup.exe from year 2012 */
+	{"$bitcoin$96$23582816ecc192d621e22069f5849583684301882a0128aeebd34c208e200db5dfc8feba73d9284156887223ea288b02$16$3052e5cd17a35872$83181$96$c10fd1099feefaff326bc5437bd9be9afc4eee67d8965abe6b191a750c787287a96dc5afcad3a887ce0848cdcfe15516$66$03ff11e4003e96d7b8a028e12aed4f0a041848f58e4c41eebe6cb862f758da6cb7", "openwall123"},
+	/* bitcoin-0.5.2-win32-setup.exe from January 2012 */
+	{"$bitcoin$96$a8d2a30b9a5419934cbb7cb0727ddc16c4bebdbf30d7e099ca35f2b1b7ba04cc42eb5b865bff8f65fc6ba9e15428d84f$16$872581181d72f577$128205$96$0a8d43558ed2b55f4a53491df66e6a71003db4588d11dc0a88b976122c2849a74c2bfaace36424cf029795db6fd2c78f$130$04ff53a6f68eab1c52e5b561b4616edb5bed4d7510cdb4931c8da68732a86d86f3a3f7de266f17c8d03e02ebe8e2c86e2f5de0007217fd4aaf5742ca7373113060", "openwall"},
 	{NULL}
 };
 
@@ -109,10 +122,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -215,6 +225,7 @@ static void *get_salt(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 	static struct custom_salt cs;
+
 	memset(&cs, 0, sizeof(cs));
 	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "$");
@@ -267,9 +278,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 		unsigned char output[SZ];
 		SHA512_CTX sha_ctx;
 		int i;
@@ -316,10 +326,17 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			unsigned char iv[16];
 
 			// Copy and convert from SIMD_COEF_64 buffers back into flat buffers, in little-endian
+#if ARCH_LITTLE_ENDIAN==1
 			for (i = 0; i < sizeof(key)/sizeof(uint64_t); i++)  // the derived key
 				((uint64_t *)key)[i] = JOHNSWAP64(key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
 			for (i = 0; i < sizeof(iv)/sizeof(uint64_t); i++)   // the derived iv
 				((uint64_t *)iv)[i]  = JOHNSWAP64(key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(uint64_t) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
+#else
+			for (i = 0; i < sizeof(key)/sizeof(uint64_t); i++)  // the derived key
+				((uint64_t *)key)[i] = key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
+			for (i = 0; i < sizeof(iv)/sizeof(uint64_t); i++)   // the derived iv
+				((uint64_t *)iv)[i]  = key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(uint64_t) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
+#endif
 
 			AES_set_decrypt_key(key, 256, &aes_key);
 			AES_cbc_encrypt(cur_salt->cry_master, output, cur_salt->cry_master_length, &aes_key, iv, AES_DECRYPT);
@@ -358,6 +375,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		}
 #endif
 	}
+
 	return count;
 }
 
@@ -378,11 +396,7 @@ static int cmp_exact(char *source, int index)
 
 static void bitcoin_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)

@@ -11,7 +11,7 @@
  * See doc/README.format-epi for information on the input file format.
  *
  * Updated Dec, 2014, JimF.  Added OMP, and allowed more than one hash to be
- * processed at once (OMP_SCALE stuff).
+ * processed at once.
  */
 
 #if FMT_EXTERNS_H
@@ -42,6 +42,7 @@ john_register_one(&fmt_EPI);
 #endif
 #include "memdbg.h"
 
+#define CIPHERTEXT_LENGTH  105
 #define PLAINTEXT_LENGTH   125
 #define BINARY_LENGTH      20
 #define BINARY_ALIGN       sizeof(uint32_t)
@@ -68,10 +69,7 @@ static struct fmt_tests global_tests[] =
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	key_len   = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*key_len));
@@ -95,22 +93,25 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
   unsigned int len, n;
 
-  if(!ciphertext) return 0;
-  len = strlen(ciphertext);
+  if (!ciphertext)
+	  return 0;
 
-  if(len != 105)
+  len = strnlen(ciphertext, CIPHERTEXT_LENGTH + 1);
+
+  if (len != CIPHERTEXT_LENGTH)
     return 0;
 
   // check fixed positions
-  if(ciphertext[0]  != '0' || ciphertext[1]  != 'x' ||
+  if (ciphertext[0]  != '0' || ciphertext[1]  != 'x' ||
      ciphertext[62] != ' ' ||
      ciphertext[63] != '0' || ciphertext[64] != 'x')
     return 0;
 
-  for(n = 2; n < 62 && atoi16u[ARCH_INDEX(ciphertext[n])] != 0x7F; ++n);
+  for (n = 2; n < 62 && atoi16u[ARCH_INDEX(ciphertext[n])] != 0x7F; ++n);
   if (n < 62)
 	  return 0;
-  for(n = 65; n < 105 && atoi16u[ARCH_INDEX(ciphertext[n])] != 0x7F; ++n);
+  for (n = 65; n < CIPHERTEXT_LENGTH &&
+	       atoi16u[ARCH_INDEX(ciphertext[n])] != 0x7F; ++n);
 
   return n == len;
 }
@@ -119,10 +120,10 @@ static void _tobin(char* dst, char *src, unsigned int len)
 {
   unsigned int n;
 
-  if(src[0] == '0' && src[1] == 'x')
+  if (src[0] == '0' && src[1] == 'x')
     src += sizeof(char)*2;
 
-  for(n = 0; n < len; ++n)
+  for (n = 0; n < len; ++n)
     dst[n] = atoi16[ARCH_INDEX(src[n*2])]<<4 |
              atoi16[ARCH_INDEX(src[n*2+1])];
 }
@@ -152,9 +153,7 @@ static void set_salt(void *salt)
 
 static void set_key(char *key, int index)
 {
-  if(!key) return;
-  key_len[index] = strlen(key) + 1;
-  strcpy(saved_key[index], key);
+  key_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key)) + 1;
 }
 
 static char* get_key(int index)
@@ -202,13 +201,8 @@ static int cmp_exact(char *source, int index)
   return 1;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static int salt_hash(void *salt)
 {
@@ -265,13 +259,8 @@ struct fmt_main fmt_EPI =
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

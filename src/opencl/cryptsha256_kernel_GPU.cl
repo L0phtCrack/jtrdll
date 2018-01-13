@@ -11,7 +11,7 @@
  * http://www.gnu.org/licenses/gpl-2.0.html
  */
 
-#include "opencl_cryptsha256.h"
+#include "opencl_sha256crypt.h"
 
 #if (gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR < 1729)
     #define VECTOR_USAGE    1
@@ -629,7 +629,7 @@ inline void update_w_G(
 	for (uint i = 0U; i < 16; i++)
 	    w[i] = 0;
 
-   	{
+	{
 	    uint32_t tmp, pos;
 	    tmp = ((offset & 3U) << 3);
 	    pos = (offset >> 2);
@@ -674,7 +674,7 @@ inline void update_w(
 	for (uint i = 0U; i < 16; i++)
 	    w[i] = 0;
 
-   	{
+	{
 	    uint32_t tmp, pos;
 	    tmp = ((offset & 3U) << 3);
 	    pos = (offset >> 2);

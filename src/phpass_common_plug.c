@@ -52,7 +52,7 @@ struct fmt_tests phpass_common_tests_39[] = {
 		{"$P$91234567xogA.H64Lkk8Cx8vlWBVzH0", "thisisalongertst"},
 		{"$P$612345678si5M0DDyPpmRCmcltU/YW/", "JohnRipper"}, // note smaller loop count
 		{"$H$712345678WhEyvy1YWzT4647jzeOmo0", "JohnRipper"}, // note smaller loop count (phpbb w/older PHP version)
-		{"$P$B12345678L6Lpt4BxNotVIMILOa9u81", "JohnRipper"}, // note larber loop count  (Wordpress)
+		{"$P$B12345678L6Lpt4BxNotVIMILOa9u81", "JohnRipper"}, // note larger loop count  (Wordpress)
 		{NULL}
 };
 
@@ -62,7 +62,8 @@ int phpass_common_valid(char *ciphertext, struct fmt_main *self)
 	int i;
 	unsigned count_log2;
 
-	if (strlen(ciphertext) != PHPASS_CIPHERTEXT_LENGTH)
+	if (strnlen(ciphertext, PHPASS_CIPHERTEXT_LENGTH + 1) !=
+	    PHPASS_CIPHERTEXT_LENGTH)
 		return 0;
 	// Handle both the phpass signature, and the phpBB v3 signature (same formula)
 	// NOTE we are only dealing with the 'portable' encryption method
@@ -108,6 +109,9 @@ void *phpass_common_binary(char *ciphertext)
 	b[bidx] = sixbits;
 	sixbits = atoi64[ARCH_INDEX(*pos++)];
 	b[bidx] |= (sixbits<<6);
+#if !ARCH_LITTLE_ENDIAN && defined (SIMD_COEF_32)
+	alter_endianity(b, 16);
+#endif
 	return b;
 }
 
@@ -135,7 +139,6 @@ char *phpass_common_prepare(char *split_fields[10], struct fmt_main *self)
 {
 	return phpass_common_split(split_fields[1], 0, self);
 }
-
 
 unsigned int phpass_common_iteration_count(void *salt)
 {

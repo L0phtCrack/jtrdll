@@ -1,4 +1,5 @@
-/* Siemens S7 authentication protocol cracker. Written  by Narendra Kangralkar
+/*
+ * Siemens S7 authentication protocol cracker. Written  by Narendra Kangralkar
  * <narendrakangralkar at gmail.com> and Dhiru Kholia <dhiru at openwall.com>.
  *
  * This software is Copyright (c) 2013, Dhiru Kholia <dhiru.kholia at gmail.com>
@@ -14,39 +15,39 @@ extern struct fmt_main fmt_s7;
 john_register_one(&fmt_s7);
 #else
 
-#include "sha.h"
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               2048
 #endif
 #endif
+
+#include "sha.h"
+#include "arch.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"Siemens-S7"
-#define FORMAT_NAME		""
-#define FORMAT_TAG           "$siemens-s7$"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"HMAC-SHA1 32/" ARCH_BITS_STR
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
-#define PLAINTEXT_LENGTH	125
-#define CIPHERTEXT_LENGTH	(1 + 10 + 1 + 1 + 1 + 40 + 1 + 40)
-#define BINARY_SIZE		20
-#define SALT_SIZE		20
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		1
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	8
+#define FORMAT_LABEL            "Siemens-S7"
+#define FORMAT_NAME             ""
+#define FORMAT_TAG              "$siemens-s7$"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "HMAC-SHA1 32/" ARCH_BITS_STR
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        0
+#define PLAINTEXT_LENGTH        125
+#define CIPHERTEXT_LENGTH       (1 + 10 + 1 + 1 + 1 + 40 + 1 + 40)
+#define BINARY_SIZE             20
+#define SALT_SIZE               20
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      8
 
 static struct fmt_tests s7_tests[] = {
 	{"$siemens-s7$1$599fe00cdb61f76cc6e949162f22c95943468acb$002e45951f62602b2f5d15df217f49da2f5379cb", "123"},
@@ -65,10 +66,7 @@ unsigned char *challenge;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -93,9 +91,10 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *p;
 	char *ctcopy;
 	char *keeptr;
+
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
-	if (strlen(ciphertext) != CIPHERTEXT_LENGTH)
+	if (strnlen(ciphertext, CIPHERTEXT_LENGTH + 1) != CIPHERTEXT_LENGTH)
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
@@ -129,7 +128,7 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 	static char out[CIPHERTEXT_LENGTH+1];
 
 	strnzcpy(out, ciphertext, CIPHERTEXT_LENGTH+1);
-	if( out[FORMAT_TAG_LEN] == '0')
+	if ( out[FORMAT_TAG_LEN] == '0')
 		out[FORMAT_TAG_LEN] = '1';
 	return out;
 }
@@ -141,6 +140,7 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	int i;
 	static unsigned char lchallenge[20];
+
 	ctcopy += FORMAT_TAG_LEN;		/* skip over "$siemens-s7$" */
 	p = strtokm(ctcopy, "$");
 	p = strtokm(NULL, "$");
@@ -148,6 +148,7 @@ static void *get_salt(char *ciphertext)
 		lchallenge[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	MEM_FREE(keeptr);
+
 	return (void *)lchallenge;
 }
 
@@ -160,6 +161,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '$') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -171,13 +173,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -187,15 +184,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
-	for (index = 0; index < count; index++)
-#endif
-	{
+	for (index = 0; index < count; index++) {
 		unsigned char buf[20];
 		SHA_CTX ctx;
 		if (new_keys) {
@@ -232,10 +226,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#if defined(_OPENMP) || MAX_KEYS_PER_CRYPT > 1
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (*(uint32_t*)binary == crypt_out[index][0])
 			return 1;
 	return 0;
@@ -253,11 +246,7 @@ static int cmp_exact(char *source, int index)
 
 static void s7_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 	new_keys = 1;
 }
 
@@ -268,14 +257,14 @@ static char *get_key(int index)
 
 static int salt_hash(void *salt)
 {
-    unsigned char *s = salt;
-    unsigned int hash = 5381;
-    unsigned int len = SALT_SIZE;
+	unsigned char *s = salt;
+	unsigned int hash = 5381;
+	unsigned int len = SALT_SIZE;
 
-    while (len--)
-        hash = ((hash << 5) + hash) ^ *s++;
+	while (len--)
+		hash = ((hash << 5) + hash) ^ *s++;
 
-    return hash & (SALT_HASH_SIZE - 1);
+	return hash & (SALT_HASH_SIZE - 1);
 }
 
 struct fmt_main fmt_s7 = {
@@ -325,13 +314,8 @@ struct fmt_main fmt_s7 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -20,8 +20,11 @@ john_register_one(&fmt_AzureAD);
 
 #include <string.h>
 
-#include "arch.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
+#include "arch.h"
 #include "md4.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "common.h"
@@ -30,24 +33,16 @@ john_register_one(&fmt_AzureAD);
 #include "AzureAD_common.h"
 #include "unicode.h"
 #include "johnswap.h"
-
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA256
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               64  // FIXME
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               64  // FIXME
-#endif
-#endif
-#include <omp.h>
-#endif
 #include "simd-intrinsics.h"
 #include "memdbg.h"
+
+#ifndef OMP_SCALE
+#if SIMD_COEF_32
+#define OMP_SCALE               4
+#else
+#define OMP_SCALE               32
+#endif
+#endif
 
 #define FORMAT_LABEL             "AzureAD"
 #define FORMAT_NAME              ""
@@ -70,7 +65,7 @@ john_register_one(&fmt_AzureAD);
 // almost nothing
 #define PLAINTEXT_LENGTH         125
 #define MIN_KEYS_PER_CRYPT       NBKEYS
-#define MAX_KEYS_PER_CRYPT       NBKEYS
+#define MAX_KEYS_PER_CRYPT       (NBKEYS * 4)
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static char (*saved_nt)[64];
@@ -79,14 +74,8 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
-	int omp_t;
+	omp_autotune(self, OMP_SCALE);
 
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
-#endif
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             sizeof(*saved_key), MEM_ALIGN_WORD);
 	saved_nt = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -126,17 +115,12 @@ static void set_salt(void *salt) {
 	AzureAD_cur_salt = (struct AzureAD_custom_salt *)salt;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_key(char *key, int index) {
 
-	strcpy(saved_key[index], key);
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 	dirty = 1;
 }
 
@@ -146,12 +130,11 @@ static char *get_key(int index) {
 
 static int crypt_all(int *pcount, struct db_salt *salt) {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 		// * PBKDF2(UTF-16(uc(hex(MD4(UTF-16(password))))), rnd_salt(10), 100, HMAC-SHA256, 32)
 		// Trivial for now.  Can optimized later.
 		UTF16 Buf[PLAINTEXT_LENGTH+1];
@@ -160,18 +143,18 @@ static int crypt_all(int *pcount, struct db_salt *salt) {
 		MD4_CTX ctx;
 
 #ifdef SIMD_COEF_32
-		int lens[MAX_KEYS_PER_CRYPT];
-		unsigned char *pin[MAX_KEYS_PER_CRYPT];
+		int lens[NBKEYS];
+		unsigned char *pin[NBKEYS];
 		union {
-			uint32_t *pout[MAX_KEYS_PER_CRYPT];
+			uint32_t *pout[NBKEYS];
 			unsigned char *poutc;
 		} x;
-		cnt = MAX_KEYS_PER_CRYPT;
+		cnt = NBKEYS;
 #else
 		cnt = 1;
 #endif
 		if (dirty)
-		for(i = 0; i < cnt; ++i) {
+		for (i = 0; i < cnt; ++i) {
 			len = enc_to_utf16(Buf, PLAINTEXT_LENGTH, (UTF8*)saved_key[index+i], strlen(saved_key[index+i]));
 			if (len < 0) len = 0;
 			MD4_Init(&ctx);
@@ -182,7 +165,7 @@ static int crypt_all(int *pcount, struct db_salt *salt) {
 				saved_nt[index+i][len<<1] = hex[len];
 		}
 #ifdef SIMD_COEF_32
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < NBKEYS; ++i) {
 			lens[i] = 64;
 			pin[i] = (unsigned char*)saved_nt[i+index];
 			x.pout[i] = crypt_out[i+index];
@@ -195,13 +178,15 @@ static int crypt_all(int *pcount, struct db_salt *salt) {
 #endif
 	}
 	dirty = 0;
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], 4))
 			return 1;
 	return 0;
@@ -232,9 +217,6 @@ struct fmt_main fmt_AzureAD = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-#ifdef _OPENMP
-		FMT_OMP |
-#endif
 		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8,
 		{ NULL },
 		{ FORMAT_TAG },
@@ -267,13 +249,8 @@ struct fmt_main fmt_AzureAD = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

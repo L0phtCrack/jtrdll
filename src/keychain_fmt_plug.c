@@ -1,4 +1,5 @@
-/* Mac OS X Keychain cracker patch for JtR. Hacked together during Summer of
+/*
+ * Mac OS X Keychain cracker patch for JtR. Hacked together during Summer of
  * 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
@@ -6,8 +7,12 @@
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted.
  *
- * * (c) 2004 Matt Johnston <matt @ ucc asn au>
- * This code may be freely used and modified for any purpose. */
+ * This code is based on the "extractkeychain" program which is (c) 2004 Matt
+ * Johnston <matt @ ucc asn au>, and distributed under the following licensing
+ * terms: This code may be freely used and modified for any purpose.
+ *
+ * See https://matt.ucc.asn.au/apple/ for more information.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_keychain;
@@ -16,9 +21,8 @@ john_register_one(&fmt_keychain);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
 #include <openssl/des.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
@@ -37,34 +41,34 @@ john_register_one(&fmt_keychain);
 #include "jumbo.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"keychain"
-#define FORMAT_NAME		"Mac OS X Keychain"
-#define FORMAT_TAG			"$keychain$*"
-#define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
+#define FORMAT_LABEL            "keychain"
+#define FORMAT_NAME             "Mac OS X Keychain"
+#define FORMAT_TAG              "$keychain$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES " SHA1_ALGORITHM_NAME
+#define ALGORITHM_NAME          "PBKDF2-SHA1 3DES " SHA1_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME		"PBKDF2-SHA1 3DES 32/" ARCH_BITS_STR
+#define ALGORITHM_NAME          "PBKDF2-SHA1 3DES 32/" ARCH_BITS_STR
 #endif
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define BINARY_SIZE		0
-#define PLAINTEXT_LENGTH	125
-#define SALT_SIZE		sizeof(*salt_struct)
-#define BINARY_ALIGN		1
-#define SALT_ALIGN			1
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define BINARY_SIZE             0
+#define PLAINTEXT_LENGTH        125
+#define SALT_SIZE               sizeof(*salt_struct)
+#define BINARY_ALIGN            1
+#define SALT_ALIGN              1
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
-#define SALTLEN 20
-#define IVLEN 8
-#define CTLEN 48
+#define SALTLEN                 20
+#define IVLEN                   8
+#define CTLEN                   48
 
 static struct fmt_tests keychain_tests[] = {
 	{"$keychain$*10f7445c8510fa40d9ef6b4e0f8c772a9d37e449*f3d19b2a45cdcccb*8c3c3b1c7d48a24dad4ccbd4fd794ca9b0b3f1386a0a4527f3548bfe6e2f1001804b082076641bbedbc9f3a7c33c084b", "password"},
@@ -78,9 +82,6 @@ static struct fmt_tests keychain_tests[] = {
 	{NULL}
 };
 
-#if defined (_OPENMP)
-static int omp_t = 1;
-#endif
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static int *cracked;
 
@@ -92,12 +93,8 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key),  self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
@@ -120,15 +117,15 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	ctcopy += FORMAT_TAG_LEN;
 	if ((p = strtokm(ctcopy, "*")) == NULL)	/* salt */
 		goto err;
-	if(hexlenl(p, &extra) != SALTLEN * 2 || extra)
+	if (hexlenl(p, &extra) != SALTLEN * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* iv */
 		goto err;
-	if(hexlenl(p, &extra) != IVLEN * 2 || extra)
+	if (hexlenl(p, &extra) != IVLEN * 2 || extra)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* ciphertext */
 		goto err;
-	if(hexlenl(p, &extra) != CTLEN * 2 || extra)
+	if (hexlenl(p, &extra) != CTLEN * 2 || extra)
 		goto err;
 
 	MEM_FREE(keeptr);
@@ -145,6 +142,7 @@ static void *get_salt(char *ciphertext)
 	char *keeptr = ctcopy;
 	int i;
 	char *p;
+
 	ctcopy += FORMAT_TAG_LEN;	/* skip over "$keychain$*" */
 	salt_struct = mem_alloc_tiny(sizeof(struct custom_salt), MEM_ALIGN_WORD);
 	p = strtokm(ctcopy, "*");
@@ -176,6 +174,7 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 	DES_cblock key1, key2, key3;
 	DES_cblock ivec;
 	DES_key_schedule ks1, ks2, ks3;
+
 	memset(out, 0, sizeof(out));
 	memcpy(key1, key, 8);
 	memcpy(key2, key + 8, 8);
@@ -197,17 +196,17 @@ static int kcdecrypt(unsigned char *key, unsigned char *iv, unsigned char *data)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 		unsigned char master[MAX_KEYS_PER_CRYPT][32];
 		int i;
 #ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT];
 		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
+
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
 			lens[i] = strlen(saved_key[index+i]);
 			pin[i] = (unsigned char*)saved_key[index+i];
@@ -218,18 +217,20 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		pbkdf2_sha1((unsigned char *)saved_key[index],  strlen(saved_key[index]), salt_struct->salt, SALTLEN, 1000, master[0], 24, 0);
 #endif
 		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
-			if(kcdecrypt(master[i], salt_struct->iv, salt_struct->ct) == 0)
+			if (kcdecrypt(master[i], salt_struct->iv, salt_struct->ct) == 0)
 				cracked[index+i] = 1;
 			else
 				cracked[index+i] = 0;
 		}
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
 	int index;
+
 	for (index = 0; index < count; index++)
 		if (cracked[index])
 			return 1;
@@ -243,16 +244,12 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-    return 1;
+	return 1;
 }
 
 static void keychain_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)

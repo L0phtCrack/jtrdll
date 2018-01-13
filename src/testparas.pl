@@ -19,7 +19,7 @@ my $test="-test";
 my $john_build;
 my $default_para = "";
 my $gomp_stuff = "";
-my $num_cpus = 4;
+my $num_cpus = 8;
 
 if (defined($ARGV[0]) && $ARGV[0] > 0) { $test="-test=$ARGV[0]"; }
 if (defined($ARGV[1]) && $ARGV[1] > 0) { $num_cpus = $ARGV[1]; }
@@ -49,7 +49,7 @@ print "Here we go...\n";
 foreach $i (1..$MAX_PARA)
 {
 	print `rm -f simd-intrinsics.o pbkdf2*fmt*o dynamic*o ../run/john` or die;
-	my $CPPFLAGS="-DSIMD_PARA_MD4=$i -DSIMD_PARA_MD5=$i -DSIMD_PARA_SHA1=$i -DSIMD_PARA_SHA256=$i -DSIMD_PARA_SHA512=$i -DOMP_SCALE=1";
+	my $CPPFLAGS="-DSIMD_PARA_MD4=$i -DSIMD_PARA_MD5=$i -DSIMD_PARA_SHA1=$i -DSIMD_PARA_SHA256=$i -DSIMD_PARA_SHA512=$i -DOMP_SCALE";
 	print `make -sj${num_cpus} CPPFLAGS="$CPPFLAGS"` or die;
 	print "\n== Speeds for ${i}x interleaving (OMP_SCALE 1): ==\n";
 	foreach $j (qw(md4 md5 sha1 sha256 sha512))

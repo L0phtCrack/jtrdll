@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2001,2008,2010-2012 by Solar Designer
+ * Copyright (c) 1996-2001,2008,2010-2012,2017 by Solar Designer
  *
  * ...with changes in the jumbo patch, by bartavelle and magnum.
  *
@@ -18,7 +18,7 @@
 #include "MD5_std.h"
 #include "common.h"
 #include "formats.h"
-#include "cryptmd5_common.h"
+#include "md5crypt_common.h"
 
 #if defined(_OPENMP) && defined(SIMD_PARA_MD5)
 #ifndef OMP_SCALE
@@ -307,9 +307,9 @@ static int cmp_all(void *binary, int count)
 #ifdef SIMD_PARA_MD5
 	unsigned int x,y;
 
-	for(y=0;y<SIMD_PARA_MD5*omp_para;y++) for(x=0;x<SIMD_COEF_32;x++)
+	for (y=0;y<SIMD_PARA_MD5*omp_para;y++) for (x=0;x<SIMD_COEF_32;x++)
 	{
-		if( ((MD5_word *)binary)[0] == ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] )
+		if ( ((MD5_word *)binary)[0] == ((MD5_word *)sout)[x+y*SIMD_COEF_32*4] )
 			return 1;
 	}
 	return 0;
@@ -338,13 +338,13 @@ static int cmp_one(void *binary, int index)
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
 
-	if(((unsigned int*)binary)[0] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+0*SIMD_COEF_32])
+	if (((unsigned int*)binary)[0] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+0*SIMD_COEF_32])
 		return 0;
-	if(((unsigned int*)binary)[1] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+1*SIMD_COEF_32])
+	if (((unsigned int*)binary)[1] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+1*SIMD_COEF_32])
 		return 0;
-	if(((unsigned int*)binary)[2] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+2*SIMD_COEF_32])
+	if (((unsigned int*)binary)[2] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+2*SIMD_COEF_32])
 		return 0;
-	if(((unsigned int*)binary)[3] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+3*SIMD_COEF_32])
+	if (((unsigned int*)binary)[3] != ((unsigned int*)sout)[x+y*SIMD_COEF_32*4+3*SIMD_COEF_32])
 		return 0;
 	return 1;
 #else

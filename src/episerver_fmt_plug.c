@@ -1,4 +1,5 @@
-/* *New* EPiServer cracker patch for JtR. Hacked together during Summer of
+/*
+ * *New* EPiServer cracker patch for JtR. Hacked together during Summer of
  * 2012 by Dhiru Kholia <dhiru.kholia at gmail.com> for GSoC. Based on sample
  * code by hashcat's atom.
  *
@@ -40,20 +41,6 @@ john_register_one(&fmt_episerver);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-
-#include "sha.h"
-#include "sha2.h"
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
-#include "base64.h"
-#include "unicode.h"
-#include "memdbg.h"
 
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
@@ -66,40 +53,56 @@ john_register_one(&fmt_episerver);
 #endif
 #endif
 
-#define FORMAT_LABEL		"EPiServer"
-#define FORMAT_NAME		""
-#define FORMAT_TAG		"$episerver$*"
-#define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
-#define BINARY_SIZE		32 /* larger of the two */
-#define BINARY_ALIGN		4
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define EFFECTIVE_SALT_SIZE 16
-#define SALT_ALIGN		4
+#include "sha.h"
+#include "sha2.h"
+#include "arch.h"
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
+#include "base64_convert.h"
+#include "unicode.h"
+#include "memdbg.h"
+
+#define FORMAT_LABEL            "EPiServer"
+#define FORMAT_NAME             ""
+#define FORMAT_TAG              "$episerver$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        0
+#define BINARY_SIZE             32 /* larger of the two */
+#define BINARY_ALIGN            4
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define EFFECTIVE_SALT_SIZE     16
+#define SALT_ALIGN              4
 
 #ifdef SIMD_COEF_32
 #include "simd-intrinsics.h"
 #include "johnswap.h"
 
-#define NBKEYS_SHA1     (SIMD_COEF_32 * SIMD_PARA_SHA1)
-#define NBKEYS_SHA256   (SIMD_COEF_32 * SIMD_PARA_SHA256)
-#define NBKEYS          (SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA256)
-#define HASH_IDX_IN     (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32)
-#define HASH_IDX_SHA1   (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32)
-#define HASH_IDX_SHA256 (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*8*SIMD_COEF_32)
-#define HASH_IDX_OUT    (cur_salt->version == 0 ? HASH_IDX_SHA1 : HASH_IDX_SHA256)
-#define GETPOS(i, index) ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianness conversion
-
-#define ALGORITHM_NAME      "SHA1/SHA256 " SHA256_ALGORITHM_NAME
-#define PLAINTEXT_LENGTH    19 // (64 - 9 - 16)/2
-#define MIN_KEYS_PER_CRYPT  NBKEYS
-#define MAX_KEYS_PER_CRYPT  NBKEYS
+#define NBKEYS_SHA1             (SIMD_COEF_32 * SIMD_PARA_SHA1)
+#define NBKEYS_SHA256           (SIMD_COEF_32 * SIMD_PARA_SHA256)
+#define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA256)
+#define HASH_IDX_IN             (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32)
+#define HASH_IDX_SHA1           (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*5*SIMD_COEF_32)
+#define HASH_IDX_SHA256         (((unsigned int)index&(SIMD_COEF_32-1))+(unsigned int)index/SIMD_COEF_32*8*SIMD_COEF_32)
+#define HASH_IDX_OUT            (cur_salt->version == 0 ? HASH_IDX_SHA1 : HASH_IDX_SHA256)
+#if ARCH_LITTLE_ENDIAN==1
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianness conversion
 #else
-#define ALGORITHM_NAME		"SHA1/SHA256 32/" ARCH_BITS_STR " " SHA2_LIB
-#define PLAINTEXT_LENGTH	32
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	16
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*4*SIMD_COEF_32 ) //for endianness conversion
+#endif
+
+#define ALGORITHM_NAME          "SHA1/SHA256 " SHA256_ALGORITHM_NAME
+#define PLAINTEXT_LENGTH        19 // (64 - 9 - 16)/2
+#define MIN_KEYS_PER_CRYPT      NBKEYS
+#define MAX_KEYS_PER_CRYPT      NBKEYS
+#else
+#define ALGORITHM_NAME          "SHA1/SHA256 32/" ARCH_BITS_STR " " SHA2_LIB
+#define PLAINTEXT_LENGTH        32
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      16
 #endif
 
 static struct fmt_tests episerver_tests[] = {
@@ -129,8 +132,9 @@ static struct custom_salt {
 	int version;
 	unsigned char esalt[18 + 1]; /* base64 decoding, 24 / 4 * 3 = 18 */
 } *cur_salt;
+
 #if defined(_OPENMP) || defined(SIMD_COEF_32)
-static int omp_t = 1;
+static int sc_threads = 1;
 #endif
 
 #ifdef SIMD_COEF_32
@@ -140,12 +144,8 @@ static void episerver_set_key_CP(char *_key, int index);
 
 static void init(struct fmt_main *self)
 {
-
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	sc_threads = omp_autotune(self, OMP_SCALE);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt*SHA_BUF_SIZ,
@@ -182,6 +182,8 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ptr, *ctcopy, *keeptr;
+	size_t res;
+	char tmp[128];
 
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
 		return 0;
@@ -196,13 +198,27 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	/* check version, must be '0' or '1' */
 	if (*ptr != '0' && *ptr != '1')
 		goto error;
-	if (!(ptr = strtokm(NULL, "*")))	/* salt */
+	if (!(ptr = strtokm(NULL, "*"))) /* salt */
 		goto error;
 	if (strlen(ptr) > 24)
+		goto error;
+	res = base64_valid_length(ptr, e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT, 0);
+	if (res < strlen(ptr))
+		goto error;
+	res = base64_convert(ptr, e_b64_mime, strlen(ptr), tmp, e_b64_raw,
+                             sizeof(tmp), flg_Base64_MIME_TRAIL_EQ, 0);
+	if (res != 16) /* decoded salt size should be 16 bytes */
 		goto error;
 	if (!(ptr = strtokm(NULL, "*"))) /* hash */
 		goto error;
 	if (strlen(ptr) > 44)
+		goto error;
+	res = base64_valid_length(ptr, e_b64_mime, flg_Base64_MIME_TRAIL_EQ_CNT, 0);
+	if (res < strlen(ptr))
+		goto error;
+	res = base64_convert(ptr, e_b64_mime, strlen(ptr), tmp, e_b64_raw,
+                             sizeof(tmp), flg_Base64_MIME_TRAIL_EQ, 0);
+	if (res != 20 && res != 32) /* SHA1 or SHA256 output size */
 		goto error;
 	if ((ptr = strtokm(NULL, "*"))) /* end */
 		goto error;
@@ -226,14 +242,14 @@ static void *get_salt(char *ciphertext)
 	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
 	p = strtokm(NULL, "*");
-	base64_decode(p, strlen(p), (char*)cs.esalt);
+	base64_convert(p, e_b64_mime, strlen(p), (char*)cs.esalt, e_b64_raw, sizeof(cs.esalt), flg_Base64_NO_FLAGS, 0);
 	return (void *)&cs;
 }
 
 static void *get_binary(char *ciphertext)
 {
 	static union {
-		unsigned char c[BINARY_SIZE + 1];
+		unsigned char c[BINARY_SIZE];
 		ARCH_WORD dummy;
 	} buf;
 	unsigned char *out = buf.c;
@@ -241,13 +257,18 @@ static void *get_binary(char *ciphertext)
 
 	memset(buf.c, 0, sizeof(buf.c));
 	p = strrchr(ciphertext, '*') + 1;
-	base64_decode(p, strlen(p), (char*)out);
-#ifdef SIMD_COEF_32
+	base64_convert(p, e_b64_mime, strlen(p), (char*)out, e_b64_raw, sizeof(buf.c), flg_Base64_DONOT_NULL_TERMINATE, 0);
+#if defined(SIMD_COEF_32) && ARCH_LITTLE_ENDIAN==1
 	alter_endianity(out, BINARY_SIZE);
 #endif
 	return out;
 }
 
+// can not use common-get-hash.h since the HASH_IDX_OUT will vary between 5 and
+// 8 limbs based upon the current salt.  No way for pre-processor to handle that.
+// the only way to use common-get-hash.h would be to make a format for sha1, and
+// a 2nd for sha256.  But since we already have a singlular format, we will simply
+// not use the common code here.
 #ifdef SIMD_COEF_32
 static int get_hash_0 (int index) { return crypt_out[HASH_IDX_OUT] & PH_MASK_0; }
 static int get_hash_1 (int index) { return crypt_out[HASH_IDX_OUT] & PH_MASK_1; }
@@ -271,7 +292,7 @@ static void set_salt(void *salt)
 #ifdef SIMD_COEF_32
 	int index, j;
 	cur_salt = (struct custom_salt *)salt;
-	for (index = 0; index < MAX_KEYS_PER_CRYPT*omp_t; ++index)
+	for (index = 0; index < MAX_KEYS_PER_CRYPT*sc_threads; ++index)
 		for (j = 0; j < EFFECTIVE_SALT_SIZE; ++j) // copy the salt to vector buffer
 			((unsigned char*)saved_key)[GETPOS(j, index)] = ((unsigned char*)cur_salt->esalt)[j];
 #else
@@ -282,24 +303,22 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
 #ifdef SIMD_COEF_32
-	for (index = 0; index < count; index += (cur_salt->version == 0 ? NBKEYS_SHA1 : NBKEYS_SHA256))
-	{
+	for (index = 0; index < count; index += (cur_salt->version == 0 ? NBKEYS_SHA1 : NBKEYS_SHA256)) {
 		uint32_t *in = &saved_key[HASH_IDX_IN];
 		uint32_t *out = &crypt_out[HASH_IDX_OUT];
 
-		if(cur_salt->version == 0)
+		if (cur_salt->version == 0)
 			SIMDSHA1body(in, out, NULL, SSEi_MIXED_IN);
-		else if(cur_salt->version == 1)
+		else if (cur_salt->version == 1)
 			SIMDSHA256body(in, out, NULL, SSEi_MIXED_IN);
 	}
 #else
-	for (index = 0; index < count; index++)
-	{
+	for (index = 0; index < count; index++) {
 		unsigned char passwordBuf[PLAINTEXT_LENGTH*2+2];
 		int len;
 		len = enc_to_utf16((UTF16*)passwordBuf, PLAINTEXT_LENGTH,
@@ -307,14 +326,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		if (len < 0)
 			len = strlen16((UTF16*)passwordBuf);
 		len <<= 1;
-		if(cur_salt->version == 0) {
+		if (cur_salt->version == 0) {
 			SHA_CTX ctx;
 			SHA1_Init(&ctx);
 			SHA1_Update(&ctx, cur_salt->esalt, EFFECTIVE_SALT_SIZE);
 			SHA1_Update(&ctx, passwordBuf, len);
 			SHA1_Final((unsigned char*)crypt_out[index], &ctx);
 		}
-		else if(cur_salt->version == 1) {
+		else if (cur_salt->version == 1) {
 			SHA256_CTX ctx;
 			SHA256_Init(&ctx);
 			SHA256_Update(&ctx, cur_salt->esalt, EFFECTIVE_SALT_SIZE);
@@ -328,8 +347,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++) {
+	int index;
+
+	for (index = 0; index < count; index++) {
 #ifdef SIMD_COEF_32
 		if (*((uint32_t*)binary) == crypt_out[HASH_IDX_OUT])
 #else
@@ -337,6 +357,7 @@ static int cmp_all(void *binary, int count)
 #endif
 			return 1;
 	}
+
 	return 0;
 }
 
@@ -358,12 +379,12 @@ static int cmp_exact(char *source, int index)
 	for (i = 0; i < BINARY_SIZE/4; ++i)
 		out[i] = crypt_out[HASH_IDX_OUT + i*SIMD_COEF_32];
 
-	if(cur_salt->version == 0)
+	if (cur_salt->version == 0)
 		return !memcmp(binary, out, 20);
 	else
 		return !memcmp(binary, out, BINARY_SIZE);
 #else
-	if(cur_salt->version == 0)
+	if (cur_salt->version == 0)
 		return !memcmp(binary, crypt_out[index], 20);
 	else
 		return !memcmp(binary, crypt_out[index], BINARY_SIZE);
@@ -383,11 +404,19 @@ static void episerver_set_key(char *_key, int index)
 		unsigned int temp;
 		if ((temp = *key++))
 		{
+#if ARCH_LITTLE_ENDIAN==1
 			*keybuf_word = JOHNSWAP((temp << 16) | temp2);
+#else
+			*keybuf_word = (temp2 << 24) | (temp<<8);
+#endif
 		}
 		else
 		{
+#if ARCH_LITTLE_ENDIAN==1
 			*keybuf_word = JOHNSWAP((0x80 << 16) | temp2);
+#else
+			*keybuf_word = (temp2 << 24) | 0x8000;
+#endif
 			len++;
 			goto key_cleaning;
 		}
@@ -573,10 +602,13 @@ static char *get_key(int index)
 	unsigned int i,s;
 
 	s = ((saved_key[HASH_IDX_IN + 15*SIMD_COEF_32] >> 3) - 16) >> 1;
-	for(i = 0; i < s; i++)
+	for (i = 0; i < s; i++)
 		out[i] = ((unsigned char*)saved_key)[GETPOS(16 + (i<<1), index)] | (((unsigned char*)saved_key)[GETPOS(16 + (i<<1) + 1, index)] << 8);
 	out[i] = 0;
 
+#if defined (SIMD_COEF_32) && !ARCH_LITTLE_ENDIAN
+	alter_endianity_w16(out, s<<1);
+#endif
 	return (char*)utf16_to_enc(out);
 #else
 	return saved_key[index];
@@ -610,7 +642,7 @@ struct fmt_main fmt_episerver = {
 #endif
 		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8,
 		{
-			"hash type [1: SHA1 2:SHA256]",
+			"hash type [1:SHA1 2:SHA256]",
 		},
 		{ FORMAT_TAG },
 		episerver_tests

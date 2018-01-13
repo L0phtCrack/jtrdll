@@ -1,9 +1,8 @@
-/* luks.c
+/*
+ * This code is based on luks.c file from hashkill (a hash cracking tool)
+ * project. Copyright (C) 2010 Milen Rangelov <gat3way@gat3way.eu>.
  *
- * hashkill - a hash cracking tool
- * Copyright (C) 2010 Milen Rangelov <gat3way@gat3way.eu>
- *
- * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com>
+ * This software is Copyright (c) 2013 Dhiru Kholia <dhiru at openwall.com>.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,19 +30,19 @@ john_register_one(&fmt_luks);
 #else
 #define _LARGEFILE64_SOURCE 1
 #endif
-#include "jumbo.h" // large file support
-#include "os.h"
 #include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "john_stdint.h"
+#include <stdint.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include "aes.h"
-#include "sha.h"
-#include "sha2.h"
 #include <string.h>
+#include <errno.h> // used in this format
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               1
+#endif
+#endif
+
 #include "arch.h"
 #include "johnswap.h"
 #include "misc.h"
@@ -52,16 +51,14 @@ john_register_one(&fmt_luks);
 #include "params.h"
 #include "options.h"
 #include "memory.h"
-#include "base64.h"
+#include "jumbo.h" // large file support
+#include "os.h"
+#include "aes.h"
+#include "sha.h"
+#include "sha2.h"
+#include "base64_convert.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "dyna_salt.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
-#endif
 #include "memdbg.h"
 
 #define LUKS_MAGIC_L        6
@@ -287,12 +284,9 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 	static int warned = 0;
-//	extern struct fmt_main fmt_luks;
+
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
@@ -318,7 +312,7 @@ static void init(struct fmt_main *self)
 	}
 
 //	 This printf will 'help' debug a system that truncates that monster hash, but does not cause compiler to die.
-//	printf ("length=%d end=%s\n", strlen(fmt_luks.params.tests[0].ciphertext), &((fmt_luks.params.tests[0].ciphertext)[strlen(fmt_luks.params.tests[0].ciphertext)-30]));
+//	printf("length=%d end=%s\n", strlen(fmt_luks.params.tests[0].ciphertext), &((fmt_luks.params.tests[0].ciphertext)[strlen(fmt_luks.params.tests[0].ciphertext)-30]));
 #ifdef _MSC_VER
 	LUKS_test_fixup();
 #endif
@@ -355,7 +349,6 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!isdec(p))
 		goto err;
 	is_inlined = atoi(p);
-
 	if ((p = strtokm(NULL, "$")) == NULL)
 		goto err;
 	if (!isdec(p))
@@ -461,7 +454,6 @@ static void *get_salt(char *ciphertext)
 	/* common handling */
 	p = strtokm(NULL, "$");
 	res = atoi(p);
-	assert(res == sizeof(struct luks_phdr));
 	p = strtokm(NULL, "$");
 	for (i = 0; i < res; i++) {
 		out[i] = (atoi16[ARCH_INDEX(*p)] << 4) | atoi16[ARCH_INDEX(p[1])];
@@ -474,7 +466,8 @@ static void *get_salt(char *ciphertext)
 		p = strtokm(NULL, "$");
 		size = strlen(p) / 4 * 3 + 1;
 		buf = mem_calloc(1, size+4);
-		base64_decode(p, strlen(p), (char*)buf);
+		base64_convert(p, e_b64_mime, strlen(p), buf, e_b64_raw, size+4, flg_Base64_NO_FLAGS, 0);
+
 		cs.afsize = size;
 	}
 	else {
@@ -495,8 +488,6 @@ static void *get_salt(char *ciphertext)
 	}
 	cs.afsize = af_sectors(john_ntohl(cs.myphdr.keyBytes),
 			john_ntohl(cs.myphdr.keyblock[cs.bestslot].stripes));
-	assert(res == cs.afsize);
-
 	MEM_FREE(keeptr);
 
 	psalt = (struct custom_salt_LUKS*)mem_alloc_tiny(sizeof(struct custom_salt_LUKS)+size, 4);
@@ -543,13 +534,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 		unsigned char *af_decrypted = (unsigned char *)mem_alloc(cur_salt->afsize + 20);
 		int i, iterations = cur_salt->bestiter;
 		int dklen = john_ntohl(cur_salt->myphdr.keyBytes);
@@ -609,8 +599,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], LUKS_DIGESTSIZE))
 			return 1;
 	return 0;
@@ -628,11 +619,7 @@ static int cmp_exact(char *source, int index)
 
 static void luks_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -655,7 +642,7 @@ struct fmt_main fmt_luks = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		luks_tests
@@ -671,7 +658,7 @@ struct fmt_main fmt_luks = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_dyna_salt_hash,
 		NULL,
@@ -681,7 +668,7 @@ struct fmt_main fmt_luks = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

@@ -15,6 +15,7 @@ extern struct fmt_main fmt_HDAA;
 john_register_one(&fmt_HDAA);
 #else
 
+#include <stdint.h>
 #include <string.h>
 
 #ifdef __MMX__
@@ -27,8 +28,7 @@ john_register_one(&fmt_HDAA);
 #include "common.h"
 #include "formats.h"
 #include "md5.h"
-
-#include "john_stdint.h"
+#include "johnswap.h"
 
 #include "simd-intrinsics.h"
 #define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME
@@ -55,10 +55,10 @@ john_register_one(&fmt_HDAA);
 #define BINARY_SIZE			16
 #define BINARY_ALIGN			4
 #define SALT_SIZE			sizeof(reqinfo_t)
-#define SALT_ALIGN			4
+#define SALT_ALIGN			sizeof(size_t)
 
 #if defined(_OPENMP)
-static unsigned int omp_t = 1;
+static unsigned int sc_threads = 1;
 #ifdef SIMD_COEF_32
 #ifndef OMP_SCALE
 #define OMP_SCALE			256
@@ -74,8 +74,13 @@ static unsigned int omp_t = 1;
 #define NBKEYS					(SIMD_COEF_32 * SIMD_PARA_MD5)
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
+#if ARCH_LITTLE_ENDIAN
 #define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
 #define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&0x1c)*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
+#else
+#define GETPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
+#define GETOUTPOS(i, index)		( (index&(SIMD_COEF_32-1))*4 + ((i)&0x1c)*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*16*SIMD_COEF_32 )
+#endif
 #else
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
@@ -83,8 +88,8 @@ static unsigned int omp_t = 1;
 
 #define SEPARATOR			'$'
 
-#define MAGIC				"$response$"
-#define MAGIC_LEN			(sizeof(MAGIC)-1)
+#define FORMAT_TAG				"$response$"
+#define TAG_LENGTH			(sizeof(FORMAT_TAG)-1)
 #define SIZE_TAB			12
 
 // This is 8 x 64 bytes, so in MMX/SSE2 we support up to 9 limbs of MD5
@@ -154,10 +159,7 @@ static void init(struct fmt_main *self)
 	int i;
 #endif
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	sc_threads = omp_autotune(self, OMP_SCALE);
 #endif
 #ifdef SIMD_COEF_32
 	for (i = 0; i < LIMBS; i++)
@@ -197,11 +199,11 @@ static int valid(char *ciphertext, struct fmt_main *self)
 {
 	char *ctcopy, *keeptr, *p;
 
-	if (strncmp(ciphertext, MAGIC, MAGIC_LEN) != 0)
+	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
 	keeptr = ctcopy;
-	ctcopy += MAGIC_LEN;
+	ctcopy += TAG_LENGTH;
 
 	if ((p = strtokm(ctcopy, "$")) == NULL) /* hash */
 		goto err;
@@ -241,9 +243,9 @@ err:
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
 	char *cp;
-	if (strncmp(ciphertext, MAGIC, MAGIC_LEN))
+	if (strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		return ciphertext;
-	cp = ciphertext + MAGIC_LEN;
+	cp = ciphertext + TAG_LENGTH;
 	cp = strchr(cp, '$'); if (!cp) return ciphertext;
 	cp = strchr(cp+1, '$'); if (!cp) return ciphertext;
 	cp = strchr(cp+1, '$'); if (!cp) return ciphertext;
@@ -280,15 +282,14 @@ static char *get_key(int index)
 static int cmp_all(void *binary, int count)
 {
 #ifdef SIMD_COEF_32
-	unsigned int x,y=0;
+	unsigned int x, y;
 #ifdef _OPENMP
-	for(; y < SIMD_PARA_MD5 * omp_t; y++)
+	for (y = 0; y < SIMD_PARA_MD5 * sc_threads; y++)
 #else
-	for(; y < SIMD_PARA_MD5; y++)
+	for (y = 0; y < SIMD_PARA_MD5; y++)
 #endif
-		for(x = 0; x < SIMD_COEF_32; x++)
-		{
-			if( ((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+x] )
+		for (x = 0; x < SIMD_COEF_32; x++) {
+			if ( ((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+x] )
 				return 1;
 		}
 	return 0;
@@ -308,7 +309,7 @@ static int cmp_one(void *binary, int index)
 	unsigned int i,x,y;
 	x = index&(SIMD_COEF_32-1);
 	y = (unsigned int)index/SIMD_COEF_32;
-	for(i=0;i<(BINARY_SIZE/4);i++)
+	for (i=0;i<(BINARY_SIZE/4);i++)
 		if ( ((uint32_t*)binary)[i] != ((uint32_t*)crypt_key)[y*SIMD_COEF_32*4+i*SIMD_COEF_32+x] )
 			return 0;
 	return 1;
@@ -329,7 +330,7 @@ static int cmp_exact(char *source, int index)
 
 // This code should be rewritten in intrinsics, reading from
 // MMX or SSE2 output buffers and writing to MMX/SSE2 input buffers.
-static inline void sse_bin2ascii(unsigned char *conv, unsigned char *src)
+inline static void sse_bin2ascii(unsigned char *conv, unsigned char *src)
 {
 	unsigned int index;
 
@@ -347,7 +348,11 @@ static inline void sse_bin2ascii(unsigned char *conv, unsigned char *src)
 			t |= ((src[GETOUTPOS(i, index)] & 0xf0) >> 4);
 			t += 0x06060606;
 			t += ((((t >> 4) & 0x01010101) * 0x27) + 0x2a2a2a2a);
+#if ARCH_LITTLE_ENDIAN
 			*(unsigned int*)&conv[GETPOS(j, index)] = t;
+#else
+			*(unsigned int*)&conv[GETPOS((j+3), index)] = t;
+#endif
 			j+=4;
 		}
 	}
@@ -356,7 +361,7 @@ static inline void sse_bin2ascii(unsigned char *conv, unsigned char *src)
 #endif /* SIMD_COEF_32 */
 
 #ifdef __MMX__
-static inline void bin2ascii(__m64 *conv, __m64 *src)
+inline static void bin2ascii(__m64 *conv, __m64 *src)
 {
 	unsigned int i = 0;
 
@@ -406,7 +411,7 @@ static inline void bin2ascii(__m64 *conv, __m64 *src)
 
 #else
 
-static inline void bin2ascii(uint32_t *conv, uint32_t *source)
+inline static void bin2ascii(uint32_t *conv, uint32_t *source)
 {
 	unsigned char *src = (unsigned char*)source;
 	unsigned int i;
@@ -440,7 +445,7 @@ static inline void bin2ascii(uint32_t *conv, uint32_t *source)
 #endif /* MMX */
 
 #if SIMD_COEF_32
-static inline void crypt_done(unsigned const int *source, unsigned int *dest, int index)
+inline static void crypt_done(unsigned const int *source, unsigned int *dest, int index)
 {
 	unsigned int i;
 	unsigned const int *s = &source[(index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32*4*SIMD_COEF_32];
@@ -479,7 +484,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 			key = rinfo->h1tmp;
 			for (len = 0; len < rinfo->h1tmplen; len += 4, key += 4)
+#if ARCH_LITTLE_ENDIAN
 				*(uint32_t*)&saved_key[len>>6][GETPOS(len, ti)] = *(uint32_t*)key;
+#else
+				*(uint32_t*)&saved_key[len>>6][GETPOS(len+3, ti)] = JOHNSWAP(*(uint32_t*)key);
+#endif
 			len = rinfo->h1tmplen;
 			key = (char*)&saved_plain[ti];
 			while((temp = *key++)) {
@@ -493,7 +502,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			while (++i & 3)
 				saved_key[i>>6][GETPOS(i, ti)] = 0;
 			for (; i < (((len+8)>>6)+1)*64; i += 4)
+#if ARCH_LITTLE_ENDIAN
 				*(uint32_t*)&saved_key[i>>6][GETPOS(i, ti)] = 0;
+#else
+				*(uint32_t*)&saved_key[i>>6][GETPOS(i+3, ti)] = 0;
+#endif
 
 			((unsigned int *)saved_key[(len+8)>>6])[14*SIMD_COEF_32 + (ti&(SIMD_COEF_32-1)) + (ti/SIMD_COEF_32)*16*SIMD_COEF_32] = len << 3;
 		}
@@ -510,13 +523,26 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			len = CIPHERTEXT_LENGTH - 1;
 			key = rinfo->h3tmp + CIPHERTEXT_LENGTH;
 
+#if !ARCH_ALLOWS_UNALIGNED
+			if (len != 3) {
+				while (++len < rinfo->h3tmplen )
+					saved_key[len>>6][GETPOS(len, ti)] = *key++;
+			} else
+#endif
+			{
 			// Copy a char at a time until aligned at destination
 			while (++len & 3)
 				saved_key[len>>6][GETPOS(len, ti)] = *key++;
-
 			// ...then a word at a time. This is a good boost, we are copying over 100 bytes.
-			for (;len < rinfo->h3tmplen; len += 4, key += 4)
+			for (;len < rinfo->h3tmplen; len += 4, key += 4) {
+#if ARCH_LITTLE_ENDIAN
 				*(uint32_t*)&saved_key[len>>6][GETPOS(len, ti)] = *(uint32_t*)key;
+#else
+				*(uint32_t*)&saved_key[len>>6][GETPOS(len+3, ti)] = *(uint32_t*)key;
+#endif
+			}
+			}
+
 			len = rinfo->h3tmplen;
 			saved_key[len>>6][GETPOS(len, ti)] = 0x80;
 
@@ -526,7 +552,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				saved_key[i>>6][GETPOS(i, ti)] = 0;
 			//for (; i < (((len+8)>>6)+1)*64; i += 4)
 			for (; i <= crypt_len[index]; i += 4)
+#if ARCH_LITTLE_ENDIAN
 				*(uint32_t*)&saved_key[i>>6][GETPOS(i, ti)] = 0;
+#else
+				*(uint32_t*)&saved_key[i>>6][GETPOS(i+3, ti)] = 0;
+#endif
 
 			((unsigned int *)saved_key[(len+8)>>6])[14*SIMD_COEF_32 + (ti&(SIMD_COEF_32-1)) + (ti/SIMD_COEF_32)*16*SIMD_COEF_32] = len << 3;
 			crypt_len[index] = len;
@@ -565,13 +595,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #undef thread
 #undef ti
 #else
-
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		MD5_CTX ctx;
 		int len;
 #ifdef _OPENMP
@@ -659,7 +687,7 @@ static void *get_salt(char *ciphertext)
 	MD5_CTX ctx;
 
 	/* parse the password string */
-	if (!r) r = mem_alloc_tiny(sizeof(*r), MEM_ALIGN_WORD);
+	if (!r) r = mem_alloc_tiny(sizeof(*r), SALT_ALIGN);
 	memset(r, 0, sizeof(*r));
 	for (nb = 0, i = 1; ciphertext[i] != 0; i++) {
 		if (ciphertext[i] == SEPARATOR) {
@@ -712,32 +740,20 @@ static void *get_binary(char *ciphertext)
 	static unsigned int realcipher[BINARY_SIZE / sizeof(int)];
 	int i;
 
-	ciphertext += 10;
+	ciphertext += TAG_LENGTH;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		((unsigned char*)realcipher)[i] = atoi16[ARCH_INDEX(ciphertext[i * 2])] * 16 +
 			atoi16[ARCH_INDEX(ciphertext[i * 2 + 1])];
 	}
+#if !ARCH_LITTLE_ENDIAN && defined(SIMD_COEF_32)
+	alter_endianity(realcipher, 16);
+#endif
 	return (void*) realcipher;
 }
 
-#ifdef SIMD_COEF_32
-#define HASH_OFFSET (index&(SIMD_COEF_32-1))+((unsigned int)index/SIMD_COEF_32)*SIMD_COEF_32*4
-static int get_hash_0(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_0; }
-static int get_hash_1(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_1; }
-static int get_hash_2(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_2; }
-static int get_hash_3(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_3; }
-static int get_hash_4(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_4; }
-static int get_hash_5(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_5; }
-static int get_hash_6(int index) { return ((uint32_t *)crypt_key)[HASH_OFFSET] & PH_MASK_6; }
-#else
-static int get_hash_0(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_0; }
-static int get_hash_1(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_1; }
-static int get_hash_2(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_2; }
-static int get_hash_3(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_3; }
-static int get_hash_4(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_4; }
-static int get_hash_5(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_5; }
-static int get_hash_6(int index) { return *(uint32_t*)&crypt_key[index] & PH_MASK_6; }
-#endif
+#define COMMON_GET_HASH_SIMD32 4
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 struct fmt_main fmt_HDAA = {
 	{
@@ -759,7 +775,7 @@ struct fmt_main fmt_HDAA = {
 #endif
 		FMT_CASE | FMT_8_BIT,
 		{ NULL },
-		{ MAGIC },
+		{ FORMAT_TAG },
 		tests
 	}, {
 		init,
@@ -789,13 +805,8 @@ struct fmt_main fmt_HDAA = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

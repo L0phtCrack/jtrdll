@@ -63,7 +63,7 @@ john_register_one(&fmt_SybaseASE);
 #define BENCHMARK_COMMENT   ""
 #define BENCHMARK_LENGTH    0
 
-#define PLAINTEXT_LENGTH    64
+#define PLAINTEXT_LENGTH    30
 #define CIPHERTEXT_LENGTH   (6 + 16 + 64)
 
 #define BINARY_SIZE         32
@@ -113,14 +113,11 @@ static int kpc, dirty;
 extern struct fmt_main fmt_SybaseASE;
 static void init(struct fmt_main *self)
 {
-#if _OPENMP || SIMD_COEF_32
+#if SIMD_COEF_32
 	int i;
 #endif
 #ifdef _OPENMP
-	i = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= i;
-	i *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= i;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	kpc = self->params.max_keys_per_crypt;
 
@@ -130,7 +127,7 @@ static void init(struct fmt_main *self)
 		self->params.max_keys_per_crypt, MEM_ALIGN_CACHE);
 
 	if (options.target_enc == UTF_8)
-		fmt_SybaseASE.params.plaintext_length = 125;
+		fmt_SybaseASE.params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
 	// will simply set SIMD stuff here, even if not 'used'
 #ifdef SIMD_COEF_32
 	NULL_LIMB = mem_calloc_align(64, MAX_KEYS_PER_CRYPT, MEM_ALIGN_CACHE);
@@ -138,8 +135,13 @@ static void init(struct fmt_main *self)
 	for (i = 0; i < kpc/MAX_KEYS_PER_CRYPT; ++i) {
 		int j;
 		for (j = 0; j < MAX_KEYS_PER_CRYPT; ++j) {
+#if ARCH_LITTLE_ENDIAN==1
 			prep_key[i][3][j][3] = 0x80;
 			prep_key[i][3][j][30] = 518<<3;
+#else
+			prep_key[i][3][j][3] = 0x8000;
+			prep_key[i][3][j][31] = 518<<3;
+#endif
 		}
 	}
 	crypt_cache = mem_calloc_align(sizeof(*crypt_cache),
@@ -166,9 +168,9 @@ static void done(void)
 static int valid(char *ciphertext, struct fmt_main *self)
 {
     int extra;
-    if(strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)!=0)
+    if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)!=0)
         return 0;
-    if(hexlen(&ciphertext[FORMAT_TAG_LEN], &extra) != CIPHERTEXT_LENGTH - FORMAT_TAG_LEN || extra)
+    if (hexlen(&ciphertext[FORMAT_TAG_LEN], &extra) != CIPHERTEXT_LENGTH - FORMAT_TAG_LEN || extra)
         return 0;
     return 1;
 }
@@ -212,46 +214,14 @@ static void *get_salt(char *ciphertext)
 	return out.u8;
 }
 
-static int get_hash_0(int index)
-{
-    return crypt_out[index][0] & PH_MASK_0;
-}
-
-static int get_hash_1(int index)
-{
-    return crypt_out[index][0] & PH_MASK_1;
-}
-
-static int get_hash_2(int index)
-{
-    return crypt_out[index][0] & PH_MASK_2;
-}
-
-static int get_hash_3(int index)
-{
-    return crypt_out[index][0] & PH_MASK_3;
-}
-
-static int get_hash_4(int index)
-{
-    return crypt_out[index][0] & PH_MASK_4;
-}
-
-static int get_hash_5(int index)
-{
-    return crypt_out[index][0] & PH_MASK_5;
-}
-
-static int get_hash_6(int index)
-{
-    return crypt_out[index][0] & PH_MASK_6;
-}
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
 	int index;
 
-	for(index = 0; index < kpc; index++)
+	for (index = 0; index < kpc; index++)
 	{
 		/* append salt at offset 510 */
 #ifdef SIMD_COEF_32
@@ -268,24 +238,25 @@ static void set_salt(void *salt)
 static void set_key(char *key, int index)
 {
 #ifdef SIMD_COEF_32
-	UTF16 tmp[PLAINTEXT_LENGTH+1];
+	UTF16 tmp[PLAINTEXT_LENGTH + 1];
 	int len2, len = enc_to_utf16_be(tmp, PLAINTEXT_LENGTH, (UTF8*)key, strlen(key));
 	int idx1=index/MAX_KEYS_PER_CRYPT, idx2=index%MAX_KEYS_PER_CRYPT;
 
 	if (len < 0)
 		len = strlen16(tmp);
 
-	if (len > 32)
+	if (PLAINTEXT_LENGTH > 32 && len > 32)
 		memcpy(prep_key[idx1][1][idx2], &tmp[32], (len-32)<<1);
 	len2 = len;
-	if (len2 > 32) len2 = 32;
+	if (PLAINTEXT_LENGTH > 32 && len2 > 32)
+		len2 = 32;
 	memcpy(prep_key[idx1][0][idx2], tmp, len2<<1);
 	len2 = len;
 	while (len < last_len[index]) {
-		if (len < 32)
+		if (PLAINTEXT_LENGTH < 32 || len < 32)
 			prep_key[idx1][0][idx2][len] = 0;
 		else
-			prep_key[idx1][1][idx2][len-32] = 0;
+			prep_key[idx1][1][idx2][len - 32] = 0;
 		++len;
 	}
 	last_len[index] = len2;
@@ -307,7 +278,7 @@ static char *get_key(int index)
 #ifdef SIMD_COEF_32
 	int j, idx1=index/MAX_KEYS_PER_CRYPT, idx2=index%MAX_KEYS_PER_CRYPT;
 
-	if (last_len[index] < 32) {
+	if (PLAINTEXT_LENGTH < 32 || last_len[index] < 32) {
 		for (j = 0; j < last_len[index]; ++j)
 			key_le[j] = JOHNSWAP(prep_key[idx1][0][idx2][j])>>16;
 	} else {
@@ -331,17 +302,20 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
+#if defined(WITH_UBSAN)
+#pragma omp parallel for
+#else
 #ifndef SIMD_COEF_32
 #pragma omp parallel for default(none) private(index) shared(dirty, prep_ctx, count, crypt_out, prep_key)
 #else
 #pragma omp parallel for default(none) private(index) shared(dirty, count, crypt_cache, crypt_out, prep_key, NULL_LIMB)
 #endif
 #endif
-	for(index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+#endif
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 #ifndef SIMD_COEF_32
 		SHA256_CTX ctx;
 		if (dirty) {
@@ -372,12 +346,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 	}
 	dirty = 0;
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-    int index = 0;
+    int index;
 
     for (index = 0; index < count; index++)
         if (*(uint32_t *)binary == *(uint32_t *)crypt_out[index])
@@ -447,13 +422,8 @@ struct fmt_main fmt_SybaseASE = {
         fmt_default_clear_keys,
         crypt_all,
         {
-		get_hash_0,
-		get_hash_1,
-		get_hash_2,
-		get_hash_3,
-		get_hash_4,
-		get_hash_5,
-		get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
         },
         cmp_all,
         cmp_one,

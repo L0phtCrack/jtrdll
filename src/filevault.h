@@ -1,4 +1,4 @@
-#include "john_stdint.h"
+#include <stdint.h>
 
 /* Header structs taken from vilefault project */
 

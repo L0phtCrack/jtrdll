@@ -6,13 +6,15 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  *
- * converted to use 'common' code, Feb29-Mar1 2016, JimF.  Also, added
- * CPU handling of all 'types' which we do not yet have in GPU.
+ * Converted to use 'common' code, Feb29-Mar1 2016, JimF.
+ *
+ * Added SHA-256 based S2K support, October 2017, Dhiru.
  */
 
 #include "opencl_device_info.h"
 #include "opencl_misc.h"
 #include "opencl_sha1_ctx.h"
+#include "opencl_sha2_ctx.h"
 
 #ifndef PLAINTEXT_LENGTH
 #error PLAINTEXT_LENGTH must be defined
@@ -23,10 +25,6 @@
 
 #ifndef SHA_DIGEST_LENGTH
 #define SHA_DIGEST_LENGTH 20
-#endif
-
-#ifndef _memcpy
-#define _memcpy	memcpy_macro
 #endif
 
 typedef struct {
@@ -57,7 +55,7 @@ inline
 #endif
 void S2KItSaltedSHA1Generator(__global const uchar *password,
                                      uint password_length,
-                                     __global const uchar *salt,
+                                     __constant uchar *salt,
                                      uint _count,
                                      __global uchar *key,
                                      uint key_len)
@@ -77,15 +75,15 @@ void S2KItSaltedSHA1Generator(__global const uchar *password,
 		count = _count;
 		SHA1_Init(&ctx);
 #ifdef LEAN
-		for(j=0;j<i;++j)
+		for (j=0;j<i;++j)
 			keybuf[j] = 0;
 		n = j;
-		_memcpy(keybuf + j, salt, SALT_LENGTH);
-		_memcpy(keybuf + j + SALT_LENGTH, password, password_length);
+		memcpy_cp(keybuf + j, salt, SALT_LENGTH);
+		memcpy_gp(keybuf + j + SALT_LENGTH, password, password_length);
 		j += tl;
 
 		while (j < 128 + 64+1) {
-			_memcpy(keybuf + j, keybuf + n, tl);
+			memcpy_pp(keybuf + j, keybuf + n, tl);
 			j += tl;
 		}
 
@@ -126,11 +124,11 @@ void S2KItSaltedSHA1Generator(__global const uchar *password,
 		}
 		n = j;
 
-		_memcpy(keybuf + j, salt, SALT_LENGTH);
-		_memcpy(keybuf + j + SALT_LENGTH, password, password_length);
+		memcpy_cp(keybuf + j, salt, SALT_LENGTH);
+		memcpy_gp(keybuf + j + SALT_LENGTH, password, password_length);
 		j += tl;
 		while (j+i <= bs+64) { // bs+64 since we need 1 'pre' block that may be dirty.
-			_memcpy(keybuf + j, keybuf + n, tl);
+			memcpy_pp(keybuf + j, keybuf + n, tl);
 			j += tl;
 		}
 		// first buffer 'may' have appended nulls.  So we may actually
@@ -147,16 +145,16 @@ void S2KItSaltedSHA1Generator(__global const uchar *password,
 		SHA1_Final(keybuf, &ctx);
 
 		j = i * SHA_DIGEST_LENGTH;
-		for(n = 0; j < key_len && n < SHA_DIGEST_LENGTH; ++j, ++n)
+		for (n = 0; j < key_len && n < SHA_DIGEST_LENGTH; ++j, ++n)
 			key[j] = keybuf[n];
 		if (j == key_len)
 			return;
 	}
 }
 
-__kernel void gpg(__global const gpg_password * inbuffer,
-                  __global gpg_hash * outbuffer,
-                  __global const gpg_salt * salt)
+__kernel void gpg(__global const gpg_password *inbuffer,
+                  __global gpg_hash *outbuffer,
+                  __constant gpg_salt *salt)
 {
 	uint idx = get_global_id(0);
 
@@ -166,4 +164,151 @@ __kernel void gpg(__global const gpg_password * inbuffer,
 	                         salt->count,
 	                         outbuffer[idx].v,
 	                         salt->key_len);
+}
+
+/* SHA-256 based S2K */
+
+#ifndef SHA256_DIGEST_LENGTH
+#define SHA256_DIGEST_LENGTH 32
+#endif
+
+#ifndef __MESA__
+inline
+#endif
+void S2KItSaltedSHA256Generator(__global const uchar *ipassword,
+                                     uint password_length,
+                                     __constant uchar *isalt,
+                                     uint count, // iterations
+                                     __global uchar *okey,
+                                     uint key_length)
+{
+	// This code is based on "openpgp_s2k" function from Libgcrypt.
+	const uint salt_length = 8; // fixed
+	const uint num = (key_length - 1) / SHA256_DIGEST_LENGTH + 1;
+	uchar password[PLAINTEXT_LENGTH];
+	const uint b[1] = { 0 };
+	uchar salt[8];
+	uint bytes;
+	uint i, j;
+
+	bytes = password_length + salt_length;
+	memcpy_cp(salt, isalt, 8);
+	memcpy_gp(password, ipassword, password_length);
+	if (count < bytes)
+		count = bytes;
+
+	for (i = 0; i < num; i++) { // runs only once when key_len <= 32
+		SHA256_CTX ctx;
+		uchar key[SHA256_DIGEST_LENGTH];
+
+		SHA256_Init(&ctx);
+		for (j = 0; j < i; j++) { // not really used
+			SHA256_Update(&ctx, (uchar*)b, 1);
+		}
+
+		while (count > bytes) {
+			SHA256_Update(&ctx, salt, salt_length);
+			SHA256_Update(&ctx, password, password_length);
+			count = count - bytes;
+		}
+
+		if (count < salt_length) {
+			SHA256_Update(&ctx, salt, count);
+		} else {
+			SHA256_Update(&ctx, salt, salt_length);
+			count = count - salt_length;
+			SHA256_Update(&ctx, password, count);
+		}
+		SHA256_Final(key, &ctx);
+		memcpy_pg(okey + (i * SHA256_DIGEST_LENGTH), key,
+				MIN(key_length, SHA256_DIGEST_LENGTH));
+	}
+}
+
+__kernel void gpg_sha256(__global const gpg_password *inbuffer,
+		__global gpg_hash *outbuffer,
+		__constant gpg_salt *salt)
+{
+	uint idx = get_global_id(0);
+
+	S2KItSaltedSHA256Generator(inbuffer[idx].v,
+			inbuffer[idx].length,
+			salt->salt,
+			salt->count,
+			outbuffer[idx].v,
+			salt->key_len);
+}
+
+/* SHA-512 based S2K */
+
+#ifndef SHA512_DIGEST_LENGTH
+#define SHA512_DIGEST_LENGTH 64
+#endif
+
+#ifndef __MESA__
+inline
+#endif
+void S2KItSaltedSHA512Generator(__global const uchar *ipassword,
+                                     uint password_length,
+                                     __constant uchar *isalt,
+                                     uint count, // iterations
+                                     __global uchar *okey,
+                                     uint key_length)
+{
+	// This code is based on "openpgp_s2k" function from Libgcrypt.
+	const uint salt_length = 8; // fixed
+	const uint num = (key_length - 1) / SHA512_DIGEST_LENGTH + 1;
+	uchar password[PLAINTEXT_LENGTH];
+	const uint b[1] = { 0 };
+	uchar salt[8];
+	uint bytes;
+	uint i, j;
+
+	bytes = password_length + salt_length;
+	memcpy_cp(salt, isalt, 8);
+	memcpy_gp(password, ipassword, password_length);
+	if (count < bytes)
+		count = bytes;
+
+	for (i = 0; i < num; i++) {
+		SHA512_CTX ctx;
+		uchar key[SHA512_DIGEST_LENGTH];
+
+		SHA512_Init(&ctx);
+		for (j = 0; j < i; j++) { // not really used
+			SHA512_Update(&ctx, (uchar*)b, 1);
+		}
+
+		while (count > bytes) {
+			SHA512_Update(&ctx, salt, salt_length);
+			SHA512_Update(&ctx, password, password_length);
+			count = count - bytes;
+		}
+
+		if (count < salt_length) {
+			SHA512_Update(&ctx, salt, count);
+		} else {
+			SHA512_Update(&ctx, salt, salt_length);
+			count = count - salt_length;
+			SHA512_Update(&ctx, password, count);
+		}
+		SHA512_Final(key, &ctx);
+
+		memcpy_pg(okey + (i * SHA512_DIGEST_LENGTH), key,
+				MIN(key_length, 32));  // 32 bytes is the maximum?
+	}
+}
+
+__kernel void gpg_sha512(__global const gpg_password *inbuffer,
+		__global gpg_hash *outbuffer,
+		__constant gpg_salt *salt)
+{
+	uint idx = get_global_id(0);
+
+	S2KItSaltedSHA512Generator(inbuffer[idx].v,
+			inbuffer[idx].length,
+			salt->salt,
+			salt->count,
+			outbuffer[idx].v,
+			salt->key_len);
 }

@@ -28,6 +28,7 @@ john_register_one(&fmt_hmacMD5);
 #include "formats.h"
 #include "md5.h"
 #include "aligned.h"
+#include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "base64_convert.h"
 #include "memdbg.h"
@@ -65,7 +66,11 @@ john_register_one(&fmt_hmacMD5);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      MD5_N
 #define MAX_KEYS_PER_CRYPT      MD5_N
+#if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i&63) & (0xffffffff - 3)) * SIMD_COEF_32 + ((i&63) & 3) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE * SIMD_COEF_32)
+#else
+#define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i&63) & (0xffffffff - 3)) * SIMD_COEF_32 + (3-((i&63)&3)) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE * SIMD_COEF_32)
+#endif
 
 #else
 #define MIN_KEYS_PER_CRYPT      1
@@ -126,10 +131,7 @@ static void init(struct fmt_main *self)
 	unsigned int i;
 #endif
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 #ifdef SIMD_COEF_32
 	bufsize = sizeof(*opad) * self->params.max_keys_per_crypt * PAD_SIZE;
@@ -275,8 +277,13 @@ static void set_key(char *key, int index)
 {
 	int len;
 #ifdef SIMD_COEF_32
+#if ARCH_LITTLE_ENDIAN==1
 	uint32_t *ipadp = (uint32_t*)&ipad[GETPOS(0, index)];
 	uint32_t *opadp = (uint32_t*)&opad[GETPOS(0, index)];
+#else
+	uint32_t *ipadp = (uint32_t*)&ipad[GETPOS(3, index)];
+	uint32_t *opadp = (uint32_t*)&opad[GETPOS(3, index)];
+#endif
 	const uint32_t *keyp = (uint32_t*)key;
 	unsigned int temp;
 
@@ -294,27 +301,51 @@ static void set_key(char *key, int index)
 		MD5_Final(k0, &ctx);
 
 		keyp = (unsigned int*)k0;
-		for(i = 0; i < BINARY_SIZE / 4; i++, ipadp += SIMD_COEF_32, opadp += SIMD_COEF_32)
+		for (i = 0; i < BINARY_SIZE / 4; i++, ipadp += SIMD_COEF_32, opadp += SIMD_COEF_32)
 		{
+#if ARCH_LITTLE_ENDIAN==1
 			temp = *keyp++;
+#else
+			temp = JOHNSWAP(*keyp++);
+#endif
 			*ipadp ^= temp;
 			*opadp ^= temp;
 		}
 	}
-	else
-	while((unsigned char)(temp = *keyp++)) {
-		if (!(temp & 0xff00) || !(temp & 0xff0000))
-		{
-			*ipadp ^= (unsigned short)temp;
-			*opadp ^= (unsigned short)temp;
-			break;
+	else {
+#if ARCH_LITTLE_ENDIAN==1
+		while((unsigned char)(temp = *keyp++)) {
+			if (!(temp & 0xff00) || !(temp & 0xff0000))
+			{
+				*ipadp ^= (unsigned short)temp;
+				*opadp ^= (unsigned short)temp;
+				break;
+			}
+			*ipadp ^= temp;
+			*opadp ^= temp;
+			if (!(temp & 0xff000000))
+				break;
+			ipadp += SIMD_COEF_32;
+			opadp += SIMD_COEF_32;
 		}
-		*ipadp ^= temp;
-		*opadp ^= temp;
-		if (!(temp & 0xff000000))
-			break;
-		ipadp += SIMD_COEF_32;
-		opadp += SIMD_COEF_32;
+#else
+		while((temp = *keyp++) & 0xff000000) {
+			if (!(temp & 0xff0000) || !(temp & 0xff00))
+			{
+				*ipadp ^= (unsigned short)JOHNSWAP(temp);
+				*opadp ^= (unsigned short)JOHNSWAP(temp);
+				break;
+			}
+			*ipadp ^= JOHNSWAP(temp);
+			*opadp ^= JOHNSWAP(temp);
+			if (!(temp & 0xff))
+				break;
+			ipadp += SIMD_COEF_32;
+			opadp += SIMD_COEF_32;
+		}
+
+#endif
+
 	}
 #else
 	int i;
@@ -336,14 +367,14 @@ static void set_key(char *key, int index)
 
 		len = BINARY_SIZE;
 
-		for(i = 0; i < len; i++)
+		for (i = 0; i < len; i++)
 		{
 			ipad[index][i] ^= k0[i];
 			opad[index][i] ^= k0[i];
 		}
 	}
 	else
-	for(i = 0; i < len; i++)
+	for (i = 0; i < len; i++)
 	{
 		ipad[index][i] ^= key[i];
 		opad[index][i] ^= key[i];
@@ -360,22 +391,21 @@ static char *get_key(int index)
 static int cmp_all(void *binary, int count)
 {
 #ifdef SIMD_COEF_32
-	unsigned int x, y = 0;
+	unsigned int x, y;
 
-	for(; y < (unsigned int)(count + SIMD_COEF_32 - 1) / SIMD_COEF_32; y++)
-		for(x = 0; x < SIMD_COEF_32; x++)
-		{
+	for (y = 0 ; y < (unsigned int)(count + SIMD_COEF_32 - 1) / SIMD_COEF_32; y++) {
+		for (x = 0; x < SIMD_COEF_32; x++) {
 			// NOTE crypt_key is in input format (PAD_SIZE * SIMD_COEF_32)
 			if (((uint32_t*)binary)[0] == ((uint32_t*)crypt_key)[x + y * SIMD_COEF_32 * PAD_SIZE_W])
 				return 1;
 		}
+	}
+
 	return 0;
 #else
-	int index = 0;
+	int index;
 
-#if defined(_OPENMP) || (MAX_KEYS_PER_CRYPT > 1)
 	for (index = 0; index < count; index++)
-#endif
 		if (((uint32_t*)binary)[0] == crypt_key[index][0])
 			return 1;
 	return 0;
@@ -386,7 +416,8 @@ static int cmp_one(void *binary, int index)
 {
 #ifdef SIMD_COEF_32
 	int i;
-	for(i = 0; i < (BINARY_SIZE/4); i++)
+
+	for (i = 0; i < (BINARY_SIZE/4); i++)
 		// NOTE crypt_key is in input format (PAD_SIZE * SIMD_COEF_32)
 		if (((uint32_t*)binary)[i] != ((uint32_t*)crypt_key)[i * SIMD_COEF_32 + (index&(SIMD_COEF_32-1)) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE_W * SIMD_COEF_32])
 			return 0;
@@ -398,19 +429,18 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	return (1);
+	return 1;
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #if _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 #ifdef SIMD_COEF_32
 		int i;
 
@@ -476,7 +506,9 @@ static void *get_binary(char *ciphertext)
 			atoi16[ARCH_INDEX(p[1])];
 		p += 2;
 	}
-
+#if !ARCH_LITTLE_ENDIAN && defined(SIMD_COEF_32)
+	alter_endianity(out, BINARY_SIZE);
+#endif
 	return (void*)out;
 }
 
@@ -529,8 +561,7 @@ struct fmt_main fmt_hmacMD5 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD |
-		FMT_SPLIT_UNIFIES_CASE,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_OMP_BAD | FMT_SPLIT_UNIFIES_CASE | FMT_HUGE_INPUT,
 		{ NULL },
 		{ NULL },
 		tests
@@ -546,7 +577,7 @@ struct fmt_main fmt_hmacMD5 = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -560,7 +591,7 @@ struct fmt_main fmt_hmacMD5 = {
 #endif
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

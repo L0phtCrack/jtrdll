@@ -35,7 +35,6 @@ john_register_one(&fmt_VMS);
 #include "common.h"
 #include "formats.h"
 #ifdef _OPENMP
-static int omp_t = 1;
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               1024 // Tuned on K8-Dual HT
@@ -56,7 +55,6 @@ static int omp_t = 1;
 #define FORMAT_NAME			"Purdy"
 #define FORMAT_TAG           "$V$"
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define FORMAT_NAME_NOPWDMIX		"Purdy (nopwdmix)"
 
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		-1
@@ -66,7 +64,7 @@ static int omp_t = 1;
 #define BINARY_SIZE			8
 #define BINARY_ALIGN		4
 #define SALT_SIZE			sizeof(struct uaf_hash_info)
-#define SALT_ALIGN			4
+#define SALT_ALIGN			sizeof(uaf_qword)
 
 #define MIN_KEYS_PER_CRYPT		1
 #define MAX_KEYS_PER_CRYPT		1
@@ -125,10 +123,7 @@ static int valid(char *ciphertext, struct fmt_main *self )
 static void fmt_vms_init ( struct fmt_main *self )
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	/* Init bin 2 hex table for faster conversions later */
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -155,7 +150,7 @@ static void done(void)
  */
 static void set_key(char *key, int index)
 {
-	strcpy(saved_key[index], key);
+	strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -165,10 +160,9 @@ static char *get_key(int index)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -194,13 +188,8 @@ void VMS_std_set_salt ( void *salt )
 	cur_salt = (struct uaf_hash_info*)salt;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 /*
  * Hash the password and salt saved with VMS_std_set_key and VMS_std_set_salt,
@@ -209,14 +198,14 @@ static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
 int VMS_std_crypt(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		uaf_test_password (cur_salt, saved_key[index], 0, crypt_out[index]);
 	}
+
 	return count;
 }
 
@@ -307,13 +296,8 @@ struct fmt_main fmt_VMS = {
 		fmt_default_clear_keys,
 		VMS_std_crypt,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

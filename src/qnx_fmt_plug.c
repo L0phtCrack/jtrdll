@@ -30,6 +30,7 @@ john_register_one(&fmt_qnx);
 #include "formats.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
+#include "misc.h"
 
 #ifdef _OPENMP
 #ifndef OMP_SCALE
@@ -93,14 +94,13 @@ static struct qnx_saltstruct {
 
 static void init(struct fmt_main *self)
 {
-	int omp_t = 1;
+	int sc_threads = 1;
 	int max_crypts;
 
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	omp_t *= OMP_SCALE;
+	sc_threads = omp_autotune(self, OMP_SCALE);
 #endif
-	max_crypts = SIMD_COEF_SCALE * omp_t * MAX_KEYS_PER_CRYPT;
+	max_crypts = SIMD_COEF_SCALE * sc_threads * MAX_KEYS_PER_CRYPT;
 	self->params.max_keys_per_crypt = max_crypts;
 	// we allocate 1 more than needed, and use that 'extra' value as a zero
 	// length PW to fill in the tail groups in MMX mode.
@@ -108,8 +108,8 @@ static void init(struct fmt_main *self)
 	saved_key = mem_calloc(1 + max_crypts, sizeof(*saved_key));
 	crypt_out = mem_calloc(1 + max_crypts, sizeof(*crypt_out));
 #ifdef SIMD_COEF_32
-	for (omp_t = 1; omp_t <= PLAINTEXT_LENGTH; ++omp_t)
-		sk_by_len[omp_t] = mem_calloc(1+max_crypts, sizeof(int));
+	for (sc_threads = 1; sc_threads <= PLAINTEXT_LENGTH; ++sc_threads)
+		sk_by_len[sc_threads] = mem_calloc(1+max_crypts, sizeof(int));
 #endif
 }
 
@@ -126,22 +126,12 @@ static void clear_keys(void) {
 #endif
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_key(char *key, int index)
 {
-	int len = strlen(key);
-	saved_len[index] = len;
-	if (len > PLAINTEXT_LENGTH)
-		len = saved_len[index] = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, len);
-	saved_key[index][len] = 0;
+	saved_len[index] = strnzcpyn(saved_key[index], key, sizeof(*saved_key));
 #ifdef SIMD_COEF_32
 	sk_by_len[len][sk_by_lens[len]++] = index;
 #endif
@@ -189,25 +179,19 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < tot_todo; index += inc)
-	{
+	for (index = 0; index < tot_todo; index += inc) {
 #ifdef SIMD_COEF_32
-		if (MixOrder) {
-			int len, len_tot=0;
-			switch(cur_salt->type) {
-				case 5:
-				case 256:
-				case 512:
-			}
-		} else
+		if (!MixOrder)
 #endif
 		{
-		int i, len = saved_len[index];
-		char *pass = saved_key[index];
-		switch (cur_salt->type) {
+			int i, len = saved_len[index];
+			char *pass = saved_key[index];
+
+			switch (cur_salt->type) {
 			case 5:
 			{
 				MD5_CTX ctx;
+
 				MD5_Init(&ctx);
 				MD5_Update(&ctx, cur_salt->salt, cur_salt->len);
 				for (i = 0; i <= cur_salt->rounds; ++i)
@@ -219,6 +203,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			case 256:
 			{
 				SHA256_CTX ctx;
+
 				SHA256_Init(&ctx);
 				SHA256_Update(&ctx, cur_salt->salt, cur_salt->len);
 				for (i = 0; i <= cur_salt->rounds; ++i)
@@ -230,6 +215,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			case 512:
 			{
 				SHA512_CTX ctx;
+
 				SHA512_Init(&ctx);
 				SHA512_Update(&ctx, cur_salt->salt, cur_salt->len);
 				if (len && 128 % len == 0 && cur_salt->len+len*cur_salt->rounds > 256) {
@@ -264,9 +250,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				break;
 			}
 
-			default:
-				exit(fprintf(stderr, "Unknown QNX hash type found\n"));
-		}
+			}
 		}
 	}
 	MEM_FREE(MixOrder);
@@ -304,8 +288,9 @@ static void *get_salt(char *ciphertext)
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -313,9 +298,9 @@ static int cmp_all(void *binary, int count)
 
 static int cmp_one(void *binary, int index)
 {
-	if(cur_salt->type == 5)
+	if (cur_salt->type == 5)
 		return !memcmp(binary, crypt_out[index], BINARY_SIZE_MD5);
-	if(cur_salt->type == 256)
+	if (cur_salt->type == 256)
 		return !memcmp(binary, crypt_out[index], BINARY_SIZE_SHA256);
 	return !memcmp(binary, crypt_out[index], BINARY_SIZE);
 }
@@ -367,7 +352,7 @@ struct fmt_main fmt_qnx = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{
 			"iteration count",
-			"algorithm (5=md5 256=sha256 512=sha512)",
+			"algorithm [5:MD5 256:SHA256 512:SHA512]",
 		},
 		{ NULL },
 		tests
@@ -402,13 +387,8 @@ struct fmt_main fmt_qnx = {
 		clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

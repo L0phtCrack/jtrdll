@@ -1,5 +1,7 @@
-/* Office 2007 cracker patch for JtR. Hacked together during March of 2012 by
- * Dhiru Kholia <dhiru.kholia at gmail.com> */
+/*
+ * Office 2007 cracker patch for JtR. Hacked together during March of 2012 by
+ * Dhiru Kholia <dhiru.kholia at gmail.com>.
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_office;
@@ -10,13 +12,11 @@ john_register_one(&fmt_office);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "aes.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
-#define OMP_SCALE               4
+#define OMP_SCALE                4
 #endif
 #endif
 
@@ -27,6 +27,7 @@ john_register_one(&fmt_office);
 #include "params.h"
 #include "options.h"
 #include "unicode.h"
+#include "aes.h"
 #include "sha.h"
 #include "sha2.h"
 #include "johnswap.h"
@@ -34,31 +35,37 @@ john_register_one(&fmt_office);
 #include "simd-intrinsics.h"
 #include "memdbg.h"
 
-//#undef SIMD_COEF_32
-//#undef SIMD_COEF_64
-
-#define FORMAT_LABEL		"Office"
-#define FORMAT_NAME		"2007/2010/2013"
-#define ALGORITHM_NAME		"SHA1 " SHA1_ALGORITHM_NAME " / SHA512 " SHA512_ALGORITHM_NAME " AES"
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	125
-#define BINARY_SIZE		16
-#define SALT_SIZE		sizeof(*cur_salt)
-#define BINARY_ALIGN	4
-#define SALT_ALIGN	sizeof(int)
+#define FORMAT_LABEL             "Office"
+#define FORMAT_NAME              "2007/2010/2013"
+#define ALGORITHM_NAME           "SHA1 " SHA1_ALGORITHM_NAME " / SHA512 " SHA512_ALGORITHM_NAME " AES"
+#define BENCHMARK_COMMENT        ""
+#define BENCHMARK_LENGTH         -1
+#define PLAINTEXT_LENGTH         125
+#define BINARY_SIZE              16
+#define SALT_SIZE                sizeof(*cur_salt)
+#define BINARY_ALIGN             4
+#define SALT_ALIGN               sizeof(int)
 #ifdef SIMD_COEF_32
-#define GETPOS_1(i, index)  ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
-#define GETPOS_512(i, index)    ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
-#define SHA1_LOOP_CNT       (SIMD_COEF_32*SIMD_PARA_SHA1)
-#define SHA512_LOOP_CNT     (SIMD_COEF_64 * SIMD_PARA_SHA512)
-#define MIN_KEYS_PER_CRYPT  (SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA512)
-#define MAX_KEYS_PER_CRYPT	(SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA512)
+#define GETPOS_512W(i, index)    ( (index&(SIMD_COEF_64-1))*8 + ((i*8)&(0xffffffff-7))*SIMD_COEF_64 + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#define GETOUTPOS_512W(i, index) ( (index&(SIMD_COEF_64-1))*8 + ((i*8)&(0xffffffff-7))*SIMD_COEF_64 + (unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64*8 )
+#if ARCH_LITTLE_ENDIAN==1
+#define GETPOS_1(i, index)       ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
+#define GETPOS_512(i, index)     ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#define GETOUTPOS_512(i, index)  ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + (7-((i)&7)) + (unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64*8 )
 #else
-#define SHA1_LOOP_CNT		1
-#define SHA512_LOOP_CNT 1
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define GETPOS_1(i, index)       ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
+#define GETPOS_512(i, index)     ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + ((i)&7) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64*8 )
+#define GETOUTPOS_512(i, index)  ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7))*SIMD_COEF_64 + ((i)&7) + (unsigned int)index/SIMD_COEF_64*8*SIMD_COEF_64*8 )
+#endif
+#define SHA1_LOOP_CNT            (SIMD_COEF_32*SIMD_PARA_SHA1)
+#define SHA512_LOOP_CNT          (SIMD_COEF_64 * SIMD_PARA_SHA512)
+#define MIN_KEYS_PER_CRYPT       (SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA512)
+#define MAX_KEYS_PER_CRYPT       (SIMD_COEF_32 * SIMD_PARA_SHA1 * SIMD_PARA_SHA512)
+#else
+#define SHA1_LOOP_CNT            1
+#define SHA512_LOOP_CNT          1
+#define MIN_KEYS_PER_CRYPT       1
+#define MAX_KEYS_PER_CRYPT       1
 #endif
 
 static struct fmt_tests office_tests[] = {
@@ -106,9 +113,6 @@ static ms_office_custom_salt *cur_salt;
 
 #define MS_OFFICE_2007_ITERATIONS	50000
 
-#if defined (_OPENMP)
-static int omp_t = 1;
-#endif
 /* Password encoded in UCS-2 */
 static UTF16 (*saved_key)[PLAINTEXT_LENGTH + 1];
 /* UCS-2 password length, in octets */
@@ -204,8 +208,12 @@ static void GeneratePasswordHashUsingSHA1(int idx, unsigned char final[SHA1_LOOP
 
 	// Finally, append "block" (0) to H(n)
 	// hashBuf = SHA1Hash(hashBuf, 0);
-	for (i = 0; i < SIMD_PARA_SHA1; ++i)
-		memset(&keys[GETPOS_1(23,i*SIMD_COEF_32)], 0, 4*SIMD_COEF_32);
+	for (i = 0; i < SHA1_LOOP_CNT; ++i) {
+		keys[GETPOS_1(20,i)] = 0;
+		keys[GETPOS_1(21,i)] = 0;
+		keys[GETPOS_1(22,i)] = 0;
+		keys[GETPOS_1(23,i)] = 0;
+	}
 
 	SIMDSHA1body(keys, keys32, NULL, SSEi_MIXED_IN|SSEi_FLAT_OUT);
 
@@ -337,7 +345,7 @@ static void GenerateAgileEncryptionKey(int idx, unsigned char hashBuf[SHA1_LOOP_
 	// Fix up the size per the spec
 	if (20 < hashSize) { // FIXME: Is this ever true?
 		for (i = 0; i < SHA1_LOOP_CNT; ++i) {
-			for(j = 20; j < hashSize; j++) {
+			for (j = 20; j < hashSize; j++) {
 				hashBuf[i][j] = 0x36;
 				hashBuf[i][32 + j] = 0x36;
 			}
@@ -394,7 +402,7 @@ static void GenerateAgileEncryptionKey(int idx, unsigned char hashBuf[SHA1_LOOP_
 
 	// Fix up the size per the spec
 	if (20 < hashSize) { // FIXME: Is this ever true?
-		for(i = 20; i < hashSize; i++) {
+		for (i = 20; i < hashSize; i++) {
 			hashBuf[0][i] = 0x36;
 			hashBuf[0][32 + i] = 0x36;
 		}
@@ -435,15 +443,20 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 
 	// we do 1 less than actual number of iterations here.
 	for (i = 0; i < cur_salt->spinCount-1; i++) {
-		unsigned int i_be = JOHNSWAP(i);
 
 		// Iteration counter in first 4 bytes
-		for (j = 0; j < SHA512_LOOP_CNT; j++)
-			keys32[(j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*SHA_BUF_SIZ*SIMD_COEF_64 + 1] = i_be;
+		for (j = 0; j < SHA512_LOOP_CNT; j++) {
+			keys[GETPOS_512(0, j)] = i & 0xFF;
+			keys[GETPOS_512(1, j)] = (i>>8) & 0xFF;
+			keys[GETPOS_512(2, j)] = (i>>16) & 0xFF;
+			keys[GETPOS_512(3, j)] = (i>>24) & 0xFF;
+		}
 
 		SIMDSHA512body(keys, (uint64_t*)crypt, NULL, SSEi_MIXED_IN);
 
 		// Then we output to 4 bytes past start of input buffer.
+
+		/* Original code to copy in 64 bytes into offset 4.  Not BE compatible.
 		for (j = 0; j < SHA512_LOOP_CNT; j++) {
 			uint32_t *o = keys32 + (j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*SHA_BUF_SIZ*SIMD_COEF_64;
 			uint32_t *in = crypt32 + (j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*8*SIMD_COEF_64;
@@ -453,6 +466,47 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 				o += SIMD_COEF_64*2;
 				o[1] = in[0];
 				in += SIMD_COEF_64*2;
+			}
+		}
+		*/
+
+		/* First shot: works good, not endianity bound, but is SLOWER (1/2 speed)
+		for (j = 0; j < SHA512_LOOP_CNT; j++) {
+			for (k = 0; k < 64; k++) {
+				keys[GETPOS_512((k+4), j)] = ((unsigned char*)crypt)[GETOUTPOS_512(k,j)];
+			}
+		}
+		*/
+
+
+		// tweaked original code, swapping uint32_t and this works.
+		// it is very likely this code could be optimized even more, by handling data
+		// in uint64_t items. First and last would still need handled in uint32, but
+		// other 7 elements could be done by reading 2 8 byte values from crypt, shifting
+		// and then placing at one time into input buffer.   I might look into doing that
+		// and see if there is any improvement.  It may also be benefical to look at using
+		// flat buffers here.  Flat buffers would be trivial.  a simple memcpy to move all
+		// 64 bytes at once.  NOTE, in flat model, there is NO way to do this using any
+		// 64 bit assignments. Either the input buffer, or the crypt buffer would not be
+		// properly aligned.  So memcpy would have to be used. BUT it should be trivial
+		// and may in the end be a faster solution, than keeping this code in mixed form.
+		// but for now, it will be left as a task for someone else.
+		for (j = 0; j < SHA512_LOOP_CNT; j++) {
+			uint32_t *o = keys32 + (j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*SHA_BUF_SIZ*SIMD_COEF_64;
+			uint32_t *in = crypt32 + (j&(SIMD_COEF_64-1))*2 + j/SIMD_COEF_64*2*8*SIMD_COEF_64;
+
+			for (k = 0; k < 8; k++) {
+#if ARCH_LITTLE_ENDIAN==1
+				o[0] = in[1];
+				o += SIMD_COEF_64*2;
+				o[1] = in[0];
+				in += SIMD_COEF_64*2;
+#else
+				o[1] = in[0];
+				o += SIMD_COEF_64*2;
+				o[0] = in[1];
+				in += SIMD_COEF_64*2;
+#endif
 			}
 		}
 	}
@@ -532,10 +586,7 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	saved_len = mem_calloc(sizeof(*saved_len), self->params.max_keys_per_crypt);
@@ -558,6 +609,62 @@ static void set_salt(void *salt)
 	cur_salt = (ms_office_custom_salt *)salt;
 }
 
+static void DecryptUsingSymmetricKeyAlgorithm(ms_office_custom_salt *cur_salt, unsigned char *verifierInputKey, unsigned char *encryptedVerifier, const unsigned char *decryptedVerifier, int length)
+{
+	unsigned char iv[32];
+	AES_KEY akey;
+
+	memcpy(iv, cur_salt->osalt, 16);
+	memset(&iv[16], 0, 16);
+	memset(&akey, 0, sizeof(AES_KEY));
+	AES_set_decrypt_key(verifierInputKey, cur_salt->keySize, &akey);
+	AES_cbc_encrypt(encryptedVerifier, (unsigned char*)decryptedVerifier, length, &akey, iv, AES_DECRYPT);
+}
+
+// We now pass in the 16 byte 'output'. The older code has been kept, but
+// it no longer used that way. We used to return the 'cracked' value, i.e.
+// if it matched, return 1, else 0. Now we store the encryption data to out,
+// and then in the format use normal binary_hash() methods to test it. The
+// old method used decryption (of the encrypted field). Now we use encrption
+// of the plaintext data, and then binary_hash() compares that to the known
+// encrypted field data.
+// For the time being, the original code has been kept (commented out). I am
+// doing this in hopes of figuring out some way to salt-dupe correct the
+// office 2010-2013 formats. I do not think they can be done, but I may be
+// wrong, so I will keep this code in an "easy to see what changed" layout.
+static void PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key, uint32_t *out)
+{
+	unsigned char decryptedVerifier[16];
+	//unsigned char decryptedVerifierHash[16];
+	AES_KEY akey;
+	SHA_CTX ctx;
+	unsigned char checkHash[32];
+	unsigned char checkHashed[32];
+
+	memset(&akey, 0, sizeof(AES_KEY));
+	AES_set_decrypt_key(key, 128, &akey);
+	AES_ecb_encrypt(cur_salt->encryptedVerifier, decryptedVerifier, &akey, AES_DECRYPT);
+
+	// Not using cracked any more.
+	SHA1_Init(&ctx);
+	SHA1_Update(&ctx, decryptedVerifier, 16);
+	SHA1_Final(checkHash, &ctx);
+	memset(&akey, 0, sizeof(AES_KEY));
+	AES_set_encrypt_key(key, 128, &akey);
+	AES_ecb_encrypt(checkHash, checkHashed, &akey, AES_ENCRYPT);
+	memcpy(out, checkHashed, 16);
+
+	//AES_set_decrypt_key(key, 128, &akey);
+	//AES_ecb_encrypt(cur_salt->encryptedVerifierHash, decryptedVerifierHash, &akey, AES_DECRYPT);
+	//
+	///* find SHA1 hash of decryptedVerifier */
+	//SHA1_Init(&ctx);
+	//SHA1_Update(&ctx, decryptedVerifier, 16);
+	//SHA1_Final(checkHash, &ctx);
+	//
+	//return !memcmp(checkHash, decryptedVerifierHash, 16);
+}
+
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
@@ -572,11 +679,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	for (index = 0; index < count; index+=inc)
 	{
 		int i;
-		if(cur_salt->version == 2007) {
+		if (cur_salt->version == 2007) {
 			unsigned char encryptionKey[SHA1_LOOP_CNT][20];
 			GeneratePasswordHashUsingSHA1(index, encryptionKey);
 			for (i = 0; i < SHA1_LOOP_CNT; ++i)
-				ms_office_common_PasswordVerifier(cur_salt, encryptionKey[i], crypt_key[index+i]);
+				PasswordVerifier(cur_salt, encryptionKey[i], crypt_key[index+i]);
 		}
 		else if (cur_salt->version == 2010) {
 			unsigned char verifierKeys[SHA1_LOOP_CNT][64], decryptedVerifierHashInputBytes[16], decryptedVerifierHashBytes[32];
@@ -584,8 +691,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA_CTX ctx;
 			GenerateAgileEncryptionKey(index, verifierKeys);
 			for (i = 0; i < inc; ++i) {
-				ms_office_common_DecryptUsingSymmetricKeyAlgorithm(cur_salt, verifierKeys[i], cur_salt->encryptedVerifier, decryptedVerifierHashInputBytes, 16);
-				ms_office_common_DecryptUsingSymmetricKeyAlgorithm(cur_salt, &verifierKeys[i][32], cur_salt->encryptedVerifierHash, decryptedVerifierHashBytes, 32);
+				DecryptUsingSymmetricKeyAlgorithm(cur_salt, verifierKeys[i], cur_salt->encryptedVerifier, decryptedVerifierHashInputBytes, 16);
+				DecryptUsingSymmetricKeyAlgorithm(cur_salt, &verifierKeys[i][32], cur_salt->encryptedVerifierHash, decryptedVerifierHashBytes, 32);
 				SHA1_Init(&ctx);
 				SHA1_Update(&ctx, decryptedVerifierHashInputBytes, 16);
 				SHA1_Final(hash, &ctx);
@@ -598,8 +705,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			SHA512_CTX ctx;
 			GenerateAgileEncryptionKey512(index, verifierKeys);
 			for (i = 0; i < inc; ++i) {
-				ms_office_common_DecryptUsingSymmetricKeyAlgorithm(cur_salt, verifierKeys[i], cur_salt->encryptedVerifier, decryptedVerifierHashInputBytes, 16);
-				ms_office_common_DecryptUsingSymmetricKeyAlgorithm(cur_salt, &verifierKeys[i][64], cur_salt->encryptedVerifierHash, decryptedVerifierHashBytes, 32);
+				DecryptUsingSymmetricKeyAlgorithm(cur_salt, verifierKeys[i], cur_salt->encryptedVerifier, decryptedVerifierHashInputBytes, 16);
+				DecryptUsingSymmetricKeyAlgorithm(cur_salt, &verifierKeys[i][64], cur_salt->encryptedVerifierHash, decryptedVerifierHashBytes, 32);
 				SHA512_Init(&ctx);
 				SHA512_Update(&ctx, decryptedVerifierHashInputBytes, 16);
 				SHA512_Final(hash, &ctx);
@@ -660,16 +767,6 @@ static char *get_key(int index)
 {
 	return (char*)utf16_to_enc(saved_key[index]);
 }
-/*
- * MS Office version (2007, 2010, 2013) as first tunable cost
- */
-static unsigned int ms_office_version(void *salt)
-{
-	ms_office_custom_salt *my_salt;
-
-	my_salt = salt;
-	return (unsigned int) my_salt->version;
-}
 
 struct fmt_main fmt_office = {
 	{
@@ -698,12 +795,12 @@ struct fmt_main fmt_office = {
 		done,
 		fmt_default_reset,
 		fmt_default_prepare,
-		ms_office_common_valid_all,
+		ms_office_common_valid,
 		fmt_default_split,
 		ms_office_common_binary,
 		ms_office_common_get_salt,
 		{
-			ms_office_version,
+			ms_office_common_version,
 			ms_office_common_iteration_count,
 		},
 		fmt_default_source,

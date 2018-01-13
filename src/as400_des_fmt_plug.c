@@ -1,15 +1,21 @@
-// AS/400 DES plugin for JtR
-// This software is Copyright (c) 2016 Rob Schoemaker (@5up3rUs3r) and Bart Kulach (@bartholozz)
-// and it is hereby released to the general public under the following terms:
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted.
-//
-// See http://www.hackthelegacy.org for details and tooling to retrieve hashes from AS/400 systems
-//
-// Based on RACF cracker patch for JtR by Dhiru Kholia <dhiru.kholia at gmail.com>,
-// Nigel Pentland <nigel at nigelpentland.net> and Main Framed <mainframed767 at gmail.com>.
-//
-// file format => userid:$as400des$*userid*hash
+/*
+ * AS/400 DES plugin for JtR.
+ *
+ * This software is Copyright (c) 2016 Rob Schoemaker (@5up3rUs3r) and Bart
+ * Kulach (@bartholozz) and it is hereby released to the general public under
+ * the following terms:
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted.
+ *
+ * See http://www.hackthelegacy.org for details and tooling to retrieve hashes
+ * from AS/400 systems.
+ *
+ * Based on RACF cracker patch for JtR by Dhiru Kholia <dhiru.kholia at gmail.com>, and
+ * Nigel Pentland <nigel at nigelpentland.net> and Main Framed <mainframed767 at gmail.com>.
+ *
+ * Hash format => userid:$as400des$*userid*hash
+ */
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_as400des;
@@ -17,10 +23,9 @@ extern struct fmt_main fmt_as400des;
 john_register_one(&fmt_as400des);
 #else
 
-#include <openssl/des.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+#include <openssl/des.h>
+
 #include "arch.h"
 #include "crc32.h"
 #include "misc.h"
@@ -101,7 +106,7 @@ static void process_userid(unsigned char *str)
 {
 	int i;
 
-	if(strlen((const char*)str)<=8) // if length userid <8 --> rightpad with spaces
+	if (strlen((const char*)str)<=8) // if length userid <8 --> rightpad with spaces
 	{
 		for (i = strlen((const char*)str); i < 8; ++i)
 			str[i] = 0x40;
@@ -112,7 +117,7 @@ static void process_userid(unsigned char *str)
 		// if length userid is 9 or 10 --> do bitswitch operation to create userid of length 8
 
 		// if length=9, right pad with spaces to length of 10
-		if(strlen((const char*)str)==9)
+		if (strlen((const char*)str)==9)
 		{
 			str[9] = 0x40;
 			str[10] = 0;
@@ -128,7 +133,6 @@ static void process_userid(unsigned char *str)
 		str[8] = 0; /* terminate string */
 	}
 }
-
 
 static struct fmt_tests as400_des_tests[] = {
 	{"$as400des$AAAAAAA*CA2E330B2FD1820E", "AAAAAAAA"},
@@ -182,7 +186,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	keeptr = ctcopy;
 	ctcopy += FORMAT_TAG_LEN;
 	p = strtokm(ctcopy, "*"); /* username */
-	if(!p)
+	if (!p)
 		goto err;
 	if ((p = strtokm(NULL, "*")) == NULL)	/* hash */
 		goto err;
@@ -202,6 +206,7 @@ static void *get_salt(char *ciphertext)
 	char *keeptr = ctcopy, *username;
 	static struct custom_salt cs;
 
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += FORMAT_TAG_LEN;	/* skip over "$as400des$" */
 	username = strtokm(ctcopy, "*");
 	/* process username */
@@ -234,13 +239,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -250,13 +250,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		DES_cblock des_key;
 		DES_key_schedule schedule;
 		int i;
@@ -264,7 +263,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 		if (saved_key_length <= 8) {
 			/* process key */
-			for(i = 0; saved_key[index][i]; i++)
+			for (i = 0; saved_key[index][i]; i++)
 				des_key[i] = a2e_precomputed[ARCH_INDEX(saved_key[index][i])];
 
 			/* replace missing characters in password by (EBCDIC space (0x40) XOR 0x55) << 1 */
@@ -282,10 +281,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			unsigned char output[8];
 
 			/* process key */
-			for(i = 0; i < 8; i++)
+			for (i = 0; i < 8; i++)
 				des_key1[i] = a2e_precomputed[ARCH_INDEX(saved_key[index][i])];
 
-			for(i = 0; i < saved_key_length-8; i++)
+			for (i = 0; i < saved_key_length-8; i++)
 				des_key2[i] = a2e_precomputed[ARCH_INDEX(saved_key[index][8+i])];
 
 			/* replace missing characters in password by (EBCDIC space (0x40) XOR 0x55) << 1 */
@@ -303,13 +302,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			memcpy((unsigned char*)crypt_out[index], output, 8);
 		}
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -327,11 +328,7 @@ static int cmp_exact(char *source, int index)
 
 static void as400_des_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -386,13 +383,8 @@ struct fmt_main fmt_as400des = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -3,6 +3,7 @@
  * Copyright (c) 1996-2001,2006,2008,2010-2013,2015 by Solar Designer
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -15,12 +16,6 @@
 #include "base64_convert.h"
 #ifndef BENCH_BUILD
 #include "options.h"
-#else
-#if ARCH_INT_GT_32
-typedef unsigned short uint32_t;
-#else
-typedef unsigned int uint32_t;
-#endif
 #include "loader.h"
 #endif
 
@@ -30,6 +25,7 @@ typedef unsigned int uint32_t;
 #endif
 #include "jumbo.h"
 #include "bench.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 char fmt_null_key[PLAINTEXT_BUFFER_SIZE];
@@ -40,6 +36,8 @@ static char *buf_key;
 
 extern volatile int bench_running;
 
+int fmt_raw_len;
+
 #ifndef BENCH_BUILD
 static int orig_min, orig_max, orig_len;
 
@@ -49,13 +47,13 @@ static void test_fmt_split_unifies_case_3(struct fmt_main *format,
 static void test_fmt_split_unifies_case(struct fmt_main *format, char *ciphertext, int *is_split_unifies_case, int call_cnt);
 static void get_longest_common_string(char *fstr, char *sstr, int *first_index,
 	int *second_index, int *size);
-#endif
 static void test_fmt_8_bit(struct fmt_main *format, void *binary,
 	char *ciphertext, char *plaintext, int *is_ignore_8th_bit,
 	int *plaintext_is_blank, struct db_salt *dbsalt);
 static void test_fmt_case(struct fmt_main *format, void *binary,
 	char *ciphertext, char* plaintext, int *is_case_sensitive,
 	int *plaintext_has_alpha, struct db_salt *dbsalt);
+#endif
 
 void fmt_register(struct fmt_main *format)
 {
@@ -78,6 +76,8 @@ void fmt_init(struct fmt_main *format)
 			orig_len = format->params.plaintext_length;
 		}
 #endif
+		if (!fmt_raw_len)
+			fmt_raw_len = format->params.plaintext_length;
 		format->methods.init(format);
 #ifndef BENCH_BUILD
 		/* NOTE, we have to grab these values (the first time), from after
@@ -133,6 +133,7 @@ void fmt_done(struct fmt_main *format)
 #endif
 
 	}
+	fmt_raw_len = 0;
 }
 
 void fmt_all_done(void)
@@ -175,8 +176,11 @@ static int is_aligned(void *p, size_t align)
 static char *longcand(struct fmt_main *format, int index, int ml)
 {
 	static char out[PLAINTEXT_BUFFER_SIZE];
+	int i;
 
-	memset(out, '!' + (index & 31), ml);
+	for (i = 0; i < ml; ++i)
+		out[i] = '0' + (i+index)%10;
+
 	if (!(format->params.flags & FMT_8_BIT) ||
 #ifndef BENCH_BUILD
 	    !(format->params.flags & FMT_CASE) || options.target_enc == UTF_8
@@ -192,6 +196,7 @@ static char *longcand(struct fmt_main *format, int index, int ml)
 	return out;
 }
 
+#ifndef BENCH_BUILD
 static char* is_key_right(struct fmt_main *format, int index,
 	void *binary, char *ciphertext, char *plaintext,
 	int is_test_fmt_case, struct db_salt *dbsalt)
@@ -208,11 +213,9 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if ((match && !format->methods.cmp_all(binary, match)) ||
 	    (!match && format->methods.cmp_all(binary, match))) {
-#ifndef BENCH_BUILD
 		if (options.verbosity > VERB_LEGACY)
 			snprintf(err_buf, sizeof(err_buf), "cmp_all(%d) %s", match, ciphertext);
 		else
-#endif
 			sprintf(err_buf, "cmp_all(%d)", match);
 		return err_buf;
 	}
@@ -223,11 +226,9 @@ static char* is_key_right(struct fmt_main *format, int index,
 	}
 
 	if (i == -1) {
-#ifndef BENCH_BUILD
 		if (options.verbosity > VERB_LEGACY)
 			snprintf(err_buf, sizeof(err_buf), "cmp_one(%d) %s", match, ciphertext);
 		else
-#endif
 			sprintf(err_buf, "cmp_one(%d)", match);
 		return err_buf;
 	}
@@ -236,8 +237,7 @@ static char* is_key_right(struct fmt_main *format, int index,
 	if (format->methods.binary_hash[size] &&
 	    format->methods.get_hash[size](i) !=
 	    format->methods.binary_hash[size](binary)) {
-#ifndef BENCH_BUILD
-    		if (options.verbosity > VERB_LEGACY) {
+		if (options.verbosity > VERB_LEGACY) {
 			// Dump out as much as possible (up to 3 full bytes). This can
 			// help in trying to track down problems, like needing to SWAP
 			// the binary or other issues, when doing BE ports.  Here
@@ -261,7 +261,6 @@ static char* is_key_right(struct fmt_main *format, int index,
 					format->methods.binary_hash[size](binary),
 					ciphertext);
 		} else
-#endif
 		{
 			sprintf(err_buf, "get_hash[%d](%d) %x!=%x", size,
 				index, format->methods.get_hash[size](index),
@@ -271,11 +270,9 @@ static char* is_key_right(struct fmt_main *format, int index,
 	}
 
 	if (!format->methods.cmp_exact(ciphertext, i)) {
-#ifndef BENCH_BUILD
 		if (options.verbosity > VERB_LEGACY)
 			snprintf(err_buf, sizeof(err_buf), "cmp_exact(%d) %s", match, ciphertext);
 		else
-#endif
 			sprintf(err_buf, "cmp_exact(%d)", i);
 		return err_buf;
 	}
@@ -285,14 +282,12 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	if (len < format->params.plaintext_min_length ||
 		len > format->params.plaintext_length) {
-#ifndef BENCH_BUILD
 		if (options.verbosity > VERB_LEGACY)
 		snprintf(err_buf, sizeof(err_buf), "The length of string returned by get_key() is %d"
 			"which should be between plaintext_min_length=%d and plaintext_length=%d %s",
 			len, format->params.plaintext_min_length,
 			format->params.plaintext_length, key);
 		else
-#endif
 		sprintf(err_buf, "The length of string returned by get_key() is %d"
 			"which should be between plaintext_min_length=%d and plaintext_length=%d",
 			len, format->params.plaintext_min_length,
@@ -306,11 +301,9 @@ static char* is_key_right(struct fmt_main *format, int index,
 	if (format->params.flags & FMT_CASE) {
 		// Case-sensitive passwords
 		if (strncmp(key, plaintext, format->params.plaintext_length)) {
-#ifndef BENCH_BUILD
 			if (options.verbosity > VERB_LEGACY)
 				snprintf(err_buf, sizeof(err_buf), "get_key(%d) (case) %s %s", i, key, plaintext);
 			else
-#endif
 				sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
@@ -318,11 +311,9 @@ static char* is_key_right(struct fmt_main *format, int index,
 		// Case-insensitive passwords
 		if (strncasecmp(key, plaintext,
 			format->params.plaintext_length)) {
-#ifndef BENCH_BUILD
 			if (options.verbosity > VERB_LEGACY)
 				snprintf(err_buf, sizeof(err_buf), "get_key(%d) (no case) %s %s", i, key, plaintext);
 			else
-#endif
 				sprintf(err_buf, "get_key(%d)", i);
 			return err_buf;
 		}
@@ -330,13 +321,16 @@ static char* is_key_right(struct fmt_main *format, int index,
 
 	return NULL;
 }
+#endif
 
 #ifdef JUMBO_JTR
 static char *fmt_self_test_body(struct fmt_main *format,
     void *binary_copy, void *salt_copy, struct db_main *db, int full_lvl)
 {
 	static char s_size[200];
+#ifndef BENCH_BUILD
 	char *ret;
+#endif
 #else
 static char *fmt_self_test_body(struct fmt_main *format,
     void *binary_copy, void *salt_copy)
@@ -369,7 +363,9 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	int is_need_unify_case = 1;    // Is need to unify cases in split()
 	int fmt_split_case = ((format->params.flags & FMT_SPLIT_UNIFIES_CASE)==FMT_SPLIT_UNIFIES_CASE);
 	int while_condition;           // since -test and -test-full use very do{}while(cond) so we use a var.
+#ifndef BENCH_BUILD
 	struct db_salt *dbsalt;
+#endif
 
 	// validate that there are no NULL function pointers
 	if (format->methods.prepare == NULL)    return "method prepare NULL";
@@ -386,15 +382,23 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	if (format->private.initialized == 2)
 		return NULL;
 #endif
-
+#if defined(HAVE_OPENCL)
+	if (strcasestr(format->params.label, "-opencl") &&
+	    !strstr(format->params.label, "-opencl")) {
+		return "-opencl suffix must be lower case";
+	}
+#endif
 #ifndef BENCH_BUILD
 	if (options.flags & FLG_NOTESTS) {
 		fmt_init(format);
 		dyna_salt_init(format);
-		if (db->real)
+		if (db->real) {
+			omp_autotune_run(db->real);
 			format->methods.reset(db->real);
-		else
+		} else {
+			omp_autotune_run(db);
 			format->methods.reset(db);
+		}
 		format->private.initialized = 2;
 		format->methods.clear_keys();
 		return NULL;
@@ -420,7 +424,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	}
 #endif
 
-	if (ntests==0) return NULL;
+	if (ntests == 0)
+		return NULL;
 
 	/* Check prepare, valid, split before init */
 	if (!current->fields[1])
@@ -465,6 +470,22 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	if (format->methods.valid("*", format))
 		return "valid";
 
+	if (format->methods.source != fmt_default_source &&
+	    format->params.salt_size != 0)
+		return "source method only allowed for unsalted formats";
+
+	if (format->params.flags & FMT_HUGE_INPUT) {
+		for (size = 0; size < PASSWORD_HASH_SIZES; size++) {
+			if (format->methods.binary_hash[size] &&
+			    format->methods.binary_hash[size] !=
+			    fmt_default_binary_hash)
+				return "binary_hash method not allowed for FMT_HUGE_INPUT";
+			if (format->methods.get_hash[size] &&
+			    format->methods.get_hash[size] !=
+			    fmt_default_get_hash)
+				return "get_hash method not allowed for FMT_HUGE_INPUT";
+		}
+	}
 #ifndef JUMBO_JTR
 	fmt_init(format);
 #endif
@@ -477,6 +498,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	    (format->params.flags & FMT_UTF8) &&
 	    (format->params.flags & FMT_UNICODE))
 		ml /= 3;
+
+	omp_autotune_run(db);
 #endif
 
 #ifndef JUMBO_JTR
@@ -523,6 +546,11 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	index = 0; max = format->params.max_keys_per_crypt;
 
 	do {
+		if (strnlen(current->ciphertext, LINE_BUFFER_SIZE + 1) >
+		    LINE_BUFFER_SIZE &&
+		    !(format->params.flags & FMT_HUGE_INPUT))
+			return "Long test vector but not FMT_HUGE_INPUT";
+
 		if (!current->fields[1])
 			current->fields[1] = current->ciphertext;
 		ciphertext = format->methods.prepare(current->fields, format);
@@ -587,6 +615,23 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		ciphertext = format->methods.split(ciphertext, 0, format);
 		if (!ciphertext)
 			return "split() returned NULL";
+
+		if (format->params.signature[0]) {
+			int i, error = 1;
+			for (i = 0; i < FMT_SIGNATURES && format->params.signature[i] && error; i++) {
+				error = strncmp(ciphertext, format->params.signature[i], strlen(format->params.signature[i]));
+			}
+			if (error) {
+#if DEBUG
+				fprintf(stderr, "ciphertext:%s\n", ciphertext);
+#endif
+				if (format->methods.split == fmt_default_split)
+					return "fmt_default_split() doesn't convert raw hashes";
+				else
+					return "split() doesn't add expected format tag";
+			}
+		}
+
 		plaintext = current->plaintext;
 
 		if (!sl)
@@ -736,11 +781,9 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			memcpy(salt_copy, salt, format->params.salt_size);
 		salt = salt_copy;
 
-#ifndef JUMBO_JTR
 		if (strcmp(ciphertext,
 		    format->methods.source(ciphertext, binary)))
 			return "source";
-#endif
 
 		if ((unsigned int)format->methods.salt_hash(salt) >=
 		    SALT_HASH_SIZE)
@@ -748,10 +791,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 
 		format->methods.set_salt(salt);
 #ifdef JUMBO_JTR
-		if (strcmp(ciphertext,
-		    format->methods.source(ciphertext, binary))) {
-			return "source";
-		}
 #ifndef BENCH_BUILD
 		if ((format->methods.get_hash[0] != fmt_default_get_hash) &&
 		    strlen(ciphertext) > MAX_CIPHERTEXT_SIZE)
@@ -840,6 +879,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 					sprintf(s_size, "max. length in index "
 					        "%d: wrote %d, got %d back", i,
 					        ml, (int)strlen(getkey));
+					fprintf(stderr, "\ngetkey = %s\nsetkey = %s\n", getkey, setkey);
+
 					return s_size;
 				}
 			}
@@ -848,6 +889,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 
 #endif
 		if (full_lvl >= 0) {
+#ifndef BENCH_BUILD
 			// Test FMT_CASE
 			format->methods.clear_keys();
 			test_fmt_case(format, binary, ciphertext, plaintext,
@@ -858,7 +900,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			format->methods.set_salt(salt);
 			test_fmt_8_bit(format, binary, ciphertext, plaintext,
 				&is_ignore_8th_bit, &plaintext_is_blank, dbsalt);
-
+#endif
 			format->methods.clear_keys();
 			format->methods.set_salt(salt);
 			for (i = 0; i < max - 1; i++) {
@@ -875,17 +917,20 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		advance_cursor();
 #endif
 		if (full_lvl >= 0) {
+#ifndef BENCH_BUILD
 			ret = is_key_right(format, max - 1, binary, ciphertext, plaintext, 0, dbsalt);
 			if (ret)
 				return ret;
+#endif
 			format->methods.clear_keys();
 			dyna_salt_remove(salt);
 			while_condition = (++current)->ciphertext != NULL;
 		} else {
+#ifndef BENCH_BUILD
 			ret = is_key_right(format, index, binary, ciphertext, plaintext, 0, dbsalt);
 		if (ret)
 			return ret;
-
+#endif
 /* Remove some old keys to better test cmp_all() */
 		if (index & 1)
 #ifndef JUMBO_JTR
@@ -927,23 +972,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 				for (i = index + 1; i < max - 1; i++)
 				    fmt_set_key(longcand(format, i, sl), i);
 				index = max - 1;
-			} else
+			}
 #endif
-/* Jump straight to last index for non-bitslice DES */
-#ifndef JUMBO_JTR
-			if (!(format->params.flags & FMT_BS) &&
-			    (!strcmp(format->params.label, "des") ||
-			    !strcmp(format->params.label, "bsdi") ||
-			    !strcmp(format->params.label, "afs")))
-				index = max - 1;
-#else
-			if (!(format->params.flags & FMT_BS) &&
-			    (!strcasecmp(format->params.label, "descrypt") ||
-			    !strcasecmp(format->params.label, "bsdicrypt") ||
-			    !strcasecmp(format->params.label, "AFS")))
-				index = max - 1;
-#endif
-
 			current = format->params.tests;
 			done |= 2;
 		}
@@ -985,6 +1015,16 @@ static char *fmt_self_test_body(struct fmt_main *format,
  * printable ASCII characters according to the spec. IEEE Std. 802.11i-2004,
  * Annex H.4.1: Each character in the pass-phrase must have an encoding in
  * the range of 32 to 126 (decimal), inclusive.
+ */
+				if (format->params.flags & FMT_8_BIT) {
+					snprintf(s_size, sizeof(s_size),
+						"%s should not set FMT_8_BIT",
+						format->params.label);
+					return s_size;
+				}
+			} else if (!strncasecmp(format->params.label, "sl3", 3)) {
+/*
+ * The SL3 format technically handles 8-bit but the "passwords" are all digits.
  */
 				if (format->params.flags & FMT_8_BIT) {
 					snprintf(s_size, sizeof(s_size),
@@ -1048,7 +1088,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		// @loverszhaokai needs to look at a re-do of the function.  The 'blind' casing fails
 		// when there are constant strings, or things like user names embedded in the hash,
 		// or other non-hex strings.
-		if (full_lvl > 0)
+		// Fixed the function,  Dec 13, 2017.  Jfoug.  Changed to function with --test-full=0
+		if (full_lvl >= 0)
 		if (!fmt_split_case && format->params.binary_size != 0 && is_change_case && is_need_unify_case) {
 			snprintf(s_size, sizeof(s_size),
 				"should unify cases in split() and set FMT_SPLIT_UNIFIES_CASE (#3)");
@@ -1064,6 +1105,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	return NULL;
 }
 
+#ifndef BENCH_BUILD
 static void test_fmt_case(struct fmt_main *format, void *binary,
 	char *ciphertext, char* plaintext, int *is_case_sensitive,
 	int *plaintext_has_alpha, struct db_salt *dbsalt)
@@ -1141,7 +1183,6 @@ static void test_fmt_8_bit(struct fmt_main *format, void *binary,
 	MEM_FREE(plain_copy);
 }
 
-#ifndef BENCH_BUILD
 static int chrcasecmp(char lc, char rc)
 {
 	if (lc >= 'a' && lc <= 'z')
@@ -1403,7 +1444,7 @@ static void test_fmt_split_unifies_case_3(struct fmt_main *format,
 
 		salt = format->methods.salt(split_ret);
 		dyna_salt_create(salt);
-		if (salt != NULL) {
+		if (salt != NULL && format->params.salt_size) {
 			orig_salt = mem_alloc(format->params.salt_size);
 			memcpy(orig_salt, salt, format->params.salt_size);
 		}
@@ -1430,37 +1471,45 @@ static void test_fmt_split_unifies_case_3(struct fmt_main *format,
 	// Lower case
 	strlwr(cipher_copy + index);
 
-	if (strcmp(cipher_copy, ciphertext))
-	if (format->methods.valid(cipher_copy, format)) {
+	if (strcmp(cipher_copy, ciphertext)) {
+		if (format->methods.valid(cipher_copy, format)) {
 
-		*has_change_case = 1;
-		split_ret = format->methods.split(cipher_copy, 0, format);
-		binary = format->methods.binary(split_ret);
+			*has_change_case = 1;
+			split_ret = format->methods.split(cipher_copy, 0, format);
+			if (!strcmp(split_ret, ciphertext))
+				*is_need_unify_case = 0;
+			binary = format->methods.binary(split_ret);
 
-		if (binary != NULL)
-		if (memcmp(orig_binary, binary, format->params.binary_size) != 0) {
-			// Do not need to unify cases in split() and add
-			// FMT_SPLIT_UNIFIES_CASE
+			if (binary != NULL)
+			if (memcmp(orig_binary, binary, format->params.binary_size) != 0) {
+				// Do not need to unify cases in split() and add
+				// FMT_SPLIT_UNIFIES_CASE
+				*is_need_unify_case = 0;
+			}
+		} else
 			*is_need_unify_case = 0;
-		}
 	}
 
 	// Upper case
 	strupr(cipher_copy + index);
 
-	if (strcmp(cipher_copy, ciphertext))
-	if (format->methods.valid(cipher_copy, format)) {
+	if (strcmp(cipher_copy, ciphertext)) {
+		if (format->methods.valid(cipher_copy, format)) {
 
-		*has_change_case = 1;
-		split_ret = format->methods.split(cipher_copy, 0, format);
-		binary = format->methods.binary(split_ret);
+			*has_change_case = 1;
+			split_ret = format->methods.split(cipher_copy, 0, format);
+			if (!strcmp(split_ret, ciphertext))
+				*is_need_unify_case = 0;
+			binary = format->methods.binary(split_ret);
 
-		if (binary != NULL)
-		if (memcmp(orig_binary, binary, format->params.binary_size) != 0) {
-			// Do not need to unify cases in split() and add
-			// FMT_SPLIT_UNIFIES_CASE
+			if (binary != NULL)
+			if (memcmp(orig_binary, binary, format->params.binary_size) != 0) {
+				// Do not need to unify cases in split() and add
+				// FMT_SPLIT_UNIFIES_CASE
+				*is_need_unify_case = 0;
+			}
+		} else
 			*is_need_unify_case = 0;
-		}
 	}
 
 	MEM_FREE(orig_salt);

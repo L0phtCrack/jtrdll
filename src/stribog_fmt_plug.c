@@ -8,7 +8,7 @@
 
 #include "arch.h"
 
-#if __SSE4_1__
+#if !defined(JOHN_NO_SIMD) && __SSE4_1__
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_stribog_256;
@@ -19,51 +19,46 @@ john_register_one(&fmt_stribog_512);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "arch.h"
-#include "misc.h"
-#include "common.h"
-#include "formats.h"
-#include "params.h"
-#include "options.h"
-#include "gost3411-2012-sse41.h"
+#include <assert.h> // "needed" for alignment check
+
 #ifdef _OPENMP
 #include <omp.h>
 #ifndef OMP_SCALE
 #define OMP_SCALE               512 // XXX
 #endif
 #endif
+
+#include "misc.h"
+#include "common.h"
+#include "formats.h"
+#include "params.h"
+#include "options.h"
+#include "gost3411-2012-sse41.h"
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"stribog"
-#define FORMAT_NAME		""
+#define FORMAT_LABEL            "stribog"
+#define FORMAT_NAME             ""
+#define TAG256                  "$stribog256$"
+#define TAG256_LENGTH           (sizeof(TAG256)-1)
+#define TAG512                  "$stribog512$"
+#define TAG512_LENGTH           (sizeof(TAG512)-1)
+#define TAG_LENGTH              TAG256_LENGTH
+#define FORMAT_TAG              TAG256
+#define ALGORITHM_NAME          "GOST R 34.11-2012 128/128 SSE4.1 1x"
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        64 - 1
+#define CIPHERTEXT256_LENGTH    64
+#define CIPHERTEXT512_LENGTH    128
+#define CIPHERTEXT_LENGTH       CIPHERTEXT256_LENGTH
+#define BINARY_SIZE_256         32
+#define BINARY_SIZE_512         64
+#define SALT_SIZE               0
+#define SALT_ALIGN              1
+#define BINARY_ALIGN            sizeof(uint32_t)
 
-#define TAG256 "$stribog256$"
-#define TAG256_LENGTH (sizeof(TAG256)-1)
-
-#define TAG512 "$stribog512$"
-#define TAG512_LENGTH (sizeof(TAG512)-1)
-
-#define TAG_LENGTH TAG256_LENGTH
-#define FORMAT_TAG TAG256
-
-#define ALGORITHM_NAME		"GOST R 34.11-2012 128/128 SSE4.1 1x"
-
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	64 - 1
-#define CIPHERTEXT256_LENGTH	64
-#define CIPHERTEXT512_LENGTH	128
-#define CIPHERTEXT_LENGTH CIPHERTEXT256_LENGTH
-#define BINARY_SIZE_256		32
-#define BINARY_SIZE_512		64
-#define SALT_SIZE		0
-#define SALT_ALIGN		1
-#define BINARY_ALIGN		sizeof(uint32_t)
-
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 
 static struct fmt_tests stribog_256_tests[] = {
 	{"$stribog256$bbe19c8d2025d99f943a932a0b365a822aa36a4c479d22cc02c8973e219a533f", ""},
@@ -101,10 +96,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE_512 / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	if (!saved_key) {
 		saved_key = mem_calloc_align(self->params.max_keys_per_crypt, sizeof(*saved_key), MEM_ALIGN_SIMD);
@@ -125,8 +117,7 @@ static char *split_256(char *ciphertext, int index, struct fmt_main *self)
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
-	memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
-	strlwr(out + TAG_LENGTH);
+	memcpylwr(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
 	return out;
 }
 
@@ -141,7 +132,7 @@ static int valid_256(char *ciphertext, struct fmt_main *self)
 	if (strlen(p) != CIPHERTEXT_LENGTH)
 		return 0;
 	while(*p)
-		if(atoi16[ARCH_INDEX(*p++)]==0x7f)
+		if (atoi16[ARCH_INDEX(*p++)]==0x7f)
 			return 0;
 	return 1;
 }
@@ -179,8 +170,7 @@ static char *split_512(char *ciphertext, int index, struct fmt_main *self)
 	if (!strncmp(ciphertext, FORMAT_TAG, TAG_LENGTH))
 		ciphertext += TAG_LENGTH;
 	memcpy(out, FORMAT_TAG, TAG_LENGTH);
-	memcpy(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
-	strlwr(out + TAG_LENGTH);
+	memcpylwr(out + TAG_LENGTH, ciphertext, CIPHERTEXT_LENGTH + 1);
 	return out;
 }
 
@@ -195,7 +185,7 @@ static int valid_512(char *ciphertext, struct fmt_main *self)
 	if (strlen(p) != CIPHERTEXT_LENGTH)
 		return 0;
 	while(*p)
-		if(atoi16[ARCH_INDEX(*p++)]==0x7f)
+		if (atoi16[ARCH_INDEX(*p++)]==0x7f)
 			return 0;
 	return 1;
 }
@@ -219,20 +209,9 @@ static void *get_binary_512(char *ciphertext)
 	return out;
 }
 
-
 #undef TAG_LENGTH
 #undef FORMAT_TAG
 #undef CIPHERTEXT_LENGTH
-
-
-/* static int valid_256(char *ciphertext, struct fmt_main *self) */
-/* { */
-/* 	return valid(ciphertext, self, 64); */
-/* } */
-/* static int valid_512(char *ciphertext, struct fmt_main *self) */
-/* { */
-/* 	return valid(ciphertext, self, 128); */
-/* } */
 
 static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
 static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
@@ -284,13 +263,12 @@ static void stribog_final(unsigned char* digest, void* context)
 static int crypt_256(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		/* GOST34112012Context ctx;
 
 		GOST34112012Init(&ctx, 256);
@@ -303,24 +281,18 @@ static int crypt_256(int *pcount, struct db_salt *salt)
 		stribog_update(&ctx, (const unsigned char*)saved_key[index], strlen(saved_key[index]));
 		stribog_final((unsigned char*)crypt_out[index], &ctx);
 	}
+
 	return count;
 }
 
 static int crypt_512(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
 #endif
-	{
-		/* GOST34112012Context ctx;
-
-		GOST34112012Init(&ctx, 512);
-		GOST34112012Update(&ctx, (const unsigned char*)saved_key[index], strlen(saved_key[index]));
-		GOST34112012Final(&ctx, (unsigned char*)crypt_out[index]); */
-
+	for (index = 0; index < count; index++) {
 		GOST34112012Context ctx[2]; // alignment stuff
 
 		stribog512_init((void *)ctx);
@@ -328,15 +300,15 @@ static int crypt_512(int *pcount, struct db_salt *salt)
 		stribog_final((unsigned char*)crypt_out[index], &ctx);
 
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-#ifdef _OPENMP
-	for (; index < count; index++)
-#endif
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -359,11 +331,7 @@ static int cmp_exact(char *source, int index)
 
 static void stribog_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)

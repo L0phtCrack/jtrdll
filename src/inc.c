@@ -27,7 +27,6 @@
 #include "external.h"
 #include "cracker.h"
 #include "john.h"
-#include "options.h"
 #include "unicode.h"
 #include "mask.h"
 #include "regex.h"
@@ -43,7 +42,6 @@ static double cand;
 
 static double get_progress(void)
 {
-	double try;
 	unsigned long long mask_mult = mask_tot_cand ? mask_tot_cand : 1;
 
 	emms();
@@ -51,9 +49,7 @@ static double get_progress(void)
 	if (!cand)
 		return -1;
 
-	try = ((unsigned long long)status.cands.hi << 32) + status.cands.lo;
-
-	return 100.0 * try / (cand * mask_mult);
+	return 100.0 * status.cands / (cand * mask_mult);
 }
 
 typedef char (*char2_table)
@@ -166,7 +162,7 @@ static void inc_new_length(unsigned int length,
 	char *buffer;
 	int count;
 
-	if (options.verbosity >= VERB_LEGACY)
+	if (options.verbosity >= VERB_DEFAULT)
 	log_event("- Switching to length %d", length + 1);
 
 	char1[0] = 0;
@@ -308,7 +304,7 @@ static void inc_new_count(unsigned int length, int count, char *charset,
 	int size;
 	int error;
 
-	if (options.verbosity >= VERB_LEGACY)
+	if (options.verbosity >= VERB_DEFAULT)
 	log_event("- Expanding tables for length %d to character count %d",
 	    length + 1, count + 1);
 
@@ -486,6 +482,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	if (rec_restored && john_main_process)
 		fprintf(stderr, "Proceeding with incremental:%s\n", mode);
 
+#ifdef JTRDLL
 	/* mode starting with 'file:' specify a path to a character set file */
 	if (strncmp(mode, "file:", 5) == 0)
 	{
@@ -517,6 +514,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 	else
 	{
+#endif
 		if (!(charset = cfg_get_param(SECTION_INC, mode, "File"))) {
 			if (cfg_get_section(SECTION_INC, mode) == NULL) {
 				log_event("! Unknown incremental mode: %s", mode);
@@ -541,42 +539,56 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
 			max_length = CHARSET_LENGTH;
 		max_count = cfg_get_int(SECTION_INC, mode, "CharCount");
+#ifdef JTRDLL
 	}
+#endif
 
 	/* Hybrid mask */
-	min_length -= mask_add_len;
-	max_length -= mask_add_len;
 	our_fmt_len -= mask_add_len;
-	if (mask_num_qw > 1) {
-		min_length /= mask_num_qw;
-		max_length /= mask_num_qw;
+	if (mask_num_qw > 1)
 		our_fmt_len /= mask_num_qw;
-	}
 
 #if HAVE_REXGEN
 	/* Hybrid regex */
 	if ((regex = prepare_regex(options.regex, &regex_case, &regex_alpha))) {
-		if (min_length)
-			min_length--;
-		if (max_length)
-			max_length--;
 		if (our_fmt_len)
 			our_fmt_len--;
 	}
 #endif
 
-	/* Command-line can override (narrow) lengths from config file */
-	if (options.req_minlength > min_length)
+	/* Command-line can override lengths from config file */
+	if (options.req_minlength >= 0) {
 		min_length = options.req_minlength;
-	if (options.req_maxlength && options.req_maxlength < max_length)
+
+#if HAVE_REXGEN
+		if (regex)
+			min_length--;
+#endif
+		if (min_length < 0)
+			min_length = 0;
+	}
+
+	if (options.req_maxlength && !mask_maxlength_computed) {
 		max_length = options.req_maxlength;
+#if HAVE_REXGEN
+		if (regex)
+			max_length--;
+#endif
+	}
+
+	if (options.req_minlength >= 0 && min_length > max_length &&
+	   (options.req_maxlength == 0 || mask_maxlength_computed) &&
+	    options.req_minlength <= CHARSET_LENGTH) {
+		max_length = min_length;
+	}
 
 	if (min_length > max_length) {
 		log_event("! MinLen = %d exceeds MaxLen = %d",
 		    min_length, max_length);
 		if (john_main_process)
-			fprintf(stderr, "MinLen = %d exceeds MaxLen = %d\n",
-			    min_length, max_length);
+			fprintf(stderr, "MinLen = %d exceeds MaxLen = %d; "
+			    "MaxLen can be increased up to %d\n",
+			    min_length, max_length, CHARSET_LENGTH);
 		error();
 	}
 
@@ -894,7 +906,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		if (skip)
 			continue;
 
-		if (options.verbosity >= VERB_LEGACY)
+		if (options.verbosity >= VERB_DEFAULT)
 		log_event("- Trying length %d, fixed @%d, character count %d",
 		    length + 1, fixed + 1, counts[length][fixed] + 1);
 
@@ -907,8 +919,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		unsigned long long mask_mult =
 			mask_tot_cand ? mask_tot_cand : 1;
 
-		cand = (((unsigned long long)status.cands.hi << 32) +
-		        status.cands.lo) / mask_mult;
+		cand = status.cands / mask_mult;
 	}
 
 	crk_done();

@@ -97,7 +97,7 @@ static void release_kernel();
 static void release_mask_buffers(void);
 
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 /* ------- Helper functions ------- */
@@ -138,9 +138,8 @@ static uint64_t *crypt_one(int index) {
 	SHA512_Update(&ctx, key, len);
 	SHA512_Final((unsigned char *) (hash), &ctx);
 
-#ifdef SIMD_COEF_64
 	alter_endianity_to_BE64(hash, DIGEST_SIZE / sizeof(uint64_t));
-#endif
+
 	return hash;
 }
 
@@ -156,9 +155,8 @@ static uint64_t *crypt_one_x(int index) {
 	SHA512_Update(&ctx, key, len);
 	SHA512_Final((unsigned char *) (hash), &ctx);
 
-#ifdef SIMD_COEF_64
 	alter_endianity_to_BE64(hash, DIGEST_SIZE / sizeof(uint64_t));
-#endif
+
 	return hash;
 }
 
@@ -180,7 +178,7 @@ static void create_mask_buffers()
 
 static void release_mask_buffers()
 {
- 	MEM_FREE(saved_bitmap);
+	MEM_FREE(saved_bitmap);
 
 	if (buffer_bitmap)
 		clReleaseMemObject(buffer_bitmap);
@@ -572,7 +570,7 @@ static void build_kernel()
 		snprintf(opt, sizeof(opt), "-DBITMAP_SIZE_MINUS1=%u", bitmap_size - 1U);
 
 		if (mask_int_cand.num_int_cand > 1)
-			strncat(opt, " -DGPU_MASK_MODE=1", 64U);
+			strncat(opt, " -DGPU_MASK_MODE", 64U);
 
 		opencl_build_kernel(task, gpu_id, opt, 0);
 
@@ -641,7 +639,7 @@ static void done(void)
 
 static void prepare_bit_array()
 {
-    	uint64_t *binary;
+	uint64_t *binary;
 	struct db_password *pw;
 	struct db_salt *current_salt;
 
@@ -792,7 +790,7 @@ static int cmp_exact_raw(char *source, int index)
 #ifdef DEBUG
 	fprintf(stderr, "Stressing CPU\n");
 #endif
-	binary = (uint64_t *) sha512_common_binary(source);
+	binary = (uint64_t *) sha512_common_binary_BE(source);
 
 	full_hash = crypt_one(index);
 	return !memcmp(binary, (void *) full_hash, BINARY_SIZE);
@@ -806,7 +804,7 @@ static int cmp_exact_x(char *source, int index)
 #ifdef DEBUG
 	fprintf(stderr, "Stressing CPU\n");
 #endif
-	binary = (uint64_t *) sha512_common_binary_xsha512(source);
+	binary = (uint64_t *) sha512_common_binary_xsha512_BE(source);
 
 	full_hash = crypt_one_x(index);
 	return !memcmp(binary, (void *) full_hash, BINARY_SIZE);
@@ -875,7 +873,7 @@ struct fmt_main fmt_opencl_rawsha512_gpl = {
 		fmt_default_prepare,
 		sha512_common_valid,
 		sha512_common_split,
-		sha512_common_binary,
+		sha512_common_binary_BE,
 		fmt_default_salt,
 		{NULL},
 		fmt_default_source,
@@ -938,7 +936,7 @@ struct fmt_main fmt_opencl_xsha512_gpl = {
 		sha512_common_prepare_xsha512,
 		sha512_common_valid_xsha512,
 		sha512_common_split_xsha512,
-		sha512_common_binary_xsha512,
+		sha512_common_binary_xsha512_BE,
 		get_salt,
 		{NULL},
 		fmt_default_source,

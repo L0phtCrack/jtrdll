@@ -18,7 +18,7 @@
  * SUCH DAMAGE.
  */
 
-#include "../john_stdint.h"
+#include <stdint.h>
 #include <string.h>
 
 #include "crypto_scrypt.h"

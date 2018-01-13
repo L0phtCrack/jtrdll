@@ -1,15 +1,15 @@
-/* Password Safe and Password Gorilla cracker patch for JtR. Hacked together
+/*
+ * Password Safe and Password Gorilla cracker patch for JtR. Hacked together
  * during May of 2012 by Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * Optimization patch during January of 2013 by Brian Wallace <brian.wallace9809 at gmail.com>.
  *
- * This software is Copyright (c) 2012-2013
- * Dhiru Kholia <dhiru.kholia at gmail.com> and Brian Wallace <brian.wallace9809 at gmail.com>
- * and it is hereby released to the general public under the following terms:
+ * This software is Copyright (c) 2012-2013, Dhiru Kholia <dhiru.kholia at gmail.com> and
+ * Brian Wallace <brian.wallace9809 at gmail.com> and it is hereby released to the general
+ * public under the following terms:
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted.
  */
-
-
 
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_pwsafe;
@@ -18,13 +18,15 @@ john_register_one(&fmt_pwsafe);
 #else
 
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               1 // tuned on core i7
+#endif
+#endif
 
 #include "arch.h"
-
-//#undef SIMD_COEF_32
-
 #include "sha2.h"
 #include "misc.h"
 #include "common.h"
@@ -33,36 +35,32 @@ john_register_one(&fmt_pwsafe);
 #include "options.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
-
-#ifdef _OPENMP
-static int omp_t = 1;
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1 // tuned on core i7
-#endif
-#endif
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"pwsafe"
-#define FORMAT_NAME		"Password Safe"
-#define FORMAT_TAG           "$pwsafe$*"
-#define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"SHA256 " SHA256_ALGORITHM_NAME
-#define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	125
-#define BINARY_SIZE		32
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		sizeof(int)
+#define FORMAT_LABEL            "pwsafe"
+#define FORMAT_NAME             "Password Safe"
+#define FORMAT_TAG              "$pwsafe$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
+#define ALGORITHM_NAME          "SHA256 " SHA256_ALGORITHM_NAME
+#define BENCHMARK_COMMENT       ""
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        125
+#define BINARY_SIZE             32
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              sizeof(int)
 
 #ifdef SIMD_COEF_32
+#if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + (3-((i)&3)) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
-#define MIN_KEYS_PER_CRYPT  (SIMD_COEF_32*SIMD_PARA_SHA256)
-#define MAX_KEYS_PER_CRYPT	(SIMD_COEF_32*SIMD_PARA_SHA256)
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&(0xffffffff-3))*SIMD_COEF_32 + ((i)&3) + (unsigned int)index/SIMD_COEF_32*SHA_BUF_SIZ*SIMD_COEF_32*4 )
+#endif
+#define MIN_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
+#else
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
 static struct fmt_tests pwsafe_tests[] = {
@@ -74,24 +72,19 @@ static struct fmt_tests pwsafe_tests[] = {
 	{NULL}
 };
 
-
-
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static struct custom_salt {
 	int version;
 	unsigned int iterations;
-	char unsigned salt[32];
+	unsigned char salt[32];
 } *cur_salt;
 
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
@@ -109,6 +102,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	char *p;
 	char *ctcopy;
 	char *keeptr;
+
 	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
 		return 0;
 	ctcopy = strdup(ciphertext);
@@ -152,6 +146,8 @@ static void *get_salt(char *ciphertext)
 	char *p;
 	int i;
 	static struct custom_salt cs;
+
+	memset(&cs, 0, sizeof(cs));
 	ctcopy += FORMAT_TAG_LEN;	/* skip over "$pwsafe$*" */
 	p = strtokm(ctcopy, "*");
 	cs.version = atoi(p);
@@ -162,6 +158,7 @@ static void *get_salt(char *ciphertext)
 	p = strtokm(NULL, "*");
 	cs.iterations = (unsigned int)atoi(p);
 	MEM_FREE(keeptr);
+
 	return (void *)&cs;
 }
 
@@ -174,6 +171,7 @@ static void *get_binary(char *ciphertext)
 	unsigned char *out = buf.c;
 	char *p;
 	int i;
+
 	p = strrchr(ciphertext, '*') + 1;
 	for (i = 0; i < BINARY_SIZE; i++) {
 		out[i] =
@@ -185,13 +183,8 @@ static void *get_binary(char *ciphertext)
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -219,6 +212,7 @@ static void pwsafe_sha256_iterate(unsigned int * state, unsigned int iterations)
 	unsigned int word00,word01,word02,word03,word04,word05,word06,word07;
 	unsigned int word08,word09,word10,word11,word12,word13,word14,word15;
 	unsigned int temp0, temp1, temp2, temp3, temp4, temp5, temp6, temp7;
+
 	iterations++;
 	word00 = state[0];
 	word01 = state[1];
@@ -228,8 +222,7 @@ static void pwsafe_sha256_iterate(unsigned int * state, unsigned int iterations)
 	word05 = state[5];
 	word06 = state[6];
 	word07 = state[7];
-	while(iterations)
-	{
+	while (iterations) {
 		iterations--;
 		temp0 = 0x6a09e667UL;
 		temp1 = 0xbb67ae85UL;
@@ -527,13 +520,12 @@ static void pwsafe_sha256_iterate(unsigned int * state, unsigned int iterations)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index+=MAX_KEYS_PER_CRYPT) {
 		SHA256_CTX ctx;
 #ifdef SIMD_COEF_32
 		unsigned int i;
@@ -568,8 +560,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if 1
 		// This complex crap only boosted speed on my quad-HT from 5016 to 5285.
 		// A ton of complex code for VERY little gain. The SIMD change gave us
-		// a 4x improvement with very little change.  This pwsafe_sha256_iterate
-		// does get 5% gain, but 400% is so much better, lol.  I put the other
+		// a 4x improvement with very little change. This pwsafe_sha256_iterate
+		// does get 5% gain, but 400% is so much better, lol. I put the other
 		// code in to be able to dump data out easier, getting dump_stuff()
 		// data in flat, to be able to help get the SIMD code working.
 #ifdef COMMON_DIGEST_FOR_OPENSSL
@@ -589,13 +581,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #endif
 #endif
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -613,11 +607,7 @@ static int cmp_exact(char *source, int index)
 
 static void pwsafe_set_key(char *key, int index)
 {
-	int saved_len = strlen(key);
-	if (saved_len > PLAINTEXT_LENGTH)
-		saved_len = PLAINTEXT_LENGTH;
-	memcpy(saved_key[index], key, saved_len);
-	saved_key[index][saved_len] = 0;
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -630,6 +620,7 @@ static unsigned int iteration_count(void *salt)
 	struct custom_salt *my_salt;
 
 	my_salt = salt;
+
 	return (unsigned int) my_salt->iterations;
 }
 
@@ -684,13 +675,8 @@ struct fmt_main fmt_pwsafe = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

@@ -31,9 +31,20 @@
 
 #include "arch.h"
 
+#if defined(SIMD_COEF_32) && !ARCH_LITTLE_ENDIAN
+	#undef SIMD_COEF_32
+	#undef SIMD_COEF_64
+	#undef SIMD_PARA_MD5
+	#undef SIMD_PARA_MD4
+	#undef SIMD_PARA_SHA1
+	#undef SIMD_PARA_SHA256
+	#undef SIMD_PARA_SHA512
+	#define BITS ARCH_BITS_STR
+#endif
+
 #if !FAST_FORMATS_OMP
 #ifdef _OPENMP
-#  define FORCE_THREAD_MD5_body
+  #define FORCE_THREAD_MD5_body
 #endif
 #undef _OPENMP
 #endif
@@ -78,7 +89,7 @@
 //dynamic_10 --> md5($s.md5($s.$p))
 //dynamic_11 --> md5($s.md5($p.$s))
 //dynamic_12 --> md5(md5($s).md5($p)) (IPB)
-//dynamic_13 --> md5(md5($p).md5($s))
+//dynamic_13 --> md5(md5($p).md5($s)) (phpFox v3)
 //dynamic_14 --> md5($s.md5($p).$s)
 //dynamic_15 --> md5($u.md5($p).$s)
 //dynamic_16 --> md5(md5(md5($p).$s).$s2)
@@ -3152,7 +3163,11 @@ static DYNAMIC_Setup Setups[] =
 	{ "dynamic_7: md5(md5($p).$s) (vBulletin)", _Funcs_7, _Preloads_7, _ConstDefault, MGF_SALTED|MGF_ColonNOTValid, MGF_KEYS_BASE16_IN1_MD5, 3, 52 },
 #endif
 	{ "dynamic_8: md5(md5($s).$p)",             _Funcs_8, _Preloads_8, _ConstDefault, MGF_SALTED|MGF_SALT_AS_HEX, MGF_NO_FLAG, -32,  23},
+#if defined (SIMD_COEF_32)
+	{ "dynamic_9: md5($s.md5($p))",             _Funcs_9, _Preloads_9, _ConstDefault, MGF_SALTED, MGF_KEYS_CRYPT_IN2, -23, 55, 80 },
+#else
 	{ "dynamic_9: md5($s.md5($p))",             _Funcs_9, _Preloads_9, _ConstDefault, MGF_SALTED, MGF_KEYS_BASE16_IN1_MD5, -23, 55, 80 },
+#endif
 	{ "dynamic_10: md5($s.md5($s.$p))",         _Funcs_10,_Preloads_10,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 	{ "dynamic_11: md5($s.md5($p.$s))",         _Funcs_11,_Preloads_11,_ConstDefault, MGF_SALTED, MGF_NO_FLAG, -23 },
 
@@ -3306,7 +3321,7 @@ int dynamic_IS_VALID(int i, int single_lookup_only)
 		// if only loading a single dyna format, then do NOT load the valid array
 		if (i < 1000) {
 			for (j = 0; j < ARRAY_COUNT(Setups); ++j) {
-				if(atoi(&Setups[j].szFORMAT_NAME[8]) == i)
+				if (atoi(&Setups[j].szFORMAT_NAME[8]) == i)
 					return 1;
 			}
 			return 0;

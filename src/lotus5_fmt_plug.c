@@ -18,6 +18,10 @@ john_register_one(&fmt_lotus5);
 #include <omp.h>
 #endif
 
+#ifndef OMP_SCALE
+#define OMP_SCALE 2 // core i7
+#endif
+
 #include "memdbg.h"
 
 #ifdef __x86_64__
@@ -102,13 +106,7 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int n = omp_get_max_threads();
-	if (n < 1)
-		n = 1;
-	n *= 2;
-	if (n > self->params.max_keys_per_crypt)
-		n = self->params.max_keys_per_crypt;
-	self->params.min_keys_per_crypt = n;
+	omp_autotune(self, OMP_SCALE);
 #endif
 
 	crypt_key = mem_calloc_align(sizeof(*crypt_key),
@@ -186,7 +184,7 @@ static int cmp_exact (char *source, int index)
 /*Beginning of private functions*/
 /* Takes the plaintext password and generates the second row of our
  * working matrix for the final call to the mixing function*/
-static void MAYBE_INLINE
+MAYBE_INLINE static void
 #if LOTUS_N == 3
 lotus_transform_password (unsigned char *i0, unsigned char *o0,
     unsigned char *i1, unsigned char *o1,
@@ -349,20 +347,8 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	return count;
 }
 
-static int get_hash_0(int index) { return crypt_key[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_key[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_key[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_key[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_key[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_key[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_key[index][0] & PH_MASK_6; }
-static int binary_hash_0(void * binary) { return *(uint32_t *)binary & PH_MASK_0; }
-static int binary_hash_1(void * binary) { return *(uint32_t *)binary & PH_MASK_1; }
-static int binary_hash_2(void * binary) { return *(uint32_t *)binary & PH_MASK_2; }
-static int binary_hash_3(void * binary) { return *(uint32_t *)binary & PH_MASK_3; }
-static int binary_hash_4(void * binary) { return *(uint32_t *)binary & PH_MASK_4; }
-static int binary_hash_5(void * binary) { return *(uint32_t *)binary & PH_MASK_5; }
-static int binary_hash_6(void * binary) { return *(uint32_t *)binary & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_key
+#include "common-get-hash.h"
 
 /* C's version of a class specifier */
 struct fmt_main fmt_lotus5 = {
@@ -396,13 +382,13 @@ struct fmt_main fmt_lotus5 = {
 		{ NULL },
 		fmt_default_source,
 		{
-			binary_hash_0,
-			binary_hash_1,
-			binary_hash_2,
-			binary_hash_3,
-			binary_hash_4,
-			binary_hash_5,
-			binary_hash_6
+			fmt_default_binary_hash_0,
+			fmt_default_binary_hash_1,
+			fmt_default_binary_hash_2,
+			fmt_default_binary_hash_3,
+			fmt_default_binary_hash_4,
+			fmt_default_binary_hash_5,
+			fmt_default_binary_hash_6
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -412,13 +398,8 @@ struct fmt_main fmt_lotus5 = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,

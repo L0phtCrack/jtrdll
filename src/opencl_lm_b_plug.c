@@ -451,7 +451,7 @@ static void init_kernels(char *bitmap_params, unsigned int full_unroll, size_t s
 	HANDLE_CLERROR(clGetDeviceInfo(devices[gpu_id], CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE, sizeof(cl_ulong), &const_cache_size, 0), "failed to get CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE.");
 
 	if (!use_last_build_opt) {
-		sprintf (build_opts, "-D FULL_UNROLL=%u -D USE_LOCAL_MEM=%u -D WORK_GROUP_SIZE="Zu""
+		sprintf(build_opts, "-D FULL_UNROLL=%u -D USE_LOCAL_MEM=%u -D WORK_GROUP_SIZE="Zu""
 		" -D OFFSET_TABLE_SIZE=%u -D HASH_TABLE_SIZE=%u -D MASK_ENABLE=%u -D ITER_COUNT=%u -D LOC_0=%d"
 #if MASK_FMT_INT_PLHDR > 1
 		" -D LOC_1=%d "
@@ -481,7 +481,7 @@ static void init_kernels(char *bitmap_params, unsigned int full_unroll, size_t s
 		last_build_opts[2] = s_mem_lws;
 	}
 	else {
-		sprintf (build_opts, "-cl-kernel-arg-info -D FULL_UNROLL=%u -D USE_LOCAL_MEM=%u -D WORK_GROUP_SIZE="Zu""
+		sprintf(build_opts, "-cl-kernel-arg-info -D FULL_UNROLL=%u -D USE_LOCAL_MEM=%u -D WORK_GROUP_SIZE="Zu""
 		" -D OFFSET_TABLE_SIZE=%u -D HASH_TABLE_SIZE=%u -D MASK_ENABLE=%u -D ITER_COUNT=%u -D LOC_0=%d"
 #if MASK_FMT_INT_PLHDR > 1
 		" -D LOC_1=%d "
@@ -753,7 +753,7 @@ static void auto_tune_all(char *bitmap_params, unsigned int num_loaded_hashes, l
 #if 0
 	fprintf(stdout, "Limit_smem:"Zu", Full_unroll_flag:%u,"
 		"Use_local_mem:%u, Force_global_keys:%u\n",
- 		s_mem_limited_lws, full_unroll, use_local_mem,
+		s_mem_limited_lws, full_unroll, use_local_mem,
 		force_global_keys);
 #endif
 
@@ -810,7 +810,7 @@ static void auto_tune_all(char *bitmap_params, unsigned int num_loaded_hashes, l
 #if 0
 	fprintf(stdout, "GWS: "Zu", LWS: "Zu", Limit_smem:"Zu", Limit_kernel:"Zu","
 		"Current time:%Lf, Best time:%Lf\n",
- 		global_work_size, local_work_size, s_mem_limited_lws,
+		global_work_size, local_work_size, s_mem_limited_lws,
 		get_kernel_max_lws(gpu_id, crypt_kernel), time_ms,
 		best_time_ms);
 #endif
@@ -896,7 +896,7 @@ static void auto_tune_all(char *bitmap_params, unsigned int num_loaded_hashes, l
 #if 0
 	fprintf(stdout, "GWS: "Zu", LWS: "Zu", Limit_smem:"Zu", Limit_kernel:"Zu","
 		"Current time:%Lf, Best time:%Lf\n",
- 		global_work_size, local_work_size, s_mem_limited_lws,
+		global_work_size, local_work_size, s_mem_limited_lws,
 		get_kernel_max_lws(gpu_id, crypt_kernel), time_ms,
 		best_time_ms);
 #endif

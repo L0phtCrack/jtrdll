@@ -21,12 +21,12 @@ john_register_one(&fmt_opencl_rakp);
 #else
 
 #include <string.h>
+#include <stdint.h>
 
 #include "path.h"
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
-#include "stdint.h"
 #include "formats.h"
 #include "sha.h"
 #include "johnswap.h"
@@ -57,7 +57,7 @@ john_register_one(&fmt_opencl_rakp);
 #define FORMAT_TAG              "$rakp$"
 #define TAG_LENGTH              (sizeof(FORMAT_TAG) - 1)
 
-#define BINARY_ALIGN            1
+#define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_ALIGN              1
 
 #define STEP                    0
@@ -80,7 +80,7 @@ static int partial_output;
 static struct fmt_main *self;
 
 //This file contains auto-tuning routine(s). Have to included after other definitions.
-#include "opencl-autotune.h"
+#include "opencl_autotune.h"
 #include "memdbg.h"
 
 static struct fmt_tests tests[] = {
@@ -366,7 +366,7 @@ static int cmp_exact(char *source, int index)
 	}
 	b = (uint32_t*)get_binary(source);
 
-	for(i = 0; i < BINARY_SIZE / 4; i++)
+	for (i = 0; i < BINARY_SIZE / 4; i++)
 		if (digest[i * global_work_size * ocl_v_width + index] != b[i])
 			return 0;
 	return 1;
@@ -419,7 +419,7 @@ struct fmt_main fmt_opencl_rakp = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT,
+		FMT_CASE | FMT_8_BIT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests
@@ -435,7 +435,7 @@ struct fmt_main fmt_opencl_rakp = {
 		{ NULL },
 		fmt_default_source,
 		{
-			fmt_default_binary_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_binary_hash
 		},
 		fmt_default_salt_hash,
 		NULL,
@@ -445,7 +445,7 @@ struct fmt_main fmt_opencl_rakp = {
 		clear_keys,
 		crypt_all,
 		{
-			fmt_default_get_hash /* Not usable with $SOURCE_HASH$ */
+			fmt_default_get_hash
 		},
 		cmp_all,
 		cmp_one,

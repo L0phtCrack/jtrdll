@@ -1,4 +1,5 @@
-/* Django 1.4 patch for JtR. Hacked together during May of 2012 by
+/*
+ * Django 1.4 patch for JtR. Hacked together during May of 2012 by
  * Dhiru Kholia <dhiru.kholia at gmail.com>.
  *
  * This software is Copyright (c) 2012, Dhiru Kholia <dhiru.kholia at gmail.com>,
@@ -14,13 +15,13 @@
  *
  * django-hash => Second column of "SELECT username, password FROM auth_user"
  *
- * July, 2012, the oSSL PKCS5_PBKDF2_HMAC function was replaced with a much faster
+ * July, 2012, the OpenSSL PKCS5_PBKDF2_HMAC function was replaced with a much faster
  * function pbkdf2() designed by JimF.  Originally this function was designed for
- * the mscash2 (DCC2).  The same pbkdf2 function, is used, and simply required small
+ * the mscash2 (DCC2). The same pbkdf2 function, is used, and simply required small
  * changes to use SHA256.
  *
- * This new code is 3x to 4x FASTER than the original oSSL code. Even though it is
- * only useing oSSL functions.  A lot of the high level stuff in oSSL sux for speed.
+ * This new code is 3x to 4x FASTER than the original OpenSSL code. Even though it is
+ * only using OpenSSL functions. A lot of the high level stuff in OpenSSL sux for speed.
  */
 
 #if FMT_EXTERNS_H
@@ -29,12 +30,14 @@ extern struct fmt_main fmt_django;
 john_register_one(&fmt_django);
 #else
 
-// uncomment this header to use the slower PKCS5_PBKDF2_HMAC function.
-// Note, PKCS5_PBKDF2_HMAC is ONLY available in oSSL 1.00 + (1.0c I think to be exact)
-//#include <openssl/evp.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#ifndef OMP_SCALE
+#define OMP_SCALE               4 // tuned on core i7
+#endif
+#endif
 
 #include "arch.h"
 #include "sha2.h"
@@ -44,42 +47,34 @@ john_register_one(&fmt_django);
 #include "params.h"
 #include "options.h"
 #include "johnswap.h"
-#include "base64.h"
 #include "base64_convert.h"
 #include "pbkdf2_hmac_sha256.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4 // tuned on core i7
-#endif
-static int omp_t = 1;
-#endif
 #include "memdbg.h"
 
-#define FORMAT_LABEL		"Django"
-#define FORMAT_NAME		""
-#define FORMAT_TAG		"$django$*"
-#define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
+#define FORMAT_LABEL            "Django"
+#define FORMAT_NAME             ""
+#define FORMAT_TAG              "$django$*"
+#define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME		"PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
+#define ALGORITHM_NAME          "PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
-#define ALGORITHM_NAME		"PBKDF2-SHA256 32/" ARCH_BITS_STR
+#define ALGORITHM_NAME          "PBKDF2-SHA256 32/" ARCH_BITS_STR
 #endif
-#define BENCHMARK_COMMENT	" (x10000)"
-#define BENCHMARK_LENGTH	-1
-#define PLAINTEXT_LENGTH	125
-#define HASH_LENGTH		44
-#define BINARY_SIZE		32
-#define SALT_SIZE		sizeof(struct custom_salt)
-#define BINARY_ALIGN	sizeof(uint32_t)
-#define SALT_ALIGN		sizeof(int)
+#define BENCHMARK_COMMENT       " (x10000)"
+#define BENCHMARK_LENGTH        -1
+#define PLAINTEXT_LENGTH        125
+#define HASH_LENGTH             44
+#define BINARY_SIZE             32
+#define SALT_SIZE               sizeof(struct custom_salt)
+#define BINARY_ALIGN            sizeof(uint32_t)
+#define SALT_ALIGN              sizeof(int)
 
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA256
+#define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
+#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
 #else
-#define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1
 #endif
 
 static struct fmt_tests django_tests[] = {
@@ -104,10 +99,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_t = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= omp_t;
-	omp_t *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= omp_t;
+	omp_autotune(self, OMP_SCALE);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -182,23 +174,18 @@ static void *get_salt(char *ciphertext)
 
 static void *get_binary(char *ciphertext)
 {	static union {
-		unsigned char c[BINARY_SIZE+1];
+		unsigned char c[BINARY_SIZE];
 		ARCH_WORD dummy;
 	} buf;
 	unsigned char *out = buf.c;
 	char *p;
 	p = strrchr(ciphertext, '$') + 1;
-	base64_decode(p, strlen(p), (char*)out);
+	base64_convert(p, e_b64_mime, strlen(p), (char*)out, e_b64_raw, sizeof(buf.c), flg_Base64_DONOT_NULL_TERMINATE, 0);
 	return out;
 }
 
-static int get_hash_0(int index) { return crypt_out[index][0] & PH_MASK_0; }
-static int get_hash_1(int index) { return crypt_out[index][0] & PH_MASK_1; }
-static int get_hash_2(int index) { return crypt_out[index][0] & PH_MASK_2; }
-static int get_hash_3(int index) { return crypt_out[index][0] & PH_MASK_3; }
-static int get_hash_4(int index) { return crypt_out[index][0] & PH_MASK_4; }
-static int get_hash_5(int index) { return crypt_out[index][0] & PH_MASK_5; }
-static int get_hash_6(int index) { return crypt_out[index][0] & PH_MASK_6; }
+#define COMMON_GET_HASH_VAR crypt_out
+#include "common-get-hash.h"
 
 static void set_salt(void *salt)
 {
@@ -208,12 +195,11 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 #ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
 #endif
-	{
+	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
 #ifdef SIMD_COEF_32
 		int lens[MAX_KEYS_PER_CRYPT], i;
 		unsigned char *pin[MAX_KEYS_PER_CRYPT];
@@ -228,22 +214,20 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		}
 		pbkdf2_sha256_sse((const unsigned char **)pin, lens, cur_salt->salt, strlen((char*)cur_salt->salt), cur_salt->iterations, &(x.poutc), 32, 0);
 #else
-//		PKCS5_PBKDF2_HMAC(saved_key[index], strlen(saved_key[index]),
-//			cur_salt->salt, strlen((char*)cur_salt->salt),
-//			cur_salt->iterations, EVP_sha256(), 32, (unsigned char*)crypt_out[index]);
-
 		pbkdf2_sha256((unsigned char *)saved_key[index], strlen(saved_key[index]),
 			cur_salt->salt, strlen((char*)cur_salt->salt),
 			cur_salt->iterations, (unsigned char*)crypt_out[index], 32, 0);
 #endif
 	}
+
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	int index = 0;
-	for (; index < count; index++)
+	int index;
+
+	for (index = 0; index < count; index++)
 		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
 			return 1;
 	return 0;
@@ -261,8 +245,7 @@ static int cmp_exact(char *source, int index)
 
 static void django_set_key(char *key, int index)
 {
-	strcpy(saved_key[index], key);
-
+	strnzcpy(saved_key[index], key, sizeof(*saved_key));
 }
 
 static char *get_key(int index)
@@ -329,13 +312,8 @@ struct fmt_main fmt_django = {
 		fmt_default_clear_keys,
 		crypt_all,
 		{
-			get_hash_0,
-			get_hash_1,
-			get_hash_2,
-			get_hash_3,
-			get_hash_4,
-			get_hash_5,
-			get_hash_6
+#define COMMON_GET_HASH_LINK
+#include "common-get-hash.h"
 		},
 		cmp_all,
 		cmp_one,
