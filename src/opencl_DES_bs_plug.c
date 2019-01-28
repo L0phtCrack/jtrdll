@@ -530,9 +530,11 @@ void update_buffer(struct db_salt *salt)
 	else
 		cmp_kernel[gpu_id][salt_val] = kernel_high;
 
-	if (options.verbosity > VERB_LEGACY)
+#ifndef JTRDLL
+	if (options.verbosity > VERB_LEGACY
 		fprintf(stderr,
 		        "Updated internal tables and buffers for salt %d.\n", salt_val);
+#endif
 }
 
 int extract_info(size_t current_gws, size_t *lws, WORD salt_val)

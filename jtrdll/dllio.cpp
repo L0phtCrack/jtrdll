@@ -655,6 +655,30 @@ extern "C"
 	typedef void(*SIGPTR)(int);
 
 
+#ifdef JTRDLL
+	void unload_compiler()
+	{
+#ifdef WIN32
+		__try
+		{
+			if (GetModuleHandleA("OpenCL.dll") != NULL)
+			{
+				clUnloadCompiler();
+				BOOL ret = __FUnloadDelayLoadedDLL2("OpenCL.dll");
+				if (!ret)
+				{
+					//fprintf(stderr,"unable to unload OpenCL.dll\n");
+				}
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+
+		}
+#endif
+	}
+#endif
+
 
 	JTRDLL_IMPEXP void jtrdll_cleanup(void)
 	{
@@ -721,17 +745,8 @@ extern "C"
 		}
 		g_cl_contexts.clear();
 
-#ifdef WIN32
-		if (GetModuleHandleA("OpenCL.dll")!=NULL)
-		{
-			clUnloadCompiler();
-			BOOL ret = __FUnloadDelayLoadedDLL2("OpenCL.dll");
-			if (!ret)
-			{
-				//fprintf(stderr,"unable to unload OpenCL.dll\n");
-			}
-		}
-#endif
+		unload_compiler();
+
 	}
 	 
 
@@ -790,7 +805,8 @@ extern "C"
 		{
 			aborted_by_timer = 1;
 		}
-		sig_handle_abort(SIGINT);
+		event_abort = event_pending = 1;
+//		sig_handle_abort(SIGINT);
 	}
 
 	JTRDLL_IMPEXP int jtrdll_get_charset_info(const char *path, unsigned char * min, unsigned char *max, unsigned char *len, unsigned char *count, unsigned char allchars[256])

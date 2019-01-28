@@ -30,7 +30,7 @@ inline static __m128i _mm_insert_epi64(__m128i a, uint64_t b, int c) {
 	a = _mm_insert_epi32(a, (unsigned int)b, 2);
 	return _mm_insert_epi32(a, (unsigned int)(b >> 32), 3);
 }
-*/
+
 
 #define _mm_insert_epi64(a, b, c) \
 	_mm_insert_epi32(_mm_insert_epi32(a, (unsigned int)b, ((c) << 1)), (unsigned int)(b >> 32), ((c) << 1) + 1)

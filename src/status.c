@@ -525,10 +525,10 @@ JTRDLL_IMPEXP void jtrdll_get_status(struct JTRDLL_STATUS *jtrdllstatus)
 	ticks = the_time - (have_last_status?last_status_clock:status.start_time);
 
 	/* elapsed time */
-	jtrdllstatus->time=status_get_time();
+	jtrdllstatus->time = (clk_tck == 0)?0:status_get_time();
 
 	/* estimated end time */
-	jtrdllstatus->eta = (unsigned int)((((double)jtrdllstatus->time) * 100.0 / jtrdllstatus->percent) - (double)jtrdllstatus->time);
+	jtrdllstatus->eta = jtrdllstatus->percent==0.0f ? 0 : (unsigned int)((((double)jtrdllstatus->time) * 100.0 / jtrdllstatus->percent) - (double)jtrdllstatus->time);
 
 	/* successful guesses so far */
 	jtrdllstatus->guess_count = status.guess_count;
