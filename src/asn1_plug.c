@@ -19,10 +19,6 @@
 #include "jumbo.h"
 
 #define wpa_printf(...)
-#ifdef _MSC_VER
-#define snprintf _snprintf
-#endif
-
 
 int asn1_get_next(const uint8_t *buf, size_t len, struct asn1_hdr *hdr)
 {

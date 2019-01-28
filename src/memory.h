@@ -101,6 +101,23 @@ void *mem_calloc_align(size_t count, size_t size, size_t align);
 #undef MEM_FREE
 
 #ifdef _MSC_VER
+
+#if defined(malloc)
+#undef malloc
+#endif
+#if defined(realloc)
+#undef realloc
+#endif
+#if defined(calloc)
+#undef calloc
+#endif
+#if defined(free)
+#undef free
+#endif
+#if defined(strdup)
+#undef strdup
+#endif
+
 #define malloc(a) _aligned_malloc(a,16)
 #define realloc(a,b) _aligned_realloc(a,b,16)
 #define calloc(a,b) memset(_aligned_malloc(a*b,16),0,a*b)

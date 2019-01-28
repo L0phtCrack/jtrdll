@@ -36,17 +36,12 @@
 #endif
 #include <unistd.h>
 
-<<<<<<< HEAD:src/common-opencl.c
 #ifdef JTRDLL
 #ifdef _WIN32
 #include<windows.h>
 #endif
 #endif
 
-// the 2 DJ_DOS builds currently set this (and do not build the header). If other environs
-// can not build the header, then they will also have this value set.
-=======
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 #ifdef NO_JOHN_BLD
 #define JOHN_BLD "unk-build-type"
 #else
@@ -98,19 +93,13 @@ size_t ocl_max_lws;
 static char opencl_log[LOG_SIZE];
 static int opencl_initialized;
 
-<<<<<<< HEAD:src/common-opencl.c
 #ifdef JTRDLL
 extern char appdatadir[_MAX_PATH];
 extern char extra_opencl_kernel_args[1024];
 #endif
 
-extern volatile int bench_running;
-static char* opencl_get_dev_info(int sequential_id);
-static int find_valid_opencl_device();
-=======
 static void load_device_info(int sequential_id);
 static char* get_device_capability(int sequential_id);
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 
 // Used by auto-tuning to decide how GWS should changed between trials.
 extern int autotune_get_next_gws_size(size_t num, int step, int startup,
@@ -479,18 +468,6 @@ static int get_if_device_is_in_use(int sequential_id)
 static void load_opencl_environment()
 {
 	cl_platform_id platform_list[MAX_PLATFORMS];
-<<<<<<< HEAD:src/common-opencl.c
-	char vendor[1024];
-	char name[1024];
-	char version[1024];
-	char vendor2[1024];
-	char name2[1024];
-	char version2[1024];
-	cl_uint num_platforms, device_num, device_pos = 0;
-	int i, j, ret, duplicate;
-
-	/* Find OpenCL enabled devices. We ignore error here, in case
-	 * there is no platform and we'd like to run a non-OpenCL format. */
 
 #ifdef JTRDLL
 #ifdef _WIN32
@@ -508,47 +485,6 @@ static void load_opencl_environment()
 #endif
 #endif
 
-	clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
-
-	for (i = 0; i < num_platforms; i++) 
-	{
-		duplicate = 0;
-
-		platforms[i].platform = platform_list[i];
-
-		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_VENDOR, sizeof(vendor), vendor, NULL), "Error querying PLATFORM_VENDOR");
-		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_NAME, sizeof(name), name, NULL), "Error querying PLATFORM_NAME");
-		HANDLE_CLERROR(clGetPlatformInfo(platforms[i].platform, CL_PLATFORM_VERSION, sizeof(version), version, NULL), "Error querying PLATFORM_VERSION");
-
-		// It is possible to have duplicated platforms from buggy drivers
-		for (j = 0; j < i; j++)
-		{
-			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_VENDOR, sizeof(vendor2), vendor2, NULL), "Error querying PLATFORM_VENDOR");
-			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_NAME, sizeof(name2), name2, NULL), "Error querying PLATFORM_NAME");
-			HANDLE_CLERROR(clGetPlatformInfo(platforms[j].platform, CL_PLATFORM_VERSION, sizeof(version2), version2, NULL), "Error querying PLATFORM_VERSION");
-
-			if (strcmp(vendor, vendor2) == 0 && strcmp(name, name2) == 0 && strcmp(version, version2) == 0)
-			{
-				if ((i + 1) < num_platforms)
-				{
-					memmove(platform_list + i, platform_list + i + 1, sizeof(cl_platform)*(num_platforms - (i + 1)));
-				}
-				i--;
-				num_platforms--;
-
-				platforms[num_platforms].platform = NULL;
-				platforms[num_platforms].num_devices = 0;
-
-				duplicate = 1;
-				break;
-			}
-		}
-
-		if (duplicate)
-		{
-			continue;
-		}
-=======
 	cl_uint num_platforms, device_pos = 0;
 	int ret, i;
 
@@ -562,7 +498,6 @@ static void load_opencl_environment()
 	if (num_platforms < 1 && options.verbosity > VERB_LEGACY)
 		fprintf(stderr, "%u: No OpenCL platforms were found: %s\n",
 		        NODE, get_error_name(ret));
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 
 	for (i = 0; i < num_platforms; i++) {
 		cl_uint num_devices;
@@ -897,7 +832,7 @@ static void build_device_list(char *device_list[MAX_GPU_DEVICES])
 	}
 }
 
-<<<<<<< HEAD:src/common-opencl.c
+/*
 void opencl_preinit_no_devices(void)
 {
 	if (!opencl_initialized) 
@@ -919,9 +854,8 @@ void opencl_preinit_no_devices(void)
 		opencl_initialized = 1;
 	}
 }
+*/
 
-void opencl_preinit(void)
-=======
 /*
  * Load the OpenCL environment
  * - fill in the "existing" devices list (devices[] variable) and;
@@ -938,7 +872,6 @@ void opencl_preinit(void)
  * On MPI, hide devices from other instances
  */
 void opencl_load_environment(void)
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 {
 	char *device_list[MAX_GPU_DEVICES];
 	int n = 0, i;
@@ -1362,15 +1295,8 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 #endif
 #endif
 
-<<<<<<< HEAD:src/common-opencl.c
-#ifdef _MSC_VER
 
-#endif
-
-	include = (char *) mem_calloc(PATH_BUFFER_SIZE, sizeof(char));
-=======
 	include = (char *) mem_calloc(LINE_BUFFER_SIZE, sizeof(char));
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 
 	if (!(global_opts = getenv("OPENCLBUILDOPTIONS")))
 		if (!(global_opts = cfg_get_param(SECTION_OPTIONS,
@@ -1381,25 +1307,20 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 		full_path = quote_str(full_path);
 	}
 
-<<<<<<< HEAD:src/common-opencl.c
+
 #ifdef JTRDLL
-	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
-#else
-	sprintf(include, "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
-#endif
-	    full_path,
-	    global_opts,
-		/*gpu_amd(device_info[sequential_id]) ? "-frontend=edg " :*/ "",
-	    get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
-	        "-D__MESA__" : opencl_get_dev_info(sequential_id),
-=======
 	snprintf(include, LINE_BUFFER_SIZE,
-	         "-I %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
+	         "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
+#else
+	snprintf(include, LINE_BUFFER_SIZE,
+			 "-I %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s",
+
+#endif
 	        full_path,
 	        global_opts,
+			/*gpu_amd(device_info[sequential_id]) ? "-frontend=edg " :*/ "",
 	        get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
 	            "-D__MESA__ " : get_device_capability(sequential_id),
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 #ifdef __APPLE__
 	        "-D__OS_X__ ",
 #else
@@ -1407,34 +1328,17 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	         gpu_nvidia(device_info[sequential_id])) ?
 	         "-cl-nv-verbose " : "",
 #endif
-<<<<<<< HEAD:src/common-opencl.c
-	    get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
-	    : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
-	    "-DDEVICE_INFO=", device_info[sequential_id],
-	    "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
-	    opencl_driver_ver(sequential_id),
-	    opts ? opts : "",
-#ifdef JTRDLL
-		extra_opencl_kernel_args
-#else
-		""
-#endif
-	);
-#if I_REALPATH
-#define __saved_free free
-#undef free
-	libc_free(full_path);
-#define free __saved_free
-#else
-=======
 	        get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
 	        : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
 	        "-DDEVICE_INFO=", device_info[sequential_id],
 	        "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
 	        opencl_driver_ver(sequential_id),
-	        opts ? opts : "");
+	        opts ? opts : ""
+#ifdef JTRDLL
+			, extra_opencl_kernel_args
+#endif
+);
 
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 	MEM_FREE(full_path);
 
 	return include;
@@ -3064,7 +2968,6 @@ void opencl_list_devices(void)
 	cl_platform_id platform_list[MAX_PLATFORMS];
 	cl_uint num_platforms, num_devices;
 
-<<<<<<< HEAD:src/common-opencl.c
 #ifdef JTRDLL
 #ifdef _WIN32
 	__try {
@@ -3079,7 +2982,7 @@ void opencl_list_devices(void)
 		}
 #endif
 #endif
-=======
+
 	/* Obtain a list of available platforms */
 	ret = clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
 
@@ -3102,29 +3005,9 @@ void opencl_list_devices(void)
 			fprintf(stderr, "No OpenCL devices was found on platform #%d"
 			                 ", clGetDeviceIDs() = %s\n",
 			        i, get_error_name(ret));
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 
 		/* Obtain a list of available platforms */
 		ret = clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
-
-<<<<<<< HEAD:src/common-opencl.c
-		if (!num_platforms)
-		{
-			fprintf(stderr, "Error: No OpenCL-capable platforms were detected"
-				" by the installed OpenCL driver.\n");
-			return;
-		}
-=======
-	if (!available_devices) {
-		fprintf(stderr, "Error: No OpenCL-capable devices were detected"
-		        " by the installed OpenCL driver.\n\n");
-		return;
-	}
-	/* Initialize OpenCL environment */
-	if (!getenv("_SKIP_OCL_INITIALIZATION"))
-		opencl_load_environment();
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
-
 		if (ret != CL_SUCCESS && options.verbosity > VERB_LEGACY)
 			fprintf(stderr, "Throw clError: clGetPlatformIDs() = %d\n", ret);
 
@@ -3170,172 +3053,6 @@ void opencl_list_devices(void)
 					continue;
 #endif
 
-<<<<<<< HEAD:src/common-opencl.c
-				if (platform_in_use != i) {
-					/* Now, dealing with different platform. */
-					/* Obtain information about platform */
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_NAME, sizeof(dname), dname, NULL);
-					printf("Platform #%d name: %s, ", i, dname);
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_VERSION, sizeof(dname), dname, NULL);
-					printf("version: %s\n", dname);
-
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_EXTENSIONS, sizeof(dname), dname, NULL);
-					if (options.verbosity > VERB_LEGACY)
-						printf("    Platform extensions:    %s\n", dname);
-
-					/* Obtain a list of devices available */
-					if (!platforms[i].num_devices)
-						printf("%d devices found\n", platforms[i].num_devices);
-
-					platform_in_use = i;
-				}
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_NAME,
-					sizeof(dname), dname, NULL);
-				p = dname;
-				while (isspace(ARCH_INDEX(*p))) /* Intel quirk */
-					p++;
-				printf("    Device #%d (%d) name:     %s\n", j, sequence_nr, p);
-
-#ifndef JTRDLL
-				// Check if device seems to be working.
-				if (!start_opencl_device(sequence_nr, &err_type)) {
-
-					if (err_type == 1)
-						printf("    Status:                 %s (%s)\n",
-						"Context creation error", get_error_name(ret_code));
-					else
-						printf("    Status:                 %s (%s)\n",
-						"Queue creation error", get_error_name(ret_code));
-				}
-#endif
-
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_BOARD_NAME_AMD, sizeof(dname), dname, NULL);
-				if (ret == CL_SUCCESS && strlen(dname))
-					printf("    Board name:             %s\n", dname);
-
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VENDOR,
-					sizeof(dname), dname, NULL);
-				printf("    Device vendor:          %s\n", dname);
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_TYPE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				printf("    Device type:            ");
-				cpu = (long_entries & CL_DEVICE_TYPE_CPU);
-				if (cpu)
-					printf("CPU ");
-				if (long_entries & CL_DEVICE_TYPE_GPU)
-					printf("GPU ");
-				if (long_entries & CL_DEVICE_TYPE_ACCELERATOR)
-					printf("Accelerator ");
-				if (long_entries & CL_DEVICE_TYPE_DEFAULT)
-					printf("Default ");
-				if (long_entries & ~(CL_DEVICE_TYPE_DEFAULT |
-					CL_DEVICE_TYPE_ACCELERATOR |
-					CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU))
-					printf("Unknown ");
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_ENDIAN_LITTLE, sizeof(cl_bool), &boolean, NULL);
-				printf("(%s)\n", boolean == CL_TRUE ? "LE" : "BE");
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VERSION,
-					sizeof(dname), dname, NULL);
-				printf("    Device version:         %s\n", dname);
-				printf("    Driver version:         %s\n",
-					opencl_driver_info(sequence_nr));
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR,
-					sizeof(cl_uint), &entries, NULL);
-				printf("    Native vector widths:   char %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_SHORT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("short %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_INT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("int %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_LONG,
-					sizeof(cl_uint), &entries, NULL);
-				printf("long %d\n", entries);
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR,
-					sizeof(cl_uint), &entries, NULL);
-				printf("    Preferred vector width: char %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("short %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("int %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG,
-					sizeof(cl_uint), &entries, NULL);
-				printf("long %d\n", entries);
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_GLOBAL_MEM_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_ERROR_CORRECTION_SUPPORT,
-					sizeof(cl_bool), &boolean, NULL);
-				printf("    Global Memory:          %s%s\n",
-					human_format((unsigned long long)long_entries),
-					boolean == CL_TRUE ? " (ECC)" : "");
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_EXTENSIONS, sizeof(dname), dname, NULL);
-				if (options.verbosity > VERB_LEGACY)
-					printf("    Device extensions:      %s\n", dname);
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				if (long_entries)
-					printf("    Global Memory Cache:    %s\n",
-					human_format((unsigned long long)long_entries)
-					);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_LOCAL_MEM_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_LOCAL_MEM_TYPE,
-					sizeof(cl_device_local_mem_type), &memtype, NULL);
-				printf("    Local Memory:           %s (%s)\n",
-					human_format((unsigned long long)long_entries),
-					memtype == CL_LOCAL ? "Local" : "Global");
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_MEM_ALLOC_SIZE,
-					sizeof(long_entries), &long_entries, NULL);
-				printf("    Max memory alloc. size: %s\n",
-					human_format(long_entries));
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(cl_int), &entries, NULL);
-				if (ret == CL_SUCCESS && entries)
-					printf("    Max clock (MHz):        %u\n", entries);
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PROFILING_TIMER_RESOLUTION,
-					sizeof(size_t), &z_entries, NULL);
-				if (ret == CL_SUCCESS && z_entries)
-					printf("    Profiling timer res.:   "Zu" ns\n", z_entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &p_size, NULL);
-				printf("    Max Work Group Size:    %d\n", (int)p_size);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &entries, NULL);
-				printf("    Parallel compute cores: %d\n", entries);
-
-				long_entries = get_processors_count(sequence_nr);
-				if (!cpu && ocl_device_list[sequence_nr].cores_per_MP > 1)
-					printf("    %s      "LLu" "
-					" (%d x %d)\n",
-=======
 			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VENDOR,
 			                sizeof(dname), dname, NULL);
 			printf("    Device vendor:          %s\n", dname);
@@ -3460,7 +3177,6 @@ void opencl_list_devices(void)
 			if (!cpu && ocl_device_list[sequence_nr].cores_per_MP > 1)
 				printf("    %s      "LLu" "
 				       " (%d x %d)\n",
->>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff:src/opencl_common.c
 					gpu_nvidia(device_info[sequence_nr]) ? "CUDA cores:       " : "Stream processors:",
 					(unsigned long long)long_entries,
 					entries, ocl_device_list[sequence_nr].cores_per_MP);

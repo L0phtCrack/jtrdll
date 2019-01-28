@@ -622,6 +622,7 @@ typedef __m64i vtype;
 
 /************************* COMMON STUFF BELOW *************************/
 
+/*
 #ifdef _MSC_VER
 #define MEM_ALIGN_SIMD          16
 #define INLINE _inline
@@ -629,6 +630,7 @@ typedef __m64i vtype;
 #define MEM_ALIGN_SIMD          (SIMD_COEF_32 * 4)
 #define INLINE inline
 #endif
+*/
 
 #if VLOADU_EMULATED
 static INLINE vtype vloadu_emu(const void *addr)

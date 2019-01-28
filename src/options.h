@@ -23,7 +23,7 @@
 
 #include "list.h"
 #include "loader.h"
-#include "getopt.h"
+#include "john_getopt.h"
 #include "john_mpi.h"
 
 /*
