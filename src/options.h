@@ -23,7 +23,8 @@
 
 #include "list.h"
 #include "loader.h"
-#include "john_getopt.h"
+#include "getopt.h"
+#include "john_mpi.h"
 
 /*
  * Core Option flags bitmasks (low 32 bits):
@@ -185,6 +186,19 @@
 #define FLG_PRINCE_MMAP			0x0100000000000000ULL
 #define FLG_RULES_ALLOW			0x0200000000000000ULL
 #define FLG_REGEX_STACKED		0x0400000000000000ULL
+/* Subsets cracking mode */
+#define FLG_SUBSETS_CHK			0x0800000000000000ULL
+#define FLG_SUBSETS_SET \
+	(FLG_SUBSETS_CHK | FLG_CRACKING_SET)
+
+/*
+ * Macro for getting correct node number regardless of if MPI or not
+ */
+#if HAVE_MPI
+#define NODE (mpi_p > 1 ? mpi_id + 1 : options.node_min)
+#else
+#define NODE options.node_min
+#endif
 
 /*
  * Structure with option flags and all the parameters.
@@ -235,6 +249,9 @@ struct options_main {
 
 /* Single mode seed wordlist file name (--single-wordlist) */
 	char *seed_file;
+
+/* Override config's SingleRetestGuess */
+	char *single_retest_guess;
 
 /* Configuration file name */
 	char *config;
@@ -288,8 +305,8 @@ struct options_main {
 	int default_target_enc;
 
 /* Output encoding. This must match what the hash origin used. An exception
-   is UTF-16 formats like NT, which can use any codepage (or UTF-8) if FMT_UTF8
-   is set, or ISO-8859-1 only if FMT_UTF8 is false. */
+   is UTF-16 formats like NT, which can use any codepage (or UTF-8) if FMT_ENC
+   is set, or ISO-8859-1 only if FMT_ENC is false. */
 	int target_enc;
 
 /* If different from target_enc, this is an intermediate encoding only
@@ -315,6 +332,9 @@ struct options_main {
 /* the 'single' rules section (default if none entered is Single) */
 	char *activesinglerules;
 
+/* Stacked rules applied within cracker.c for any mode */
+	char *rule_stack;
+
 /* This is a 'special' flag.  It causes john to add 'extra' code to search for
  * some salted types, when we have only the hashes.  The only type supported is
  * PHPS (at this time.).  So PHPS will set this to a 1. OTherwise it will
@@ -328,13 +348,13 @@ struct options_main {
 /* Requested max_keys_per_crypt (for testing purposes) */
 	int force_maxkeys;
 
-/* Requested MinLen (min plaintext_length) */
-	int req_minlength;
+/* Requested min/max plaintext_length */
+	int req_minlength, req_maxlength;
 
-/* Requested MaxLen (max plaintext_length) */
-	int req_maxlength;
+/* Effective min/max plaintext_length */
+	int eff_minlength, eff_maxlength;
 
-/* Forced MaxLen (we will reject candidates longer than this) */
+/* Forced MaxLen (if set, we will reject longer candidates unless FMT_TRUNC) */
 	int force_maxlength;
 
 /*
@@ -368,6 +388,9 @@ struct options_main {
 #ifdef HAVE_OPENCL
 /* Vector width of OpenCL kernel */
 	unsigned int v_width;
+
+/* GPU Worksizes */
+	size_t lws, gws;
 #endif
 #if defined(HAVE_OPENCL) || defined(HAVE_ZTEX)
 /* Allow to set and select OpenCL device(s) or ztex boards */
@@ -387,6 +410,16 @@ struct options_main {
 	char *custom_mask[MAX_NUM_CUST_PLHDR];
 /* Tune options */
 	char *tune;
+/* Incremental CharCount override */
+	int charcount;
+/* Subsets full charset */
+	char *subset_full;
+/* Subsets, required first partition */
+	int subset_must;
+/* Subsets, min. diff */
+	int subset_min_diff;
+/* Subsets, max. diff */
+	int subset_max_diff;
 };
 
 extern struct options_main options;

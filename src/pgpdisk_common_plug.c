@@ -7,7 +7,6 @@
 #include "common.h"
 #include "pgpdisk_common.h"
 #include "sha.h"
-#include "memdbg.h"
 
 struct fmt_tests pgpdisk_tests[] = {
 	// Windows 7 + Symantec Encryption Desktop 10.4.1 MP1
@@ -104,4 +103,18 @@ void *pgpdisk_common_get_salt(char *ciphertext)
 	MEM_FREE(keeptr);
 
 	return (void *)&cs;
+}
+
+unsigned int pgpdisk_common_iteration_count(void *salt)
+{
+	struct custom_salt *cs = salt;
+
+	return (unsigned int)cs->iterations;
+}
+
+unsigned int pgpdisk_common_algorithm(void *salt)
+{
+	struct custom_salt *my_salt = salt;
+
+	return (unsigned int)my_salt->algorithm;
 }

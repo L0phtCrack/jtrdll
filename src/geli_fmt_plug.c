@@ -18,9 +18,6 @@ john_register_one(&fmt_geli);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
 #endif
 
 #include "arch.h"
@@ -34,7 +31,6 @@ john_register_one(&fmt_geli);
 #include "pbkdf2_hmac_sha512.h"
 #include "jumbo.h"
 #include "geli_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "geli"
 #define FORMAT_NAME             "FreeBSD GELI"
@@ -52,10 +48,14 @@ john_register_one(&fmt_geli);
 #define SALT_ALIGN              sizeof(int)
 #ifdef SIMD_COEF_64
 #define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA512
-#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA512
+#define MAX_KEYS_PER_CRYPT      (SSE_GROUP_SZ_SHA512 * 4)
 #else
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      4
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               4 // Tuned w/ MKPC for core i7
 #endif
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
@@ -64,9 +64,8 @@ static custom_salt *cur_salt;
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key),  self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	cracked_count = self->params.max_keys_per_crypt;
@@ -103,24 +102,24 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
-		unsigned char master[MAX_KEYS_PER_CRYPT][G_ELI_USERKEYLEN];
-		unsigned char key[MAX_KEYS_PER_CRYPT][G_ELI_USERKEYLEN];
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
+		unsigned char master[MIN_KEYS_PER_CRYPT][G_ELI_USERKEYLEN];
+		unsigned char key[MIN_KEYS_PER_CRYPT][G_ELI_USERKEYLEN];
 		int i;
 #ifdef SIMD_COEF_64
-		int lens[MAX_KEYS_PER_CRYPT];
-		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		int lens[MIN_KEYS_PER_CRYPT];
+		unsigned char *pin[MIN_KEYS_PER_CRYPT], *pout[MIN_KEYS_PER_CRYPT];
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			lens[i] = strlen(saved_key[index+i]);
 			pin[i] = (unsigned char*)saved_key[index+i];
 			pout[i] = master[i];
 		}
 		pbkdf2_sha512_sse((const unsigned char**)pin, lens, cur_salt->md_salt, G_ELI_SALTLEN, cur_salt->md_iterations, pout, G_ELI_USERKEYLEN, 0);
 #else
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i)
 			pbkdf2_sha512((unsigned char *)saved_key[index+i], strlen(saved_key[index+i]), cur_salt->md_salt, G_ELI_SALTLEN, cur_salt->md_iterations, master[i], G_ELI_USERKEYLEN, 0);
 #endif
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			JTR_hmac_sha512((const unsigned char*)"", 0, master[i], G_ELI_USERKEYLEN, key[i], G_ELI_USERKEYLEN);
 			cracked[index+i] = geli_decrypt_verify(cur_salt, key[i]);
 		}
@@ -164,7 +163,7 @@ struct fmt_main fmt_geli = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{
 			"iteration count",
 		},

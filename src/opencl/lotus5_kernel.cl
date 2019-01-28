@@ -7,16 +7,16 @@
  */
 
 #include "opencl_lotus5_fmt.h"
-#include "opencl_device_info.h"
+#include "opencl_misc.h"
 
 #if cpu(DEVICE_INFO)
-#define MAYBE_CONSTANT __constant
+#define MAYBE_LOCAL __constant
 #else
 #define USE_LOCAL      1
-#define MAYBE_CONSTANT __local const
+#define MAYBE_LOCAL __local const
 #endif
 
-static __constant uint magic_table[256] = {
+__constant uint magic_table[256] = {
   0xbd, 0x56, 0xea, 0xf2, 0xa2, 0xf1, 0xac, 0x2a,
   0xb0, 0x93, 0xd1, 0x9c, 0x1b, 0x33, 0xfd, 0xd0,
   0x30, 0x04, 0xb6, 0xdc, 0x7d, 0xdf, 0x32, 0x4b,
@@ -53,7 +53,7 @@ static __constant uint magic_table[256] = {
 
 inline void
 lotus_transform_password (unsigned int *i1, unsigned int *o1,
-                          MAYBE_CONSTANT unsigned int *lotus_magic_table)
+                          MAYBE_LOCAL unsigned int *lotus_magic_table)
 {
 	unsigned int p1;
 	int i;
@@ -72,7 +72,7 @@ lotus_transform_password (unsigned int *i1, unsigned int *o1,
 
 /* The mixing function: perturbs the first three rows of the matrix */
 inline void
-lotus_mix (unsigned int *m1, MAYBE_CONSTANT unsigned int *lotus_magic_table)
+lotus_mix (unsigned int *m1, MAYBE_LOCAL unsigned int *lotus_magic_table)
 {
 	int i, j, k;
 	unsigned int p1;

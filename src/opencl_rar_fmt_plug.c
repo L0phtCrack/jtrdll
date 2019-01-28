@@ -79,7 +79,7 @@ john_register_one(&fmt_ocl_rar);
 #include "unicode.h"
 #include "johnswap.h"
 #include "unrar.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "jumbo.h"
 
@@ -114,7 +114,6 @@ static int split_events[] = { 3, -1, -1 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 #define ITERATIONS		0x40000
 #define HASH_LOOPS		0x4000 // Max. 0x4000
@@ -311,18 +310,17 @@ static void reset(struct db_main *db)
 		                       UNICODE_LENGTH + sizeof(cl_int) * 14, 0, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, ITERATIONS, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, ITERATIONS, 0, 200);
 	}
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 	int k;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 	if (ocl_autotune_running || new_keys) {
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");
@@ -361,7 +359,7 @@ struct fmt_main fmt_ocl_rar = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		cpu_tests // Changed in init if GPU

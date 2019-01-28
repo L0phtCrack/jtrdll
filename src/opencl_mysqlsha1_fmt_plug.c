@@ -17,8 +17,7 @@ john_register_one(&FMT_STRUCT);
 #else
 
 #include <string.h>
-#include <assert.h>
-#if defined(_MSC_VER) && defined(JTRDLL)
+#if defined(_MSC_VER)
 #include <time.h>
 #include "gettimeofday.h"
 #else
@@ -30,7 +29,7 @@ john_register_one(&FMT_STRUCT);
 #include "path.h"
 #include "common.h"
 #include "formats.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "options.h"
 #include "base64_convert.h"
@@ -70,16 +69,15 @@ static cl_mem buffer_offset_table, buffer_hash_table, buffer_return_hashes, buff
 static OFFSET_TABLE_WORD *offset_table = NULL;
 static cl_uint *loaded_hashes = NULL, num_loaded_hashes, *hash_ids = NULL, *bitmaps = NULL;
 static unsigned int hash_table_size, offset_table_size, shift64_ht_sz, shift64_ot_sz, shift128_ht_sz, shift128_ot_sz;
-static cl_ulong bitmap_size_bits = 0;
+static cl_ulong bitmap_size_bits;
 
-static unsigned int key_idx = 0;
+static unsigned int key_idx;
 static struct fmt_main *self;
 static cl_uint *zero_buffer;
 
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
-#include "memdbg.h"
 
 static struct fmt_tests tests[] = {
 	{"*5AD8F88516BD021DD43F171E2C785C69F8E54ADB", "tere"},
@@ -166,7 +164,6 @@ static void create_clobj(void)
 		max_alloc_size_bytes >>= 1;
 	}
 	if (max_alloc_size_bytes >= 536870912) max_alloc_size_bytes = 536870912;
-	assert(!(max_alloc_size_bytes & (max_alloc_size_bytes - 1)));
 
 	if (!cache_size_bytes) cache_size_bytes = 1024;
 
@@ -276,7 +273,7 @@ static void init_kernel(unsigned int num_ld_hashes, char *bitmap_para)
 	shift128_ot_sz = shift128 % offset_table_size;
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges!= NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else
@@ -378,6 +375,7 @@ static int get_hash_6(int index) { return hash_table_192[hash_ids[3 + 3 * index]
 
 static void clear_keys(void)
 {
+	memset(saved_idx, 0, sizeof(cl_uint) * global_work_size);
 	key_idx = 0;
 }
 
@@ -440,7 +438,7 @@ static char *get_key(int index)
 		out[i] = *key++;
 	out[i] = 0;
 
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
+	if (len && mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			if (mask_gpu_is_static)
 				out[static_gpu_locations[i]] =
@@ -494,11 +492,11 @@ static void prepare_table(struct db_salt *salt) {
 		error();
 	}
 
-	num_loaded_hashes = create_perfect_hash_table(192, (void *)loaded_hashes,
-				num_loaded_hashes,
-			        &offset_table,
-			        &offset_table_size,
-			        &hash_table_size, 0);
+	num_loaded_hashes = create_perfect_hash_table(192, (void*)loaded_hashes,
+	                                              num_loaded_hashes,
+	                                              &offset_table,
+	                                              &offset_table_size,
+	                                              &hash_table_size, 0);
 
 	if (!num_loaded_hashes) {
 		MEM_FREE(hash_table_192);
@@ -588,7 +586,8 @@ static void prepare_bitmap_1(cl_ulong bmp_sz, cl_uint **bitmap_ptr)
 }
 
 static char* select_bitmap(unsigned int num_ld_hashes)
-{	static char kernel_params[200];
+{
+	static char kernel_params[200];
 	cl_ulong max_local_mem_sz_bytes = 0;
 	unsigned int cmp_steps = 2, use_local = 0;
 
@@ -602,12 +601,11 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 16384 ||
+			max_local_mem_sz_bytes < 32768 ||
 			cpu(device_info[gpu_id]))
 			bitmap_size_bits = 256 * 1024;
 
 		else {
-			bitmap_size_bits = 32 * 1024;
 			cmp_steps = 4;
 			use_local = 1;
 		}
@@ -619,12 +617,12 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 32768 ||
+			(platform_apple(platform_id) && gpu_nvidia(device_info[gpu_id])) ||
+			max_local_mem_sz_bytes < 65536 ||
 			cpu(device_info[gpu_id]))
 			bitmap_size_bits = 256 * 1024;
 
 		else {
-			bitmap_size_bits = 64 * 1024;
 			cmp_steps = 4;
 			use_local = 1;
 		}
@@ -635,7 +633,7 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 1024 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 32768)
+			max_local_mem_sz_bytes < 128 * 1024)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_vliw4(device_info[gpu_id]) ||
@@ -645,7 +643,6 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 		}
 
 		else {
-			bitmap_size_bits = 32 * 1024;
 			cmp_steps = 8;
 			use_local = 1;
 		}
@@ -685,11 +682,25 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 		}
 		if (buf_sz >= 536870912)
 			buf_sz = 536870912;
-		assert(!(buf_sz & (buf_sz - 1)));
 		if ((bitmap_size_bits >> 3) > buf_sz)
 			bitmap_size_bits = buf_sz << 3;
-		assert(!(bitmap_size_bits & (bitmap_size_bits - 1)));
 		cmp_steps = 1;
+	}
+
+	if (use_local) {
+		/*
+		 * bitmap_size_bits must be even log2.  We can't count on allocating
+		 * ALL local memory so need to settle for, worst case, half of it.
+		 */
+		bitmap_size_bits = 1;
+		while ((bitmap_size_bits << 1) < max_local_mem_sz_bytes)
+			bitmap_size_bits <<= 1;
+
+		/* Limit to usable local mem size */
+		while ((bitmap_size_bits >> 1) * cmp_steps > bitmap_size_bits)
+			cmp_steps--;
+
+		//fprintf(stderr, "\nPicked bitmap size %u steps %u max mem usage %zu of %zu\n", (uint32_t)bitmap_size_bits, (uint32_t)cmp_steps, (bitmap_size_bits >> 3) * cmp_steps * sizeof(int), get_local_memory_size(gpu_id));
 	}
 
 	if (cmp_steps == 1)
@@ -702,8 +713,8 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 		prepare_bitmap_8(bitmap_size_bits, &bitmaps);
 
 	sprintf(kernel_params,
-		"-DSELECT_CMP_STEPS=%u"
-		" -DBITMAP_SIZE_BITS_LESS_ONE="LLu" -DUSE_LOCAL_BITMAPS=%u",
+		"-D SELECT_CMP_STEPS=%u"
+		" -D BITMAP_SIZE_BITS_LESS_ONE="LLu" -D USE_LOCAL_BITMAPS=%u",
 		cmp_steps, (unsigned long long)bitmap_size_bits - 1, use_local);
 
 	bitmap_size_bits *= cmp_steps;
@@ -714,12 +725,10 @@ static char* select_bitmap(unsigned int num_ld_hashes)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	size_t *lws = (local_work_size && !(count % local_work_size)) ?
+		&local_work_size : NULL;
 
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand%d\n", __FUNCTION__, count, local_work_size, global_work_size, key_idx, mask_int_cand.num_int_cand);
+	global_work_size = count;
 
 	// copy keys to the device
 	if (key_idx)
@@ -887,6 +896,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	if (tune_gws) {
 		create_clobj_kpc(pcount);
 		set_kernel_args_kpc();
+		clear_keys();
 		for (i = 0; i < pcount; i++)
 			set_key(key, i);
 		gettimeofday(&startc, NULL);
@@ -961,7 +971,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	/* Auto tune finish.*/
 
 	if (global_work_size % local_work_size) {
-		global_work_size = GET_MULTIPLE_OR_BIGGER(global_work_size, local_work_size);
+		global_work_size = GET_NEXT_MULTIPLE(global_work_size, local_work_size);
 		get_power_of_two(global_work_size);
 		release_clobj_kpc();
 		if (global_work_size > gws_limit)
@@ -977,11 +987,6 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	}
 
 	clear_keys();
-
-	assert(!(local_work_size & (local_work_size -1)));
-	assert(!(global_work_size % local_work_size));
-	assert(local_work_size <= lws_limit);
-	assert(global_work_size <= gws_limit);
 
 	self->params.max_keys_per_crypt = global_work_size;
 	if (options.verbosity > VERB_LEGACY)
@@ -1010,12 +1015,12 @@ static void reset(struct db_main *db)
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_offset_table, CL_TRUE, 0, sizeof(OFFSET_TABLE_WORD) * offset_table_size, offset_table, 0, NULL, NULL), "failed in clEnqueueWriteBuffer buffer_offset_table.");
 		HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_hash_table, CL_TRUE, 0, sizeof(cl_uint) * hash_table_size * 2, hash_table_192, 0, NULL, NULL), "failed in clEnqueueWriteBuffer buffer_hash_table.");
 
-		auto_tune(db, 300);
+		auto_tune(db, 100);
 	}
 	else {
 		unsigned int *binary, i = 0;
 		char *ciphertext;
-		int tune_time = (options.flags & FLG_MASK_CHK) ? 300 : 50;
+		int tune_time = (options.flags & FLG_MASK_CHK) ? 100 : 50;
 
 		while (tests[num_loaded_hashes].ciphertext != NULL)
 			num_loaded_hashes++;
@@ -1080,7 +1085,7 @@ struct fmt_main FMT_STRUCT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_REMOVE,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

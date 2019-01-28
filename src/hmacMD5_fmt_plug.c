@@ -7,22 +7,18 @@
  */
 
 #if FMT_EXTERNS_H
-extern struct fmt_main fmt_hmacMD5;
+extern struct fmt_main fmt__hmacMD5;
 #elif FMT_REGISTERS_H
-john_register_one(&fmt_hmacMD5);
+john_register_one(&fmt__hmacMD5);
 #else
 
 #include <string.h>
 
-#include "arch.h"
-
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE 2048 // tuned for i7 using SSE2 and w/o HT
-#endif
 #endif
 
+#include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -31,7 +27,6 @@ john_register_one(&fmt_hmacMD5);
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "base64_convert.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "HMAC-MD5"
 #define FORMAT_NAME             ""
@@ -65,7 +60,7 @@ john_register_one(&fmt_hmacMD5);
 
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      MD5_N
-#define MAX_KEYS_PER_CRYPT      MD5_N
+#define MAX_KEYS_PER_CRYPT      (MD5_N * 128)
 #if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i&63) & (0xffffffff - 3)) * SIMD_COEF_32 + ((i&63) & 3) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE * SIMD_COEF_32)
 #else
@@ -74,7 +69,11 @@ john_register_one(&fmt_hmacMD5);
 
 #else
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      256
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE 2 // tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests tests[] = {
@@ -130,9 +129,9 @@ static void init(struct fmt_main *self)
 #ifdef SIMD_COEF_32
 	unsigned int i;
 #endif
-#ifdef _OPENMP
+
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 #ifdef SIMD_COEF_32
 	bufsize = sizeof(*opad) * self->params.max_keys_per_crypt * PAD_SIZE;
 	crypt_key = mem_calloc_align(1, bufsize, MEM_ALIGN_SIMD);
@@ -440,7 +439,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 #ifdef SIMD_COEF_32
 		int i;
 
@@ -546,7 +545,7 @@ static void *get_salt(char *ciphertext)
 #endif
 }
 
-struct fmt_main fmt_hmacMD5 = {
+struct fmt_main fmt__hmacMD5 = {
 	{
 		FORMAT_LABEL,
 		FORMAT_NAME,

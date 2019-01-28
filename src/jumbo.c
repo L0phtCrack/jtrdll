@@ -24,7 +24,6 @@
 #endif
 
 #include "params.h"
-#include "memdbg.h"
 
 /*
  * For used in jtr_basename_r function.  We need to handle separator chars
@@ -37,7 +36,7 @@
 #endif
 
 
-#ifdef _MSC_VER
+#if  (_MSC_VER) && (_MSC_VER < 1900)
 // we will simply fix the broken _snprintf.  In VC, it will not null terminate buffers that get
 // truncated, AND the return is - if we truncate.  We fix both of these issues, and bring snprintf
 // for VC up to C99 standard.
@@ -443,4 +442,19 @@ int check_pkcs_pad(const unsigned char* data, size_t len, int blocksize)
 			return -1;
 
 	return real_len;
+}
+
+int parse_bool(char *string)
+{
+	if (string) {
+		if (!strcasecmp(string, "y") || !strcasecmp(string, "yes") ||
+		    !strcasecmp(string, "t") || !strcasecmp(string, "true") ||
+		    !strcasecmp(string, "1"))
+			return 1;
+		if (!strcasecmp(string, "n") || !strcasecmp(string, "no") ||
+		    !strcasecmp(string, "f") || !strcasecmp(string, "false") ||
+		    !strcasecmp(string, "0"))
+			return 0;
+	}
+	return -1;
 }

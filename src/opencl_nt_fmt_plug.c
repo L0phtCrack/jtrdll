@@ -30,7 +30,7 @@ john_register_one(&fmt_opencl_NT);
 
 #include <string.h>
 #include <assert.h>
-#if defined(JTRDLL) && defined(_MSC_VER)
+#if defined(_MSC_VER)
 #include<gettimeofday.h>
 #else
 #include <sys/time.h>
@@ -47,8 +47,8 @@ john_register_one(&fmt_opencl_NT);
 #include "mask_ext.h"
 #include "opencl_hash_check_128.h"
 
-#define FORMAT_LABEL        "nt-opencl"
-#define FORMAT_NAME         "NT"
+#define FORMAT_LABEL        "NT-opencl"
+#define FORMAT_NAME         ""
 #define FORMAT_TAG          "$NT$"
 #define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME      "MD4 OpenCL"
@@ -145,7 +145,6 @@ static const char * warn[] = {
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -271,7 +270,7 @@ static void init_kernel(unsigned int num_ld_hashes, char *bitmap_para)
 	shift64_ot_sz = (((1ULL << 63) % offset_table_size) * 2) % offset_table_size;
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges!= NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else
@@ -514,7 +513,7 @@ static char *get_key(int index)
 		out[i] = *key++;
 	out[i] = 0;
 
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
+	if (len && mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			if (mask_gpu_is_static)
 				out[static_gpu_locations[i]] =
@@ -530,22 +529,21 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	size_t *lws = (local_work_size && !(count % local_work_size)) ?
+		&local_work_size : NULL;
 
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand %d\n", __FUNCTION__, count, local_work_size, gws, key_idx, mask_int_cand.num_int_cand);
+	global_work_size = count;
 
 	// copy keys to the device
 	if (key_idx)
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_keys, CL_FALSE, 0, 4 * key_idx, saved_plain, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer buffer_keys.");
 
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_idx, CL_FALSE, 0, 4 * gws, saved_idx, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer buffer_idx.");
+	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_idx, CL_FALSE, 0, 4 * global_work_size, saved_idx, 0, NULL, multi_profilingEvent[1]), "failed in clEnqueueWriteBuffer buffer_idx.");
 
 	if (!mask_gpu_is_static)
-		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_int_key_loc, CL_FALSE, 0, 4 * gws, saved_int_key_loc, 0, NULL, NULL), "failed in clEnqueueWriteBuffer buffer_int_key_loc.");
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], buffer_int_key_loc, CL_FALSE, 0, 4 * global_work_size, saved_int_key_loc, 0, NULL, NULL), "failed in clEnqueueWriteBuffer buffer_int_key_loc.");
 
-	return ocl_hc_128_extract_info(salt, set_kernel_args, set_kernel_args_kpc, init_kernel, gws, lws, pcount);
+	return ocl_hc_128_extract_info(salt, set_kernel_args, set_kernel_args_kpc, init_kernel, global_work_size, lws, pcount);
 }
 
 static void reset(struct db_main *db)
@@ -591,7 +589,7 @@ static void reset(struct db_main *db)
 	                       2 * BUFSIZE, gws_limit, db);
 
 	// Auto tune execution from shared/included code.
-	autotune_run_extra(self, 1, gws_limit, 300, CL_TRUE);
+	autotune_run_extra(self, 1, gws_limit, 200, CL_TRUE);
 }
 
 struct fmt_main fmt_opencl_NT = {
@@ -609,7 +607,7 @@ struct fmt_main fmt_opencl_NT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8 | FMT_REMOVE,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

@@ -47,7 +47,6 @@
 #endif
 #include "params.h"
 #include "memory.h"
-#include "memdbg.h"
 
 #include "sha2.h"
 #include "base64_convert.h"
@@ -126,10 +125,10 @@ static uint64_t BytesToUInt64(unsigned char * s, const int s_size)
 
 static uint32_t fget32(FILE * fp)
 {
-	uint32_t v = fgetc(fp);
-	v |= fgetc(fp) << 8;
-	v |= fgetc(fp) << 16;
-	v |= fgetc(fp) << 24;
+	uint32_t v = (uint32_t)fgetc(fp);
+	v |= (uint32_t)fgetc(fp) << 8;
+	v |= (uint32_t)fgetc(fp) << 16;
+	v |= (uint32_t)fgetc(fp) << 24;
 	return v;
 }
 
@@ -365,7 +364,7 @@ static void process_database(char* encryptedDatabase)
 	}
 	endReached = 0;
 	while (!endReached) {
-		int32_t uSize;
+		uint32_t uSize;
 		unsigned char btFieldID = fgetc(fp);
 		enum Kdb4HeaderFieldID kdbID = btFieldID;
 		unsigned char *pbData = NULL;
@@ -375,10 +374,6 @@ static void process_database(char* encryptedDatabase)
 		else
 			uSize = fget32(fp);
 
-		if (uSize < 0) {
-			fprintf(stderr, "error validating uSize, is the database corrupt?\n");
-			goto bailout;
-		}
 		if (fsize * 64 < uSize) {
 			fprintf(stderr, "uSize too large, is the database corrupt?\n");
 			goto bailout;
@@ -604,7 +599,6 @@ int main(int argc, char **argv)
 	while(argc--)
 		process_database(*argv++);
 
-	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 	return 0;
 }
 #endif

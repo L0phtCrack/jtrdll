@@ -28,9 +28,6 @@ john_register_one(&fmt_sapG);
 #endif
 
 #include "arch.h"
-#ifdef SIMD_COEF_32
-#define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_SHA1)
-#endif
 #include "simd-intrinsics.h"
 #include "misc.h"
 #include "common.h"
@@ -39,15 +36,7 @@ john_register_one(&fmt_sapG);
 #include "options.h"
 #include "unicode.h"
 #include "johnswap.h"
-#include "memdbg.h"
-
-#ifndef OMP_SCALE
-#if defined (SIMD_COEF_32)
-#define OMP_SCALE               32
-#else
-#define OMP_SCALE               2048
-#endif
-#endif
+#include "config.h"
 
 #define FORMAT_LABEL            "sapg"
 #define FORMAT_NAME             "SAP CODVN F/G (PASSCODE)"
@@ -66,9 +55,7 @@ john_register_one(&fmt_sapG);
 #define CIPHERTEXT_LENGTH       (SALT_LENGTH + 1 + 2*BINARY_SIZE)    /* SALT + $ + 2x20 bytes for SHA1-representation */
 
 #ifdef SIMD_COEF_32
-#define MIN_KEYS_PER_CRYPT      NBKEYS
-// max keys increased to allow sorting based on limb counts
-#define MAX_KEYS_PER_CRYPT      NBKEYS*64
+#define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_SHA1)
 #define GETWORDPOS(i, index)    ( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
 #define GETSTARTPOS(index)      ( (index&(SIMD_COEF_32-1))*4 +                         (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 )
 #define GETOUTSTARTPOS(index)   ( (index&(SIMD_COEF_32-1))*4 +                         (unsigned int)index/SIMD_COEF_32*20*SIMD_COEF_32 )
@@ -77,12 +64,21 @@ john_register_one(&fmt_sapG);
 #else
 #define GETPOS(i, index)        ( (index&(SIMD_COEF_32-1))*4 + ((i)&60)*SIMD_COEF_32 +             ((i)&3) + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32 ) //for endianity conversion
 #endif
+#define MIN_KEYS_PER_CRYPT      NBKEYS
+// max keys increased to allow sorting based on limb counts
+#define MAX_KEYS_PER_CRYPT      (NBKEYS * 64)
 #else
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      32
 #endif
 
-static unsigned int threads = 1;
+#ifndef OMP_SCALE
+#if defined (SIMD_COEF_32)
+#define OMP_SCALE               4 // Tuned w/ MKPC for core i7
+#else
+#define OMP_SCALE               16
+#endif
+#endif
 
 //this array is from disp+work (sap's worker process)
 #define MAGIC_ARRAY_SIZE 160
@@ -125,6 +121,12 @@ static UTF8 (*saved_plain)[UTF8_PLAINTEXT_LENGTH + 1];
 static int *keyLen;
 static int max_keys;
 
+/*
+ * If john.conf option 'SAPhalfHash' is true, we support 'half hashes' from
+ * the RFC_READ table. This means second half of the hash are zeros.
+ */
+static int half_hashes;
+
 #ifdef SIMD_COEF_32
 
 // max intermediate crypt size is 256 bytes
@@ -149,33 +151,22 @@ static struct saltstruct {
 
 static void init(struct fmt_main *self)
 {
-	static int warned = 0;
 #ifdef SIMD_COEF_32
 	int i;
 #endif
+
+	half_hashes = cfg_get_bool(SECTION_OPTIONS, NULL, "SAPhalfHashes", 0);
+
 	// This is needed in order NOT to upper-case german double-s
 	// in UTF-8 mode.
 	initUnicode(UNICODE_MS_NEW);
-
-	if (!options.listconf && options.target_enc != UTF_8 &&
-	    !(options.flags & FLG_TEST_CHK) && warned++ == 0)
-		fprintf(stderr, "Warning: SAP-F/G format should always be UTF-8.\n"
-		        "Use --target-encoding=utf8\n");
 
 	// Max 40 characters or 125 bytes of UTF-8, We actually do not truncate
 	// multibyte input at 40 characters later because it's too expensive.
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = UTF8_PLAINTEXT_LENGTH;
 
-#if defined (_OPENMP)
-	threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
-#endif
+	omp_autotune(self, OMP_SCALE);
 
 	max_keys = self->params.max_keys_per_crypt;
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
@@ -287,7 +278,7 @@ static void *get_salt(char *ciphertext)
 
 static void clear_keys(void)
 {
-	memset(keyLen, 0, sizeof(*keyLen) * threads * MAX_KEYS_PER_CRYPT);
+	memset(keyLen, 0, sizeof(*keyLen) * max_keys);
 }
 
 static void set_key(char *key, int index)
@@ -314,17 +305,16 @@ static int cmp_all(void *binary, int count) {
 #else
 	unsigned int index;
 	for (index = 0; index < count; index++)
-		if (!memcmp(binary, crypt_key[index], BINARY_SIZE))
+		if (!memcmp(binary, crypt_key[index], BINARY_SIZE / 2))
 			return 1;
 	return 0;
 #endif
 }
 
-static int cmp_exact(char *source, int index)
-{
-	return 1;
-}
-
+/*
+ * We support 'half hashes' from the RFC_READ table. This means second half
+ * of the hash are zeros.
+ */
 static int cmp_one(void *binary, int index)
 {
 #ifdef SIMD_COEF_32
@@ -333,15 +323,33 @@ static int cmp_one(void *binary, int index)
 	y = (unsigned int)index/SIMD_COEF_32;
 
 	if ( (((unsigned int*)binary)[0] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5])   |
-	    (((unsigned int*)binary)[1] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+SIMD_COEF_32]) |
-	    (((unsigned int*)binary)[2] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+2*SIMD_COEF_32]) |
-	    (((unsigned int*)binary)[3] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+3*SIMD_COEF_32])|
-	    (((unsigned int*)binary)[4] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+4*SIMD_COEF_32]) )
+	     (((unsigned int*)binary)[1] != ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+SIMD_COEF_32]))
 		return 0;
-	return 1;
+	if ((((unsigned int*)binary)[2] == ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+2*SIMD_COEF_32]) &&
+	    (((unsigned int*)binary)[3] == ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+3*SIMD_COEF_32]) &&
+		 (((unsigned int*)binary)[4] == ((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+4*SIMD_COEF_32]) )
+		return 1;
+	if (half_hashes &&
+	    ((((unsigned int*)binary)[2] >> 16) == (((unsigned int*)crypt_key)[x+y*SIMD_COEF_32*5+2*SIMD_COEF_32] >> 16)) &&
+	    ((((unsigned int*)binary)[2] & 0xffff) == 0) &&
+	    (((unsigned int*)binary)[3] == 0) && (((unsigned int*)binary)[4] == 0))
+		return 1;
+	return 0;
 #else
-	return !memcmp(binary, crypt_key[index], BINARY_SIZE);
+	const char zeros[BINARY_SIZE / 2] = { 0 };
+
+	if (half_hashes)
+		return (!memcmp(binary, crypt_key[index], BINARY_SIZE) ||
+		        (!memcmp(binary, crypt_key[index], BINARY_SIZE / 2) &&
+		         !memcmp(((unsigned char*)binary) + BINARY_SIZE / 2, zeros, BINARY_SIZE / 2)));
+	else
+		return (!memcmp(binary, crypt_key[index], BINARY_SIZE));
 #endif
+}
+
+static int cmp_exact(char *source, int index)
+{
+	return 1;
 }
 
 /*
@@ -644,14 +652,11 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 #else
 
-#ifdef _OPENMP
 	int index;
+#ifdef _OPENMP
 #pragma omp parallel for
-	for (index = 0; index < count; index++)
-#else
-#define index 0
 #endif
-	{
+	for (index = 0; index < count; index++) {
 		unsigned int offsetMagicArray, lengthIntoMagicArray;
 		unsigned char temp_key[BINARY_SIZE];
 		unsigned char tempVar[UTF8_PLAINTEXT_LENGTH + MAGIC_ARRAY_SIZE + SALT_LENGTH]; //max size...

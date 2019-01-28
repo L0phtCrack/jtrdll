@@ -32,7 +32,7 @@ john_register_one(&fmt_opencl_bitlocker);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "bitlocker_common.h"
 #include "bitlocker_variable_code.h"
 
@@ -110,7 +110,6 @@ static unsigned char *h_pswC, *h_vmkIV, *h_mac, *h_macIV, *h_cMacIV;
 static int w_block_precomputed(unsigned char *salt);
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
@@ -345,9 +344,8 @@ static void reset(struct db_main *db)
 		                       BITLOCKER_INT_HASH_SIZE * sizeof(unsigned int),
 		                       0, db);
 
-		autotune_run(self, ITERATIONS, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		/* Autotune for max. 20ms single-call duration (5 for CPU device) */
+		autotune_run(self, ITERATIONS, 0, (cpu(device_info[gpu_id]) ? 5 : 20));
 	}
 }
 
@@ -373,7 +371,7 @@ static int w_block_precomputed(unsigned char *salt)
 	if (salt == NULL)
 		return 0;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(1, local_work_size); //count
+	global_work_size = GET_NEXT_MULTIPLE(1, local_work_size); //count
 
 	padding =
 	    (unsigned char *)calloc(BITLOCKER_PADDING_SIZE, sizeof(unsigned char));
@@ -445,7 +443,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int i, startIndex=0, h_loopHash=0;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	h_found[0] = -1;
 	h_loopIter=cur_salt->iterations/HASH_LOOPS;
 	if(cur_salt->iterations%HASH_LOOPS != 0) h_loopIter++;
@@ -617,7 +615,7 @@ static int cmp_exact(char *source, int index)
 static void set_key(char *key, int index)
 {
 	int j=0, k=0, size=0, count=0;
-	char tmp[BITLOCKER_PSW_CHAR_MAX_SIZE], tmp2[BITLOCKER_PSW_CHAR_MAX_SIZE], *p;
+	char tmp[BITLOCKER_PSW_CHAR_MAX_SIZE + 1], tmp2[BITLOCKER_PSW_CHAR_MAX_SIZE], *p;
 	int8_t check_digit;
 	memset(tmp, 0, BITLOCKER_PSW_CHAR_MAX_SIZE);
 

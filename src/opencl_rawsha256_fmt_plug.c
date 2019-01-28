@@ -26,7 +26,7 @@ john_register_one(&fmt_opencl_rawsha256);
 #include "sha.h"
 #include "sha2.h"
 #include "johnswap.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "options.h"
 #include "opencl_rawsha256.h"
@@ -35,7 +35,7 @@ john_register_one(&fmt_opencl_rawsha256);
 #include "mask_ext.h"
 #include "opencl_mask_extras.h"
 
-#define FORMAT_LABEL            "Raw-SHA256-opencl"
+#define FORMAT_LABEL            "raw-SHA256-opencl"
 #define FORMAT_NAME             ""
 
 #define ALGORITHM_NAME          "SHA256 OpenCL"
@@ -89,7 +89,6 @@ static void release_mask_buffers(void);
 
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -307,10 +306,10 @@ static void tune(struct db_main *db)
 {
 	char *tmp_value;
 	size_t gws_limit;
-	unsigned long long autotune_limit = 500ULL;
+	int autotune_limit = 200;
 
 	if ((tmp_value = getenv("_GPU_AUTOTUNE_LIMIT")))
-		autotune_limit = (unsigned long long)atoll(tmp_value);
+		autotune_limit = atoi(tmp_value);
 
 	// Auto-tune / Benckmark / Self-test.
 	gws_limit = MIN((0xf << 22) * 4 / BUFFER_SIZE,
@@ -332,7 +331,7 @@ static void tune(struct db_main *db)
 
 static void reset(struct db_main *db)
 {
-	static size_t saved_lws, saved_gws;
+	static size_t saved_lws, saved_gws, should_tune;
 
 	offset = 0;
 	offset_idx = 0;
@@ -347,24 +346,38 @@ static void reset(struct db_main *db)
 	//Adjust kernel parameters and rebuild (if necessary).
 	build_kernel();
 
-	if (!autotuned) {
+	if (!should_tune) {
 		/* Read LWS/GWS prefs from config or environment */
 		opencl_get_user_preferences(FORMAT_LABEL);
 
 		//Save the local and global work sizes.
 		saved_lws = local_work_size;
 		saved_gws = global_work_size;
+	}
 
-		//GPU mask mode in use, do not auto tune for self test.
-		//Instead, use sane defauts. Real tune is going to be made below.
-		if ((options.flags & FLG_MASK_CHK) &&
-		   !((options.flags & FLG_TEST_CHK) || (options.flags & FLG_NOTESTS)))
-			opencl_get_sane_lws_gws_values();
-
+	/*
+	 * First reset() call. Don't run autotune.
+	 *    -> If self test is running.
+	 *    -> If --skip-self-test is running.
+	 *    -> And if benchmark is NOT running.
+	 *   Instead, use sane defauts. Tune is going to run later/below.
+	 */
+	if (!should_tune && (self_test_running || options.flags & FLG_NOTESTS) &&
+	    !benchmark_running) {
+		opencl_get_sane_lws_gws_values();
 		tune(db);
 
+		//Tune later.
+		autotuned = 0;
+	} else if (!autotuned) {
+		//Retrieve LWS/GWS prefs saved on first round
+		local_work_size = saved_lws;
+		global_work_size = saved_gws;
+
+		tune(db);
 	} else if ((options.flags & FLG_MASK_CHK)) {
-		//Tune for mask mode.
+		//Tune for mask mode (for each mask change).
+		// auto-tune for eg. ?a and then a reset for re-tuning for ?a?a
 		local_work_size = saved_lws;
 		global_work_size = saved_gws;
 
@@ -376,6 +389,7 @@ static void reset(struct db_main *db)
 
 		create_clobj(global_work_size, self);
 	}
+	should_tune++;
 	hash_ids[0] = 0;
 	load_hash();
 }
@@ -467,8 +481,8 @@ static char *get_key(int index)
 	memcpy(ret, ((char *)&plaintext[saved_idx[t] >> 6]), PLAINTEXT_LENGTH);
 	ret[saved_idx[t] & 63] = '\0';
 
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
-
+	if (saved_idx[t] & 63 &&
+	    mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			ret[(saved_int_key_loc[t] & (0xff << (i * 8))) >> (i * 8)] =
 			    mask_int_cand.int_cand[int_index].x[i];
@@ -608,10 +622,10 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 {
 	const int count = *pcount;
 	const struct db_salt *salt = _salt;
-	size_t gws, initial = 128;
-	size_t *lws = local_work_size ? &local_work_size : &initial;
+	size_t gws;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	gws = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	//Check if any password was cracked and reload (if necessary)
 	if (num_loaded_hashes != salt->count)
@@ -760,7 +774,7 @@ struct fmt_main fmt_opencl_rawsha256 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_MASK,
 		{NULL},
 		{
 			HEX_TAG,

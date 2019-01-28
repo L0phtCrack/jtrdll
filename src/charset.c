@@ -23,7 +23,6 @@
 #include "loader.h"
 #include "external.h"
 #include "charset.h"
-#include "memdbg.h"
 
 typedef unsigned int (*char_counters)
 	[CHARSET_SIZE + 1][CHARSET_SIZE + 1][CHARSET_SIZE];
@@ -666,7 +665,7 @@ static void charset_generate_all(struct list_main **lists, char *charset)
 
 	fflush(file);
 	if (!ferror(file) && !fseek(file, 0, SEEK_SET)) {
-		strncpy(header->version, CHARSET_V, sizeof(header->version));
+		memcpy(header->version, CHARSET_V, strlen(CHARSET_V));
 		header->min = CHARSET_MIN;
 		header->max = CHARSET_MAX;
 		header->length = CHARSET_LENGTH;

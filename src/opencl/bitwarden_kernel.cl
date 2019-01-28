@@ -8,18 +8,17 @@
  */
 
 #include "pbkdf2_hmac_sha256_kernel.cl"
-#define AES_KEY_TYPE __global
-#define OCL_AES_CBC_DECRYPT 1
-#define AES_SRC_TYPE __constant
+#define AES_KEY_TYPE __global const
+#define AES_SRC_TYPE MAYBE_CONSTANT
 #include "opencl_aes.h"
 
 /*
- * Note that this struct must match the one in pbkdf2_hmac_sha256_kernel.cl
- * but some added stuff can be appended to the original salt structure.
+ * Note that this struct includes the one in opencl_pbkdf2_hmac_sha256.h
+ * and custom stuff appended.
  */
 typedef struct {
-        // PBKDF2 salt
-	salt_t pbkdf2_salt;
+	// PBKDF2 salt
+	salt_t pbkdf2;
 
 	// bitwarden extension
 	union {
@@ -28,9 +27,9 @@ typedef struct {
 	} blob;
 } bitwarden_salt_t;
 
-__kernel void bitwarden_decrypt(__constant bitwarden_salt_t *salt,
-                           __global crack_t *out,
-                           __global uint32_t *cracked)
+__kernel void bitwarden_decrypt(MAYBE_CONSTANT bitwarden_salt_t *salt,
+                                __global crack_t *out,
+                                __global uint32_t *cracked)
 {
 	uint32_t gid = get_global_id(0);
 	int32_t i;
@@ -42,7 +41,7 @@ __kernel void bitwarden_decrypt(__constant bitwarden_salt_t *salt,
 	uint8_t iv[16] = { 0 }; // does not matter
 	int success = 1; // hash was cracked
 
-	AES_set_decrypt_key((__global uchar*)out[gid].hash, 256, &akey);
+	AES_set_decrypt_key(out[gid].hash, 256, &akey);
 	AES_cbc_decrypt(salt->blob.chr, plaintext.c, 32, &akey, iv);
 
 	// Check padding

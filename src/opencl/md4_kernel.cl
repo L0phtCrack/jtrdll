@@ -21,20 +21,32 @@
 #include "opencl_misc.h"
 #include "opencl_mask.h"
 
-/* The basic MD4 functions */
-#ifdef USE_BITSELECT
-#define F(x, y, z)	bitselect((z), (y), (x))
-#else
-#if HAVE_ANDNOT
-#define F(x, y, z) ((x & y) ^ ((~x) & z))
-#else
-#define F(x, y, z) (z ^ (x & (y ^ z)))
-#endif
-#endif
-#define G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
+#undef MD4_LUT3 /* No good for this format, just here for reference */
 
+/* The basic MD4 functions */
+#if MD4_LUT3
+#define F(x, y, z)	lut3(x, y, z, 0xca)
+#elif USE_BITSELECT
+#define F(x, y, z)	bitselect((z), (y), (x))
+#elif HAVE_ANDNOT
+#define F(x, y, z)	((x & y) ^ ((~x) & z))
+#else
+#define F(x, y, z)	(z ^ (x & (y ^ z)))
+#endif
+
+#if MD4_LUT3
+#define G(x, y, z)	lut3(x, y, z, 0xe8)
+#else
+#define G(x, y, z)	(((x) & ((y) | (z))) | ((y) & (z)))
+#endif
+
+#if MD4_LUT3
+#define H(x, y, z)	lut3(x, y, z, 0x96)
+#define H2 H
+#else
 #define H(x, y, z)	(((x) ^ (y)) ^ (z))
 #define H2(x, y, z)	((x) ^ ((y) ^ (z)))
+#endif
 
 /* The MD4 transformation for all three rounds. */
 #define STEP(f, a, b, c, d, x, s)	  \
@@ -283,9 +295,10 @@ __kernel void md4(__global uint *keys,
 #if USE_LOCAL_BITMAPS
 	uint lid = get_local_id(0);
 	uint lws = get_local_size(0);
-	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS];
+	/* We must allocate for the possibility of non-log2 LWS */
+	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 4) * SELECT_CMP_STEPS];
 
-	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
+	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS + lws - 1) / lws); i++)
 		s_bitmaps[i*lws + lid] = bitmaps[i*lws + lid];
 
 	barrier(CLK_LOCAL_MEM_FENCE);

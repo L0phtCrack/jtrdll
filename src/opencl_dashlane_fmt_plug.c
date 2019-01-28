@@ -34,7 +34,7 @@ john_register_one(&fmt_opencl_dashlane);
 #include "dashlane_common.h"
 #include "options.h"
 #include "jumbo.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "misc.h"
 #define OUTLEN (32)
 #include "opencl_pbkdf2_hmac_sha1.h"
@@ -91,7 +91,6 @@ static int split_events[] = { 2, -1, -1 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -166,7 +165,7 @@ static void done(void)
 
 static void init(struct fmt_main *_self)
 {
-	static char valgo[sizeof(ALGORITHM_NAME) + 8] = "";
+	static char valgo[sizeof(ALGORITHM_NAME) + 12] = "";
 
 	self = _self;
 
@@ -210,9 +209,7 @@ static void reset(struct db_main *db)
 		                       ocl_v_width * sizeof(pbkdf2_state), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0, 200);
 	}
 }
 
@@ -262,7 +259,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	scalar_gws = global_work_size * ocl_v_width;
 
 	if (any_cracked) {

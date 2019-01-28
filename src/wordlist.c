@@ -81,7 +81,6 @@
 #include "regex.h"
 #include "mask.h"
 #include "pseudo_intrinsics.h"
-#include "memdbg.h"
 
 #ifdef JTRDLL
 #include "jtrdll.h"
@@ -119,8 +118,6 @@ static char *mem_map, *map_pos, *map_end, *map_scan_end;
 // used for file in 'memory buffer' mode (ready to use array)
 static char *word_file_str, **words;
 static int64_t nWordFileLines;
-
-extern int rpp_real_run; /* set to 1 when we really get into wordlist mode */
 
 static void save_state(FILE *file)
 {
@@ -395,6 +392,9 @@ static double get_progress(void)
 	int64_t pos;
 	uint64_t size;
 	uint64_t mask_mult = mask_tot_cand ? mask_tot_cand : 1;
+	uint64_t tot_rules = rule_count * crk_stacked_rule_count;
+	uint64_t tot_rule_number =
+		rule_number * crk_stacked_rule_count + rules_stacked_number;
 
 	emms();
 
@@ -417,9 +417,7 @@ static double get_progress(void)
 		jtr_fseek64(word_file, 0, SEEK_END);
 		size = jtr_ftell64(word_file);
 		jtr_fseek64(word_file, pos, SEEK_SET);
-#if 0
-		fprintf(stderr, "pos=%"PRId64"  size=%"PRIu64"  percent=%0.4f\n", pos, size, (100.0 * ((rule_number * (double)size) + pos) /(rule_count * (double)size)));
-#endif
+
 		if (pos < 0) {
 #ifdef __DJGPP__
 			if (pos != -1)
@@ -429,12 +427,9 @@ static double get_progress(void)
 				pexit(STR_MACRO(jtr_ftell64));
 		}
 	}
-#if 0
-	fprintf(stderr, "rule %d/%d mask %"PRIu64" pos %"PRId64"/%"PRIu64"\n",
-	        rule_number, rule_count, mask_mult, pos, size);
-#endif
-	return (100.0 * ((rule_number * size * mask_mult) + pos * mask_mult) /
-	        (rule_count * size * mask_mult));
+
+	return (100.0 * ((tot_rule_number * size * mask_mult) + pos * mask_mult) /
+	        (tot_rules * size * mask_mult));
 }
 
 static char *dummy_rules_apply(char *word, char *rule, int split, char *last)
@@ -613,10 +608,8 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	int do_lmloop = loopBack && db->plaintexts->head;
 	long my_size = 0;
 	unsigned int myWordFileLines = 0;
-	int maxlength = options.force_maxlength;
-	int minlength = (options.req_minlength >= 0) ?
-		options.req_minlength : 0;
-	int rules_length;
+	int skip_length = options.force_maxlength;
+	int min_length = options.eff_minlength;
 #if HAVE_REXGEN
 	char *regex_alpha = 0;
 	int regex_case = 0;
@@ -626,22 +619,20 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	log_event("Proceeding with %s mode",
 	          loopBack ? "loopback" : "wordlist");
 
-	if (options.activewordlistrules)
+	if (options.activewordlistrules) {
+		if (loopBack && john_main_process)
+			fprintf(stderr, "Permutation rules: %s\n",
+			        options.activewordlistrules);
 		log_event("- Rules: %.100s", options.activewordlistrules);
+	}
 
 #if HAVE_REXGEN
 	regex = prepare_regex(options.regex, &regex_case, &regex_alpha);
 #endif
 
-	length = db->format->params.plaintext_length - mask_add_len;
+	length = options.eff_maxlength - mask_add_len;
 	if (mask_num_qw > 1)
 		length /= mask_num_qw;
-
-	/* rules.c honors -min/max-len options on its own */
-	rules_length = length;
-
-	if (maxlength && maxlength < length)
-		length = maxlength;
 
 	/* If we did not give a name for loopback mode,
 	   we use the active pot file */
@@ -661,12 +652,27 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	if (!(name = cfg_get_param(SECTION_OPTIONS, NULL, "Wordfile")))
 		name = options.wordlist = WORDLIST_NAME;
 
-	if (rec_restored && john_main_process)
-		fprintf(stderr,
-		        "Proceeding with wordlist:%s and rules:%s\n",
-		        loopBack ? "loopback" : name ? path_expand(name) : "stdin",
-		        options.activewordlistrules ?
-		        options.activewordlistrules : "none");
+	if ((options.flags & FLG_BATCH_CHK || rec_restored) && john_main_process) {
+		fprintf(stderr, "Proceeding with wordlist:%s",
+		        loopBack ? "loopback" :
+		        name ? path_expand(name) : "stdin");
+		if (options.activewordlistrules) {
+			if (options.rule_stack)
+				fprintf(stderr, ", rules:(%s x %s)",
+				        options.activewordlistrules, options.rule_stack);
+			else
+				fprintf(stderr, ", rules:%s", options.activewordlistrules);
+		}
+		if (options.mask)
+			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (!options.activewordlistrules && options.rule_stack)
+			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
+		if (options.req_minlength >= 0 || options.req_maxlength)
+			fprintf(stderr, ", lengths: %d-%d",
+			        options.eff_minlength + mask_add_len,
+			        options.eff_maxlength + mask_add_len);
+		fprintf(stderr, "\n");
+	}
 
 	if (options.flags & FLG_STACKED)
 		options.max_fix_state_delay = 0;
@@ -674,7 +680,14 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	if (name) {
 		char *cp, csearch;
 		int64_t ourshare = 0;
+#ifdef HAVE_MMAP
+		int mmap_max =
+			cfg_get_int(SECTION_OPTIONS, NULL,
+			            "WordlistMemoryMapMaxSize");
 
+		if (mmap_max == -1)
+			mmap_max = 1 << 20;
+#endif
 		if (!(word_file = jtr_fopen(path_expand(name), "rb")))
 			pexit(STR_MACRO(jtr_fopen)": %s", path_expand(name));
 		log_event("- %s file: %.100s",
@@ -693,8 +706,7 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 		}
 
 #ifdef HAVE_MMAP
-		if (cfg_get_bool(SECTION_OPTIONS, NULL, "WordlistMemoryMap", 1))
-		{
+		if (mmap_max && mmap_max >= (file_len >> 20)) {
 			log_event("- memory mapping wordlist (%"PRId64" bytes)",
 			          (int64_t)file_len);
 #if (SIZEOF_SIZE_T < 8)
@@ -918,11 +930,13 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 				*ep = 0;
 				if (strncmp(cp, "#!comment", 9)) {
 					if (!rules) {
-						if (minlength && ep - cp < minlength)
+						if (min_length && ep - cp < min_length)
 							goto skip;
-						/* Over --max-length are skipped,
-						   while over format's length are truncated. */
-						if (maxlength && ep - cp > maxlength)
+						/*
+						 * Over --max-length are always skipped, while over
+						 * format's length are truncated if FMT_TRUNC.
+						 */
+						if (skip_length && ep - cp > skip_length)
 							goto skip;
 						if (ep - cp >= length)
 							cp[length] = 0;
@@ -1023,15 +1037,17 @@ GRAB_NEXT_PIPE_LOAD:
 					if (strncmp(cpi, "#!comment", 9)) {
 						int len = strlen(cpi);
 						if (!rules) {
-							if (minlength && len < minlength) {
+							if (min_length && len < min_length) {
 								cpi += (len + 1);
 								if (cpi > cpe)
 									break;
 								continue;
 							}
-							/* Over --max-length are skipped,
-							   while over format's length are truncated. */
-							if (maxlength && len > maxlength) {
+							/*
+							 * Over --max-length are always skipped, while over
+							 * format's length are truncated if FMT_TRUNC.
+							 */
+							if (skip_length && len > skip_length) {
 								cpi += (len + 1);
 								if (cpi > cpe)
 									break;
@@ -1100,11 +1116,18 @@ REDO_AFTER_LMLOOP:
 			error();
 		}
 
-		rules_init(rules_length);
+		rules_init(db, length);
 		rule_count = rules_count(&ctx, -1);
 
-		if (do_lmloop || !db->plaintexts->head)
-		log_event("- %d preprocessed word mangling rules", rule_count);
+		if (do_lmloop || !db->plaintexts->head) {
+			if (rules_stacked_after)
+				log_event("- Total %u (%d x %u) preprocessed word mangling rules",
+				          rule_count * crk_stacked_rule_count,
+				          rule_count, crk_stacked_rule_count);
+			else
+				log_event("- %d preprocessed word mangling rules", rule_count);
+		}
+
 
 		apply = rules_apply;
 	} else {
@@ -1216,9 +1239,9 @@ REDO_AFTER_LMLOOP:
 						rule_number + 1, prerule);
 				}
 			} else {
-				if (!rules_mute)
-				log_event("- Rule #%d: '%.100s' rejected",
-					rule_number + 1, prerule);
+				if (!rules_mute && strncmp(prerule, "!!", 2))
+					log_event("- Rule #%d: '%.100s' rejected",
+					          rule_number + 1, prerule);
 				goto next_rule;
 			}
 		}
@@ -1367,12 +1390,15 @@ process_word:
 					memmove(line, conv, len + 1);
 				}
 				if (!rules) {
-					if (minlength || maxlength) {
+					if (min_length || skip_length) {
 						int len = strlen(line);
-						if (minlength && len < minlength)
+						if (min_length && len < min_length)
 							goto next_word;
-						/* --max-length skips */
-						if (maxlength && len > maxlength)
+						/*
+						 * Over --max-length are always skipped, while over
+						 * format's length are truncated if FMT_TRUNC.
+						 */
+						if (skip_length && len > skip_length)
 							goto next_word;
 					}
 					line[length] = 0;

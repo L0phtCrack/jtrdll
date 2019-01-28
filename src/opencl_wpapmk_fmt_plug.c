@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2017 magnum,
+ * This software is Copyright (c) 2017-2018 magnum,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -20,20 +20,21 @@ john_register_one(&fmt_opencl_wpapsk_pmk);
 #include "misc.h"
 #include "config.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 
 static cl_mem mem_in, mem_out, mem_salt, mem_state, pinned_in, pinned_out;
-static cl_kernel wpapmk_init, wpapsk_final_md5, wpapsk_final_sha1, wpapsk_final_sha256;
+static cl_kernel wpapmk_init, wpapsk_final_md5, wpapsk_final_sha1, wpapsk_final_sha256, wpapsk_final_pmkid;
 static size_t key_buf_size;
 static unsigned int *inbuffer;
 static struct fmt_main *self;
 static int new_keys;
 
-#define JOHN_OCL_WPAPMK
-#include "wpapmk.h"
+#define JOHN_OCL_WPAPSK
+#define WPAPMK
+#include "wpapsk.h"
 
 #define FORMAT_LABEL        "wpapsk-pmk-opencl"
-#define FORMAT_NAME         "WPA/WPA2/PMF master key"
+#define FORMAT_NAME         "WPA/WPA2/PMF/PMKID master key"
 #define ALGORITHM_NAME      "MD5/SHA-1/SHA-2 OpenCL"
 
 #define SEED                256
@@ -66,9 +67,8 @@ static const char * warn[] = {
 
 static int split_events[] = { -1, -1, -1 };
 
-//This file contains auto-tuning routine(s). Has to be included after formats definitions.
+// This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -79,6 +79,7 @@ static size_t get_task_max_work_group_size()
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_md5));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_sha1));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_sha256));
+	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_pmkid));
 	return s;
 }
 
@@ -88,7 +89,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 	key_buf_size = 32 * gws;
 
-	/// Allocate memory
+	// Allocate memory
 	pinned_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, key_buf_size, NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error allocating pinned in");
 	mem_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, key_buf_size, NULL, &ret_code);
@@ -123,6 +124,10 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 0, sizeof(mem_state), &mem_state), "Error while setting mem_state kernel argument");
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 1, sizeof(mem_salt), &mem_salt), "Error while setting mem_salt kernel argument");
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 2, sizeof(mem_out), &mem_out), "Error while setting mem_out kernel argument");
+
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 0, sizeof(mem_state), &mem_state), "Error while setting mem_state kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 1, sizeof(mem_salt), &mem_salt), "Error while setting mem_salt kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 2, sizeof(mem_out), &mem_out), "Error while setting mem_out kernel argument");
 }
 
 static void release_clobj(void)
@@ -151,6 +156,7 @@ static void done(void)
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_md5), "Release Kernel");
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_sha1), "Release Kernel");
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_sha256), "Release Kernel");
+		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_pmkid), "Release Kernel");
 
 		HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 
@@ -188,6 +194,22 @@ static void init(struct fmt_main *_self)
 	static char valgo[32] = "";
 
 	self = _self;
+
+	if (options.flags & (FLG_BATCH_CHK | FLG_INC_CHK | FLG_SINGLE_CHK)) {
+		if (john_main_process) {
+			char *t, *pf = str_alloc_copy(self->params.label);
+
+			if ((t = strrchr(pf, '-')))
+				*t = 0;
+
+			fprintf(stderr,
+"The \"%s\" format takes hex keys of length 64 as input. Most normal\n"
+"cracking approaches does not make sense. You probably wanted to use the\n"
+"\"%s\" format (even for PMKID hashes).\n",
+			        self->params.label, pf);
+		}
+		error();
+	}
 
 	opencl_prepare_dev(gpu_id);
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
@@ -234,6 +256,8 @@ static void reset(struct db_main *db)
 		HANDLE_CLERROR(ret_code, "Error creating kernel");
 		wpapsk_final_sha256 = clCreateKernel(program[gpu_id], "wpapsk_final_sha256", &ret_code);
 		HANDLE_CLERROR(ret_code, "Error creating kernel");
+		wpapsk_final_pmkid = clCreateKernel(program[gpu_id], "wpapsk_final_pmkid", &ret_code);
+		HANDLE_CLERROR(ret_code, "Error creating kernel");
 
 		// Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, 1, split_events,
@@ -242,9 +266,7 @@ static void reset(struct db_main *db)
 		                       2 * ocl_v_width * sizeof(wpapsk_state), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, 1, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, 1, 0, 200);
 	}
 }
 
@@ -253,22 +275,23 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	const int count = *pcount;
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
-	extern volatile int bench_running;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	scalar_gws = global_work_size * ocl_v_width;
 
-	/// Copy data to gpu
+	// Copy data to gpu
 	if (new_keys) {
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, scalar_gws * 32, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
-		/// Call init kernel
+		// Call init kernel
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapmk_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run final kernel (MD5)");
 
 		new_keys = 0;
 	}
 
-	if (hccap.keyver == 1)
+	if (hccap.keyver == 0)
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_pmkid, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run final kernel (PMKID)");
+	else if (hccap.keyver == 1)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_md5, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run final kernel (MD5)");
 	else if (hccap.keyver == 2)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_sha1, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run final kernel (SHA1)");
@@ -276,7 +299,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_sha256, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run final kernel (SHA256)");
 	BENCH_CLERROR(clFinish(queue[gpu_id]), "Failed running final kernel");
 
-	/// Read the result back
+	// Read the result back
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, sizeof(mic_t) * scalar_gws, mic, 0, NULL, multi_profilingEvent[3]), "Copy result back");
 
 	return count;
@@ -299,9 +322,11 @@ struct fmt_main fmt_opencl_wpapsk_pmk = {
 		MAX_KEYS_PER_CRYPT,
 		0,
 		{
-			"key version [1:WPA 2:WPA2 3:802.11w]"
+			"key version [0:PMKID 1:WPA 2:WPA2 3:802.11w]"
 		},
-		{ FORMAT_TAG},
+		{
+			FORMAT_TAG, ""
+		},
 		tests
 	}, {
 		init,
@@ -325,7 +350,7 @@ struct fmt_main fmt_opencl_wpapsk_pmk = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		salt_compare,
 		set_salt,
 		set_key,

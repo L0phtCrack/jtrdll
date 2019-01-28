@@ -103,9 +103,6 @@ john_register_one(&fmt_NETNTLM_new);
 #include "md5.h"
 #include "unicode.h"
 #include "john.h"
-#include "memdbg.h"
-
-extern volatile int bench_running;
 
 #ifndef uchar
 #define uchar unsigned char
@@ -127,7 +124,7 @@ extern volatile int bench_running;
 
 #define ALGORITHM_NAME          "MD4 DES (ESS MD5) " MD4_ALGORITHM_NAME
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 #define FULL_BINARY_SIZE        (2 + 8 * 3)
 #define BINARY_SIZE             (2 + 8)
 #define BINARY_ALIGN            2
@@ -459,7 +456,7 @@ static int chap_valid(char *ciphertext, struct fmt_main *pFmt)
 			}
 		}
 #ifdef DEBUG
-		if (!bench_running)
+		if (!bench_or_test_running)
 			fprintf(stderr, "Rejected MSCHAPv2 hash with "
 			        "invalid 3rd block\n");
 #endif
@@ -652,7 +649,7 @@ static int ntlm_valid(char *ciphertext, struct fmt_main *self)
 			}
 		}
 #ifdef DEBUG
-		if (!bench_running)
+		if (!bench_or_test_running)
 			fprintf(stderr, "Rejected NetNTLM hash with invalid "
 			        "3rd block\n");
 #endif
@@ -1075,7 +1072,7 @@ static void *get_binary(char *ciphertext)
 	if (!binary) binary = mem_alloc_tiny(FULL_BINARY_SIZE, BINARY_ALIGN);
 
 	if (john_main_process)
-	if (!warned && !ldr_in_pot && !bench_running && ++loaded > 100) {
+	if (!warned && !ldr_in_pot && !bench_or_test_running && ++loaded > 100) {
 		warned = 1;
 		fprintf(stderr, "%s: Note: slow loading. For short runs, try "
 		        "--format=%s-naive\ninstead. That version loads "
@@ -1172,6 +1169,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				value = *(uint32_t*)
 					&nthash[GETOUTPOS_W32(3, i)] >> 16;
 				crypt_key[i] = value;
+#if defined(_OPENMP) && defined(SSE_OMP)
+#pragma omp atomic
+#endif
 				bitmap[value >> 5] |= 1U << (value & 0x1f);
 			}
 		else
@@ -1193,6 +1193,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			crypt_key[i] = ((unsigned short*)&nthash[i * 16])[7];
 			if (use_bitmap) {
 				unsigned int value = crypt_key[i];
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
 				bitmap[value >> 5] |= 1U << (value & 0x1f);
 			}
 		}
@@ -1371,7 +1374,7 @@ struct fmt_main fmt_MSCHAPv2_new = {
 #if !defined(SIMD_COEF_32) || (defined(SIMD_COEF_32) && defined(SSE_OMP))
 		FMT_OMP |
 #endif
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		chap_tests
@@ -1435,7 +1438,7 @@ struct fmt_main fmt_NETNTLM_new = {
 #if !defined(SIMD_COEF_32) || (defined(SIMD_PARA_MD4) && defined(SSE_OMP))
 		FMT_OMP |
 #endif
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAGN },
 		ntlm_tests

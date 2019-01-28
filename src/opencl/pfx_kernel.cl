@@ -6,9 +6,12 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  */
+
 #include "opencl_device_info.h"
 #include "opencl_misc.h"
 #include "opencl_pkcs12.h"
+#define HMAC_MSG_TYPE __constant
+#define HMAC_OUT_TYPE __global
 #include "opencl_hmac_sha1.h"
 
 #ifndef PLAINTEXT_LENGTH
@@ -34,9 +37,9 @@ typedef struct {
 	uint32_t iterations;
 	uint32_t keylen;
 	uint32_t saltlen;
-	uint32_t  salt[20 / 4];
+	uint32_t salt[20 / 4];
 	uint32_t datalen;
-	uint32_t  data[MAX_DATA_LENGTH / 4];
+	uint32_t data[MAX_DATA_LENGTH / 4];
 } pfx_salt;
 
 inline void pfx_crypt(__global const uint *password, uint32_t password_length,
@@ -56,7 +59,7 @@ inline void pfx_crypt(__global const uint *password, uint32_t password_length,
 	pkcs12_pbe_derive_key(salt->iterations, 3, cpassword, password_length,
 	                      csalt, salt->saltlen, ckey, salt->keylen);
 
-	hmac_sha1(out, salt->data, salt->datalen, ckey, salt->keylen);
+	hmac_sha1(ckey, salt->keylen, salt->data, salt->datalen, out, 20);
 }
 
 __kernel void pfx(__global const pfx_password *inbuffer,

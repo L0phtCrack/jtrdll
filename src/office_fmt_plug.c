@@ -33,7 +33,6 @@ john_register_one(&fmt_office);
 #include "johnswap.h"
 #include "office_common.h"
 #include "simd-intrinsics.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL             "Office"
 #define FORMAT_NAME              "2007/2010/2013"
@@ -106,6 +105,8 @@ static struct fmt_tests office_tests[] = {
 	{"$office$*2010*100000*128*16*42624931633777446c67354e34686e64*73592fdc2ecb12cd8dcb3ca2cec852bd*82f7315701818a7150ed7a7977717d0b56dcd1bc27e40a23dee6287a6ed55f9b", "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345"},
 	{"$office$*2013*100000*256*16*36537a3373756b587632386d77665362*c5958bd6177be548ce33d99f8e4fd7a7*43baa9dfab09a7e54b9d719dbe5187f1f7b55d7b761361fe1f60c85b044aa125", "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345"},
 
+	/* Office 2019 - sample Word document */
+	{"$office$*2013*100000*256*16*f4984f25c246bb742259ec55b4bab10c*d7608a90d1f552b6910c5d4ab110e276*04a6a1549a25d4871f63d2d2aa098fd2d6c74ddefcdec92a9616fb48a583f259", "openwall"},
 	{NULL}
 };
 
@@ -616,7 +617,6 @@ static void DecryptUsingSymmetricKeyAlgorithm(ms_office_custom_salt *cur_salt, u
 
 	memcpy(iv, cur_salt->osalt, 16);
 	memset(&iv[16], 0, 16);
-	memset(&akey, 0, sizeof(AES_KEY));
 	AES_set_decrypt_key(verifierInputKey, cur_salt->keySize, &akey);
 	AES_cbc_encrypt(encryptedVerifier, (unsigned char*)decryptedVerifier, length, &akey, iv, AES_DECRYPT);
 }
@@ -641,7 +641,6 @@ static void PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key
 	unsigned char checkHash[32];
 	unsigned char checkHashed[32];
 
-	memset(&akey, 0, sizeof(AES_KEY));
 	AES_set_decrypt_key(key, 128, &akey);
 	AES_ecb_encrypt(cur_salt->encryptedVerifier, decryptedVerifier, &akey, AES_DECRYPT);
 
@@ -649,7 +648,6 @@ static void PasswordVerifier(ms_office_custom_salt *cur_salt, unsigned char *key
 	SHA1_Init(&ctx);
 	SHA1_Update(&ctx, decryptedVerifier, 16);
 	SHA1_Final(checkHash, &ctx);
-	memset(&akey, 0, sizeof(AES_KEY));
 	AES_set_encrypt_key(key, 128, &akey);
 	AES_ecb_encrypt(checkHash, checkHashed, &akey, AES_ENCRYPT);
 	memcpy(out, checkHashed, 16);
@@ -783,7 +781,7 @@ struct fmt_main fmt_office = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_ENC,
 		{
 			"MS Office version",
 			"iteration count",

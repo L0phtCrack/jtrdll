@@ -13,6 +13,9 @@ echo '[Local:Disabled:Formats]' > john-local.conf
 echo 'Raw-SHA512-free-opencl = Y' >> john-local.conf
 echo 'XSHA512-free-opencl = Y' >> john-local.conf
 echo 'gpg-opencl = Y' >> john-local.conf
+echo 'KeePass-opencl = Y' >> john-local.conf
+
+../run/john --list=build-info
 
 if test "$1" = "encoding" ; then
     do_test_encoding cpu
@@ -41,4 +44,3 @@ else
         fi
     fi
 fi
-

@@ -7,7 +7,6 @@
 #include "gost3411-tables.h"
 #include "gost3411-2012-sse41.h"
 #include "arch.h"
-#include "memdbg.h"
 
 #if ARCH_BITS == 32
 #undef _mm_cvtsi64_si128
@@ -381,7 +380,9 @@ void GOST34112012Final(void* ctx, unsigned char* digest)
 		memcpy(digest, &(CTX->hash.QWORD[0]), 64);
 	}
 
+#if 0
 	memset(CTX, 0, sizeof(GOST34112012Context));
+#endif
 #if !defined(__SSE2__) || __SSE2__==0
 	_mm_empty();
 #endif

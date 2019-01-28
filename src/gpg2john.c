@@ -122,7 +122,6 @@ private bz_stream bz;
 #include "misc.h"
 #include "params.h"
 #include "memory.h"
-#include "memdbg.h"	// Must be last included header
 
 #define YES 1
 #define NO  0
@@ -2570,6 +2569,10 @@ encrypted_Secret_Key(int len, int sha1)
 			MEM_FREE(last_hash);
 			last_hash = mem_alloc(len*2 + 512 + (n_bits + 7) / 4);
 			cp = last_hash;
+			if (m_usage == 1) {
+				puts("[ERROR] We don't support 'Simple string-to-key for IDEA' S2K type yet.");
+				return;
+			}
 			cp += sprintf(cp, "$gpg$*%d*%d*%d*", m_algorithm, len, n_bits);
 			cp += print_hex(m_data, len, cp);
 			cp += sprintf(cp, "*%d*%d*%d*%d*%d*", m_spec, m_usage, m_hashAlgorithm, m_cipherAlgorithm, bs);

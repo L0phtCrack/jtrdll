@@ -1,5 +1,6 @@
 /*
- * This software is Copyright (c) 2012 Lukas Odzioba <ukasz at openwall dot net>
+ * This software is Copyright (c) 2012 Lukas Odzioba <ukasz at openwall dot net>,
+ * Copyright (c) 2012-2018 magnum,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -31,7 +32,8 @@ john_register_one(&fmt_wpapsk);
 #include "pbkdf2_hmac_sha1.h"
 #include "wpapsk.h"
 #include "sha.h"
-#include "memdbg.h"
+#include "options.h"
+#include "unicode.h"
 
 #define FORMAT_LABEL		"wpapsk"
 #if AC_BUILT && !HAVE_OPENSSL_CMAC_H
@@ -40,9 +42,9 @@ john_register_one(&fmt_wpapsk);
 #else
 #warning Notice: WPAPSK (CPU) format built without support for 802.11w. Upgrade your OpenSSL.
 #endif
-#define FORMAT_NAME		"WPA/WPA2 PSK"
+#define FORMAT_NAME		"WPA/WPA2/PMKID PSK"
 #else
-#define FORMAT_NAME		"WPA/WPA2/PMF PSK"
+#define FORMAT_NAME		"WPA/WPA2/PMF/PMKID PSK"
 #endif
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          "PBKDF2-SHA1 " SHA1_ALGORITHM_NAME
@@ -82,10 +84,17 @@ static void init(struct fmt_main *self)
 	mic = mem_alloc(sizeof(*mic) *
 	                self->params.max_keys_per_crypt);
 
-/*
- * Zeroize the lengths in case crypt_all() is called with some keys still
- * not set.  This may happen during self-tests.
- */
+	/*
+	 * Implementations seen IRL that have 8 *bytes* (of eg. UTF-8) passwords
+	 * as opposed to 8 *characters*
+	 */
+	if (options.target_enc == UTF_8)
+		self->params.plaintext_min_length = 2;
+
+	/*
+	 * Zero the lengths in case crypt_all() is called with some keys
+	 * still not set.  This may happen during self-tests.
+	 */
 	{
 		int i;
 		for (i = 0; i < self->params.max_keys_per_crypt; i++)
@@ -149,9 +158,8 @@ static MAYBE_INLINE void wpapsk_sse(int count, wpapsk_password * in, wpapsk_hash
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	extern volatile int bench_running;
 
-	if (new_keys || strcmp(last_ssid, hccap.essid) || bench_running) {
+	if (new_keys || strcmp(last_ssid, hccap.essid) || bench_or_test_running) {
 #ifndef SIMD_COEF_32
 		wpapsk_cpu(count, inbuffer, outbuffer, &currentsalt);
 #else
@@ -181,15 +189,17 @@ struct fmt_main fmt_wpapsk = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_OMP,
+		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{
 #if !AC_BUILT || HAVE_OPENSSL_CMAC_H
-			"key version [1:WPA 2:WPA2 3:802.11w]"
+			"key version [0:PMKID 1:WPA 2:WPA2 3:802.11w]"
 #else
-			"key version [1:WPA 2:WPA2]"
+			"key version [0:PMKID 1:WPA 2:WPA2]"
 #endif
 		},
-		{ FORMAT_TAG },
+		{
+			FORMAT_TAG, ""
+		},
 		tests
 	},
 	{
@@ -206,7 +216,7 @@ struct fmt_main fmt_wpapsk = {
 		},
 		fmt_default_source,
 		{
-			binary_hash_0,
+			fmt_default_binary_hash_0,
 			fmt_default_binary_hash_1,
 			fmt_default_binary_hash_2,
 			fmt_default_binary_hash_3,
@@ -214,7 +224,7 @@ struct fmt_main fmt_wpapsk = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		salt_compare,
 		set_salt,
 		set_key,

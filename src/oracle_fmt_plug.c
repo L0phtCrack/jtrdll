@@ -20,9 +20,6 @@ john_register_one(&fmt_oracle);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               512
-#endif
 #endif
 
 #include "arch.h"
@@ -30,7 +27,6 @@ john_register_one(&fmt_oracle);
 #include "common.h"
 #include "formats.h"
 #include "unicode.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "oracle"
 #define FORMAT_NAME             "Oracle 10"
@@ -48,7 +44,11 @@ john_register_one(&fmt_oracle);
 #define CIPHERTEXT_LENGTH       16
 #define MAX_INPUT_LEN           (CIPHERTEXT_LENGTH + 3 + MAX_USERNAME_LEN * (options.input_enc == UTF_8 ? 3 : 1))
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      64
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               64 // Tuned w/ MKPC for core i7
+#endif
 
 //#define DEBUG_ORACLE
 
@@ -208,9 +208,8 @@ static char *split(char *ciphertext, int index, struct fmt_main *self)
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	DES_set_key((DES_cblock *)"\x01\x23\x45\x67\x89\xab\xcd\xef", &desschedule_static);
 	cur_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*cur_key));
@@ -405,7 +404,7 @@ struct fmt_main fmt_oracle = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
+		FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_SPLIT_UNIFIES_CASE | FMT_OMP,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

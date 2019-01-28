@@ -126,9 +126,6 @@
 #include "missing_getopt.h"
 #endif
 #include "johnswap.h"
-#include "memdbg.h"
-
-#define LARGE_ENOUGH 8192
 
 static int checksum_only = 0, use_magic = 0;
 static int force_2_byte_checksum = 0;
@@ -150,8 +147,7 @@ static void process_file(const char *fname)
 	unsigned char filename[1024];
 	FILE *fp;
 	uint64_t i;
-	char path[LARGE_ENOUGH];
-	char *cur = 0, *cp;
+	char *cur = NULL, *cp;
 	uint64_t best_len = 0xffffffff;
 
 	if (!(fp = fopen(fname, "rb")))
@@ -202,21 +198,35 @@ static void process_file(const char *fname)
 				uint64_t real_cmpr_len;
 				uint16_t efh_id;
 				uint16_t efh_datasize;
-				uint16_t efh_vendor_version;
-				uint16_t efh_vendor_id;
-				char efh_aes_strength;
-				uint16_t actual_compression_method;
+				uint16_t efh_vendor_version = 0;
+				uint16_t efh_vendor_id = 0;
+				char efh_aes_strength = 0;
+				uint16_t actual_compression_method = 0;
 				unsigned char salt[16], d;
 				char *bname;
 				int found = 0;
 				int magic_enum = 0; // reserved at 0 for now, we are not computing this (yet).
 
+<<<<<<< HEAD
 				while (!ferror(fp))
 				{
 					efh_id = fget16LE(fp);
 					efh_datasize = fget16LE(fp);
 					if (efh_id != 0x9901)
 					{
+=======
+				// There could be multiple extra fields, so need to process them all.
+				while (!ferror(fp)  && extrafield_length > 0) {
+					efh_id = fget16LE(fp);
+					efh_datasize = fget16LE(fp);
+
+					// Adjust the bytes processed for id, size and acutal data so the
+					// file pointer is moved on correctly,
+					// - 2 bytes for the efh_id
+					// - 2 bytes for the efh_datasize
+					extrafield_length = extrafield_length - 2 - 2 - efh_datasize;
+					if (efh_id != 0x9901) {
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 #if DEBUG
 						fprintf(stderr, "[DEBUG] Skipping over efh_id (%x) with size %d.\n", efh_id, efh_datasize);
 #endif
@@ -225,11 +235,22 @@ static void process_file(const char *fname)
 					else
 					{
 						found = 1;
-						break;
+						// Data size: this value is currently 7, but because it is possible that this
+						// specification will be modified in the future to store additional data in
+						// this extra field, vendors should not assume that it will always remain 7.
+						if (efh_datasize != 7) {
+							fprintf(stderr, "AES_EXTRA_DATA_LENGTH is not 11 for %s, please report this to us!\n", fname);
+							goto cleanup;
+						}
+						efh_vendor_version = fget16LE(fp);
+						efh_vendor_id = fget16LE(fp);
+						efh_aes_strength = fgetc(fp);
+						actual_compression_method = fget16LE(fp);
 					}
 				}
 				if (!found)
 					goto cleanup;
+<<<<<<< HEAD
 				efh_vendor_version = fget16LE(fp);
 				efh_vendor_id = fget16LE(fp);
 				efh_aes_strength = fgetc(fp);
@@ -249,27 +270,40 @@ static void process_file(const char *fname)
 				}
 				strnzcpy(path, fname, sizeof(path));
 				bname = basename(path);
+=======
+
+				bname = jtr_basename(fname);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				cp = cur;
 				if (best_len < compressed_size)
 				{
 #if DEBUG
-					printf("This buffer not used, it is not 'best' size\n");
+					fprintf(stderr, "This buffer not used, it is not 'best' size\n");
 #endif
 				}
 				else
 				{
 					store = 1;
 					best_len = compressed_size;
+<<<<<<< HEAD
 					if (cur)
 						MEM_FREE(cur);
+=======
+					MEM_FREE(cur);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 					cur = mem_alloc(compressed_size * 2 + 400);
 					cp = cur;
 				}
 
 #if DEBUG
 				fprintf(stderr,
+<<<<<<< HEAD
 						"%s->%s is using AES encryption, extrafield_length is %d\n",
 						fname, filename, extrafield_length);
+=======
+				    "%s/%s is using AES encryption, extrafield_length is %d\n",
+				    bname, filename, extrafield_length);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 #endif
 				/* unused variables */
 				(void)efh_id;
@@ -279,7 +313,13 @@ static void process_file(const char *fname)
 				(void)actual_compression_method; /* we need this!! */
 
 				if (store)
+<<<<<<< HEAD
 					cp += sprintf(cp, "%s:$zip2$*0*%x*%x*", bname, efh_aes_strength, magic_enum);
+=======
+					cp += sprintf(cp, "%s/%s:$zip2$*0*%x*%x*",
+					              bname, filename, efh_aes_strength,
+					              magic_enum);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				if (sizeof(salt) < 4 + 4 * efh_aes_strength ||
 					fread(salt, 1, 4 + 4 * efh_aes_strength, fp) != 4 + 4 * efh_aes_strength)
 				{
@@ -287,12 +327,20 @@ static void process_file(const char *fname)
 					goto cleanup;
 				}
 
+<<<<<<< HEAD
 				for (i = 0; i < 4 + 4 * efh_aes_strength; i++)
 				{
 					if (store)
 						cp += sprintf(cp, "%c%c",
 									  itoa16[ARCH_INDEX(salt[i] >> 4)],
 									  itoa16[ARCH_INDEX(salt[i] & 0x0f)]);
+=======
+				for (i = 0; i < 4+4*efh_aes_strength; i++) {
+					if (store)
+						cp += sprintf(cp, "%c%c",
+						              itoa16[ARCH_INDEX(salt[i] >> 4)],
+						              itoa16[ARCH_INDEX(salt[i] & 0x0f)]);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				}
 				if (store)
 					cp += sprintf(cp, "*");
@@ -303,8 +351,13 @@ static void process_file(const char *fname)
 					d = fgetc(fp);
 					if (store)
 						cp += sprintf(cp, "%c%c",
+<<<<<<< HEAD
 									  itoa16[ARCH_INDEX(d >> 4)],
 									  itoa16[ARCH_INDEX(d & 0x0f)]);
+=======
+						              itoa16[ARCH_INDEX(d >> 4)],
+						              itoa16[ARCH_INDEX(d & 0x0f)]);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				}
 				// Password verification value -> 2 bytes, Salt value -> (4 + 4 * efh_aes_strength)
 				real_cmpr_len = compressed_size - 2 - (4 + 4 * efh_aes_strength) - AES_EXTRA_DATA_LENGTH;
@@ -323,6 +376,7 @@ static void process_file(const char *fname)
 				}
 				if (store)
 					cp += sprintf(cp, "*");
+<<<<<<< HEAD
 				for (i = 0; i < 10; i++)
 				{
 					d = fgetc(fp);
@@ -333,15 +387,33 @@ static void process_file(const char *fname)
 				}
 				for (d = ' ' + 1; d < '~'; ++d)
 				{
+=======
+				for (i = 0; i < 10; i++) {
+					d = fgetc(fp);
+					if (store)
+						cp += sprintf(cp, "%c%c",
+						              itoa16[ARCH_INDEX(d >> 4)],
+						              itoa16[ARCH_INDEX(d & 0x0f)]);
+				}
+				for (d = ' ' + 1; d < '~'; ++d) {
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 					if (!strchr(fname, d) && d != ':' && !isxdigit(d))
 						break;
 				}
 				if (store)
+<<<<<<< HEAD
 					cp += sprintf(cp, "*$/zip2$:::::%s-%s\n", bname, filename);
 				if (cur)
 				{
 					printf("%s\n", cur);
 					cur = NULL; // dirty hack to avoid printing of last hash twice
+=======
+					cp += sprintf(cp, "*$/zip2$:%s:%s:%s\n",
+					              filename, bname, fname);
+				if (cur) {
+					printf("%s", cur);
+					MEM_FREE(cur);  // dirty hack to avoid printing of last hash twice
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				}
 			}
 			else if (flags & 1 && (version == 51 || version == 52 || version >= 61))
@@ -369,8 +441,7 @@ static void process_file(const char *fname)
 				(void)Reserved1;
 				(void)Size;
 
-				strnzcpy(path, fname, sizeof(path));
-				bname = basename(path);
+				bname = jtr_basename(fname);
 				previous_position = ftell(fp);
 				IVSize = fget16LE(fp);
 				if (IVSize > sizeof(iv))
@@ -432,17 +503,27 @@ static void process_file(const char *fname)
 				fseek(fp, extrafield_length, SEEK_CUR);
 				fseek(fp, compressed_size, SEEK_CUR);
 			}
+<<<<<<< HEAD
 			else if (flags & 1)
 			{ /* old encryption */
+=======
+			if (flags & 1) {	/* old encryption */
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				fclose(fp);
 				fp = 0;
 				process_old_zip(fname);
 				return;
+<<<<<<< HEAD
 			}
 			else
 			{
 				fprintf(stderr, "%s->%s is not encrypted!\n", fname,
 						filename);
+=======
+			} else {
+				fprintf(stderr, "%s/%s is not encrypted!\n",
+				        jtr_basename(fname), filename);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 				fseek(fp, extrafield_length, SEEK_CUR);
 				fseek(fp, compressed_size, SEEK_CUR);
 			}
@@ -492,7 +573,11 @@ static void process_file(const char *fname)
 
 cleanup:
 	if (cur)
+<<<<<<< HEAD
 		printf("%s\n", cur);
+=======
+		printf("%s", cur);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 	MEM_FREE(cur);
 	fclose(fp);
 }
@@ -503,6 +588,7 @@ cleanup:
  */
 typedef struct _zip_ptr
 {
+<<<<<<< HEAD
 	char *hash_data;
 	uint32_t crc;
 	uint64_t offset, offex;
@@ -510,6 +596,16 @@ typedef struct _zip_ptr
 	uint16_t magic_type, cmptype;
 	char chksum[5];
 	char chksum2[5];
+=======
+	char         *hash_data;
+	char         *file_name;
+	uint32_t      crc;
+	uint64_t      offset, offex;
+	uint64_t      cmp_len, decomp_len;
+	uint16_t      magic_type, cmptype;
+	char          chksum[5];
+	char          chksum2[5];
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 } zip_ptr;
 
 typedef struct _zip_file
@@ -656,6 +752,7 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 	filename_length = fget16LE(fp);
 	extrafield_length = fget16LE(fp);
 	p->hash_data = NULL;
+	p->file_name = NULL;
 	/* unused variables */
 	(void)lastmod_date;
 
@@ -670,12 +767,20 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 
 	p->offex = 30 + filename_length + extrafield_length;
 
+	if (!only_fname || !strcmp(only_fname, (char*)filename))
+		fprintf(stderr, "ver %d.%d ", version / 10, version % 10);
+
 	// we only handle implode or store.
 	// 0x314 (788) was seen at 2012 CMIYC ?? I have to look into that one.
+<<<<<<< HEAD
 	fprintf(stderr, "ver %d.%d ", version / 10, version % 10);
 	if ((flags & 1) &&
 		(version == 10 || version == 20 || version == 45 || version == 788))
 	{
+=======
+	if ( (flags & 1) &&
+	     (version == 10 || version == 20 || version == 45 || version == 788)) {
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 		uint16_t extra_len_used = 0;
 
 		if (flags & (1 << 3))
@@ -685,7 +790,8 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 				uint16_t efh_id = fget16LE(fp);
 				uint16_t efh_datasize = fget16LE(fp);
 
-				fprintf(stderr, "efh %04x ", efh_id);
+				if (!only_fname || !strcmp(only_fname, (char*)filename))
+					fprintf(stderr, "efh %04x ", efh_id);
 
 				if (efh_id == 0x0001)
 				{
@@ -733,17 +839,33 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 			zfp->check_bytes = 2;
 
 		fprintf(stderr,
+<<<<<<< HEAD
 				"%s->%s PKZIP%s Encr:%s%s cmplen=%" PRIu64 ", decmplen=%" PRIu64 ", crc=%X\n",
 				jtr_basename(zip_fname), filename,
 				size64 ? "64" : "",
 				zfp->check_bytes == 2 ? " 2b chk," : "",
 				zfp->check_in_crc ? "" : " TS_chk,",
 				p->cmp_len, p->decomp_len, p->crc);
+=======
+		        "%s/%s PKZIP%s Encr:%s%s cmplen=%"PRIu64", decmplen=%"PRIu64", crc=%X\n",
+		        jtr_basename(zip_fname), filename,
+		        size64 ? "64" : "",
+		        zfp->check_bytes == 2 ? " 2b chk," : "",
+		        zfp->check_in_crc ? "" : " TS_chk,",
+		        p->cmp_len, p->decomp_len, p->crc);
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 
 		MEM_FREE(p->hash_data);
+		MEM_FREE(p->file_name);
 		p->hash_data = mem_alloc(p->cmp_len + 1);
+<<<<<<< HEAD
 		if (fread(p->hash_data, 1, p->cmp_len, fp) != p->cmp_len)
 		{
+=======
+		p->file_name = mem_alloc(strlen((char*)filename) + 1);
+		strcpy(p->file_name, (char*)filename);
+		if (fread(p->hash_data, 1, p->cmp_len, fp) != p->cmp_len) {
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 			fprintf(stderr, "Error, fread could not read the data from the file: %s\n", zip_fname);
 			return 0;
 		}
@@ -755,10 +877,10 @@ static int LoadZipBlob(FILE *fp, zip_ptr *p, zip_file *zfp, const char *zip_fnam
 		return 1;
 	}
 
-	if (p->cmp_len == 0 && p->decomp_len == 0)
+	if (p->cmp_len == 0 && p->decomp_len == 0 && flags & (1 << 3))
 		scan_for_eod(&fp, p, version >= 45);
 
-	fprintf(stderr, "%s->%s is not encrypted, or stored with non-handled compression type\n", zip_fname, filename);
+	fprintf(stderr, "%s/%s is not encrypted, or stored with non-handled compression type\n", zip_fname, filename);
 	fseek(fp, extrafield_length, SEEK_CUR);
 	fseek(fp, p->cmp_len, SEEK_CUR);
 
@@ -771,7 +893,6 @@ static void process_old_zip(const char *fname)
 	int count_of_hashes = 0;
 	zip_ptr hashes[3], curzip;
 	zip_file zfp;
-	char path[LARGE_ENOUGH];
 
 	memset(hashes, 0, sizeof(hashes));
 
@@ -916,15 +1037,33 @@ print_and_cleanup:;
 	{
 		int i = 1;
 		char *bname;
-		strnzcpy(path, fname, sizeof(path));
-		bname = basename(path);
+		static int once;
+		char *filenames = strdup(hashes[0].file_name);
 
-		printf("%s:$pkzip2$%x*%x*", bname, count_of_hashes, zfp.check_bytes);
+		bname = jtr_basename(fname);
+
+		printf("%s%s%s:$pkzip2$%x*%x*", bname,
+		       count_of_hashes == 1 ? "/" : "",
+		       count_of_hashes == 1 ? hashes[0].file_name : "",
+		       count_of_hashes, zfp.check_bytes);
 		if (checksum_only)
 			i = 0;
+<<<<<<< HEAD
 		for (; i < count_of_hashes; ++i)
 		{
 			uint64_t len = 12 + 24;
+=======
+		for (; i < count_of_hashes; ++i) {
+			uint64_t len = 12+24;
+
+			if (i) {
+				filenames = mem_realloc(filenames,
+				                        strlen(filenames) +
+				                        strlen(hashes[0].file_name) + 3);
+				strcat(filenames, ", ");
+				strcat(filenames, hashes[i].file_name);
+			}
+>>>>>>> 179c27017b57b0bf2bac4b094c5fb8b8cc2acfff
 			if (hashes[i].magic_type)
 				len = 12 + 180;
 			if (len > hashes[i].cmp_len)
@@ -939,10 +1078,22 @@ print_and_cleanup:;
 			printf("%" PRIx64 "*%s*%s*", hashes[0].cmp_len, hashes[0].chksum, hashes[0].chksum2);
 			print_hex((unsigned char *)hashes[0].hash_data, hashes[0].cmp_len);
 		}
-		printf("$/pkzip2$:::::%s\n", fname);
+		if (count_of_hashes > 1)
+			printf("$/pkzip2$::%s:%s:%s\n", bname, filenames, fname);
+		else
+			printf("$/pkzip2$:%s:%s::%s\n", filenames, bname, fname);
 
-		for (i = 0; i < count_of_hashes; ++i)
+		if (count_of_hashes > 1 && !once++)
+			fprintf(stderr,
+"NOTE: It is assumed that all files in each archive have the same password.\n"
+"If that is not the case, the hash may be uncrackable. To avoid this, use\n"
+"option -o to pick a file at a time.\n");
+
+		for (i = 0; i < count_of_hashes; ++i) {
 			MEM_FREE(hashes[i].hash_data);
+			MEM_FREE(hashes[i].file_name);
+		}
+		MEM_FREE(filenames);
 	}
 	fclose(fp);
 }
@@ -965,7 +1116,8 @@ static int usage(char *name)
 	fprintf(stderr, "    not 100%% safe in all situations.\n");
 	fprintf(stderr, " -2 Force 2 byte checksum computation.\n");
 	fprintf(stderr, "\nNOTE: By default it is assumed that all files in each archive have the same\n");
-	fprintf(stderr, "password. To work around that, use -o option to pick a file at a time.\n");
+	fprintf(stderr, "password. If that's not the case, the produced hash may be uncrackable.\n");
+	fprintf(stderr, "To avoid this, use -o option to pick a file at a time.\n");
 
 	return EXIT_FAILURE;
 }
@@ -1013,7 +1165,6 @@ int zip2john(int argc, char **argv)
 		process_file(*argv++);
 
 	cleanup_tiny_memory();
-	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 
 	return EXIT_SUCCESS;
 }

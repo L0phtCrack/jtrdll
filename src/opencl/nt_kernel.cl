@@ -19,7 +19,6 @@
  * (This is a heavily cut-down "BSD license".)
  */
 
-#include "opencl_device_info.h"
 #define AMD_PUTCHAR_NOCAST
 #include "opencl_misc.h"
 #include "opencl_md4.h"
@@ -111,14 +110,22 @@ inline void nt_crypt(__private uint *hash, __private uint *nt_buffer, uint md4_s
 	hash[2] += MD4_H(tmp, hash[0], hash[3]) + nt_buffer[7]  + SQRT_3; hash[2] = rotate(hash[2] , 11u);
 }
 
+#if __OS_X__ && (cpu(DEVICE_INFO) || gpu_nvidia(DEVICE_INFO))
+/* This is a workaround for driver/runtime bugs */
+#define MAYBE_VOLATILE volatile
+#else
+#define MAYBE_VOLATILE
+#endif
+
 #if UTF_8
 
-inline uint prepare_key(__global uint *key, uint length, uint *nt_buffer)
+inline uint prepare_key(__global uint *key, uint length,
+                        MAYBE_VOLATILE uint *nt_buffer)
 {
 	const __global UTF8 *source = (const __global UTF8*)key;
 	const __global UTF8 *sourceEnd = &source[length];
-	UTF16 *target = (UTF16*)nt_buffer;
-	const UTF16 *targetEnd = &target[PLAINTEXT_LENGTH];
+	MAYBE_VOLATILE UTF16 *target = (UTF16*)nt_buffer;
+	MAYBE_VOLATILE const UTF16 *targetEnd = &target[PLAINTEXT_LENGTH];
 	UTF32 ch;
 	uint extraBytesToRead;
 
@@ -126,9 +133,8 @@ inline uint prepare_key(__global uint *key, uint length, uint *nt_buffer)
 	while (source < sourceEnd) {
 		if (*source < 0xC0) {
 			*target++ = (UTF16)*source++;
-			if (source >= sourceEnd || target >= targetEnd) {
+			if (target >= targetEnd)
 				break;
-			}
 			continue;
 		}
 		ch = *source;
@@ -172,20 +178,10 @@ inline uint prepare_key(__global uint *key, uint length, uint *nt_buffer)
 			*target++ = (UTF16)((ch & halfMask) + UNI_SUR_LOW_START);
 		}
 #endif
-		if (source >= sourceEnd || target >= targetEnd)
+		if (target >= targetEnd)
 			break;
 	}
 	*target = 0x80;	// Terminate
-
-#if __OS_X__
-	// Stupid driver/runtime bug workarounds.
-#if cpu(DEVICE_INFO)
-	// This acts like some kind of barrier but a normal barrier doesn't help.
-	printf("");
-#elif gpu_nvidia(DEVICE_INFO)
-	barrier(CLK_GLOBAL_MEM_FENCE);
-#endif
-#endif
 
 	return (uint)(target - (UTF16*)nt_buffer);
 }
@@ -384,10 +380,11 @@ __kernel void nt(__global uint *keys,
 #if USE_LOCAL_BITMAPS
 	uint lid = get_local_id(0);
 	uint lws = get_local_size(0);
-	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS];
+	/* We must allocate for the possibility of non-log2 LWS */
+	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 4) * SELECT_CMP_STEPS];
 
-	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
-		s_bitmaps[i*lws + lid] = bitmaps[i*lws + lid];
+	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS + lws - 1) / lws); i++)
+		s_bitmaps[i * lws + lid] = bitmaps[i * lws + lid];
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 #endif

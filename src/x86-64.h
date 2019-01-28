@@ -71,6 +71,19 @@
 #endif
 #endif
 
+#if !defined(JOHN_NO_SIMD) && (__SSE4_2__ || JOHN_SSE4_2)
+#undef CPU_DETECT
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSE4_2			1
+#undef CPU_NAME
+#define CPU_NAME			"SSE4.2"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-sse4.2"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#endif
+
 #if !defined(JOHN_NO_SIMD) && defined(__XOP__)
 #define JOHN_XOP			1
 #endif
@@ -218,6 +231,10 @@
 #endif
 
 #if !defined(JOHN_NO_SIMD) && (__AVX512F__ || JOHN_AVX512F)
+#undef DES_BS_VECTOR
+#define DES_BS_VECTOR			8
+#undef DES_BS_ALGORITHM_NAME
+#define DES_BS_ALGORITHM_NAME		"DES 512/512 AVX-512"
 #undef CPU_DETECT
 #define CPU_DETECT			1
 #define CPU_REQ				1

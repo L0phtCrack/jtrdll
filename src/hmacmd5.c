@@ -32,7 +32,9 @@
 #include "md5.h"
 #include "hmacmd5.h"
 
-#include "memdbg.h"
+#ifdef _MSC_VER
+#define inline _inline
+#endif
 
 /***********************************************************************
  the rfc 2104 version of hmac_md5 initialisation.

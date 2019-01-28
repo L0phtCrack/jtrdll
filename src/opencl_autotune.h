@@ -16,7 +16,9 @@
 #include "config.h"
 #include "logger.h"
 #include "mask_ext.h"
-#include "common-opencl.h"
+#include "john.h"
+#include "recovery.h"
+#include "opencl_common.h"
 
 /* Step size for work size enumeration. Zero will double. */
 #ifndef STEP
@@ -50,7 +52,7 @@ size_t autotune_get_task_max_work_group_size(int use_local_memory,
   of keys per crypt for the given format
 -- */
 void autotune_find_best_gws(int sequential_id, unsigned int rounds, int step,
-	unsigned long long int max_run_time, int have_lws);
+	int max_duration, int have_lws);
 
 /* --
   This function could be used to calculated the best local
@@ -78,19 +80,17 @@ static void find_best_lws(struct fmt_main *self, int sequential_id)
   This function could be used to calculated the best num
   of keys per crypt for the given format
 -- */
-static void find_best_gws(struct fmt_main *self, int sequential_id, unsigned int rounds,
-	unsigned long long int max_run_time, int have_lws)
+static void find_best_gws(struct fmt_main *self, int sequential_id,
+	unsigned int rounds, int max_duration, int have_lws)
 {
 	//Call the common function.
-	autotune_find_best_gws(
-		sequential_id, rounds, STEP, max_run_time, have_lws
-	);
+	autotune_find_best_gws(sequential_id, rounds, STEP, max_duration, have_lws);
 
 	create_clobj(global_work_size, self);
 }
 
 static void autotune_run(struct fmt_main *self, unsigned int rounds,
-			 size_t gws_limit, unsigned long long int max_run_time);
+	size_t gws_limit, int max_duration);
 
 
 /* --
@@ -99,9 +99,9 @@ static void autotune_run(struct fmt_main *self, unsigned int rounds,
   in each format file.
 -- */
 static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
-	size_t gws_limit, unsigned long long int max_run_time, cl_uint lws_is_power_of_two)
+	size_t gws_limit, int max_duration, cl_uint lws_is_power_of_two)
 {
-	int need_best_lws, need_best_gws;
+	int need_best_lws, need_best_gws, needed_best_gws;
 
 	ocl_autotune_running = 1;
 
@@ -178,16 +178,16 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 	}
 
 	/* Enumerate GWS using *LWS=NULL (unless it was set explicitly) */
-	need_best_gws = !global_work_size;
+	needed_best_gws = need_best_gws = !global_work_size;
 	if (need_best_gws) {
-		unsigned long long int max_run_time1 = max_run_time;
+		int max_duration1 = max_duration;
 		int have_lws = !(!local_work_size || need_best_lws);
 		if (have_lws) {
 			need_best_gws = 0;
 		} else if (mask_int_cand.num_int_cand < 2) {
-			max_run_time1 = (max_run_time + 1) / 2;
+			max_duration1 = (max_duration + 1) / 2;
 		}
-		find_best_gws(self, gpu_id, rounds, max_run_time1, have_lws);
+		find_best_gws(self, gpu_id, rounds, max_duration1, have_lws);
 	} else {
 		create_clobj(global_work_size, self);
 	}
@@ -202,28 +202,71 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 
 	if (need_best_gws) {
 		release_clobj();
-		find_best_gws(self, gpu_id, rounds, max_run_time, 1);
+		find_best_gws(self, gpu_id, rounds, max_duration, 1);
 	}
+
+#if HAVE_MPI
+	if (autotune_real_db && mpi_p > 1 &&
+	    !(options.lws && options.gws) && !rec_restored &&
+	    cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI, "MPIAllGPUsSame", 0)) {
+		uint32_t lws, gws, mpi_lws, mpi_gws;
+
+		if (john_main_process)
+			log_event("- Enforcing same work sizes on all MPI nodes");
+		lws = local_work_size;
+		gws = global_work_size;
+		MPI_Allreduce(&lws, &mpi_lws, 1, MPI_UNSIGNED, MPI_MIN, MPI_COMM_WORLD);
+		MPI_Allreduce(&gws, &mpi_gws, 1, MPI_UNSIGNED, MPI_MIN, MPI_COMM_WORLD);
+		local_work_size = mpi_lws;
+		global_work_size = mpi_gws;
+
+		if (john_main_process && !(options.flags & FLG_SHOW_CHK) &&
+		    ((autotune_real_db && !mask_increments_len) ||
+		     options.verbosity > VERB_DEFAULT)) {
+			fprintf(stderr,
+"All nodes: Local worksize (LWS) "Zu", global worksize (GWS) "Zu" ("Zu" blocks)\n",
+			        local_work_size, global_work_size,
+			        global_work_size / local_work_size);
+		}
+	} else
+#endif
+	if (!(options.flags & FLG_SHOW_CHK) && !(options.lws && options.gws) &&
+	    ((autotune_real_db && !mask_increments_len) ||
+	     options.verbosity > VERB_DEFAULT)) {
+		if (benchmark_running)
+			fprintf(stderr, "\n");
+		if (options.node_count)
+			fprintf(stderr, "%u: ", NODE);
+		fprintf(stderr,
+"Local worksize (LWS) "Zu", global worksize (GWS) "Zu" ("Zu" blocks)\n",
+		        local_work_size, global_work_size,
+		        global_work_size / local_work_size);
+	}
+#ifdef DEBUG
+	else if (!(options.flags & FLG_SHOW_CHK))
+		fprintf(stderr, "{"Zu"/"Zu"} ", global_work_size, local_work_size);
+#endif
 
 	/* Adjust to the final configuration */
 	release_clobj();
 	global_work_size = GET_EXACT_MULTIPLE(global_work_size, local_work_size);
 	create_clobj(global_work_size, self);
 
-	if (options.verbosity > VERB_LEGACY && !(options.flags & FLG_SHOW_CHK))
-		fprintf(stderr,
-		        "Local worksize (LWS) "Zd", global worksize (GWS) "Zd"\n",
-		        local_work_size, global_work_size);
-#ifdef DEBUG
-	else if (!(options.flags & FLG_SHOW_CHK))
-		fprintf(stderr, "{"Zu"/"Zu"} ", global_work_size, local_work_size);
+#if HAVE_MPI
+	if (!cfg_get_bool(SECTION_OPTIONS, SUBSECTION_MPI, "MPIAllGPUsSame", 0) ||
+	    john_main_process)
 #endif
+	log_event("- OpenCL LWS: "Zu"%s, GWS: "Zu" %s("Zu" blocks)",
+	          local_work_size,
+	          (need_best_lws && !needed_best_gws) ? " (auto-tuned)" : "",
+	          global_work_size,
+	          (need_best_lws && needed_best_gws) ? "(both auto-tuned) " :
+	          (needed_best_gws) ? "(auto-tuned) " : "",
+	          global_work_size / local_work_size);
 
-	log_event("- OpenCL %sLWS: "Zu", GWS: "Zu" ("Zu" blocks)",
-	    (need_best_lws | need_best_gws) ? "(auto-tuned) " : "",
-		local_work_size, global_work_size, global_work_size / local_work_size);
-
-	self->params.min_keys_per_crypt = local_work_size * ocl_v_width;
+	self->params.min_keys_per_crypt = opencl_calc_min_kpc(local_work_size,
+	                                                      global_work_size,
+	                                                      ocl_v_width);
 	self->params.max_keys_per_crypt = global_work_size * ocl_v_width;
 
 	autotuned++;
@@ -234,9 +277,9 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 }
 
 static void autotune_run(struct fmt_main *self, unsigned int rounds,
-	size_t gws_limit, unsigned long long int max_run_time)
+	size_t gws_limit, int max_duration)
 {
-	autotune_run_extra(self, rounds, gws_limit, max_run_time, CL_FALSE);
+	return autotune_run_extra(self, rounds, gws_limit, max_duration, CL_FALSE);
 }
 
 #endif  /* _COMMON_TUNE_H */

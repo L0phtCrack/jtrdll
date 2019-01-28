@@ -30,7 +30,7 @@ john_register_one(&fmt_opencl_gpg);
 #include "common.h"
 #include "formats.h"
 #include "misc.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 #include "gpg_common.h"
 #include "twofish.h"
@@ -107,7 +107,6 @@ size_t insize, outsize, settingsize, cracked_size;
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static const char *warn[] = {
 	"xfer: ",  ", crypt: ",  ", xfer: "
@@ -273,10 +272,10 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 	int index = 0;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 	if (any_cracked) {
 		memset(cracked, 0, cracked_size);
@@ -292,17 +291,17 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	if (gpg_common_cur_salt->hash_algorithm == HASH_SHA1) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 					crypt_kernel, 1, NULL,
-					&global_work_size, lws, 0, NULL,
+					&gws, lws, 0, NULL,
 					multi_profilingEvent[1]), "Run kernel");
 	} else if (gpg_common_cur_salt->hash_algorithm == HASH_SHA256) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 					crypt_kernel_sha256, 1, NULL,
-					&global_work_size, lws, 0, NULL,
+					&gws, lws, 0, NULL,
 					multi_profilingEvent[1]), "Run kernel");
 	} else if (gpg_common_cur_salt->hash_algorithm == HASH_SHA512) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 					crypt_kernel_sha512, 1, NULL,
-					&global_work_size, lws, 0, NULL,
+					&gws, lws, 0, NULL,
 					multi_profilingEvent[1]), "Run kernel");
 	}
 

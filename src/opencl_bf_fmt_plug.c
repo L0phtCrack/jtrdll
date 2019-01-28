@@ -23,7 +23,6 @@ john_register_one(&fmt_opencl_bf);
 #include "formats.h"
 #include "config.h"
 #include "BF_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"bcrypt-opencl"
 #define FORMAT_NAME			""
@@ -61,7 +60,7 @@ static void init(struct fmt_main *self) {
 	global_work_size = 0 ;
 
 	//Prepare OpenCL environment.
-	opencl_preinit();
+	opencl_load_environment();
 
 	// Check if specific LWS/GWS was requested
 	opencl_get_user_preferences(FORMAT_LABEL);
@@ -103,7 +102,7 @@ static int get_hash_6(int index) {
 }
 
 static int salt_hash(void *salt) {
-	return ((BF_salt *)salt) -> salt[0] & 0x3FF ;
+	return ((BF_salt *)salt)->salt[0] & 0x3FF ;
 }
 
 static void set_salt(void *salt) {

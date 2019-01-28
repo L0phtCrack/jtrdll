@@ -51,11 +51,7 @@
 #include "john.h"
 #include "status.h"
 #include "signals.h"
-#include "path.h"
-#ifdef HAVE_MPI
-#include "john-mpi.h"
-#endif
-#include "memdbg.h"
+#include "john_mpi.h"
 
 volatile int event_pending = 0, event_reload = 0;
 volatile int event_abort = 0, event_save = 0, event_status = 0;
@@ -79,8 +75,6 @@ volatile int illegal_instruction = 0;
 #if !defined (__MINGW32__) && !defined (_MSC_VER)
 #include <sys/times.h>
 #endif
-
-
 
 #ifdef _WIN32
 
@@ -135,8 +129,7 @@ void remove_potwatch()
 
 #endif
 
-
-
+static int timer_emu_running;
 static clock_t timer_emu_interval = 0;
 static unsigned int timer_emu_count = 0, timer_emu_max = 0;
 
@@ -144,6 +137,7 @@ void sig_timer_emu_init(clock_t interval)
 {
 	timer_emu_interval = interval;
 	timer_emu_count = 0; timer_emu_max = 0;
+	timer_emu_running = 1;
 }
 
 void sig_timer_emu_tick(void)
@@ -154,7 +148,10 @@ void sig_timer_emu_tick(void)
 	struct tms buf;
 #endif
 
-	if (++timer_emu_count < timer_emu_max) return;
+	if (!timer_emu_running)
+		return;
+	if (++timer_emu_count < timer_emu_max)
+		return;
 
 #if defined (__MINGW32__) || defined (_MSC_VER)
 	current = clock();
@@ -241,8 +238,6 @@ void check_abort(int be_async_signal_safe)
 	if (!event_abort) return;
 
 	tty_done();
-
-	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 
 #ifndef BENCH_BUILD
 	if (john_max_cands && status.cands >= john_max_cands)

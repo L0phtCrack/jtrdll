@@ -1,4 +1,5 @@
-/* Cracker for SNMPv3 USM hashes, https://tools.ietf.org/html/rfc3414.
+/*
+ * Cracker for SNMPv3 USM hashes, https://tools.ietf.org/html/rfc3414.
  *
  * This software is Copyright (c) 2017, Dhiru Kholia <dhiru [at] openwall.com>,
  * and it is hereby released to the general public under the following terms:
@@ -18,12 +19,12 @@ john_register_one(&fmt_snmp);
 
 #include <string.h>
 #include <stdint.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               8
 #endif
-#endif
+
+#define OMP_SCALE               2  // Tuned w/ MKPC for core i7
 
 #include "formats.h"
 #include "md5.h"
@@ -34,7 +35,6 @@ john_register_one(&fmt_snmp);
 #include "common.h"
 #include "params.h"
 #include "options.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "SNMP"
 #define FORMAT_NAME             "SNMPv3 USM"
@@ -48,9 +48,9 @@ john_register_one(&fmt_snmp);
 #define BINARY_ALIGN            1
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define SALT_ALIGN              sizeof(uint32_t)
-#define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
 #define MAX_SALT_LEN            1500
+#define MIN_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      4
 
 static struct fmt_tests tests[] = {
 	// https://wiki.wireshark.org/SampleCaptures, snmp_usm.pcap, pippo, md5
@@ -82,9 +82,8 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	cracked_count = self->params.max_keys_per_crypt;
@@ -271,15 +270,14 @@ static void snmp_usm_password_to_key_sha(const uint8_t *password, uint32_t
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index = 0;
+	int index;
 
 	memset(cracked, 0, sizeof(cracked[0])*cracked_count);
 
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index++)
-	{
+	for (index = 0; index < count; index++) {
 		HMACMD5Context ctx;
 		unsigned char authKey[20];
 		unsigned char out[20];

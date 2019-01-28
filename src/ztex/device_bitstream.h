@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2016-2017 Denis Burykin
+ * This software is Copyright (c) 2016-2018 Denis Burykin
  * [denis_burykin yahoo com], [denis-burykin2014 yandex ru]
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
@@ -21,7 +21,10 @@ struct device_bitstream {
 	struct pkt_comm_params pkt_comm_params;
 	// device computing performance (in candidates per interval)
 	// (keys * mask_num_cand)/crypt_all_interval per jtr_device.
+	// For hashes with variable computing difficulty, this is set at runtime.
 	unsigned int candidates_per_crypt;
+	// keys_per_crypt setting for self-test
+	unsigned int test_keys_per_crypt;
 	// keys/crypt_all_interval for all devices - link layer performance issue.
 	// As keys are of variable size, this is a rough upper limit.
 	unsigned int abs_max_keys_per_crypt;
@@ -36,6 +39,9 @@ struct device_bitstream {
 	// Label is used in john.conf for setting frequency
 	// and other bitstream-specific properties
 	char *label;
+	// Initialization data is sent from the host after GSR
+	char *init_data;
+	int init_len;
 };
 
 

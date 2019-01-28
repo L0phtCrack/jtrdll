@@ -53,13 +53,15 @@ struct device_bitstream bitstream = {
 	// computing performance estimation (in candidates per interval)
 	// (keys * mask_num_cand)/crypt_all_interval per jtr_device.
 	35 * 1024*1024,
+	64 * 1024,		// 64K keys for each FPGA for self-test
 	// Absolute max. keys/crypt_all_interval for all devices.
-	2 * 1024*1024,
+	1024*1024,	// ~8 MB of USB traffic
 	// Max. number of entries in onboard comparator.
 	2047,
 	0,	// Min. number of keys (doesn't matter for fast "formats")
 	2, { 220, 160 },	// Programmable clocks
-	"descrypt"	// label for configuration file
+	"descrypt",	// label for configuration file
+	NULL, 0		// Initialization data
 };
 
 
@@ -68,7 +70,7 @@ static struct fmt_tests tests[] = {
 	{"CCX.K.MFy4Ois", "U*U***U"},
 	{"CC4rMpbg9AMZ.", "U*U***U*"},
 	{"XXxzOu6maQKqQ", "*U*U*U*U"},
-	{"SDbsugeBiC58A", ""},
+	//{"SDbsugeBiC58A", ""},
 	{"bbc1MMnm9AB52", "########"},
 	{"zzfERZdZxZJeg", "11111111"},
 	{"..4Xmrg11Z3jU", "00000000"},
@@ -111,7 +113,8 @@ static unsigned char DES_atoi64_bitswapped[128] = {
 static void init(struct fmt_main *fmt_main)
 {
 	DES_std_init(); // Used DES_std.c to perform des_crypt() on CPU
-	device_format_init(fmt_main, &bitstream, options.acc_devices);
+	device_format_init(fmt_main, &bitstream, options.acc_devices,
+		options.verbosity);
 }
 
 
@@ -377,7 +380,7 @@ struct fmt_main fmt_ztex_descrypt = {
 		1, //MIN_KEYS_PER_CRYPT,
 		1, //MAX_KEYS_PER_CRYPT,
 		//FMT_DEVICE_CMP |
-		FMT_CASE | FMT_TRUNC, // | FMT_REMOVE,
+		FMT_CASE | FMT_TRUNC | FMT_MASK, // | FMT_REMOVE,
 		{ NULL },
 		{ NULL },
 		tests

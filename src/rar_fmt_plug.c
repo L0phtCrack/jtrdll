@@ -133,7 +133,6 @@ john_register_one(&fmt_rar);
 #endif
 
 #include "rar_common.c"
-#include "memdbg.h"
 
 // these are supposed to be stack arrays; however gcc cannot correctly align
 // stack arrays so we have to use global arrays; we may switch back to stack
@@ -405,7 +404,7 @@ struct fmt_main fmt_rar = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		cpu_tests

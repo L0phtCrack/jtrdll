@@ -29,6 +29,9 @@ static struct fmt_tests cpu_tests[] = {
 	/* -p mode tests, -m0 and -m3 (in that order) */
 	{"$RAR3$*1*c47c5bef0bbd1e98*965f1453*48*47*1*c5e987f81d316d9dcfdb6a1b27105ce63fca2c594da5aa2f6fdf2f65f50f0d66314f8a09da875ae19d6c15636b65c815*30", "test"},
 	{"$RAR3$*1*b4eee1a48dc95d12*965f1453*64*47*1*0fe529478798c0960dd88a38a05451f9559e15f0cf20b4cac58260b0e5b56699d5871bdcc35bee099cc131eb35b9a116adaedf5ecc26b1c09cadf5185b3092e6*33", "test"},
+	/* issue #2899 unrar bug */
+	{"$RAR3$*1*00d7bc908cd4ad64*cc4b574e*16*7*1*58b582307dd07e0082a742d3f5d91ad3*33", "abc"},
+	//{"$RAR3$*1*fa0d20d2d9868510*cc4b574e*16*7*1*48a4b1de0795cd2adb2fab5f89b4d916*33", "1я1"}, /* UTF-8 needed */
 #ifdef DEBUG
 	/* Various lengths, these should be in self-test but not benchmark */
 	/* from CMIYC 2012 */
@@ -72,6 +75,9 @@ static struct fmt_tests gpu_tests[] = {
 	/* -p mode tests, -m0 and -m3 (in that order) */
 	{"$RAR3$*1*c47c5bef0bbd1e98*965f1453*48*47*1*c5e987f81d316d9dcfdb6a1b27105ce63fca2c594da5aa2f6fdf2f65f50f0d66314f8a09da875ae19d6c15636b65c815*30", "test"},
 	{"$RAR3$*1*b4eee1a48dc95d12*965f1453*64*47*1*0fe529478798c0960dd88a38a05451f9559e15f0cf20b4cac58260b0e5b56699d5871bdcc35bee099cc131eb35b9a116adaedf5ecc26b1c09cadf5185b3092e6*33", "test"},
+	/* issue #2899 unrar bug */
+	{"$RAR3$*1*00d7bc908cd4ad64*cc4b574e*16*7*1*58b582307dd07e0082a742d3f5d91ad3*33", "abc"},
+	//{"$RAR3$*1*fa0d20d2d9868510*cc4b574e*16*7*1*48a4b1de0795cd2adb2fab5f89b4d916*33", "1я1"}, /* UTF-8 needed */
 #ifdef DEBUG
 	{"$RAR3$*0*af24c0c95e9cafc7*e7f207f30dec96a5ad6f917a69d0209e", "magnum"},
 	{"$RAR3$*0*2653b9204daa2a8e*39b11a475f486206e2ec6070698d9bbc", "123456"},
@@ -533,12 +539,11 @@ inline static void check_rar(int count)
 		unsigned char *key = &aes_key[index * 16];
 		unsigned char *iv = &aes_iv[index * 16];
 
-		AES_set_decrypt_key(key, 128, &aes_ctx);
-
 		/* AES decrypt, uses aes_iv, aes_key and blob */
 		if (cur_file->type == 0) {	/* rar-hp mode */
 			unsigned char plain[16];
 
+			AES_set_decrypt_key(key, 128, &aes_ctx);
 			AES_cbc_encrypt(cur_file->blob, plain, 16,
 			                &aes_ctx, iv, AES_DECRYPT);
 
@@ -551,6 +556,32 @@ inline static void check_rar(int count)
 				uint64_t size = cur_file->unp_size;
 				unsigned char *cipher = cur_file->blob;
 
+				/* Check padding for early rejection, when possible */
+				if (cur_file->unp_size % 16) {
+					const char zeros[16] = { 0 };
+					const int pad_start = cur_file->unp_size % 16;
+					const int pad_size = 16 - pad_start;
+					unsigned char last_iv[16];
+
+					if (cur_file->pack_size < 32) {
+						memcpy(last_iv, iv, 16);
+						AES_set_decrypt_key(key, 128, &aes_ctx);
+						AES_cbc_encrypt(cur_file->blob, plain, 16,
+						                &aes_ctx, last_iv, AES_DECRYPT);
+					} else {
+						memcpy(last_iv,
+						       cur_file->blob + cur_file->pack_size - 32, 16);
+						AES_set_decrypt_key(key, 128, &aes_ctx);
+						AES_cbc_encrypt(cur_file->blob +
+						                cur_file->pack_size - 16, plain,
+						                16, &aes_ctx, last_iv, AES_DECRYPT);
+					}
+					cracked[index] = !memcmp(&plain[pad_start],
+					                         zeros, pad_size);
+					if (!cracked[index])
+						continue;
+				}
+
 				/* Use full decryption with CRC check.
 				   Compute CRC of the decompressed plaintext */
 				CRC32_Init(&crc);
@@ -558,7 +589,8 @@ inline static void check_rar(int count)
 				while (size) {
 					unsigned int inlen = (size > 0x8000) ? 0x8000 : size;
 
-					AES_cbc_encrypt(cipher, plain, inlen,
+					AES_set_decrypt_key(key, 128, &aes_ctx);
+					AES_cbc_encrypt(cipher, plain, MAX(inlen, 16),
 					                &aes_ctx, iv, AES_DECRYPT);
 
 					CRC32_Update(&crc, plain, inlen);
@@ -575,29 +607,29 @@ inline static void check_rar(int count)
 				unsigned char plain[20];
 				unsigned char pre_iv[16];
 
-				cracked[index] = 0;
-
 				memcpy(pre_iv, iv, 16);
 
 				/* Decrypt just one block for early rejection */
+				AES_set_decrypt_key(key, 128, &aes_ctx);
 				AES_cbc_encrypt(cur_file->blob, plain, 16,
 				                &aes_ctx, pre_iv, AES_DECRYPT);
 
 				/* Early rejection */
 				if (plain[0] & 0x80) {
 					// PPM checks here.
-					if (!(plain[0] & 0x20) ||  // Reset bit must be set
-					    (plain[1] & 0x80))     // MaxMB must be < 128
-						goto bailOut;
+					if (!(plain[0] & 0x20) ||    // Reset bit must be set
+					    (plain[1] & 0x80)) {     // MaxMB must be < 128
+						cracked[index] = 0;
+						continue;
+					}
 				} else {
 					// LZ checks here.
-					if ((plain[0] & 0x40) ||   // KeepOldTable can't be set
-					    !check_huffman(plain)) // Huffman table check
-						goto bailOut;
+					if ((plain[0] & 0x40) ||     // KeepOldTable can't be set
+					    !check_huffman(plain)) { // Huffman table check
+						cracked[index] = 0;
+						continue;
+					}
 				}
-
-				/* Reset stuff for full check */
-				AES_set_decrypt_key(key, 128, &aes_ctx);
 
 #ifdef _OPENMP
 				unpack_t = &unpack_data[omp_get_thread_num()];
@@ -611,9 +643,13 @@ inline static void check_rar(int count)
 				unpack_t->ctx = &aes_ctx;
 				unpack_t->key = key;
 
+				/* Reset key for full deflate check */
+				AES_set_decrypt_key(key, 128, &aes_ctx);
 				if (rar_unpack29(cur_file->blob, solid, unpack_t))
-					cracked[index] = !memcmp(&unpack_t->unp_crc, &cur_file->crc.c, 4);
-bailOut:;
+					cracked[index] = !memcmp(&unpack_t->unp_crc,
+					                         &cur_file->crc.c, 4);
+				else
+					cracked[index] = 0;
 			}
 		}
 	}

@@ -23,7 +23,6 @@
 #include"pseudo_intrinsics.h"
 
 #include "blake2b-round.h"
-#include "memdbg.h"
 
 JTR_ALIGN( 64 ) static const uint64_t blake2b_IV[8] =
 {

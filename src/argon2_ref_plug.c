@@ -24,7 +24,6 @@
 #include "blamka-round-ref.h"
 #include "blake2-impl.h"
 #include "blake2.h"
-#include "memdbg.h"
 
 /* LEGACY CODE: version 1.2.1 and earlier
 * Function fills a new memory block by overwriting @next_block.
@@ -245,4 +244,4 @@ void argon2_fill_segment(const argon2_instance_t *instance,
     }
 }
 
-#endif /* #ifndef __SSE2__ */
+#endif /* __SSE2__ */

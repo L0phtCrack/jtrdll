@@ -59,7 +59,6 @@ john_register_one(&fmt_NETNTLMv2);
 #include "hmacmd5.h"
 #include "unicode.h"
 #include "byteorder.h"
-#include "memdbg.h"
 
 #ifndef uchar
 #define uchar unsigned char
@@ -475,7 +474,7 @@ struct fmt_main fmt_NETNTLMv2 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8 | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_ENC | FMT_HUGE_INPUT,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

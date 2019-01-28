@@ -13,7 +13,7 @@
 
 #include "opencl_sha512crypt.h"
 
-#if (gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR < 1729)
+#if (gpu_amd(DEVICE_INFO) && DEV_VER_MAJOR < 1729 && !defined(__OS_X__))
     #define VECTOR_USAGE    1
 #endif
 
@@ -23,12 +23,18 @@
     ///NVIDIA: GTX 570 don't allow full unroll.
     #if amd_vliw4(DEVICE_INFO) || amd_vliw5(DEVICE_INFO)
         #define UNROLL_LOOP    133128
-    #elif amd_gcn(DEVICE_INFO)
+    #elif amd_gcn(DEVICE_INFO) && DEV_VER_MAJOR < 2500
         #define UNROLL_LOOP    132098
+    #elif amd_gcn(DEVICE_INFO) && DEV_VER_MAJOR >= 2500
+        #define UNROLL_LOOP    34079748
     #elif (nvidia_sm_2x(DEVICE_INFO) || nvidia_sm_3x(DEVICE_INFO))
         #define UNROLL_LOOP    132098
     #elif nvidia_sm_5x(DEVICE_INFO)
         #define UNROLL_LOOP    33686536
+    #elif nvidia_sm_6x(DEVICE_INFO)
+        #define UNROLL_LOOP    132104
+    #elif gpu_intel(DEVICE_INFO)
+        #define UNROLL_LOOP    262658
     #else
         #define UNROLL_LOOP    0
     #endif
@@ -159,7 +165,7 @@ inline void sha512_block(sha512_ctx * ctx) {
 #ifdef VECTOR_USAGE
     ulong16  w_vector;
     w_vector = vload16(0, ctx->buffer->mem_64);
-    w_vector = SWAP64_V(w_vector);
+    w_vector = SWAP64_V((ulong16)w_vector);
     vstore16(w_vector, 0, w);
 #else
     #pragma unroll

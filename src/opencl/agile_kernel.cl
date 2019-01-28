@@ -7,33 +7,9 @@
  * modification, are permitted.
  */
 #include "pbkdf2_hmac_sha1_unsplit_kernel.cl"
-#define AES_KEY_TYPE __global
-#define OCL_AES_CBC_DECRYPT 1
+#define AES_KEY_TYPE __global const
 #define AES_SRC_TYPE __constant
 #include "opencl_aes.h"
-
-inline int check_pkcs_pad(const uchar *data, size_t len, uint blocksize)
-{
-	uint pad_len = data[len - 1];
-	uint padding = pad_len;
-	size_t real_len = len - pad_len;
-	const uchar *p = data + real_len;
-
-	if (len & (blocksize - 1))
-		return -1;
-
-	if (pad_len > blocksize || pad_len < 1)
-		return -1;
-
-	if (len < blocksize)
-		return -1;
-
-	while (pad_len--)
-		if (*p++ != padding)
-			return -1;
-
-	return real_len;
-}
 
 typedef struct {
 	uint  iterations;
@@ -69,7 +45,7 @@ __kernel void dk_decrypt(__global pbkdf2_password *password,
 	for (i = 0; i < 16; i++)
 		iv[i] = salt->iv[i];
 
-	AES_set_decrypt_key((__global uchar*)agile_out[idx].key, 128, &akey);
+	AES_set_decrypt_key(agile_out[idx].key, 128, &akey);
 	AES_cbc_decrypt(salt->aes_ct, plaintext, 16, &akey, iv);
 
 	n = check_pkcs_pad(plaintext, 16, 16);

@@ -7,7 +7,6 @@
  * modification, are permitted.
  */
 
-#include "opencl_device_info.h"
 #include "opencl_misc.h"
 
 #if nvidia_sm_3x(DEVICE_INFO)
@@ -20,13 +19,12 @@
 #define BUF_UPDATE_SWITCH
 #endif
 
-/* LOP3.LUT does no good for this format */
-#undef HAVE_LUT3
+#undef MD5_LUT3 /* No good for this format, just here for reference */
 
 #define ROTATE_LEFT(x, s) rotate(x, (uint)s)
 
 /* The basic MD5 functions */
-#if HAVE_LUT3
+#if MD5_LUT3
 #define F(x, y, z)	lut3(x, y, z, 0xca)
 #define G(x, y, z)	lut3(x, y, z, 0xe4)
 #elif USE_BITSELECT
@@ -41,7 +39,7 @@
 #define G(x, y, z)	(y ^ (z & (x ^ y)))
 #endif
 
-#if HAVE_LUT3
+#if MD5_LUT3
 #define H(x, y, z)	lut3(x, y, z, 0x96)
 #define H2 H
 #else
@@ -49,7 +47,7 @@
 #define H2(x, y, z)	(x ^ (y ^ z))
 #endif
 
-#if HAVE_LUT3
+#if MD5_LUT3
 #define I(x, y, z)	lut3(x, y, z, 0x39)
 #elif USE_BITSELECT
 #define I(x, y, z)	(y ^ bitselect(0xffffffffU, x, z))
@@ -109,12 +107,12 @@
 typedef struct {
 	uint saltlen;
 	uchar salt[8];
-	uchar prefix;		/** 'a' when $apr1$ or '1' when $1$ or '\0' for {smd5} which uses no prefix. **/
+	uchar prefix;	/* 'a' = $apr1$, '1' = $1$, '\0' = {smd5} (no prefix). */
 } crypt_md5_salt;
 
 typedef struct {
-	uint length;
 	uchar v[PLAINTEXT_LENGTH];
+	uchar length;
 } crypt_md5_password;
 
 typedef struct {
@@ -369,7 +367,7 @@ __kernel void cryptmd5(__global const crypt_md5_password *inbuffer,
 	md5_ctx ctx[8];
 	uint ctx_buflen[8];
 	union {
-		uint w[4];
+		uint w[(PLAINTEXT_LENGTH + 3) / 4];
 		uchar c[PLAINTEXT_LENGTH];
 	} pass;
 	union {
@@ -382,10 +380,10 @@ __kernel void cryptmd5(__global const crypt_md5_password *inbuffer,
 #pragma unroll 4
 #endif
 	for (i = 0; i < (PLAINTEXT_LENGTH + 3) / 4; i++)
-		pass.w[i] = ((__global uint *) & inbuffer[idx].v)[i];
+		pass.w[i] = ((__global uint *) &inbuffer[idx].v)[i];
 
-	salt.w[0] = ((__constant uint *) & hsalt->salt)[0];
-	salt.w[1] = ((__constant uint *) & hsalt->salt)[1];
+	salt.w[0] = ((__constant uint *) &hsalt->salt)[0];
+	salt.w[1] = ((__constant uint *) &hsalt->salt)[1];
 
 	init_ctx(&ctx[1], &ctx_buflen[1]);
 	ctx_update(&ctx[1], pass.c, pass_len, &ctx_buflen[1]);
@@ -483,7 +481,7 @@ __kernel void cryptmd5(__global const crypt_md5_password *inbuffer,
 
 	uint id1 = g[0], id2;
 
-	uint j = 1;
+	int j = 1;
 #if gpu_nvidia(DEVICE_INFO)
 	for (i = 0; i < 250; i++) {
 #else
@@ -493,7 +491,7 @@ __kernel void cryptmd5(__global const crypt_md5_password *inbuffer,
 		md5_digest(&ctx[id1], ctx[id2].buffer, ctx_buflen[id1],
 		    altpos[id2 - 4]);
 		if (j == 41)
-			j = (uint)-1;
+			j = -1;
 		id1 = g[j + 1];
 		md5_digest(&ctx[id2], ctx[id1].buffer, ctx_buflen[id2], 0);
 
@@ -502,7 +500,7 @@ __kernel void cryptmd5(__global const crypt_md5_password *inbuffer,
 		md5_digest(&ctx[id1], ctx[id2].buffer, ctx_buflen[id1],
 		    altpos[id2 - 4]);
 		if (j == 39)
-			j = (uint)-3;
+			j = -3;
 		id1 = g[j + 3];
 		j += 4;
 		md5_digest(&ctx[id2], ctx[id1].buffer, ctx_buflen[id2], 0);

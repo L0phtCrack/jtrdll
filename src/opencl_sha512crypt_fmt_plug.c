@@ -22,7 +22,7 @@ john_register_one(&fmt_opencl_cryptsha512);
 
 #include <string.h>
 
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "options.h"
 #include "opencl_sha512crypt.h"
@@ -62,7 +62,6 @@ static int split_events[3] = { 1, 6, 7 };
 
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -407,8 +406,8 @@ static int calibrate()
 		{0, 0, 0, 0, 0}
 	};
 
-	fprintf(stderr, "Calibration is trying to figure out the best configuration to "
-		        "use at runtime. Please, wait...\n");
+	fprintf(stderr, "\nCalibration is trying to figure out the best "
+		        "configuration to use at runtime. Please, wait...\n");
 
 	i = j = k = l = 0;
 	while (loop_set[0][i]) {
@@ -427,7 +426,7 @@ static int calibrate()
 		//Build the tuned kernel
 		build_kernel(task, opt);
 		autotuned = 0; local_work_size = 0; global_work_size = 0;
-		autotune_run(self, ROUNDS_DEFAULT, 0, 300ULL);
+		autotune_run(self, ROUNDS_DEFAULT, 0, 200);
 		release_clobj();
 		release_kernel();
 
@@ -484,7 +483,6 @@ static void reset(struct db_main *db)
 		char opt[24] = "";
 
 		int major, minor;
-		unsigned long long int max_run_time;
 
 		source_in_use = device_info[gpu_id];
 
@@ -494,11 +492,6 @@ static void reset(struct db_main *db)
 		                        split_events : NULL),
 		                       warn, 1, self, create_clobj,
 		                       release_clobj, sizeof(uint64_t) * 9 * 8, 0, db);
-
-		if (cpu(device_info[gpu_id]))
-			max_run_time = 1000ULL;
-		else
-			max_run_time = 200ULL;
 
 		//Calibrate or a regular run.
 		if ((tmp_value = getenv("_CALIBRATE"))) {
@@ -523,7 +516,7 @@ static void reset(struct db_main *db)
 		build_kernel(task, opt);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, ROUNDS_DEFAULT, 0, max_run_time);
+		autotune_run(self, ROUNDS_DEFAULT, 0, 200);
 
 		//Clear work buffers.
 		memset(plaintext, '\0', sizeof(sha512_password) * global_work_size);
@@ -580,7 +573,7 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 	size_t gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	gws = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	if (new_keys) {
 		// sort passwords by length

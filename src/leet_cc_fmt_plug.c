@@ -61,7 +61,6 @@ john_register_one(&fmt_leet);
 #endif
 
 #include "simd-intrinsics.h"
-#include "memdbg.h"
 
 #ifdef SIMD_COEF_64
 #define SHA512_TYPE          SHA512_ALGORITHM_NAME
@@ -138,7 +137,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	if (!q)
 		return 0;
 
-	if (q - p > 256)
+	if (q - p > MAX_SALT_LEN)
 		return 0;
 
 	if (q - p == 0)

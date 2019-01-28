@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2017 by Solar Designer
+ * Copyright (c) 1996-2018 by Solar Designer
  *
  * ...with changes in the jumbo patch, by various authors
  *
@@ -26,7 +26,7 @@
 /*
  * John's version number.
  */
-#define JOHN_VERSION			"1.8.0.12"
+#define JOHN_VERSION			"1.8.0.13"
 
 /*
  * Jumbo's version number. Note that we must uncomment JTR_RELEASE_BUILD
@@ -271,9 +271,45 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
 #define CRACKED_HASH_SIZE		(1 << CRACKED_HASH_LOG)
 
 /*
+ * Type to use for single keys buffer. This and max_length affect how large
+ * a single mode batch can be, i.e. (SINGLE_BUF_MAX / max_length + 1).
+ * So using 16-bit integer and length 16, we can't use a larger KPC than
+ * 4096. This is typically too small for OpenCL formats and even some multi-
+ * core CPU platforms.
+ *
+ * Using 32-bit types, the real limit will be amount of available RAM and
+ * the setting of SingleMaxBufferSize in john.conf (default 4 GB).
+ *
+ * Current code tries to decrease max_length (but no more than to 16) before
+ * limiting KPC for number of salts vs. SINGLE_MAX_WORD_BUFFER (and both are
+ * capped if needed).
+ */
+#if HAVE_OPENCL
+/* Max. 2 GB memory buffer per salt. */
+#define SINGLE_KEYS_TYPE		int32_t
+#define SINGLE_KEYS_UTYPE		uint32_t
+#define SINGLE_IDX_MAX			(INT32_MAX + 1U)
+#define SINGLE_BUF_MAX			UINT32_MAX
+#elif _OPENMP || HAVE_ZTEX
+/* Max. 32K KPC. Roughly half the memory footprint compared to the above. */
+#define SINGLE_KEYS_TYPE		int16_t
+#define SINGLE_KEYS_UTYPE		uint32_t
+#define SINGLE_IDX_MAX			0x8000
+#define SINGLE_BUF_MAX			UINT32_MAX
+#else
+/* Original John proper settings: Max. 32K KPC and max. 64 KB memory buffer. */
+#define SINGLE_KEYS_TYPE		int16_t
+#define SINGLE_KEYS_UTYPE		uint16_t
+#define SINGLE_IDX_MAX			0x8000
+#define SINGLE_BUF_MAX			0xffff
+#endif
+
+/*
  * Buffered keys hash size, used for "single crack" mode.
  */
-#if defined(_OPENMP) && DES_BS && !DES_BS_ASM
+#if HAVE_OPENCL
+#define SINGLE_HASH_LOG			15
+#elif _OPENMP && DES_BS && !DES_BS_ASM
 #define SINGLE_HASH_LOG			10
 #else
 #define SINGLE_HASH_LOG			7
@@ -326,9 +362,27 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
 #endif
 
 /*
- * Maximum number of GECOS words to try in pairs.
+ * How many warnings about suboptimal batch size to emit before suppressing
+ * further ones. (You can override this figure with MaxKPCWarnings in
+ * john.conf, or use -v to decrease verbosity).
+ */
+#define CRK_KPC_WARN			10
+
+/*
+ * Maximum number of GECOS words to try in pairs. This is automagically
+ * increased when using global seed words, and/or when running accelerated
+ * formats (OpenCL, ZTEX) or OpenMP with many threads.
  */
 #define SINGLE_WORDS_PAIR_MAX		6
+
+/*
+ * Maximum buffer size used for words, in GB. This can be increased in
+ * john.conf.
+ * If running fork this is the total used by this session (size is divided by
+ * number of forks). If running MPI, we try to determine the number of
+ * local processes on each node and divide it accordingly.
+ */
+#define SINGLE_MAX_WORD_BUFFER		4
 
 /*
  * Charset parameters.
@@ -425,6 +479,7 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
 #define MAX_NUM_CUST_PLHDR		9
 
 /* Verbosity level. Higher is more chatty. */
+#define VERB_DEBUG			6
 #define VERB_MAX			5
 #define VERB_LEGACY			4
 #define VERB_DEFAULT			3

@@ -19,9 +19,6 @@ john_register_one(&fmt_smd5);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               16 // tuned on i7 w/HT
-#endif
 #endif
 
 #include "md5.h"
@@ -31,7 +28,6 @@ john_register_one(&fmt_smd5);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "aix-smd5"
 #define FORMAT_NAME             "AIX LPA {smd5} (modified crypt-md5)"
@@ -48,7 +44,11 @@ john_register_one(&fmt_smd5);
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define SALT_ALIGN              sizeof(int)
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      4
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               2 // Tuned w/ MKPC for core i7
+#endif
 
 static struct fmt_tests smd5_tests[] = {
 	/* following hashes are AIX non-standard smd5 hashes */
@@ -73,9 +73,8 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,

@@ -1,4 +1,5 @@
-/* JtR OpenCL format to crack Enpass Password Manager databases
+/*
+ * JtR OpenCL format to crack Enpass Password Manager databases
  *
  * This software is Copyright (c) 2017, Dhiru Kholia <dhiru at openwall.com>,
  * and it is hereby released to the general public under the following terms:
@@ -26,7 +27,7 @@ john_register_one(&fmt_opencl_enpass);
 #include "enpass_common.h"
 #include "options.h"
 #include "jumbo.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "misc.h"
 #define OUTLEN                  32
 #define PLAINTEXT_LENGTH        28
@@ -36,7 +37,7 @@ john_register_one(&fmt_opencl_enpass);
 #define OCL_ALGORITHM_NAME      "PBKDF2-SHA1 AES OpenCL"
 #define ALGORITHM_NAME          OCL_ALGORITHM_NAME
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        -1
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
@@ -57,7 +58,7 @@ static struct fmt_tests enpass_tests[] = {
 
 typedef struct {
 	unsigned int cracked;
-	unsigned int key[((OUTLEN + 19) / 20) * 20 / sizeof(uint)];
+	unsigned int key[((OUTLEN + 19) / 20) * 20 / sizeof(uint32_t)];
 } enpass_out;
 
 typedef struct {
@@ -99,9 +100,8 @@ static const char * warn[] = {
 
 static int split_events[] = { 2, -1, -1 };
 
-//This file contains auto-tuning routine(s). Has to be included after formats definitions.
+// This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -111,19 +111,16 @@ static size_t get_task_max_work_group_size()
 	s = autotune_get_task_max_work_group_size(FALSE, 0, pbkdf2_init);
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, pbkdf2_loop));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, enpass_final));
+
 	return s;
 }
-
-#if 0
-struct fmt_main *me;
-#endif
 
 static void create_clobj(size_t gws, struct fmt_main *self)
 {
 	key_buf_size = 64 * gws;
 	outsize = sizeof(enpass_out) * gws;
 
-	/// Allocate memory
+	// Allocate memory
 	inbuffer = mem_calloc(1, key_buf_size);
 	output = mem_alloc(outsize);
 
@@ -200,16 +197,14 @@ static void reset(struct db_main *db)
 		enpass_final = clCreateKernel(program[gpu_id], "enpass_final", &ret_code);
 		HANDLE_CLERROR(ret_code, "Error creating kernel");
 
-		//Initialize openCL tuning (library) for this format.
+		// Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, 2*HASH_LOOPS, split_events,
 		                       warn, 2, self, create_clobj,
 		                       release_clobj,
 		                       sizeof(pbkdf2_state), 0, db);
 
-		//Auto tune execution from shared/included code.
-		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		// Auto tune execution from shared/included code.
+		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0, 200);
 	}
 }
 
@@ -267,15 +262,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int i, j;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
-	/// Copy data to gpu
+	// Copy data to gpu
 	if (ocl_autotune_running || new_keys) {
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, key_buf_size, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
 		new_keys = 0;
 	}
 
-	/// Run kernels
+	// Run kernels
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], pbkdf2_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
 
 	for (j = 0; j < (ocl_autotune_running ? 1 : (currentsalt.outlen + 19) / 20); j++) {
@@ -288,7 +283,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], enpass_final, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run intermediate kernel");
 	}
 
-	/// Read the result back
+	// Read the result back
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, outsize, output, 0, NULL, multi_profilingEvent[4]), "Copy result back");
 
 	return count;

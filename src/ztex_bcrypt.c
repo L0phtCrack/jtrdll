@@ -56,11 +56,14 @@ static struct device_bitstream bitstream = {
 	// computing performance estimation (in candidates per interval)
 	// (keys * mask_num_cand)/crypt_all_interval per jtr_device.
 	1,	// set by init()
-	1 * 1024*1024,	// Absolute max. keys/crypt_all_interval for all devices.
+	4096,	// 4K keys per FPGA for self-test.
+	// Absolute max. keys/crypt_all_interval for all devices.
+	512 * 1024,	// Would be 36MB of USB traffic on 72-byte keys
 	3,		// Max. number of entries in onboard comparator.
 	124,	// Min. number of keys for effective device utilization
 	1, { 141 },	// Programmable clocks
-	"bcrypt"	// label for configuration file
+	"bcrypt",	// label for configuration file
+	NULL, 0		// Initialization data
 };
 
 
@@ -75,12 +78,12 @@ static struct fmt_tests tests[] = {
 	// 32 lower bits of hash are equal to the above hash - self-test fails
 	//{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzAxtE4OUcU.5p75hOF2yn2i1ocvO",
 	//	"1E!dpr"},
-	{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.7uG0VCzI2bS7j6ymqJi9CdcdxiRTWNy",
-		""},
-	{"$2a$08$CCCCCCCCCCCCCCCCCCCCC.LuntE/dBezheibpSOXBeR3W7q5mt2NW",
-		">RQ7la"},
+	//{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.7uG0VCzI2bS7j6ymqJi9CdcdxiRTWNy",
+	//	""},
 	{"$2b$05$XXXXXXXXXXXXXXXXXXXXXOAcXxm9kjPGEMsLznoKqmqw7tc8WCx4a",
 		"U*U*U"},
+	{"$2a$08$CCCCCCCCCCCCCCCCCCCCC.LuntE/dBezheibpSOXBeR3W7q5mt2NW",
+		">RQ7la"},
 
 	{"$2a$05$/OK.fbVrR/bpIqNJ5ianF.swQOIzjOiJ9GHEPuhEkvqrUyvWhEMx6",
 		"\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa\xaa"
@@ -146,7 +149,8 @@ static void init(struct fmt_main *fmt_main)
 	//fprintf(stderr, "bitstream.candidates_per_crypt=%d\n",
 	//		bitstream.candidates_per_crypt);
 
-	device_format_init(fmt_main, &bitstream, options.acc_devices);
+	device_format_init(fmt_main, &bitstream, options.acc_devices,
+		options.verbosity);
 }
 
 // Existing CPU implementation use following data structures:
@@ -188,8 +192,6 @@ static int get_setting_by_cost(int cost)
 }
 
 
-extern volatile int bench_running;
-
 // TODO: handle BE systems
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
@@ -217,7 +219,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		warning_curr_setting16 = 1;
 	}
 
-	if (!warning_target_setting && !bench_running
+	if (!warning_target_setting && !bench_or_test_running
 			&& (curr_setting > target_setting + 2
 			|| curr_setting < target_setting - 2)
 	) {
@@ -269,7 +271,7 @@ struct fmt_main fmt_ztex_bcrypt = {
 		SALT_ALIGN,
 		1, //MIN_KEYS_PER_CRYPT,
 		1, //MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_TRUNC,
+		FMT_CASE | FMT_8_BIT | FMT_TRUNC | FMT_MASK,
 		{
 			"iteration count",
 		},

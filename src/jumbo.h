@@ -17,10 +17,6 @@
 #ifndef _JTR_JUMBO_H
 #define _JTR_JUMBO_H
 
-// use this define in some core (master) code, to be able to more cleanly insert code
-// leaving the master code more intact for easier merging of changes Solar gives us.
-#define JUMBO_JTR  1
-
 #include "arch.h"
 #include <stdio.h>
 #include <errno.h>
@@ -350,14 +346,13 @@ extern int fileno(FILE *);
 // blindly use these for VC.  For VC, they are used to work around many
 // red-herring compiler warnings
 #undef snprintf
-#define snprintf vc_fixed_snprintf
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-int vc_fixed_snprintf(char *Dest, size_t max_cnt, const char *Fmt, ...);
-#ifdef __cplusplus
-}
+#if _MSC_VER < 1900
+// note, in VC 2015, snprintf was fixed to be POSIX compliant. The legacy _snprintf function
+// starting at at VC 2015 is no longer the same as snprintf (as it was prior).  The _snprintf
+// was kept at the legacy problematic manner, while snprintf now 'works' properly.
+// _MSC_VER == 1900 is the key for VC 2015
+#define snprintf(str, size, ...) vc_fixed_snprintf((str), (size), __VA_ARGS__)
+extern int vc_fixed_snprintf(char *Dest, size_t max_cnt, const char *Fmt, ...);
 #endif
 #undef alloca
 #define alloca _alloca
@@ -452,5 +447,13 @@ char *strcasestr(const char *haystack, const char *needle);
  * On failure, returns -1.
  */
 extern int check_pkcs_pad(const unsigned char* data, size_t len, int blocksize);
+
+/*
+ * Parse string for boolean. Case insensitive:
+ * y/yes/true/1: return 1
+ * n/no/false/0: return 0
+ * None of the above: return -1
+ */
+extern int parse_bool(char *string);
 
 #endif /* _JTR_JUMBO_H */

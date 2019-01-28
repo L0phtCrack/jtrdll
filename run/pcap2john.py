@@ -1,15 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# combine of all of Dhiru Kholia pcap convert utilities
+# Combine of all of Dhiru Kholia pcap convert utilities
 # into a single program.  The pcap2john.readme lists
 # all of the original license statements. This merge was
 # done by JimF, Nov 2014, somewhat as a learning experience
-# for python.
+# for Python.
+#
 # The code itself is still a fabrication of Dhiru.
 
-import dpkt
+
 import sys
+
+def note():
+    sys.stderr.write("Note: This program does not have the functionality of wpapcap2john, SIPdump, eapmd5tojohn, and vncpcap2john programs which are included with JtR Jumbo.\n\n")
+
+note()
+
+try:
+    import dpkt
+except ImportError:
+    sys.stderr.write("Please install 'dpkt' package for Python, running 'pip install --user dpkt' should work\n")
+    sys.exit(1)
+
 import dpkt.ethernet as ethernet
 from dpkt import ip as dip
 import dpkt.stp as stp
@@ -26,8 +39,8 @@ l.setLevel(49)
 try:
     from scapy.all import TCP, IP, UDP, rdpcap
 except ImportError:
-    sys.stderr.write("Please install scapy, http://www.secdev.org/projects/scapy/\n")
-    sys.exit(-1)
+    sys.stderr.write("Please install 'scapy' package for Python, running 'pip install --user scapy' should work\n")
+    sys.exit(1)
 
 # VTP_DOMAIN_SIZE = 32
 
@@ -1299,8 +1312,103 @@ def pcap_parser_rndc(fname):
     f.close()
 
 
-def note():
-    sys.stderr.write("Note: This program does not have the functionality of wpapcap2john, SIPdump, eapmd5tojohn, and vncpcap2john.\n")
+def pcap_parser_tsig(fname):
+    """
+    Extract BIND TSIG hashes from .pcap files.
+    """
+    import dns
+    import dns.message
+    import dns.tsigkeyring
+
+    mapping = {}
+
+    keyring = dns.tsigkeyring.from_text({
+        'update-key' : 'MTIzNDU2Nzg='
+    })
+
+    f = open(fname, "rb")
+    pcap = dpkt.pcap.Reader(f)
+    index = 0
+
+    for _, buf in pcap:
+        index = index + 1
+        eth = dpkt.ethernet.Ethernet(buf)
+        if eth.type == dpkt.ethernet.ETH_TYPE_IP or eth.type == dpkt.ethernet.ETH_TYPE_IP6:
+            ip = eth.data
+            if eth.type == dpkt.ethernet.ETH_TYPE_IP and ip.p != dpkt.ip.IP_PROTO_UDP:
+                continue
+            if eth.type == dpkt.ethernet.ETH_TYPE_IP6 and ip.nxt != dpkt.ip.IP_PROTO_UDP:
+                continue
+
+            udp = ip.data
+            data = udp.data
+
+            if udp.dport != 53 and udp.sport != 53:  # is this DNS traffic?
+                continue
+
+            is_response = True
+            if udp.dport == 53:
+                is_response = False
+
+            if len(data) < 48:
+                continue
+
+            p = dns.message.from_wire(data, keyring=keyring, pout=False)
+            if not is_response and hasattr(p, "mac"):
+                mapping[p.id] = p.mac
+            if is_response and hasattr(p, "mac"):
+                request_mac = mapping.get(p.id, None)
+                if request_mac:
+                    p = dns.message.from_wire(data, keyring=keyring, request_mac=request_mac, pout=True)
+            else:
+                p = dns.message.from_wire(data, keyring=keyring, pout=True)
+
+    f.close()
+
+
+# http://dpkt.readthedocs.io/en/latest/print_http_requests.html
+def pcap_parser_htdigest(fname):
+    f = open(fname, "rb")
+    pcap = dpkt.pcap.Reader(f)
+
+    # For each packet in the pcap process the contents
+    for timestamp, buf in pcap:
+        # Unpack the Ethernet frame (mac src/dst, ethertype)
+        try:
+           eth = dpkt.ethernet.Ethernet(buf)
+        except:
+            continue
+
+        # Make sure the Ethernet data contains an IP packet
+        if eth.type == dpkt.ethernet.ETH_TYPE_IP or eth.type == dpkt.ethernet.ETH_TYPE_IP6:
+            # Now grab the data within the Ethernet frame (the IP packet)
+            ip = eth.data
+
+            # Check for TCP in the transport layer
+            if isinstance(ip.data, dpkt.tcp.TCP):
+
+                # Set the TCP data
+                tcp = ip.data
+
+                # Now see if we can parse the contents as a HTTP request
+                try:
+                    request = dpkt.http.Request(tcp.data)
+                except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError):
+                    continue
+
+                if "authorization" in request.headers:
+                    value = request.headers["authorization"]
+                    if "qop" in value and "response" in value:
+                        import urllib2
+                        items = urllib2.parse_http_list(value)
+                        opts = urllib2.parse_keqv_list(items)
+                        user = opts['Digest username']
+                        print("%s:$response$%s$%s$%s$%s$%s$%s$%s$%s$%s" %
+                                (user, opts["response"], user, opts["realm"],
+                                    request.method, opts["uri"], opts["nonce"],
+                                    opts["nc"], opts["cnonce"], opts["qop"]))
+
+    f.close()
 
 
 ############################################################
@@ -1309,39 +1417,81 @@ def note():
 ############################################################
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        sys.stderr.write("Usage: %s [.pcap files]\n\n" % sys.argv[0])
-        note()
-        sys.exit(-1)
+        sys.stderr.write("Usage: %s [.pcap files]\n" % sys.argv[0])
+        sys.exit(1)
 
     # advertise what is not handled
-    note()
-    time.sleep(2)
+    time.sleep(1)
 
     for i in range(1, len(sys.argv)):
         try:
             pcap_parser_ah(sys.argv[i])
         except:
             pass
-        pcap_parser_bfd(sys.argv[i])
+        try:
+            pcap_parser_bfd(sys.argv[i])
+        except:
+            pass
         try:
             pcap_parser_vtp(sys.argv[i])
         except:
             # sys.stderr.write("vtp could not handle input\n")
             pass
-        pcap_parser_vrrp(sys.argv[i])
-        pcap_parser_tcpmd5(sys.argv[i])
-        pcap_parser_rsvp(sys.argv[i])
-        pcap_parser_ntp(sys.argv[i])
-        pcap_parser_isis(sys.argv[i])
-        pcap_parser_hsrp(sys.argv[i])
-        pcap_parser_hsrp_v2(sys.argv[i])
-        pcap_parser_glbp(sys.argv[i])
+        try:
+            pcap_parser_vrrp(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_tcpmd5(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_rsvp(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_ntp(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_isis(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_hsrp(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_hsrp_v2(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_glbp(sys.argv[i])
+        except:
+            pass
         pcap_parser_gadu(sys.argv[i])
-        pcap_parser_eigrp(sys.argv[i])
+        try:
+            pcap_parser_eigrp(sys.argv[i])
+        except:
+            pass
         pcap_parser_tgsrep(sys.argv[i])
-        pcap_parser_tacacs_plus(sys.argv[i])
-        pcap_parser_wlccp(sys.argv[i])
-        pcap_parser_rndc(sys.argv[i])
+        try:
+            pcap_parser_tacacs_plus(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_wlccp(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_rndc(sys.argv[i])
+        except:
+            pass
+        try:
+            pcap_parser_tsig(sys.argv[i])
+        except:
+            pass
+        pcap_parser_htdigest(sys.argv[i])
         try:
             pcap_parser_s7(sys.argv[i])
         except:

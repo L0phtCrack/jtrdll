@@ -24,7 +24,7 @@ john_register_one(&fmt_opencl_pfx);
 #include "params.h"
 #include "common.h"
 #include "formats.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 #include "hmac_sha.h"
 #include "pfx_common.h"
@@ -33,7 +33,7 @@ john_register_one(&fmt_opencl_pfx);
 #define FORMAT_NAME             "PKCS12 PBE (.pfx, .p12)"
 #define ALGORITHM_NAME          "SHA1 OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        -1
 #define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_SIZE               sizeof(*cur_salt)
 #define SALT_ALIGN              sizeof(int)
@@ -50,8 +50,6 @@ static struct fmt_tests pfx_tests[] = {
 	{"$pfxng$1$20$2048$8$8a4a0ba026e93132$308204583082027706092a864886f70d010706a0820268308202640201003082025d06092a864886f70d010701301c060a2a864886f70d010c0106300e0408af17a2ebf12476a5020208008082023065ad0c71081c2d50e73692bfef56e0d6e06b48dbb0b9d4ed7fd9a49e13c38996d3885bc340d591f6ac6978cd01ac55df6d237996cc470c777019377cd123709dfd13b78b5801607e14dab2f52a4e94e58e8142217b153f11e9ddef4cd8344042007346a29c21495d674fa11b7a6ff79347cc90a0a5b4fbcce5a6c21d8b6d8be0a4c0f84041e1c846b023050009a31f7fdd63dfbe5c179b1cdc56b6c6df6b9bd215c71a1c318b619da29cdfd0bcaabff5a6835b051d2ff5a02f3d02b95115d867d77a6c692aeb9619938614598ca84e60949dc868c890b9daae50d55a1ed02ee01975b769ca8eb18b909136e1a32c096ab767b97fd60d3b182870ddabf0b5a65ef6e8c69e8918e966fb7475c6b5263dad23534c843ad87dad85f81671cafe6b52f832051314d859c196f0b5e4228dfa20085604ee4cfc99d5f2c35b76930007d0f5d4a7bad060081a93b70752f4575679320f2b8914930c19e0e59cf95276504617681d5ef745380981537846466ddd9cf8130f157c3b2688749cb071fa36ec12157b57349b932fe5d635b853b5ba399a7e4113c639b45dcb618228d1e8a2077963c2c8f670a0189432d59d7ef915f00aa7171d9653c413aea748033cc60c37e3af9b9cdea29fecaf0fcc0d960cbf2da468c7b52b61860c8cfcc841d5bc2fe5605a34686d31c9fff66cb9a7830415b8eb0d2981c757660297d7d9843309bc26f2eded4800b34027e661e22ac3f3da82749d4bac74e02c017fd0a339f0bb400627c8d31684f30fd0e81d0973154eff06c5308201d906092a864886f70d010701a08201ca048201c6308201c2308201be060b2a864886f70d010c0a0102a082018630820182301c060a2a864886f70d010c0103300e040873a3921c345b0bd702020800048201600b7098f289339c8d8756fdd00f63883126ea62ca6b7d8b27cc40075e6e3d952fbd3074084a70d54619f875ff4af0a8da823c1110a4914259cfe03ae35798d0ebbb6ac43e7272bee2365bc5beb8a80d0cb8cca06fd18e2f6db5a9410650b6f4075dae2c5bb0b373b398c18fb41bbf76a6abb921d3a92612e10275aaea600fbc3d2686c44231159e3a63206aa7188ebd0815468bdd943c3866ab34a3b4f87c848154d3dc7e006662474e41cf162738c081033668397729a3fc92919f6044b1241ff1d2f300a42e54963d3d19b5201d4ec4e6b199225e23aaaed056da321075585da9889242378f5027c4ee8d999eac2b2fb5493fa0de8f2291cf75cdb29edf4cd53ac5c702ab3c41598b0bb99453571c50ac4aa3fbf23a0070b05779886550a7fdc0f3ecae4c730d3d031ac0b91397385a10bcd98f34e132d326895a35b3132b1cdc59bb7eaa9312be82861325a5fd6b0f8208530644cc1b96277f9e7701b243f73125302306092a864886f70d0109153116041400e22764f0d0103973b2d4c26925cc9985eebf14$d9d1c9053ad4101943f883baffa11eab65f73e97", "abcdefghijklmnopqrstuvwxyz12345"}, // Length 31, see #2606
 	{NULL},
 };
-
-extern volatile int bench_running;
 
 // input
 typedef struct {
@@ -89,7 +87,6 @@ size_t insize, outsize, settingsize, cracked_size;
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static const char *warn[] = {
 	"xfer: ",  ", crypt: ",  ", xfer: "
@@ -292,9 +289,9 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 
 	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
@@ -303,7 +300,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	// Run kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-		NULL, &global_work_size, lws, 0, NULL,
+		NULL, &gws, lws, 0, NULL,
 		multi_profilingEvent[1]),
 		"Run kernel");
 
@@ -352,6 +349,7 @@ struct fmt_main fmt_opencl_pfx = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_HUGE_INPUT,
 		{
+			"iteration count",
 			"mac-type [1:SHA1 224:SHA224 256:SHA256 384:SHA384 512:SHA512]",
 		},
 		{ FORMAT_TAG },
@@ -366,6 +364,7 @@ struct fmt_main fmt_opencl_pfx = {
 		pfx_common_get_binary,
 		pfx_common_get_salt,
 		{
+			pfx_iteration_count,
 			pfx_get_mac_type,
 		},
 		fmt_default_source,

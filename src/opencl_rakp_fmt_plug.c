@@ -30,7 +30,7 @@ john_register_one(&fmt_opencl_rakp);
 #include "formats.h"
 #include "sha.h"
 #include "johnswap.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 
 #define FORMAT_LABEL            "RAKP-opencl"
@@ -38,7 +38,7 @@ john_register_one(&fmt_opencl_rakp);
 #define ALGORITHM_NAME          "HMAC-SHA1 OpenCL"
 
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 
 #define BLOCK_SIZE              64
 #define PAD_SIZE                BLOCK_SIZE
@@ -81,7 +81,6 @@ static struct fmt_main *self;
 
 //This file contains auto-tuning routine(s). Have to included after other definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static struct fmt_tests tests[] = {
 	{"$rakp$a4a3a2a03f0b000094272eb1ba576450b0d98ad10727a9fb0ab83616e099e8bf5f7366c9c03d36a3000000000000000000000000000000001404726f6f74$0ea27d6d5effaa996e5edc855b944e179a2f2434", "calvin"},
@@ -378,7 +377,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	scalar_gws = global_work_size * ocl_v_width;
 
 	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" sgws "Zu" kidx %u\n", __FUNCTION__, count, local_work_size, global_work_size, scalar_gws, key_idx);

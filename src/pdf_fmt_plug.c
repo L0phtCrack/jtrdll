@@ -15,11 +15,9 @@ john_register_one(&fmt_pdf);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           64
-#endif
 #endif
 
 #include "arch.h"
@@ -33,7 +31,6 @@ john_register_one(&fmt_pdf);
 #include "rc4.h"
 #include "pdfcrack_md5.h"
 #include "loader.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL        "PDF"
 #define FORMAT_NAME         ""
@@ -43,14 +40,18 @@ john_register_one(&fmt_pdf);
 #define FORMAT_TAG_OLD_LEN  (sizeof(FORMAT_TAG_OLD)-1)
 #define ALGORITHM_NAME      "MD5 SHA2 RC4/AES 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1000
+#define BENCHMARK_LENGTH    0
 #define PLAINTEXT_LENGTH    32
 #define BINARY_SIZE         0
 #define SALT_SIZE           sizeof(struct custom_salt)
 #define BINARY_ALIGN        1
 #define SALT_ALIGN          sizeof(int)
 #define MIN_KEYS_PER_CRYPT  1
-#define MAX_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT  4
+
+#ifndef OMP_SCALE
+#define OMP_SCALE           8 // Tuned w/ MKPC for core i7
+#endif
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static int *cracked;
@@ -101,9 +102,8 @@ static struct fmt_tests pdf_tests[] = {
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
@@ -602,9 +602,6 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #pragma omp parallel for
 #endif
 	for (index = 0; index < count; index++) {
-#if !defined(_OPENMP) && defined (__CYGWIN32__) && defined (MEMDBG_ON)
-		static  /* work around for some 'unknown' bug in cygwin gcc when using memdbg.h code. I have NO explanation, JimF. */
-#endif
 		unsigned char output[32];
 		pdf_compute_user_password((unsigned char*)saved_key[index], output);
 		if (crypt_out->R == 2 || crypt_out->R == 5 || crypt_out->R == 6)

@@ -76,7 +76,12 @@ inline uint lut3(uint x, uint y, uint z, uchar m)
 }
 #endif
 
-#if !gpu_nvidia(DEVICE_INFO) || SM_MAJOR >= 5
+/*
+ * Apparently nvidias can optimize stuff better (ending up in *better* LUT
+ * use) with the basic formulas instead of bitselect ones. Most formats
+ * show no difference but pwsafe does.
+ */
+#if !gpu_nvidia(DEVICE_INFO)
 #define USE_BITSELECT 1
 #endif
 
@@ -117,13 +122,10 @@ inline ulong lut3_64(ulong a, ulong b, ulong c, uint imm)
 #endif
 #endif
 
-#if gpu_amd(DEVICE_INFO)
-#ifdef cl_amd_media_ops
+#if defined cl_amd_media_ops && !__MESA__
 #pragma OPENCL EXTENSION cl_amd_media_ops : enable
-#endif
 #define BITALIGN(hi, lo, s) amd_bitalign((hi), (lo), (s))
-#else
-#if SCALAR && SM_MAJOR > 3 || (SM_MAJOR == 3 && SM_MINOR >= 2)
+#elif SCALAR && SM_MAJOR > 3 || (SM_MAJOR == 3 && SM_MINOR >= 2)
 inline uint funnel_shift_right(uint hi, uint lo, uint s)
 {
 	uint r;
@@ -146,7 +148,6 @@ inline uint funnel_shift_right_imm(uint hi, uint lo, uint s)
 #else
 #define BITALIGN(hi, lo, s) (((hi) << (32 - (s))) | ((lo) >> (s)))
 #endif
-#endif
 
 #ifndef BITALIGN_IMM
 #define BITALIGN_IMM(hi, lo, s) BITALIGN(hi, lo, s)
@@ -156,10 +157,12 @@ inline uint funnel_shift_right_imm(uint hi, uint lo, uint s)
 #define VECTOR(x, y)		CONCAT(x, y)
 
 /* Workaround for problem seen with 9600GT */
-#if OLD_NVIDIA || __OS_X__
+#ifndef MAYBE_CONSTANT
+#if OLD_NVIDIA
 #define MAYBE_CONSTANT	__global const
 #else
 #define MAYBE_CONSTANT	__constant
+#endif
 #endif
 
 #if USE_BITSELECT
@@ -200,100 +203,9 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 }
 #endif
 
-#if gpu_nvidia(DEVICE_INFO)
-
-#define GET_UINT32_UNALIGNED(n, b, i)	  \
-	{ \
-		(n) = ((uint) (b)[(i)]      ) \
-			| ((uint) (b)[(i) + 1] <<  8) \
-			| ((uint) (b)[(i) + 2] << 16) \
-			| ((uint) (b)[(i) + 3] << 24); \
-	}
-
-#define PUT_UINT32_UNALIGNED(n, b, i)	  \
-	{ \
-		(b)[(i)    ] = (uchar) ((n)      ); \
-		(b)[(i) + 1] = (uchar) ((n) >>  8); \
-		(b)[(i) + 2] = (uchar) ((n) >> 16); \
-		(b)[(i) + 3] = (uchar) ((n) >> 24); \
-	}
-
-#define PUT_UINT64_UNALIGNED(n, b, i)	  \
-	{ \
-		(b)[(i)    ] = (uchar) ((n)      ); \
-		(b)[(i) + 1] = (uchar) ((ulong)(n) >>  8); \
-		(b)[(i) + 2] = (uchar) ((ulong)(n) >> 16); \
-		(b)[(i) + 3] = (uchar) ((ulong)(n) >> 24); \
-		(b)[(i) + 4] = (uchar) ((ulong)(n) >> 32); \
-		(b)[(i) + 5] = (uchar) ((ulong)(n) >> 40); \
-		(b)[(i) + 6] = (uchar) ((ulong)(n) >> 48); \
-		(b)[(i) + 7] = (uchar) ((ulong)(n) >> 56); \
-	}
-
-#define GET_UINT32BE_UNALIGNED(n, b, i)	  \
-	{ \
-		(n) = ((uint) (b)[(i)] << 24) \
-			| ((uint) (b)[(i) + 1] << 16) \
-			| ((uint) (b)[(i) + 2] <<  8) \
-			| ((uint) (b)[(i) + 3]      ); \
-	}
-
-#define PUT_UINT32BE_UNALIGNED(n, b, i)	  \
-	{ \
-		(b)[(i)    ] = (uchar) ((n) >> 24); \
-		(b)[(i) + 1] = (uchar) ((n) >> 16); \
-		(b)[(i) + 2] = (uchar) ((n) >>  8); \
-		(b)[(i) + 3] = (uchar) ((n)      ); \
-	}
-
-#define GET_UINT64BE_UNALIGNED(n, b, i)	  \
-	{ \
-		(n) = ((ulong) (b)[(i)] << 56) \
-			| ((ulong) (b)[(i) + 1] << 48) \
-			| ((ulong) (b)[(i) + 2] << 40) \
-			| ((ulong) (b)[(i) + 3] << 32) \
-			| ((ulong) (b)[(i) + 4] << 24) \
-			| ((ulong) (b)[(i) + 5] << 16) \
-			| ((ulong) (b)[(i) + 6] <<  8) \
-			| ((ulong) (b)[(i) + 7]      ); \
-	}
-
-#define PUT_UINT64BE_UNALIGNED(n, b, i)	  \
-	{ \
-		(b)[(i)    ] = (uchar) ((ulong)(n) >> 56); \
-		(b)[(i) + 1] = (uchar) ((ulong)(n) >> 48); \
-		(b)[(i) + 2] = (uchar) ((ulong)(n) >> 40); \
-		(b)[(i) + 3] = (uchar) ((ulong)(n) >> 32); \
-		(b)[(i) + 4] = (uchar) ((ulong)(n) >> 24); \
-		(b)[(i) + 5] = (uchar) ((ulong)(n) >> 16); \
-		(b)[(i) + 6] = (uchar) ((ulong)(n) >>  8); \
-		(b)[(i) + 7] = (uchar) ((n)      ); \
-	}
-
 /*
- * Faster on nvidia, no difference on AMD
- * NOTE: This version needs b to be aligned as int!
+ * These macros must not require alignment of (b).
  */
-#if __ENDIAN_LITTLE__
-#define GET_UINT32(n, b, i)	(n) = ((uint*)(b))[(i) >> 2]
-#define PUT_UINT32(n, b, i)	((uint*)(b))[(i) >> 2] = (n)
-#define PUT_UINT64(n, b, i)	((ulong*)(b))[(i) >> 3] = (n)
-#define GET_UINT32BE(n, b, i)	(n) = SWAP32(((uint*)(b))[(i) >> 2])
-#define PUT_UINT32BE(n, b, i)	((uint*)(b))[(i) >> 2] = SWAP32(n)
-#define GET_UINT64BE(n, b, i)	(n) = SWAP64(((ulong*)(b))[(i) >> 3])
-#define PUT_UINT64BE(n, b, i)	((ulong*)(b))[(i) >> 3] = SWAP64(n)
-#else
-#define GET_UINT32(n, b, i)	(n) = SWAP32(((uint*)(b))[(i) >> 2])
-#define PUT_UINT32(n, b, i)	((uint*)(b))[(i) >> 2] = SWAP32(n)
-#define PUT_UINT64(n, b, i)	((ulong*)(b))[(i) >> 3] = SWAP64(n)
-#define GET_UINT32BE(n, b, i)	(n) = ((uint*)(b))[(i) >> 2]
-#define PUT_UINT32BE(n, b, i)	((uint*)(b))[(i) >> 2] = (n)
-#define GET_UINT64BE(n, b, i)	(n) = ((ulong*)(b))[(i) >> 3]
-#define PUT_UINT64BE(n, b, i)	((ulong*)(b))[(i) >> 3] = (n)
-#endif
-
-#else /* Safe code for any arch */
-
 #define GET_UINT32(n, b, i)	  \
 	{ \
 		(n) = ((uint) (b)[(i)]      ) \
@@ -310,18 +222,6 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 		(b)[(i) + 3] = (uchar) ((n) >> 24); \
 	}
 
-#define PUT_UINT64(n, b, i)	  \
-	{ \
-		(b)[(i)    ] = (uchar) ((n)      ); \
-		(b)[(i) + 1] = (uchar) ((ulong)(n) >>  8); \
-		(b)[(i) + 2] = (uchar) ((ulong)(n) >> 16); \
-		(b)[(i) + 3] = (uchar) ((ulong)(n) >> 24); \
-		(b)[(i) + 4] = (uchar) ((ulong)(n) >> 32); \
-		(b)[(i) + 5] = (uchar) ((ulong)(n) >> 40); \
-		(b)[(i) + 6] = (uchar) ((ulong)(n) >> 48); \
-		(b)[(i) + 7] = (uchar) ((ulong)(n) >> 56); \
-	}
-
 #define GET_UINT32BE(n, b, i)	  \
 	{ \
 		(n) = ((uint) (b)[(i)] << 24) \
@@ -336,6 +236,18 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 		(b)[(i) + 1] = (uchar) ((n) >> 16); \
 		(b)[(i) + 2] = (uchar) ((n) >>  8); \
 		(b)[(i) + 3] = (uchar) ((n)      ); \
+	}
+
+#define PUT_UINT64(n, b, i)	  \
+	{ \
+		(b)[(i)    ] = (uchar) ((n)      ); \
+		(b)[(i) + 1] = (uchar) ((ulong)(n) >>  8); \
+		(b)[(i) + 2] = (uchar) ((ulong)(n) >> 16); \
+		(b)[(i) + 3] = (uchar) ((ulong)(n) >> 24); \
+		(b)[(i) + 4] = (uchar) ((ulong)(n) >> 32); \
+		(b)[(i) + 5] = (uchar) ((ulong)(n) >> 40); \
+		(b)[(i) + 6] = (uchar) ((ulong)(n) >> 48); \
+		(b)[(i) + 7] = (uchar) ((ulong)(n) >> 56); \
 	}
 
 #define GET_UINT64BE(n, b, i)	  \
@@ -361,6 +273,26 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 		(b)[(i) + 6] = (uchar) ((ulong)(n) >>  8); \
 		(b)[(i) + 7] = (uchar) ((n)      ); \
 	}
+
+/*
+ * These require (b) to be aligned!
+ */
+#if __ENDIAN_LITTLE__
+#define GET_UINT32_ALIGNED(n, b, i)	(n) = ((uint*)(b))[(i) >> 2]
+#define PUT_UINT32_ALIGNED(n, b, i)	((uint*)(b))[(i) >> 2] = (n)
+#define GET_UINT32BE_ALIGNED(n, b, i)	(n) = SWAP32(((uint*)(b))[(i) >> 2])
+#define PUT_UINT32BE_ALIGNED(n, b, i)	((uint*)(b))[(i) >> 2] = SWAP32(n)
+#define PUT_UINT64_ALIGNED(n, b, i)	((ulong*)(b))[(i) >> 3] = (n)
+#define GET_UINT64BE_ALIGNED(n, b, i)	(n) = SWAP64(((ulong*)(b))[(i) >> 3])
+#define PUT_UINT64BE_ALIGNED(n, b, i)	((ulong*)(b))[(i) >> 3] = SWAP64(n)
+#else
+#define GET_UINT32_ALIGNED(n, b, i)	(n) = SWAP32(((uint*)(b))[(i) >> 2])
+#define PUT_UINT32_ALIGNED(n, b, i)	((uint*)(b))[(i) >> 2] = SWAP32(n)
+#define GET_UINT32BE_ALIGNED(n, b, i)	(n) = ((uint*)(b))[(i) >> 2]
+#define PUT_UINT32BE_ALIGNED(n, b, i)	((uint*)(b))[(i) >> 2] = (n)
+#define PUT_UINT64_ALIGNED(n, b, i)	((ulong*)(b))[(i) >> 3] = SWAP64(n)
+#define GET_UINT64BE_ALIGNED(n, b, i)	(n) = ((ulong*)(b))[(i) >> 3]
+#define PUT_UINT64BE_ALIGNED(n, b, i)	((ulong*)(b))[(i) >> 3] = (n)
 #endif
 
 /* Any device can do 8-bit reads BUT these macros are scalar only! */
@@ -395,6 +327,30 @@ inline MAYBE_VECTOR_UINT VSWAP32(MAYBE_VECTOR_UINT x)
 #define XORCHAR(buf, index, val) ((uchar*)(buf))[(index)] ^= (val)
 #define XORCHAR_BE(buf, index, val) ((uchar*)(buf))[(index) ^ 3] ^= (val)
 #endif
+
+inline int check_pkcs_pad(const uchar *data, int len, int blocksize)
+{
+	int pad_len, padding, real_len;
+
+	if (len & (blocksize - 1) || len < blocksize)
+		return -1;
+
+	pad_len = data[len - 1];
+
+	if (pad_len < 1 || pad_len > blocksize)
+		return -1;
+
+	real_len = len - pad_len;
+	data += real_len;
+
+	padding = pad_len;
+
+	while (pad_len--)
+		if (*data++ != padding)
+			return -1;
+
+	return real_len;
+}
 
 /*
  * Use with some caution. Memory type agnostic and if both src and dst are
@@ -540,11 +496,261 @@ inline void memcpy_cp(void *dst, __constant void *src, uint count)
 	}
 }
 
+/* src is MAYBE_CONSTANT mem, dst is private mem */
+inline void memcpy_mcp(void *dst, MAYBE_CONSTANT void *src, uint count)
+{
+	union {
+		MAYBE_CONSTANT uint *w;
+		MAYBE_CONSTANT uchar *c;
+	} s;
+	union {
+		uint *w;
+		uchar *c;
+	} d;
+
+	s.c = src;
+	d.c = dst;
+
+	if (((size_t)dst & 0x03) == ((size_t)src & 0x03)) {
+		while (((size_t)s.c) & 0x03 && count--)
+			*d.c++ = *s.c++;
+
+		while (count >= 4) {
+			*d.w++ = *s.w++;
+			count -= 4;
+		}
+	}
+
+	while (count--) {
+		*d.c++ = *s.c++;
+	}
+}
+
+/* dst is private mem */
+inline void memset_p(void *p, uint val, uint count)
+{
+	const uint val4 = val | (val << 8) | (val << 16) | (val << 24);
+	union {
+		uint *w;
+		uchar *c;
+	} d;
+
+	d.c = p;
+
+	while (((size_t)d.c) & 0x03 && count--)
+		*d.c++ = val;
+
+	while (count >= 4) {
+		*d.w++ = val4;
+		count -= 4;
+	}
+
+	while (count--)
+		*d.c++ = val;
+}
+
+/* dst is global mem */
+inline void memset_g(__global void *p, uint val, uint count)
+{
+	const uint val4 = val | (val << 8) | (val << 16) | (val << 24);
+	union {
+		__global uint *w;
+		__global uchar *c;
+	} d;
+
+	d.c = p;
+
+	while (((size_t)d.c) & 0x03 && count--)
+		*d.c++ = val;
+
+	while (count >= 4) {
+		*d.w++ = val4;
+		count -= 4;
+	}
+
+	while (count--)
+		*d.c++ = val;
+}
+
+/* s1 and s2 are private mem */
+inline int memcmp_pp(const void *s1, const void *s2, uint size)
+{
+	union {
+		const uint *w;
+		const uchar *c;
+	} a;
+	union {
+		const uint *w;
+		const uchar *c;
+	} b;
+
+	a.c = s1;
+	b.c = s2;
+
+	if (((size_t)s1 & 0x03) == ((size_t)s2 & 0x03)) {
+		while (((size_t)a.c) & 0x03 && size--)
+			if (*b.c++ != *a.c++)
+				return 1;
+
+		while (size >= 4) {
+			if (*b.w++ != *a.w++)
+				return 1;
+			size -= 4;
+		}
+	}
+
+	while (size--)
+		if (*b.c++ != *a.c++)
+			return 1;
+
+	return 0;
+}
+
+/* s1 is private mem, s2 is constant mem */
+inline int memcmp_pc(const void *s1, __constant const void *s2, uint size)
+{
+	union {
+		const uint *w;
+		const uchar *c;
+	} a;
+	union {
+		__constant const uint *w;
+		__constant const uchar *c;
+	} b;
+
+	a.c = s1;
+	b.c = s2;
+
+	if (((size_t)s1 & 0x03) == ((size_t)s2 & 0x03)) {
+		while (((size_t)a.c) & 0x03 && size--)
+			if (*b.c++ != *a.c++)
+				return 1;
+
+		while (size >= 4) {
+			if (*b.w++ != *a.w++)
+				return 1;
+			size -= 4;
+		}
+	}
+
+	while (size--)
+		if (*b.c++ != *a.c++)
+			return 1;
+
+	return 0;
+}
+
+/* s1 is private mem, s2 is MAYBE_CONSTANT mem */
+inline int memcmp_pmc(const void *s1, MAYBE_CONSTANT void *s2, uint size)
+{
+	union {
+		const uint *w;
+		const uchar *c;
+	} a;
+	union {
+		MAYBE_CONSTANT uint *w;
+		MAYBE_CONSTANT uchar *c;
+	} b;
+
+	a.c = s1;
+	b.c = s2;
+
+	if (((size_t)s1 & 0x03) == ((size_t)s2 & 0x03)) {
+		while (((size_t)a.c) & 0x03 && size--)
+			if (*b.c++ != *a.c++)
+				return 1;
+
+		while (size >= 4) {
+			if (*b.w++ != *a.w++)
+				return 1;
+			size -= 4;
+		}
+	}
+
+	while (size--)
+		if (*b.c++ != *a.c++)
+			return 1;
+
+	return 0;
+}
+
+/* haystack is private mem, needle is constant mem */
+inline int memmem_pc(const void *haystack, size_t haystack_len,
+                     __constant const void *needle, size_t needle_len)
+{
+	char* haystack_ = (char*)haystack;
+	__constant const char* needle_ = (__constant const char*)needle;
+	int hash = 0;
+	int hay_hash = 0;
+	char* last;
+	size_t i;
+
+	if (haystack_len < needle_len)
+		return 0;
+
+	if (!needle_len)
+		return 1;
+
+	for (i = needle_len; i; --i) {
+		hash += *needle_++;
+		hay_hash += *haystack_++;
+	}
+
+	haystack_ = (char*)haystack;
+	needle_ = (__constant char*)needle;
+	last = haystack_+(haystack_len - needle_len + 1);
+	for (; haystack_ < last; ++haystack_) {
+		if (hash == hay_hash &&
+		    *haystack_ == *needle_ &&
+		    !memcmp_pc (haystack_, needle_, needle_len))
+			return 1;
+
+		hay_hash -= *haystack_;
+		hay_hash += *(haystack_+needle_len);
+	}
+
+	return 0;
+}
+
+#define STRINGIZE2(s) #s
+#define STRINGIZE(s) STRINGIZE2(s)
+
+/*
+ * The reason the functions below are macros is it's the only way we can use
+ * them regardless of memory type (eg. __local or __global). The downside is
+ * we can't cast them so we need eg. dump8_le for a char array, or output will
+ * not be correct.
+ */
+
+/* Dump an array (or variable) as hex */
+#define dump(x)   dump_stuff_msg(STRINGIZE(x), x, sizeof(x))
+#define dump_stuff(x, size) dump_stuff_msg(STRINGIZE(x), x, size)
+
+/*
+ * This clumsy beast finally hides the problem from user.
+ */
+#define dump_stuff_msg(msg, x, size) do {	  \
+		switch (sizeof((x)[0])) { \
+		case 8: \
+			dump_stuff64_msg(msg, x, size); \
+			break; \
+		case 4: \
+			dump_stuff32_msg(msg, x, size); \
+			break; \
+		case 2: \
+			dump_stuff16_msg(msg, x, size); \
+			break; \
+		case 1: \
+			dump_stuff8_msg(msg, x, size); \
+			break; \
+		} \
+	} while (0)
+
 /* requires char/uchar */
 #define dump_stuff8_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < size; ii++) { \
+		for (ii = 0; ii < (uint)size; ii++) { \
 			printf("%02x", (x)[ii]); \
 			if (ii % 4 == 3) \
 				printf(" "); \
@@ -556,7 +762,7 @@ inline void memcpy_cp(void *dst, __constant void *src, uint count)
 #define dump_stuff16_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < (size)/2; ii++) { \
+		for (ii = 0; ii < (uint)(size)/2; ii++) { \
 			printf("%04x", (x)[ii]); \
 			if (ii % 2 == 1) \
 				printf(" "); \
@@ -565,20 +771,20 @@ inline void memcpy_cp(void *dst, __constant void *src, uint count)
 	} while (0)
 
 /* requires int/uint */
-#define dump_stuff_msg(msg, x, size) do {	  \
+#define dump_stuff32_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < (size)/4; ii++) \
+		for (ii = 0; ii < (uint)(size)/4; ii++) \
 			printf("%08x ", SWAP32((x)[ii])); \
 		printf("\n"); \
 	} while (0)
 
-/* requires int/uint */
-#define dump_stuff_be_msg(msg, x, size) do {	  \
+/* requires long/ulong */
+#define dump_stuff64_msg(msg, x, size) do {	  \
 		uint ii; \
 		printf("%s : ", msg); \
-		for (ii = 0; ii < (size)/4; ii++) \
-			printf("%08x ", (x)[ii]); \
+		for (ii = 0; ii < (uint)(size)/8; ii++) \
+			printf("%016lx ", SWAP64((x)[ii])); \
 		printf("\n"); \
 	} while (0)
 

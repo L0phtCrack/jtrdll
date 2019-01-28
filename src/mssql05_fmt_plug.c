@@ -41,7 +41,6 @@ john_register_one(&fmt_mssql05);
 #include "unicode.h"
 #include "sha.h"
 #include "johnswap.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"mssql05"
 #define FORMAT_NAME			"MS SQL 2005"
@@ -607,7 +606,7 @@ struct fmt_main fmt_mssql05 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ NULL },
 		tests

@@ -15,11 +15,8 @@
 #include "formats.h"
 #include "timer.h"
 #include "config.h"
-#include "memdbg.h"
 
 #define CONF_SECTION SECTION_OPTIONS, ":CPUtune"
-
-extern volatile int bench_running;
 
 static int use_preset, max_no_progress;
 static double sample_time, req_gain, max_tune_time;
@@ -81,7 +78,7 @@ int omp_autotune(struct fmt_main *format, int preset)
 	fmt_preset = preset;
 
 	omp_scale = tune_preset ? tune_preset : (use_preset ? preset : 0);
-	ret_scale = (threads == 1) ? 1 : (omp_scale ? omp_scale : 1);
+	ret_scale = tune_preset ? tune_preset : (threads == 1 ? 1 : (omp_scale ? omp_scale : 1));
 
 	if (omp_autotune_running)
 		return threads * scale;
@@ -114,7 +111,7 @@ void omp_autotune_run(struct db_main *db)
 	sTimer timer;
 	double duration;
 
-	if (!fmt || omp_scale == 1)
+	if (!fmt || omp_scale == 1 || tune_preset)
 		goto cleanup;
 
 	if (john_main_process && (options.flags & FLG_TEST_CHK) &&
@@ -164,6 +161,9 @@ void omp_autotune_run(struct db_main *db)
 		// Set up buffers for this test
 		fmt->methods.init(fmt);
 
+		// Format may have bumped kpc in init()
+		this_kpc = fmt->params.max_keys_per_crypt;
+
 		// Load keys
 		fmt->methods.clear_keys();
 		for (i = 0; i < this_kpc; i++) {
@@ -177,7 +177,8 @@ void omp_autotune_run(struct db_main *db)
 		// Set the salt we picked earlier
 		fmt->methods.set_salt(salt);
 
-		bench_running++;
+		// Tell format this is a speed test
+		benchmark_running++;
 
 		sTimer_Start(&timer, 1);
 		do {
@@ -188,7 +189,7 @@ void omp_autotune_run(struct db_main *db)
 		} while (crypts < min_crypts || sTimer_GetSecs(&timer) < sample_time);
 		sTimer_Stop(&timer);
 
-		bench_running--;
+		benchmark_running--;
 
 		duration = sTimer_GetSecs(&timer);
 		cps = crypts / duration;
@@ -243,7 +244,7 @@ void omp_autotune_run(struct db_main *db)
 				fprintf(stderr, "Autotuned MKPC %d, preset is %d\n",
 				        best_scale * fmt->params.min_keys_per_crypt, mkpc);
 		} else {
-			if (MAX(best_scale, fmt_preset) > 4 * MIN(best_scale, fmt_preset))
+			if (best_scale != fmt_preset)
 				fprintf(stderr, "Autotuned OMP scale %d, preset is %d\n",
 				        best_scale, fmt_preset);
 		}
@@ -265,13 +266,9 @@ void omp_autotune_run(struct db_main *db)
 		}
 	}
 
-	if (threads == 1)
-		fmt->params.max_keys_per_crypt =
-			best_scale * fmt->params.min_keys_per_crypt;
-	else
-		fmt->params.max_keys_per_crypt = mkpc * threads * best_scale;
-
 	if (best_scale != scale) {
+		scale = best_scale;
+
 		// Release old buffers
 		fmt->methods.done();
 

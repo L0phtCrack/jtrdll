@@ -17,7 +17,7 @@ john_register_one(&fmt_ocl_pbkdf2_md5);
 #include <ctype.h>
 #include <string.h>
 
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -32,6 +32,7 @@ john_register_one(&fmt_ocl_pbkdf2_md5);
 #define dump_stuff_msg(a, b, c)	dump_stuff_msg((void*)a, b, c)
 
 #define FORMAT_LABEL		"PBKDF2-HMAC-MD5-opencl"
+#define FORMAT_NAME			""
 #define ALGORITHM_NAME		"PBKDF2-MD5 OpenCL"
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
@@ -63,7 +64,6 @@ static cl_kernel pbkdf2_init, pbkdf2_loop, pbkdf2_final;
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -142,7 +142,7 @@ static void done(void)
 
 static void init(struct fmt_main *_self)
 {
-	static char valgo[sizeof(ALGORITHM_NAME) + 8] = "";
+	static char valgo[sizeof(ALGORITHM_NAME) + 12] = "";
 
 	self = _self;
 
@@ -185,9 +185,7 @@ static void reset(struct db_main *db)
 		                       ocl_v_width * sizeof(pbkdf2_state), 0, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, 2*999+4, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 5000000000ULL));
+		autotune_run(self, 2*999+4, 0, 200);
 	}
 }
 
@@ -264,7 +262,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	scalar_gws = global_work_size * ocl_v_width;
 
 	/// Copy data to gpu

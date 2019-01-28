@@ -97,6 +97,12 @@ extern const UTF32 offsetsFromUTF8[];
 extern const char opt_trailingBytesUTF8[64];
 
 /*
+ * Convert to UTF-32 from UTF-8.
+ */
+extern int utf8_to_utf32(UTF32 *target, unsigned int len,
+                         const UTF8 *source, unsigned int sourceLen);
+
+/*
  * Convert to UTF-16LE from UTF-8.
  * 'maxtargetlen' is max. number of characters (as opposed to bytes) in output,
  * e.g. PLAINTEXT_LENGTH.
@@ -170,6 +176,12 @@ extern int enc_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
 extern char *utf16_to_cp(const UTF16* source);
 extern char *utf8_to_cp_r(char *src, char *dst, int dstlen);
 extern char *cp_to_utf8_r(char *src, char *dst, int dstlen);
+
+/*
+ * Return length (in characters) of a UTF-32 string
+ * Number of octets is the result * sizeof(UTF32)
+ */
+extern unsigned int strlen32(const UTF32* str);
 
 /*
  * Return length (in characters) of a UTF-16 string
@@ -283,11 +295,15 @@ extern UTF8 CP_lows[0x100]; /* all lower-case letters */
 
 /* Used by single.c and loader.c */
 extern UTF8 CP_isLetter[0x100];
+extern UTF8 CP_isLower[0x100];
+extern UTF8 CP_isUpper[0x100];
 extern UTF8 CP_isSeparator[0x100];
+extern UTF8 CP_isDigit[0x100];
 
 /* These are encoding-aware but not LC_CTYPE */
-#define enc_islower(c) (options.internal_cp == ASCII ? (c > 'a' && c < 'z') : (strchr((char*)CP_lows, ARCH_INDEX(c)) != NULL))
-#define enc_isupper(c) (options.internal_cp == ASCII ? (c > 'A' && c < 'Z') : ((strchr((char*)CP_ups, ARCH_INDEX(c)) != NULL))
+#define enc_islower(c) (options.internal_cp == ASCII ? (c >= 'a' && c <= 'z') : CP_isLower[ARCH_INDEX(c)])
+#define enc_isupper(c) (options.internal_cp == ASCII ? (c >= 'A' && c <= 'Z') : CP_isUpper[ARCH_INDEX(c)])
+#define enc_isdigit(c) (options.internal_cp == ASCII ? (c >= '0' && c <= '9') : CP_isDigit[ARCH_INDEX(c)])
 #define enc_tolower(c) (char)CP_down[ARCH_INDEX(c)]
 #define enc_toupper(c) (char)CP_up[ARCH_INDEX(c)]
 
@@ -296,8 +312,26 @@ extern int cp_name2id(char *encoding);
 extern char *cp_id2name(int encoding);
 extern char *cp_id2macro(int encoding);
 
+/* Return true if string has any uppercase character */
+extern int enc_hasupper(char *s);
+
+/* Return true if string has any lowercase character */
+extern int enc_haslower(char *s);
+
+/* Return true if string has any digits */
+extern int enc_hasdigit(char *s);
+
+/* Convert UTF-8-32 to UTF-8 */
+extern UTF8 *utf8_32_to_utf8(UTF8 *dst, UTF32 *src);
+
+/* Convert UTF-8 to UTF-8-32 */
+extern void utf8_to_utf8_32(UTF32 *dst, UTF8 *src);
+
+/* Convert UTF-32 to UTF-8-32, in place */
+extern void utf32_to_utf8_32(UTF32 *in_place_string);
+
 /*
- * NOTE! Please read the comments in formats.h for FMT_UNICODE and FMT_UTF8
+ * NOTE! Please read the comments in formats.h for FMT_UNICODE and FMT_ENC
  */
 
 #endif				/* _CONVERTUTF_H */

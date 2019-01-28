@@ -86,10 +86,8 @@ john_register_one(&fmt_dmg);
 #if (!AC_BUILT || HAVE_UNISTD_H) && !_MSC_VER
 #include <unistd.h>
 #endif
-extern volatile int bench_running;
 #endif
 #include "loader.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL        "dmg"
 #define FORMAT_NAME         "Apple DMG"
@@ -101,7 +99,7 @@ extern volatile int bench_running;
 #define ALGORITHM_NAME      "PBKDF2-SHA1 3DES/AES 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1001
+#define BENCHMARK_LENGTH    -1
 #define BINARY_SIZE         0
 #define PLAINTEXT_LENGTH	125
 #define SALT_SIZE           sizeof(struct custom_salt)
@@ -495,7 +493,7 @@ static void hash_plugin_check_hash(int index)
 		/* 8 consecutive nulls */
 		if (memmem(outbuf, cur_salt->data_size, (void*)nulls, 8)) {
 #ifdef DMG_DEBUG
-			if (!bench_running)
+			if (!bench_or_test_running)
 				fprintf(stderr, "NULLS found!\n\n");
 #endif
 			cracked[index+j] = 1;
@@ -505,14 +503,14 @@ static void hash_plugin_check_hash(int index)
 #ifdef DMG_DEBUG
 		/* </plist> is a pretty generic signature for Apple */
 		if (!cracked[index+j] && memmem(outbuf, cur_salt->data_size, (void*)"</plist>", 8)) {
-			if (!bench_running)
+			if (!bench_or_test_running)
 				fprintf(stderr, "</plist> found!\n\n");
 			cracked[index+j] = 1;
 		}
 
 		/* Journalled HFS+ */
 		if (!cracked[index+j] && memmem(outbuf, cur_salt->data_size, (void*)"jrnlhfs+", 8)) {
-			if (!bench_running)
+			if (!bench_or_test_running)
 				fprintf(stderr, "jrnlhfs+ found!\n\n");
 			cracked[index+j] = 1;
 		}
@@ -523,7 +521,7 @@ static void hash_plugin_check_hash(int index)
 			unsigned int *u32Version = (unsigned int *)(r + 4);
 
 			if (HTONL(*u32Version) == 4) {
-				if (!bench_running)
+				if (!bench_or_test_running)
 					fprintf(stderr, "koly found!\n\n");
 				cracked[index+j] = 1;
 			}
@@ -531,7 +529,7 @@ static void hash_plugin_check_hash(int index)
 
 		/* Handle VileFault sample images */
 		if (!cracked[index+j] && memmem(outbuf, cur_salt->data_size, (void*)"EFI PART", 8)) {
-			if (!bench_running)
+			if (!bench_or_test_running)
 				fprintf(stderr, "EFI PART found!\n\n");
 			cracked[index+j] = 1;
 		}
@@ -539,7 +537,7 @@ static void hash_plugin_check_hash(int index)
 		/* Apple is a good indication but it's short enough to
 		   produce false positives */
 		if (!cracked[index+j] && memmem(outbuf, cur_salt->data_size, (void*)"Apple", 5)) {
-			if (!bench_running)
+			if (!bench_or_test_running)
 				fprintf(stderr, "Apple found!\n\n");
 			cracked[index+j] = 1;
 		}
@@ -560,7 +558,7 @@ static void hash_plugin_check_hash(int index)
 			/* 8 consecutive nulls */
 			if (memmem(outbuf2, 4096, (void*)nulls, 8)) {
 #ifdef DMG_DEBUG
-				if (!bench_running)
+				if (!bench_or_test_running)
 					fprintf(stderr, "NULLS found in alternate block!\n\n");
 #endif
 				cracked[index+j] = 1;
@@ -568,7 +566,7 @@ static void hash_plugin_check_hash(int index)
 #ifdef DMG_DEBUG
 			/* This test seem to be obsoleted by the 8xNULL test */
 			if (!cracked[index+j] && memmem(outbuf2, 4096, (void*)"Press any key to reboot", 23)) {
-				if (!bench_running)
+				if (!bench_or_test_running)
 					fprintf(stderr, "MS-DOS UDRW signature found in alternate block!\n\n");
 				cracked[index+j] = 1;
 			}
@@ -577,7 +575,7 @@ static void hash_plugin_check_hash(int index)
 
 #ifdef DMG_DEBUG
 		/* Write block as hex, strings or raw to a file. */
-		if (cracked[index+j] && !bench_running) {
+		if (cracked[index+j] && !bench_or_test_running) {
 #if DMG_DEBUG == 4
 			int fd;
 
@@ -692,6 +690,14 @@ static unsigned int iteration_count(void *salt)
 	return (unsigned int) my_salt->iterations;
 }
 
+static unsigned int headerver(void *salt)
+{
+	struct custom_salt *my_salt;
+
+	my_salt = salt;
+	return (unsigned int) my_salt->headerver;
+}
+
 struct fmt_main fmt_dmg = {
 	{
 		FORMAT_LABEL,
@@ -713,6 +719,7 @@ struct fmt_main fmt_dmg = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{
 			"iteration count",
+			"version",
 		},
 		{ FORMAT_TAG },
 		dmg_tests
@@ -727,6 +734,7 @@ struct fmt_main fmt_dmg = {
 		get_salt,
 		{
 			iteration_count,
+			headerver,
 		},
 		fmt_default_source,
 		{

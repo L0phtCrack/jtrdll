@@ -36,7 +36,6 @@ john_register_one(&fmt_NT2);
 #include "memory.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
-#include "memdbg.h"
 
 #ifdef SIMD_COEF_32
 #define NBKEYS				(SIMD_COEF_32 * SIMD_PARA_MD4)
@@ -723,7 +722,7 @@ struct fmt_main fmt_NT2 = {
 #ifdef _OPENMP
 		FMT_OMP | FMT_OMP_BAD |
 #endif
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

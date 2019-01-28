@@ -820,7 +820,7 @@ if __name__ == '__main__':
 
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [bitcon wallet files]" % sys.argv[0]
+        print >> sys.stderr, "Usage: %s [Bitcoin/Litecoin/PRiVCY wallet (.dat) files]" % sys.argv[0]
         sys.exit(-1)
 
     for i in range(1, len(sys.argv)):
@@ -851,7 +851,7 @@ if __name__ == '__main__':
 
         ckey = k['encrypted_privkey']
         public_key = k['pubkey']
-        cry_master = json_db['mkey']['encrypted_key']
+        cry_master = json_db['mkey']['encrypted_key'][-64:]  # last two aes blocks should be enough
         cry_salt = json_db['mkey']['salt']
 
         sys.stdout.write("$bitcoin$%s$%s$%s$%s$%s$%s$%s$%s$%s\n" %

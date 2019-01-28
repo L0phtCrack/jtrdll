@@ -12,8 +12,8 @@
  */
 
 #include <stdio.h>
+
 #include "formats.h"
-#include "memory.h"
 #include "common.h"
 #include "base64_convert.h"
 #include "pbkdf2_hmac_common.h"
@@ -27,7 +27,20 @@
 #define PBKDF2_HMAC_SHA512_ALSO_INCLUDE_CTX 1
 #include "pbkdf2_hmac_sha512.h"
 
-#include "memdbg.h"
+
+static void dump_hex(const void *msg, void *x, unsigned int size)
+{
+	unsigned int i;
+
+	printf("%s : ", (char *)msg);
+	for (i=0;i<size;i++)
+	{
+		printf("%.2x", ((unsigned char*)x)[i]);
+		if ( (i%4)==3 )
+		printf(" ");
+	}
+	printf("\n");
+}
 
 /**************************************
  * Common stuff for pbkdf2-md4 hashes
@@ -131,7 +144,7 @@ void *pbkdf2_hmac_md4_binary(char *ciphertext)
 		p += 2;
 	}
 #if 0
-	dump_stuff_msg(__FUNCTION__, out, PBKDF2_MDx_BINARY_SIZE);
+	dump_hex(__FUNCTION__, out, PBKDF2_MDx_BINARY_SIZE);
 #endif
 	return out;
 }
@@ -163,8 +176,8 @@ int pbkdf2_hmac_md4_cmp_exact(char *key, char *source, unsigned char *salt, int 
 	            iterations, crypt, len, 0);
 	result = !memcmp(binary, crypt, len);
 #if 0
-	dump_stuff_msg("hash binary", binary, len);
-	dump_stuff_msg("calc binary", crypt, len);
+	dump_hex("hash binary", binary, len);
+	dump_hex("calc binary", crypt, len);
 #endif
 	MEM_FREE(binary);
 	MEM_FREE(crypt);
@@ -181,7 +194,6 @@ int pbkdf2_hmac_md4_cmp_exact(char *key, char *source, unsigned char *salt, int 
  **************************************/
 
 struct fmt_tests pbkdf2_hmac_md5_common_tests[] = {
-	{"$pbkdf2-hmac-md5$1$73616c74$f31afb6d931392daa5e3130f47f9a9b6", "password"},
 	{"$pbkdf2-hmac-md5$1000$38333335343433323338$f445d6d0ed5cbe9fc12c03ea9530c1c6", "hashcat"},
 	{"$pbkdf2-hmac-md5$1000$38333335343433323338$f445d6d0ed5cbe9fc12c03ea9530c1c6f79e7886a6af1552b40f3704a8b87847", "hashcat"},
 	{"$pbkdf2-hmac-md5$10000$6d61676e756d$8802b8d3bc1ba8fe973313a3606d0db3", "Borkum"},
@@ -202,6 +214,7 @@ struct fmt_tests pbkdf2_hmac_md5_common_tests[] = {
 	{"$pbkdf2-hmac-md5$1000$3031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637$ec41f832048f530d23ccd7e0becfb755", "password"},
 	{"$pbkdf2-hmac-md5$1000$303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738$cfe5e9745081b369afc5f3a0f952ca8a", "password"},
 	{"$pbkdf2-hmac-md5$1000$3031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738$d79edf4f6fca3411b2f635048b02751e", "password"},
+	{"$pbkdf2-hmac-md5$1$73616c74$f31afb6d931392daa5e3130f47f9a9b6", "password"},
 	{NULL}
 };
 
@@ -275,7 +288,7 @@ void *pbkdf2_hmac_md5_binary(char *ciphertext)
 		p += 2;
 	}
 #if 0
-	dump_stuff_msg(__FUNCTION__, out, PBKDF2_MDx_BINARY_SIZE);
+	dump_hex(__FUNCTION__, out, PBKDF2_MDx_BINARY_SIZE);
 #endif
 	return out;
 }
@@ -306,8 +319,8 @@ int pbkdf2_hmac_md5_cmp_exact(char *key, char *source, unsigned char *salt, int 
 	            iterations, crypt, len, 0);
 	result = !memcmp(binary, crypt, len);
 #if 0
-	dump_stuff_msg("hash binary", binary, len);
-	dump_stuff_msg("calc binary", crypt, len);
+	dump_hex("hash binary", binary, len);
+	dump_hex("calc binary", crypt, len);
 #endif
 	MEM_FREE(binary);
 	MEM_FREE(crypt);
@@ -327,6 +340,8 @@ struct fmt_tests pbkdf2_hmac_sha1_common_tests[] = {
 	{"$pbkdf2-hmac-sha1$1000.fd11cde0.27de197171e6d49fc5f55c9ef06c0d8751cd7250", "3956"},
 	{"$pbkdf2-hmac-sha1$1000$6926d45e$231c561018a4cee662df7cd4a8206701c5806af9", "1234"},
 	{"$pbkdf2-hmac-sha1$1000.98fcb0db.37082711ff503c2d2dea9a5cf7853437c274d32e", "5490"},
+	// Long password
+	{"$pbkdf2-hmac-sha1$1000.6834476f733353333654315a5a31494f.1932a843a69dc1e38a29d2691a7abf27ecaa6d55", "Very long string to test larger than sixty-four characters candidate"},
 	// WPA-PSK DK (raw key as stored by some routers):
 	// iterations is always 4096.
 	// ESSID was "Harkonen" - converted to hex 4861726b6f6e656e.
@@ -509,8 +524,8 @@ int pbkdf2_hmac_sha1_cmp_exact(char *key, char *source, unsigned char *salt, int
 	            iterations, crypt, len, 0);
 	result = !memcmp(binary, crypt, len);
 #if 0
-	dump_stuff_msg("hash binary", binary, len);
-	dump_stuff_msg("calc binary", crypt, len);
+	dump_hex("hash binary", binary, len);
+	dump_hex("calc binary", crypt, len);
 #endif
 	MEM_FREE(binary);
 	MEM_FREE(crypt);
@@ -818,8 +833,8 @@ int pbkdf2_hmac_sha512_cmp_exact(char *key, char *source, unsigned char *salt, i
 		fprintf(stderr, "\npbkdf2-hmac-sha512: Warning: Partial match for '%s'   salt_len=%d rounds=%d bin_len=%d.\n"
 		        "This is a bug or a malformed input line of:\n%s\n",
 		        key, length, rounds, len, source);
-		dump_stuff_msg("crypt results", crypt, len);
-		dump_stuff_msg("salt hex     ", salt, length);
+		dump_hex("crypt results", crypt, len);
+		dump_hex("salt hex     ", salt, length);
 	}
 	MEM_FREE(binary);
 	MEM_FREE(crypt);

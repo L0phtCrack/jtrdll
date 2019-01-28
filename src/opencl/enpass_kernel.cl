@@ -4,12 +4,8 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  */
-#include "opencl_misc.h"
-#undef MAYBE_CONSTANT
 #define MAYBE_CONSTANT __global
 #include "pbkdf2_hmac_sha1_kernel.cl"
-#define OCL_AES_CBC_DECRYPT 1
-#define AES_KEY_TYPE __private
 #define AES_SRC_TYPE MAYBE_CONSTANT
 #include "opencl_aes.h"
 
@@ -56,8 +52,8 @@ void enpass_final(MAYBE_CONSTANT enpass_salt *salt,
 
 	/* Was this the last pass? If not, prepare for next one */
 	if (4 * base + 20 < OUTLEN) {
-		hmac_sha1(state[gid].out, state[gid].ipad, state[gid].opad,
-		          salt->salt, salt->length, 1 + pass);
+		_phsk_hmac_sha1(state[gid].out, state[gid].ipad, state[gid].opad,
+		                salt->salt, salt->length, 1 + pass);
 
 		for (i = 0; i < 5; i++)
 			state[gid].W[i] = state[gid].out[i];

@@ -103,6 +103,7 @@ static int john_omp_threads_new;
 #include "inc.h"
 #include "mask.h"
 #include "mkv.h"
+#include "subsets.h"
 #include "external.h"
 #include "batch.h"
 #include "dynamic.h"
@@ -110,18 +111,12 @@ static int john_omp_threads_new;
 #include "fake_salts.h"
 #include "listconf.h"
 #include "crc32.h"
-#if HAVE_MPI
-#include "john-mpi.h"
-#endif
+#include "john_mpi.h"
 #include "regex.h"
 
 #include "unicode.h"
-#if HAVE_OPENCL
-#include "common-gpu.h"
-#endif
-#if HAVE_OPENCL
-#include "common-opencl.h"
-#endif
+#include "gpu_common.h"
+#include "opencl_common.h"
 #ifdef NO_JOHN_BLD
 #define JOHN_BLD "unk-build-type"
 #else
@@ -142,7 +137,6 @@ static int john_omp_threads_new;
 #endif
 #endif
 #include "omp_autotune.h"
-#include "memdbg.h"
 
 #ifdef JTRDLL
 #include"jtrdll.h"
@@ -165,6 +159,11 @@ extern struct fmt_main fmt_NT;
 #ifdef HAVE_ZTEX
 extern struct fmt_main fmt_ztex_descrypt;
 extern struct fmt_main fmt_ztex_bcrypt;
+extern struct fmt_main fmt_ztex_sha512crypt;
+extern struct fmt_main fmt_ztex_drupal7;
+extern struct fmt_main fmt_ztex_sha256crypt;
+extern struct fmt_main fmt_ztex_md5crypt;
+extern struct fmt_main fmt_ztex_phpass;
 #endif
 
 #include "fmt_externs.h"
@@ -285,19 +284,23 @@ static void john_register_one(struct fmt_main *format)
 			if (!strstr(format->params.label, "-opencl"))
 				return;
 		}
+		else if (!strcasecmp(options.format, "mask")) {
+			if (!(format->params.flags & FMT_MASK))
+				return;
+		}
 #ifdef _OPENMP
 		else if (!strcasecmp(options.format, "omp")) {
-			if ((format->params.flags & FMT_OMP) != FMT_OMP)
+			if (!(format->params.flags & FMT_OMP))
 				return;
 		}
 		else if (!strcasecmp(options.format, "cpu+omp")) {
-			if ((format->params.flags & FMT_OMP) != FMT_OMP)
+			if (!(format->params.flags & FMT_OMP))
 				return;
 			if (strstr(format->params.label, "-opencl"))
 				return;
 		}
 		else if (!strcasecmp(options.format, "cpu+omp-dynamic")) {
-			if ((format->params.flags & FMT_OMP) != FMT_OMP)
+			if (!(format->params.flags & FMT_OMP))
 				return;
 			if (strstr(format->params.label, "-opencl"))
 				return;
@@ -360,10 +363,15 @@ static void john_register_all(void)
 			strlwr(options.format);
 	}
 
-	/* Let ZTEX format appear before CPU format */
+	/* Let ZTEX formats appear before CPU formats */
 #ifdef HAVE_ZTEX
 	john_register_one(&fmt_ztex_descrypt);
 	john_register_one(&fmt_ztex_bcrypt);
+	john_register_one(&fmt_ztex_sha512crypt);
+	john_register_one(&fmt_ztex_drupal7);
+	john_register_one(&fmt_ztex_sha256crypt);
+	john_register_one(&fmt_ztex_md5crypt);
+	john_register_one(&fmt_ztex_phpass);
 #endif
 	john_register_one(&fmt_DES);
 	john_register_one(&fmt_BSDI);
@@ -402,7 +410,6 @@ static void john_register_all(void)
 
 static void john_log_format(void)
 {
-	int min_chunk, chunk;
 	int enc_len, utf8_len;
 	char max_len_s[128];
 
@@ -447,7 +454,14 @@ static void john_log_format(void)
 
 	log_event("- Algorithm: %.100s",
 	    database.format->params.algorithm_name);
+}
 
+static void john_log_format2(void)
+{
+	int min_chunk, chunk;
+
+	/* Messages require extra info not available in john_log_format().
+		These are delayed until mask_init(), fmt_reset() */
 	chunk = min_chunk = database.format->params.max_keys_per_crypt;
 	if (options.flags & (FLG_SINGLE_CHK | FLG_BATCH_CHK) &&
 	    chunk < SINGLE_HASH_MIN)
@@ -468,8 +482,8 @@ static void john_omp_init(void)
 }
 
 #if OMP_FALLBACK
-#if defined(__DJGPP__) || defined(__CYGWIN__)
-#error OMP_FALLBACK is incompatible with the current DOS and Windows code
+#if defined(__DJGPP__)
+#error OMP_FALLBACK is incompatible with the current DOS code
 #endif
 #define HAVE_JOHN_OMP_FALLBACK
 static void john_omp_fallback(char **argv) {
@@ -604,9 +618,16 @@ static void john_omp_show_info(void)
 
 	if (john_omp_threads_orig == 1)
 	if (options.verbosity >= VERB_DEFAULT)
-	if (john_main_process)
-		fputs("Warning: OpenMP is disabled; "
-		    "a non-OpenMP build may be faster\n", stderr);
+	if (john_main_process) {
+		char *format = database.format ?
+			database.format->params.label : options.format;
+		if (format && strstr(format, "-opencl"))
+			fputs("Warning: OpenMP is disabled; "
+			      "GPU may be under-utilized\n", stderr);
+		else
+			fputs("Warning: OpenMP is disabled; "
+			      "a non-OpenMP build may be faster\n", stderr);
+	}
 }
 #endif
 
@@ -651,16 +672,6 @@ static void john_fork(void)
 			/* Poor man's multi-device support */
 			if (options.acc_devices->count &&
 			    strstr(database.format->params.label, "-opencl")) {
-				/* Pick device to use for this child */
-				opencl_preinit();
-				gpu_id =
-				    requested_devices[i % get_number_of_requested_devices()];
-				platform_id = get_platform_id(gpu_id);
-
-				/* Hide any other devices from list */
-				gpu_device_list[0] = gpu_id;
-				gpu_device_list[1] = -1;
-
 				/* Postponed format init in forked process */
 				fmt_init(database.format);
 			}
@@ -687,14 +698,6 @@ static void john_fork(void)
 	/* Poor man's multi-device support */
 	if (options.acc_devices->count &&
 	    strstr(database.format->params.label, "-opencl")) {
-		/* Pick device to use for mother process */
-		opencl_preinit();
-		gpu_id = gpu_device_list[0];
-		platform_id = get_platform_id(gpu_id);
-
-		/* Hide any other devices from list */
-		gpu_device_list[1] = -1;
-
 		/* Postponed format init in mother process */
 		fmt_init(database.format);
 	}
@@ -841,10 +844,12 @@ static void john_load_conf(void)
 		if (options.verbosity == -1)
 			options.verbosity = VERB_DEFAULT;
 
-		if (options.verbosity < 1 || options.verbosity > VERB_MAX) {
+		if (options.verbosity < 1 || options.verbosity > VERB_DEBUG) {
 			if (john_main_process)
 				fprintf(stderr, "Invalid verbosity level in "
-				        "config file, use 1-%u\n", VERB_MAX);
+				        "config file, use 1-%u (default %u)"
+				        " or %u for debug\n",
+				        VERB_MAX, VERB_DEFAULT, VERB_DEBUG);
 			error();
 		}
 	}
@@ -883,7 +888,12 @@ static void john_load_conf(void)
 		if ((options.activewordlistrules =
 		     cfg_get_param(SECTION_OPTIONS, NULL,
 		                   "WordlistRules")))
-			options.flags |= FLG_RULES;
+		{
+			if (strlen(options.activewordlistrules) == 0)
+				options.activewordlistrules = NULL;
+			else
+				options.flags |= FLG_RULES;
+		}
 	}
 
 	/* EmulateBrokenEncoding feature */
@@ -966,7 +976,7 @@ static void john_load_conf_db(void)
 	if (database.format && options.target_enc != ASCII &&
 	    options.target_enc != ISO_8859_1 &&
 	    database.format->params.flags & FMT_UNICODE &&
-	    !(database.format->params.flags & FMT_UTF8)) {
+	    !(database.format->params.flags & FMT_ENC)) {
 		if (john_main_process)
 			fprintf(stderr, "This format does not yet support"
 			        " other encodings than ISO-8859-1\n");
@@ -1128,14 +1138,16 @@ static void john_load(void)
 		dummy_format.params.plaintext_length = options.length;
 		dummy_format.params.flags = FMT_CASE | FMT_8_BIT | FMT_TRUNC;
 		if (options.report_utf8 || options.target_enc == UTF_8)
-			dummy_format.params.flags |= FMT_UTF8;
+			dummy_format.params.flags |= FMT_ENC;
 		dummy_format.params.label = "stdout";
+		dummy_format.methods.reset = &fmt_default_reset;
 		dummy_format.methods.clear_keys = &fmt_default_clear_keys;
 
 		if (!options.target_enc || options.input_enc != UTF_8)
 			options.target_enc = options.input_enc;
 
-		if (options.req_maxlength > options.length) {
+		if (!(options.flags & FLG_LOOPBACK_CHK) &&
+		    options.req_maxlength > options.length) {
 			fprintf(stderr, "Can't set max length larger than %u "
 			        "for stdout format\n", options.length);
 			error();
@@ -1219,6 +1231,17 @@ static void john_load(void)
 			else
 				log_event("Starting a new session");
 			log_event("Loaded a total of %s", john_loaded_counts());
+			/* only allow --device for OpenCL or ZTEX formats */
+#if HAVE_OPENCL || HAVE_ZTEX
+			if (options.acc_devices->count &&
+			  !(strstr(database.format->params.label, "-opencl") ||
+			    strstr(database.format->params.label, "-ztex"))) {
+				fprintf(stderr,
+				    "The \"--devices\" option is valid only for OpenCL or ZTEX formats\n");
+				error();
+			}
+#endif
+
 			/* make sure the format is properly initialized */
 #if HAVE_OPENCL
 			if (!(options.acc_devices->count && options.fork &&
@@ -1389,6 +1412,61 @@ static void john_load(void)
 			john_set_mpi();
 #endif
 	}
+#if HAVE_OPENCL
+	/*
+	 * Check if the --devices list contains more OpenCL devices than the
+	 * number of forks or MPI processes.
+	 * Exception: mscash2-OpenCL has built-in multi-device support.
+	 */
+#if OS_FORK
+	if (database.format &&
+	    strstr(database.format->params.label, "-opencl") &&
+	    !strstr(database.format->params.label, "mscash2-opencl") &&
+#if HAVE_MPI
+	    (mpi_p_local ? mpi_p_local : mpi_p) *
+#endif
+	    (options.fork ? options.fork : 1) < get_number_of_requested_devices())
+	{
+		int dev_as_number = 1;
+		struct list_entry *current;
+
+		if ((current = options.acc_devices->head)) {
+			do {
+				if (current->data[0] < '0' ||
+				    current->data[0] > '9')
+					dev_as_number = 0;
+			} while ((current = current->next));
+		}
+
+		if (john_main_process)
+		fprintf(stderr, "%s: To fully use the %d devices %s, "
+		        "you must specify --fork=%d\n"
+#if HAVE_MPI
+		        "or run %d MPI processes per node "
+#endif
+		        "(see doc/README-OPENCL)\n",
+		        dev_as_number ? "Error" : "Warning",
+		        get_number_of_requested_devices(),
+		        dev_as_number ? "requested" : "available",
+#if HAVE_MPI
+		        get_number_of_requested_devices(),
+#endif
+		        get_number_of_requested_devices());
+
+		if (dev_as_number)
+			error();
+	}
+#else
+	if (database.format &&
+	    strstr(database.format->params.label, "-opencl") &&
+	    !strstr(database.format->params.label, "mscash2-opencl") &&
+	    get_number_of_devices_in_use() > 1) {
+		fprintf(stderr, "The usage of multiple OpenCL devices at once "
+		      "is unsupported in this build for the selected format\n");
+		error();
+	}
+#endif /* OS_FORK */
+#endif /* HAVE_OPENCL */
 }
 
 #if CPU_DETECT
@@ -1398,8 +1476,8 @@ static void CPU_detect_or_fallback(char **argv, int make_check)
 	if (!CPU_detect()) {
 #if CPU_REQ
 #if CPU_FALLBACK
-#if defined(__DJGPP__) || defined(__CYGWIN__)
-#error CPU_FALLBACK is incompatible with the current DOS and Windows code
+#if defined(__DJGPP__)
+#error CPU_FALLBACK is incompatible with the current DOS code
 #endif
 		if (!make_check) {
 #ifdef JOHN_SYSTEMWIDE_EXEC
@@ -1633,6 +1711,13 @@ static void john_run(void)
 #ifdef HAVE_FUZZ
 	else
 	if (options.flags & FLG_FUZZ_CHK || options.flags & FLG_FUZZ_DUMP_CHK) {
+		/*
+		 * Suppress dupe hash check because fuzzed ones often result in
+		 * too many partial hash collisions.
+		 */
+		options.loader.flags |= DB_WORDS;
+		list_init(&single_seed); /* Required for DB_WORDS */
+
 		ldr_init_database(&database, &options.loader);
 		exit_status = fuzz(&database);
 	}
@@ -1696,7 +1781,12 @@ static void john_run(void)
 				fprintf(stderr, "Note: This format may emit false positives, so it will keep trying even after\nfinding a possible candidate.\n");
 		}
 
-		/* Some formats truncate at (our) max. length */
+		/* Format supports internal (eg. GPU-side) mask */
+		if (database.format->params.flags & FMT_MASK &&
+		    !(options.flags & FLG_MASK_CHK) && john_main_process)
+			fprintf(stderr, "Note: This format may be a lot faster with --mask acceleration (see doc/MASK).\n");
+
+		/* Some formats truncate at max. length */
 		if (!(database.format->params.flags & FMT_TRUNC) &&
 		    !options.force_maxlength)
 			options.force_maxlength =
@@ -1708,34 +1798,38 @@ static void john_run(void)
 				  (options.target_enc == UTF_8) ?
 				  "bytes" : "characters");
 
+		options.eff_minlength =
+			MAX(options.req_minlength,
+			    database.format->params.plaintext_min_length);
+		options.eff_maxlength = options.req_maxlength ?
+			MIN(options.req_maxlength,
+			    database.format->params.plaintext_length) :
+			database.format->params.plaintext_length;
+
 		/* Some formats have a minimum plaintext length */
-		if (options.req_minlength >= 0 && options.req_minlength <
+		if (options.eff_maxlength <
 		    database.format->params.plaintext_min_length) {
 			if (john_main_process)
 				fprintf(stderr, "Invalid option: "
-				        "--min-length smaller than "
+				        "--max-length smaller than "
 				        "minimum length for format\n");
 			error();
 		}
-		if (database.format->params.plaintext_min_length &&
-		    options.req_minlength == -1) {
-			options.req_minlength =
-				database.format->params.plaintext_min_length;
-			if (john_main_process)
-				fprintf(stderr,
-				        "Note: minimum length forced to %d\n",
-				        options.req_minlength);
-
-			/* Now we need to re-check this */
-			if (options.req_maxlength &&
-			    options.req_maxlength < options.req_minlength) {
+		if (options.req_minlength >= 0) {
+			if (options.req_minlength <
+			    database.format->params.plaintext_min_length) {
 				if (john_main_process)
 					fprintf(stderr, "Invalid option: "
-					        "--max-length smaller than "
+					        "--min-length smaller than "
 					        "minimum length for format\n");
 				error();
 			}
-		}
+		} else if (database.format->params.plaintext_min_length)
+			if (john_main_process)
+				fprintf(stderr,
+				        "Note: Minimum length forced to %d "
+				        "by format\n",
+				        options.eff_minlength);
 
 #ifdef JTRDLL
 		jtrdll_stage=2;
@@ -1748,6 +1842,11 @@ static void john_run(void)
 
 		if (trigger_reset)
 			database.format->methods.reset(&database);
+
+		if (!(options.flags & FLG_STDOUT) && john_main_process) {
+			john_log_format2();
+			log_flush();
+		}
 
 		if (options.flags & FLG_MASK_CHK)
 			mask_crk_init(&database);
@@ -1777,6 +1876,9 @@ static void john_run(void)
 		else
 		if (options.flags & FLG_MKV_CHK)
 			do_markov_crack(&database, options.mkv_param);
+		else
+		if (options.flags & FLG_SUBSETS_CHK)
+			do_subsets_crack(&database, options.subset_full);
 		else
 #if HAVE_REXGEN
 		if ((options.flags & FLG_REGEX_CHK) &&
@@ -1829,10 +1931,23 @@ static void john_run(void)
 				fprintf(stderr, "%s%s and%s\n",
 				    might, partial, not_all);
 			}
-			fputs("Use the \"--show\" option to display all of "
-			    "the cracked passwords reliably\n", stderr);
+			if (database.format->methods.prepare !=
+			    fmt_default_prepare)
+				fprintf(stderr,
+				        "Use the \"--show --format=%s\" options"
+				        " to display all of the cracked "
+				        "passwords reliably\n",
+				        database.format->params.label);
+			else
+				fputs("Use the \"--show\" option to display all"
+				      " of the cracked passwords reliably\n",
+				      stderr);
 		}
-#endif
+
+		if (options.verbosity > 1 && single_disabled_recursion)
+			fprintf(stderr,
+"Warning: Disabled SingleRetestGuessed due to deep recursion. You may now run\n"
+"         '--loopback --rules=none' to test all guesses against other salts.\n");
 	}
 }
 
@@ -1844,6 +1959,15 @@ static void john_done(void)
 
 	if ((options.flags & (FLG_CRACKING_CHK | FLG_STDOUT)) ==
 	    FLG_CRACKING_CHK) {
+		if (!event_abort && mask_iter_warn) {
+			log_event("Warning: Incremental mask started at length %d",
+			          mask_iter_warn);
+			if (john_main_process)
+				fprintf(stderr,
+				        "Warning: incremental mask started at length %d"
+				        " - try the CPU format for shorter lengths.\n",
+				        mask_iter_warn);
+		}
 		if (event_abort) {
 			char *abort_msg = (aborted_by_timer) ?
 			          "Session stopped (max run-time reached)" :
@@ -1895,8 +2019,6 @@ static void john_done(void)
 	check_abort(0);
 }
 
-//#define TEST_MEMDBG_LOGIC
-
 #ifdef JTRDLL
 int jtrdll_entrypoint(int argc, char **argv)
 #elif defined(HAVE_LIBFUZZER)
@@ -1906,21 +2028,6 @@ int main(int argc, char **argv)
 #endif
 {
 	char *name;
-
-#ifdef TEST_MEMDBG_LOGIC
-	int i,j;
-	char *cp[260];
-	for (i = 1; i < 257; ++i) {
-		cp[i] = mem_alloc_align(43,i);
-		for (j = 0; j < 43; ++j)
-			cp[i][j] = 'x';
-		printf("%03d offset %x  %x %x\n", i, cp[i], (unsigned)(cp[i])%i, (((unsigned)(cp[i]))/i)%i);
-	}
-	for (i = 1; i < 257; ++i)
-		MEM_FREE(cp[i]);
-	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
-	exit(0);
-#endif
 
 	sig_preinit(); /* Mitigate race conditions */
 #ifdef __DJGPP__
@@ -2043,8 +2150,6 @@ int main(int argc, char **argv)
 
 	john_run();
 	john_done();
-
-	MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 
 	return exit_status;
 }

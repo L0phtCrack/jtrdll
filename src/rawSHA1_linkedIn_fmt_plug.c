@@ -37,7 +37,6 @@ john_register_one(&fmt_rawSHA1_LI);
 #include "loader.h"
 #include "rawSHA1_common.h"
 #include "base64_convert.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"Raw-SHA1-Linkedin"
 #define FORMAT_NAME			""
@@ -90,8 +89,6 @@ static char saved_key[PLAINTEXT_LENGTH + 1];
 static uint32_t crypt_key[BINARY_SIZE / 4];
 static SHA_CTX ctx;
 #endif
-
-extern volatile int bench_running;
 
 static char *split(char *ciphertext, int index, struct fmt_main *self)
 {
@@ -225,7 +222,7 @@ static char *source(char *source, void *binary)
 			if (crypt_key[(i/SIMD_COEF_32)*20+SIMD_COEF_32*2+(i%SIMD_COEF_32)] == ((uint32_t*)binary)[2] &&
 			    crypt_key[(i/SIMD_COEF_32)*20+SIMD_COEF_32*3+(i%SIMD_COEF_32)] == ((uint32_t*)binary)[3] &&
 			    crypt_key[(i/SIMD_COEF_32)*20+SIMD_COEF_32*4+(i%SIMD_COEF_32)] == ((uint32_t*)binary)[4]) {
-				if (!bench_running) ((uint32_t*)binary)[0] = crypt_key[(i/SIMD_COEF_32)*20+(i%SIMD_COEF_32)];
+				if (!bench_or_test_running) ((uint32_t*)binary)[0] = crypt_key[(i/SIMD_COEF_32)*20+(i%SIMD_COEF_32)];
 				break;
 			}
 		}
@@ -235,7 +232,7 @@ static char *source(char *source, void *binary)
 		crypt_key[2] == ((uint32_t*)binary)[2] &&
 		crypt_key[3] == ((uint32_t*)binary)[3] &&
 		crypt_key[4] == ((uint32_t*)binary)[4])
-		   if (!bench_running) ((uint32_t*)binary)[0] = crypt_key[0];
+		   if (!bench_or_test_running) ((uint32_t*)binary)[0] = crypt_key[0];
 #endif
 	memcpy(realcipher, binary, BINARY_SIZE);
 #if defined(SIMD_COEF_32) && ARCH_LITTLE_ENDIAN

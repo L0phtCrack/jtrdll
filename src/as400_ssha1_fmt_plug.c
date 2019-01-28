@@ -46,7 +46,6 @@ john_register_one(&fmt_AS400_ssha1);
 #include "options.h"
 #include "unicode.h"
 #include "base64_convert.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "as400-ssha1"
 #define FORMAT_NAME             "AS400-SaltedSHA1"
@@ -180,7 +179,7 @@ struct fmt_main fmt_AS400_ssha1 =
 		// setup the labeling and stuff. NOTE the max and min crypts are set to 1
 		// here, but will be reset within our init() function.
 		FORMAT_LABEL, FORMAT_NAME, ALGORITHM_NAME, BENCHMARK_COMMENT, BENCHMARK_LENGTH,
-		0, PLAINTEXT_LENGTH, BINARY_FOR_DYNA, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_UTF8 | FMT_UNICODE | FMT_DYNAMIC,
+		0, PLAINTEXT_LENGTH, BINARY_FOR_DYNA, BINARY_ALIGN, DYNA_SALT_SIZE, SALT_ALIGN, 1, 1, FMT_CASE | FMT_8_BIT | FMT_ENC | FMT_UNICODE | FMT_DYNAMIC,
 		{ NULL },
 		{ NULL },
 		as400_ssha1_tests

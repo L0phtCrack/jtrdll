@@ -9,36 +9,25 @@
  */
 
 #if FMT_EXTERNS_H
-extern struct fmt_main fmt_hmacSHA224;
-extern struct fmt_main fmt_hmacSHA256;
+extern struct fmt_main fmt__hmacSHA224;
+extern struct fmt_main fmt__hmacSHA256;
 #elif FMT_REGISTERS_H
-john_register_one(&fmt_hmacSHA224);
-john_register_one(&fmt_hmacSHA256);
+john_register_one(&fmt__hmacSHA224);
+john_register_one(&fmt__hmacSHA256);
 #else
 
-#include "sha2.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "arch.h"
+#include "sha2.h"
 #include "misc.h"
 #include "common.h"
 #include "base64_convert.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048 // scaled on core i7-quad HT
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               512 // scaled K8-dual HT
-#endif
-#endif
-#endif
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"HMAC-SHA256"
 #define FORMAT_LABEL_224		"HMAC-SHA224"
@@ -61,7 +50,7 @@ john_register_one(&fmt_hmacSHA256);
 #define SALT_LENGTH			1023
 #define SALT_ALIGN			1
 #else
-#define SALT_LIMBS			5  /* 5 limbs, 311 bytes */
+#define SALT_LIMBS			12  /* 12*64-9 == 759 bytes */
 #define SALT_LENGTH			(SALT_LIMBS * PAD_SIZE - 9)
 #define SALT_ALIGN			MEM_ALIGN_SIMD
 #endif
@@ -71,7 +60,7 @@ john_register_one(&fmt_hmacSHA256);
 
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
-#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256)
+#define MAX_KEYS_PER_CRYPT      (SIMD_COEF_32*SIMD_PARA_SHA256 * 64)
 #if ARCH_LITTLE_ENDIAN==1
 #define GETPOS(i, index)        ((index & (SIMD_COEF_32 - 1)) * 4 + ((i&63) & (0xffffffff - 3)) * SIMD_COEF_32 + (3 - ((i&63) & 3)) + (unsigned int)index/SIMD_COEF_32 * PAD_SIZE * SIMD_COEF_32)
 #else
@@ -79,7 +68,11 @@ john_register_one(&fmt_hmacSHA256);
 #endif
 #else
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      128
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               4 // Tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests tests[] = {
@@ -140,9 +133,9 @@ static void init(struct fmt_main *self, const int B_LEN)
 #ifdef SIMD_COEF_32
 	int i;
 #endif
-#ifdef _OPENMP
+
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 #ifdef SIMD_COEF_32
 	bufsize = sizeof(*opad) * self->params.max_keys_per_crypt * PAD_SIZE;
 	crypt_key = mem_calloc_align(1, bufsize, MEM_ALIGN_SIMD);
@@ -194,7 +187,7 @@ static void done(void)
 
 static char *split(char *ciphertext, int index, struct fmt_main *self, const int B_LEN, const int CT_LEN)
 {
-	static char out[CIPHERTEXT_LENGTH + 1];
+	static char out[(BINARY_SIZE * 2 + 1) + (CIPHERTEXT_LENGTH + 1)];
 
 	if (strstr(ciphertext, "$SOURCE_HASH$"))
 		return ciphertext;
@@ -464,7 +457,7 @@ static int crypt_all(int *pcount, struct db_salt *salt,
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 #ifdef SIMD_COEF_32
 		unsigned int i, *pclear;
 
@@ -491,7 +484,7 @@ static int crypt_all(int *pcount, struct db_salt *salt,
 			// NOTE, SSESHA224 will output 32 bytes. We need the first 28 (plus the 0x80 padding).
 			// so we are forced to 'clean' this crap up, before using the crypt as the input.
 			pclear = (unsigned int*)&crypt_key[(unsigned int)index/SIMD_COEF_32*PAD_SIZE_W*SIMD_COEF_32*4];
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; i++)
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; i++)
 				pclear[28/4*SIMD_COEF_32+(i&(SIMD_COEF_32-1))+i/SIMD_COEF_32*PAD_SIZE_W*SIMD_COEF_32] = 0x80000000;
 		}
 		SIMDSHA256body(&crypt_key[index * PAD_SIZE],
@@ -602,13 +595,13 @@ static void *get_salt(char *ciphertext)
 	memset(&cur_salt, 0, sizeof(cur_salt));
 	while(((unsigned char*)salt)[salt_len])
 	{
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i)
 			cur_salt.salt[salt_len / PAD_SIZE][GETPOS(salt_len, i)] =
 				((unsigned char*)salt)[salt_len];
 		++salt_len;
 	}
 	cur_salt.salt_len = salt_len;
-	for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+	for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 		cur_salt.salt[salt_len / PAD_SIZE][GETPOS(salt_len, i)] = 0x80;
 		((unsigned int*)cur_salt.salt[(salt_len + 8) / PAD_SIZE])[15 * SIMD_COEF_32 + (i&(SIMD_COEF_32-1)) + i/SIMD_COEF_32 * PAD_SIZE_W * SIMD_COEF_32] = (salt_len + PAD_SIZE) << 3;
 	}
@@ -618,7 +611,7 @@ static void *get_salt(char *ciphertext)
 #endif
 }
 
-struct fmt_main fmt_hmacSHA256 = {
+struct fmt_main fmt__hmacSHA256 = {
 	{
 		FORMAT_LABEL,
 		FORMAT_NAME,
@@ -671,7 +664,7 @@ struct fmt_main fmt_hmacSHA256 = {
 	}
 };
 
-struct fmt_main fmt_hmacSHA224 = {
+struct fmt_main fmt__hmacSHA224 = {
 	{
 		FORMAT_LABEL_224,
 		FORMAT_NAME,

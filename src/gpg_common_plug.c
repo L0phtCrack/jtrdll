@@ -32,9 +32,10 @@
 #include "common.h"
 #include "gpg_common.h"
 #include "loader.h"
-#include "memdbg.h"
 
-extern volatile int bench_running;
+#if !AC_BUILT && OPENSSL_VERSION_NUMBER >= 0x10100000
+#define HAVE_DSA_GET0_PQG 1
+#endif
 
 struct gpg_common_custom_salt *gpg_common_cur_salt;
 
@@ -267,12 +268,12 @@ int gpg_common_valid(char *ciphertext, struct fmt_main *self, int is_CPU_format)
 		goto err;
 	usage = atoi(p);
 	if (!symmetric_mode) {
-		if (usage != 0 && usage != 254 && usage != 255 && usage != 1)
+		if (usage != 0 && usage != 254 && usage != 255) // && usage != 1)
 			goto err;
 	} else {
 		if (usage != 9 && usage != 18) // https://tools.ietf.org/html/rfc4880
 			goto err;
-		if (!bench_running && usage == 9) {
+		if (!bench_or_test_running && usage == 9) {
 			self->params.flags |= FMT_NOT_EXACT;
 		}
 	}
@@ -1062,7 +1063,7 @@ static int check_dsa_secret_key(DSA *dsa)
 {
 	int error;
 	int rc = -1;
-#if OPENSSL_VERSION_NUMBER >= 0x10100000
+#if HAVE_DSA_GET0_PQG
 	const BIGNUM *p, *q, *g, *pub_key, *priv_key;
 #endif
 	BIGNUM *res = BN_new();
@@ -1077,7 +1078,7 @@ static int check_dsa_secret_key(DSA *dsa)
 		error();
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000
+#if HAVE_DSA_GET0_PQG
 	DSA_get0_pqg(dsa, &p, &q, &g);
 	DSA_get0_key(dsa, &pub_key, &priv_key);
 	error = BN_mod_exp(res, g, priv_key, p, ctx);
@@ -1089,7 +1090,7 @@ static int check_dsa_secret_key(DSA *dsa)
 		goto freestuff;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000
+#if HAVE_DSA_GET0_PQG
 	rc = BN_cmp(res, pub_key);
 #else
 	rc = BN_cmp(res, dsa->pub_key);
@@ -1099,7 +1100,7 @@ freestuff:
 
 	BN_CTX_free(ctx);
 	BN_free(res);
-#if OPENSSL_VERSION_NUMBER < 0x10100000
+#if !HAVE_DSA_GET0_PQG
 	BN_free(dsa->g);
 	BN_free(dsa->q);
 	BN_free(dsa->p);
@@ -1571,7 +1572,7 @@ bad:
 			OPENSSL_free(str);
 
 			if (gpg_common_cur_salt->pk_algorithm == PKA_DSA) { /* DSA check */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000
+#if HAVE_DSA_GET0_PQG
 				DSA *dsa = DSA_new();
 				BIGNUM *p, *q, *g, *pub_key, *priv_key;
 

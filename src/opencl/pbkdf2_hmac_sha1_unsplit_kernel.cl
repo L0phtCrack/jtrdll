@@ -10,11 +10,22 @@
  * KEYLEN  should be PLAINTEXT_LENGTH for passwords or 20 for hash
  * OUTLEN  should be sizeof(outbuffer->v)
  * SALTLEN should be sizeof(currentsalt.salt)
+ *
+ * salt->skip_bytes means "skip leading output bytes" and can be given in
+ * multiples of underlying hash size (in this case 20). So to calculate only
+ * byte 21-40 (second chunk) you can say "salt->outlen=20 salt->skip_bytes=20"
+ * for a 2x boost. The 1st byte of output array will then be 1st byte of second
+ * chunk so its actual size can be 20 as opposed to 40.
  */
 
 #include "opencl_device_info.h"
 #include "opencl_misc.h"
 #include "opencl_sha1.h"
+
+/* avoid name clashes */
+#define preproc   u_preproc
+#define hmac_sha1 u_hmac_sha1
+#define big_hmac_sha1 u_big_hmac_sha1
 
 #define SHA1_DIGEST_LENGTH 20
 
@@ -61,16 +72,6 @@ inline void preproc(__global const uchar *key, uint keylen,
 	state[2] = C + INIT_C;
 	state[3] = D + INIT_D;
 	state[4] = E + INIT_E;
-
-#if __OS_X__ && gpu_intel(DEVICE_INFO)
-/*
- * Ridiculous workaround for Apple w/ Intel HD Graphics. I tried to
- * replace this with a barrier but that did not do the trick.
- *
- * Yosemite, HD Graphics 4000, 1.2(Jul 29 2015 02:40:37)
- */
-	if (get_global_id(0) == 0x7fffffff) printf(".");
-#endif
 }
 
 inline void hmac_sha1(__private uint *output,
@@ -230,6 +231,10 @@ inline void pbkdf2(__global const uchar *pass, uint passlen,
 		skip_bytes = 0;
 	}
 }
+
+#undef preproc
+#undef hmac_sha1
+#undef big_hmac_sha1
 
 __kernel void derive_key(__global const pbkdf2_password *inbuffer,
                          __global pbkdf2_hash *outbuffer,

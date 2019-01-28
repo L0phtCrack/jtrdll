@@ -17,10 +17,18 @@
 #include "opencl_unicode.h"
 #include "opencl_mask.h"
 
+#if __OS_X__ && (cpu(DEVICE_INFO) || gpu_nvidia(DEVICE_INFO))
+/* This is a workaround for driver/runtime bugs */
+#define MAYBE_VOLATILE volatile
+#else
+#define MAYBE_VOLATILE
+#endif
+
 #ifdef UTF_8
 
 inline
-void prepare_key(const __global uint *key, uint length, uint *nt_buffer)
+void prepare_key(const __global uint *key, uint length,
+                 MAYBE_VOLATILE uint *nt_buffer)
 {
 	const __global UTF8 *source = (const __global uchar*)key;
 	const __global UTF8 *sourceEnd = &source[length];
@@ -33,9 +41,8 @@ void prepare_key(const __global uint *key, uint length, uint *nt_buffer)
 	while (source < sourceEnd) {
 		if (*source < 0xC0) {
 			*target++ = (UTF16)*source++;
-			if (source >= sourceEnd || target >= targetEnd) {
+			if (target >= targetEnd)
 				break;
-			}
 			continue;
 		}
 		ch = *source;
@@ -79,23 +86,13 @@ void prepare_key(const __global uint *key, uint length, uint *nt_buffer)
 			*target++ = (UTF16)((ch & halfMask) + UNI_SUR_LOW_START);
 		}
 #endif
-		if (source >= sourceEnd || target >= targetEnd)
+		if (target >= targetEnd)
 			break;
 	}
 
 	*target = 0x80;	// Terminate
 
 	nt_buffer[14] = (uint)(target - (UTF16*)nt_buffer) << 4;
-
-#if __OS_X__
-	// Stupid driver/runtime bug workarounds.
-#if cpu(DEVICE_INFO)
-	// This acts like some kind of barrier but a normal barrier doesn't help.
-	printf("");
-#elif gpu_nvidia(DEVICE_INFO)
-	barrier(CLK_GLOBAL_MEM_FENCE);
-#endif
-#endif
 }
 
 #else

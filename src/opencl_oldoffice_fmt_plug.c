@@ -20,8 +20,8 @@ john_register_one(&FORMAT_STRUCT);
 #include <stdint.h>
 #include <string.h>
 
-#include "common-opencl.h"
 #include "arch.h"
+#include "opencl_common.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -35,7 +35,7 @@ john_register_one(&FORMAT_STRUCT);
 #define FORMAT_NAME		"MS Office <= 2003"
 #define ALGORITHM_NAME		"MD5/SHA1 RC4 OpenCL"
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1001 /* Use -1 for benchmarking w/ mitm */
+#define BENCHMARK_LENGTH	-1
 #define PLAINTEXT_LENGTH	19 //* 19 is leanest, 24, 28, 31, max. 51 */
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		MEM_ALIGN_NONE
@@ -73,8 +73,6 @@ static struct fmt_tests oo_tests[] = {
 	{"$oldoffice$3*3fbf56a18b026e25815cbea85a16036c*216562ea03b4165b54cfaabe89d36596*91308b40297b7ce31af2e8c57c6407994b205590", "openwall"},
 	{NULL}
 };
-
-extern volatile int bench_running;
 
 typedef struct {
 	dyna_salt dsalt;
@@ -116,7 +114,6 @@ static struct fmt_main *self;
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static const char *warn[] = {
 	"xP: ",  ", xI: ",  ", crypt: ",  ", xR: "
@@ -154,7 +151,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	cracked = clEnqueueMapBuffer(queue[gpu_id], pinned_result, CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, sizeof(unsigned int) * gws * mask_int_cand.num_int_cand, 0, NULL, NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error mapping cracked");
 
-	cl_benchmark = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, sizeof(bench_running), NULL, &ret_code);
+	cl_benchmark = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, sizeof(self_test_running), NULL, &ret_code);
 
 	cl_salt = clCreateBuffer(context[gpu_id], CL_MEM_READ_WRITE, sizeof(cs), NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error creating device buffer");
@@ -248,7 +245,7 @@ static void reset(struct db_main *db)
 	}
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges != NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else
@@ -306,7 +303,7 @@ static void reset(struct db_main *db)
 	                       2 * PLAINTEXT_LENGTH, gws_limit, db);
 
 	// Auto tune execution from shared/included code.
-	autotune_run(self, 1, gws_limit, 300);
+	autotune_run(self, 1, gws_limit, 100);
 }
 
 /* Based on ldr_cracked_hash from loader.c */
@@ -485,7 +482,7 @@ static void set_salt(void *salt)
 {
 	cur_salt = *(custom_salt**)salt;
 
-	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_benchmark, CL_FALSE, 0, sizeof(bench_running), (void*)&bench_running, 0, NULL, NULL), "Failed transferring salt");
+	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_benchmark, CL_FALSE, 0, sizeof(self_test_running), &self_test_running, 0, NULL, NULL), "Failed transferring salt");
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_salt, CL_FALSE, 0, sizeof(cs), cur_salt, 0, NULL, NULL), "Failed transferring salt");
 }
 
@@ -494,18 +491,18 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	size_t lws, gws;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 
 	*pcount *= mask_int_cand.num_int_cand;
 
 	/* kernel is made for lws 64, using local memory */
-	lws = local_work_size ? local_work_size : 64;
+	if (local_work_size > 64)
+		local_work_size = 64;
 
-	/* Don't do more than requested */
-	global_work_size = //count;
-	gws = (count + lws - 1) / lws * lws;
-
-	//printf("%s(%d) lws "Zu" gws "Zu" kidx %u k %d mult %u\n", __FUNCTION__, count, lws, gws, key_idx, new_keys, mask_int_cand.num_int_cand);
+	/* Needs to be updated for kludge in get_key() */
+	global_work_size = gws;
 
 	if (new_keys || ocl_autotune_running) {
 		/* Self-test kludge */
@@ -520,13 +517,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		new_keys = 0;
 	}
 
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, &lws, 0, NULL, multi_profilingEvent[2]), "Failed running crypt kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "Failed running crypt kernel");
 
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_salt, CL_TRUE, 0, sizeof(cs), cur_salt, 0, NULL, multi_profilingEvent[3]), "Failed transferring salt");
 
 	if ((any_cracked = cur_salt->cracked)) {
-		BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * *pcount, cracked, 0, NULL, NULL), "failed reading results back");
-		return *pcount;
+		BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * gws, cracked, 0, NULL, NULL), "failed reading results back");
+		return gws;
 	}
 
 	return 0;
@@ -544,9 +541,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	extern volatile int bench_running;
-
-	if (cur_salt->type < 4 && !bench_running) {
+	if (cur_salt->type < 4 && !bench_or_test_running) {
 		unsigned char *cp, out[11];
 		int i;
 
@@ -557,7 +552,7 @@ static int cmp_exact(char *source, int index)
 			cp++;
 		}
 		out[10] = 0;
-		fprintf(stderr, "MITM key: %s\n", out);
+		log_event("MITM key: %s for %s", out, source);
 	}
 	return 1;
 }
@@ -634,7 +629,7 @@ static char *get_key(int index)
 	ret = utf16_to_enc(u16);
 
 	/* Apply GPU-side mask */
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
+	if (len && mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			if (mask_gpu_is_static)
 				ret[static_gpu_locations[i]] =
@@ -670,7 +665,7 @@ struct fmt_main FORMAT_STRUCT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_SPLIT_UNIFIES_CASE | FMT_DYNA_SALT | FMT_MASK,
 		{
 			"hash type",
 		},

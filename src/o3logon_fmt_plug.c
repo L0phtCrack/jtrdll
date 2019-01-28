@@ -36,7 +36,6 @@ john_register_one(&fmt_o3logon);
 #endif
 #endif
 
-#include "memdbg.h"
 
 #define FORMAT_LABEL                    "o3logon"
 #define FORMAT_NAME                     "Oracle O3LOGON protocol"
@@ -376,7 +375,7 @@ struct fmt_main fmt_o3logon = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE | FMT_CASE | FMT_OMP,
+		FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_SPLIT_UNIFIES_CASE | FMT_CASE | FMT_OMP,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

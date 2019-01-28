@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2017 magnum,
+ * This software is Copyright (c) 2018 magnum,
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -22,21 +22,23 @@ john_register_one(&fmt_wpapsk_pmk);
 #include "formats.h"
 #include "common.h"
 #include "misc.h"
-#include "wpapmk.h"
+#define WPAPMK
+#include "wpapsk.h"
 #include "sha.h"
 #include "base64_convert.h"
-#include "memdbg.h"
+#include "options.h"
+#include "john.h"
 
 #define FORMAT_LABEL		"wpapsk-pmk"
 #if AC_BUILT && !HAVE_OPENSSL_CMAC_H
 #ifdef _MSC_VER
-#pragma message ("Notice: WPAPMK (CPU) format built without support for 802.11w. Upgrade your OpenSSL.")
+#pragma message ("Notice: WPAPSK-PMK (CPU) format built without support for 802.11w. Upgrade your OpenSSL.")
 #else
-#warning Notice: WPAPMK (CPU) format built without support for 802.11w. Upgrade your OpenSSL.
+#warning Notice: WPAPSK-PMK (CPU) format built without support for 802.11w. Upgrade your OpenSSL.
 #endif
-#define FORMAT_NAME		"WPA/WPA2 master key"
+#define FORMAT_NAME		"WPA/WPA2/PMKID master key"
 #else
-#define FORMAT_NAME		"WPA/WPA2/PMF master key"
+#define FORMAT_NAME		"WPA/WPA2/PMF/PMKID master key"
 #endif
 
 #define ALGORITHM_NAME		"MD5/SHA-1/SHA-2"
@@ -63,6 +65,22 @@ static void init(struct fmt_main *self)
 	                      self->params.max_keys_per_crypt);
 	mic = mem_alloc(sizeof(*mic) *
 	                self->params.max_keys_per_crypt);
+
+	if (options.flags & (FLG_BATCH_CHK | FLG_INC_CHK | FLG_SINGLE_CHK)) {
+		if (john_main_process) {
+			char *t, *pf = str_alloc_copy(self->params.label);
+
+			if ((t = strrchr(pf, '-')))
+				*t = 0;
+
+			fprintf(stderr,
+"The \"%s\" format takes hex keys of length 64 as input. Most normal\n"
+"cracking approaches does not make sense. You probably wanted to use the\n"
+"\"%s\" format (even for PMKID hashes).\n",
+			        self->params.label, pf);
+		}
+		error();
+	}
 }
 
 static void done(void)
@@ -122,12 +140,14 @@ struct fmt_main fmt_wpapsk_pmk = {
 		FMT_OMP,
 		{
 #if !AC_BUILT || HAVE_OPENSSL_CMAC_H
-			"key version [1:WPA 2:WPA2 3:802.11w]"
+			"key version [0:PMKID 1:WPA 2:WPA2 3:802.11w]"
 #else
-			"key version [1:WPA 2:WPA2]"
+			"key version [0:PMKID 1:WPA 2:WPA2]"
 #endif
 		},
-		{ FORMAT_TAG },
+		{
+			FORMAT_TAG, ""
+		},
 		tests
 	},
 	{
@@ -152,7 +172,7 @@ struct fmt_main fmt_wpapsk_pmk = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		salt_compare,
 		set_salt,
 		set_key,

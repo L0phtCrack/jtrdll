@@ -38,11 +38,9 @@
 #include "unicode.h"
 #include "signals.h"
 #include "mask.h"
-#ifdef HAVE_MPI
-#include "john-mpi.h"
-#endif
-#include "common-gpu.h"
-#include "memdbg.h"
+#include "subsets.h"
+#include "john_mpi.h"
+#include "gpu_common.h"
 
 #ifdef JTRDLL
 #include "jtrdll.h"
@@ -69,7 +67,6 @@ static clock_t get_time(void)
 void status_init(double (*get_progress)(void), int start)
 {
 	if (start) {
-		status.resume_salt = 0;
 		if (!status_restored_time)
 			memset(&status, 0, sizeof(status));
 		status.start_time = get_time();
@@ -194,7 +191,7 @@ static char *status_get_cps(char *buffer, uint64_t c, unsigned int c_ehi)
 
 static char *status_get_ETA(double percent, unsigned int secs_done)
 {
-	static char s_ETA[128];
+	static char s_ETA[128+1];
 	char ETA[128];
 	double sec_left;
 	time_t t_ETA;
@@ -207,8 +204,11 @@ static char *status_get_ETA(double percent, unsigned int secs_done)
 	if (status.pass)
 		sprintf(s_ETA, " %d/3", status.pass);
 	else
-	if (mask_cur_len)
+	if (mask_increments_len)
 		sprintf(s_ETA, " (%d)", mask_cur_len);
+	else
+	if (subsets_cur_len)
+		sprintf(s_ETA, " (%d)", subsets_cur_len);
 	else
 		s_ETA[0] = 0;
 

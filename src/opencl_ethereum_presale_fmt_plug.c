@@ -18,24 +18,25 @@ john_register_one(&fmt_opencl_ethereum_presale);
 
 #include "misc.h"
 #include "arch.h"
-#include "ethereum_common.h"
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_pbkdf2_hmac_sha256.h"
+#include "ethereum_common.h"
+#include "opencl_common.h"
 
 #define FORMAT_NAME             "Ethereum Presale Wallet"
 #define FORMAT_LABEL            "ethereum-presale-opencl"
-#define ALGORITHM_NAME          "PBKDF2-SHA256 AES OpenCL"
+#define ALGORITHM_NAME          "PBKDF2-SHA256 AES Keccak OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        0
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_SIZE               sizeof(*cur_salt)
 #define SALT_ALIGN              sizeof(int)
 #define PLAINTEXT_LENGTH        55
-#define KERNEL_NAME             "pbkdf2_sha256_kernel"
+#define KERNEL_NAME             "ethereum_presale_init"
 #define SPLIT_KERNEL_NAME       "pbkdf2_sha256_loop"
 #define PRESALE_KERNEL_NAME     "ethereum_presale_process"
 
@@ -53,40 +54,24 @@ struct fmt_tests opencl_ethereum_presale_tests[] = {
 
 // input
 typedef struct {
-	uint8_t length;
-	uint8_t v[PLAINTEXT_LENGTH];
-} pass_t;
-
-// input
-typedef struct {
+	salt_t pbkdf2;
 	uint8_t encseed[1024];
 	uint32_t eslen;
-} salt_t;
-
-// internal
-typedef struct {
-	uint32_t hash[8];
-} crack_t;
+} ethereum_salt_t;
 
 // output
 typedef struct {
-    uint8_t hash[16];
+	uint8_t hash[16];
 } hash_t;
 
-typedef struct {
-	uint32_t ipad[8];
-	uint32_t opad[8];
-	uint32_t hash[8];
-	uint32_t W[8];
-	uint32_t rounds;
-} state_t;
+static int new_keys;
 
 static pass_t *host_pass;
-static salt_t *host_salt;
+static ethereum_salt_t *host_salt;
 static hash_t *hash_out;
 static unsigned hash_size;
 static cl_int cl_error;
-static cl_mem mem_in, mem_out, mem_salt, mem_state, mem_hash;
+static cl_mem mem_in, mem_pbkdf2_out, mem_out, mem_salt, mem_state;
 static cl_kernel split_kernel, decrypt_kernel;
 static struct fmt_main *self;
 
@@ -103,7 +88,6 @@ static int split_events[] = { 2, -1, -1 };
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
 {
@@ -112,37 +96,39 @@ static void create_clobj(size_t kpc, struct fmt_main *self)
 #define CL_RW CL_MEM_READ_WRITE
 
 #define CLCREATEBUFFER(_flags, _size, _string)\
-	clCreateBuffer(context[gpu_id], _flags, _size, NULL, &cl_error);\
+	clCreateBuffer(context[gpu_id], _flags, _size, NULL, &cl_error); \
 	HANDLE_CLERROR(cl_error, _string);
 
-#define CLKERNELARG(kernel, id, arg, msg)\
-	HANDLE_CLERROR(clSetKernelArg(kernel, id, sizeof(arg), &arg), msg);
+#define CLKERNELARG(kernel, id, arg)\
+	HANDLE_CLERROR(clSetKernelArg(kernel, id, sizeof(arg), &arg), \
+	               "Error setting kernel arg");
 
 	host_pass = mem_calloc(kpc, sizeof(pass_t));
-	host_salt = mem_calloc(1, sizeof(salt_t));
+	host_salt = mem_calloc(1, sizeof(ethereum_salt_t));
 	hash_size = kpc * sizeof(hash_t);
 	hash_out = mem_calloc(hash_size, 1);
 
 	mem_in = CLCREATEBUFFER(CL_RO, kpc * sizeof(pass_t),
 	                        "Cannot allocate mem in");
-	mem_salt = CLCREATEBUFFER(CL_RO, sizeof(salt_t),
+	mem_salt = CLCREATEBUFFER(CL_RO, sizeof(ethereum_salt_t),
 	                          "Cannot allocate mem salt");
-	mem_out = CLCREATEBUFFER(CL_WO, kpc * sizeof(crack_t),
+	mem_pbkdf2_out = CLCREATEBUFFER(CL_RW, kpc * sizeof(crack_t),
+	                                "Cannot allocate mem pbkdf2_out");
+	mem_out = CLCREATEBUFFER(CL_WO, hash_size,
 	                         "Cannot allocate mem out");
 	mem_state = CLCREATEBUFFER(CL_RW, kpc * sizeof(state_t),
 	                           "Cannot allocate mem state");
-	mem_hash = CLCREATEBUFFER(CL_RW, hash_size,
-	                           "Cannot allocate mem hash");
 
-	CLKERNELARG(crypt_kernel, 0, mem_in, "Error while setting mem_in");
-	CLKERNELARG(crypt_kernel, 1, mem_state, "Error while setting mem_state");
+	CLKERNELARG(crypt_kernel, 0, mem_in);
+	CLKERNELARG(crypt_kernel, 1, mem_salt);
+	CLKERNELARG(crypt_kernel, 2, mem_state);
 
-	CLKERNELARG(split_kernel, 0, mem_state, "Error while setting mem_state");
-	CLKERNELARG(split_kernel, 1, mem_out, "Error while setting mem_out");
+	CLKERNELARG(split_kernel, 0, mem_state);
 
-	CLKERNELARG(decrypt_kernel, 0, mem_salt, "Error while setting mem_salt");
-	CLKERNELARG(decrypt_kernel, 1, mem_out, "Error while setting mem_out");
-	CLKERNELARG(decrypt_kernel, 2, mem_hash, "Error setting mem_hash");
+	CLKERNELARG(decrypt_kernel, 0, mem_pbkdf2_out);
+	CLKERNELARG(decrypt_kernel, 1, mem_salt);
+	CLKERNELARG(decrypt_kernel, 2, mem_state);
+	CLKERNELARG(decrypt_kernel, 3, mem_out);
 }
 
 /* ------- Helper functions ------- */
@@ -158,9 +144,9 @@ static size_t get_task_max_work_group_size()
 static void release_clobj(void)
 {
 	if (host_salt) {
-		HANDLE_CLERROR(clReleaseMemObject(mem_hash), "Release mem hash");
 		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
 		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem salt");
+		HANDLE_CLERROR(clReleaseMemObject(mem_pbkdf2_out), "Release pbkdf2out");
 		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
 
@@ -178,12 +164,12 @@ static void init(struct fmt_main *_self)
 static void reset(struct db_main *db)
 {
 	if (!autotuned) {
-		char build_opts[64];
+		char build_opts[128];
 
 		snprintf(build_opts, sizeof(build_opts),
-		         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%u",
+		         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%u -DPRESALE",
 		         HASH_LOOPS, PLAINTEXT_LENGTH);
-		opencl_init("$JOHN/kernels/ethereum_presale_kernel.cl",
+		opencl_init("$JOHN/kernels/ethereum_kernel.cl",
 		            gpu_id, build_opts);
 
 		crypt_kernel =
@@ -204,9 +190,7 @@ static void reset(struct db_main *db)
 		                       sizeof(state_t), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, ITERATIONS, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 200));
+		autotune_run(self, ITERATIONS, 0, 200);
 	}
 }
 
@@ -271,41 +255,45 @@ static void set_salt(void *salt)
 	host_salt->eslen = cur_salt->eslen;
 
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt,
-		CL_FALSE, 0, sizeof(salt_t), host_salt, 0, NULL, NULL),
+		CL_FALSE, 0, sizeof(ethereum_salt_t), host_salt, 0, NULL, NULL),
 	    "Copy salt to gpu");
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int i;
+	static int keys_done;
 	const int count = *pcount;
-	int loops = (2000 + HASH_LOOPS - 1) / HASH_LOOPS;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
+	int i, loops = (2000 + HASH_LOOPS - 1) / HASH_LOOPS;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	if (new_keys || ocl_autotune_running || gws > keys_done) {
+		// Copy data to gpu
+		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
+			CL_FALSE, 0, gws * sizeof(pass_t), host_pass, 0,
+			NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
-	// Copy data to gpu
-	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
-		CL_FALSE, 0, global_work_size * sizeof(pass_t), host_pass, 0,
-		NULL, multi_profilingEvent[0]), "Copy data to gpu");
+		// Run kernel
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
+			1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
 
-	// Run kernel
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
-		1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
-
-	for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
-		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-			1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
-		BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
-		opencl_process_event();
+		for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
+			BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
+				1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
+			BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
+			opencl_process_event();
+		}
+		keys_done = gws;
+		new_keys = 0;
 	}
 
 	// Run decrypt kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], decrypt_kernel,
-		1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[3]), "Run kernel");
+		1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[3]), "Run kernel");
 
 	// Read the result back
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_hash,
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
 		CL_TRUE, 0, hash_size, hash_out, 0,
 		NULL, multi_profilingEvent[4]), "Copy result back");
 
@@ -338,6 +326,7 @@ static void set_key(char *key, int index)
 
 	memcpy(host_pass[index].v, key, saved_len);
 	host_pass[index].length = saved_len;
+	new_keys = 1;
 }
 
 static char *get_key(int index)

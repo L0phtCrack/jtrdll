@@ -29,18 +29,17 @@ john_register_one(&fmt_opencl_iwork);
 #include "iwork_common.h"
 #include "options.h"
 #include "jumbo.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "misc.h"
 #define OUTLEN                  16
 #define PLAINTEXT_LENGTH        28
 #include "opencl_pbkdf2_hmac_sha1.h"
 
 #define FORMAT_LABEL            "iwork-opencl"
-#define FORMAT_NAME             "Apple iWork '09 / '13 / '14"
 #define OCL_ALGORITHM_NAME      "PBKDF2-SHA1 AES OpenCL"
 #define ALGORITHM_NAME          OCL_ALGORITHM_NAME
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        -1
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #define BINARY_SIZE             0
@@ -94,7 +93,6 @@ static int split_events[] = { 2, -1, -1 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -196,9 +194,7 @@ static void reset(struct db_main *db)
 		                       sizeof(pbkdf2_state), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, 2 * (ITERATIONS - 1) + 4, 0, 200);
 	}
 }
 
@@ -254,7 +250,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int i, j;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	// Copy data to gpu
 	if (ocl_autotune_running || new_keys) {

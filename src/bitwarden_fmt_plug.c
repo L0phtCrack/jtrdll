@@ -34,7 +34,6 @@ john_register_one(&fmt_bitwarden);
 #include "aes.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "bitwarden_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "Bitwarden"
 #ifdef SIMD_COEF_32
@@ -47,7 +46,7 @@ john_register_one(&fmt_bitwarden);
 #endif
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 #define BINARY_SIZE             0
 #define PLAINTEXT_LENGTH        125
 #define SALT_SIZE               sizeof(struct custom_salt)
@@ -99,12 +98,12 @@ static char *get_key(int index)
 static MAYBE_INLINE int bitwarden_decrypt(struct custom_salt *cur_salt, unsigned char *key)
 {
 	unsigned char ivec[IVLEN];
-	unsigned char out[BLOBLEN];
+	unsigned char out[32];
 	AES_KEY aes_decrypt_key;
 
 	AES_set_decrypt_key(key, 256, &aes_decrypt_key);
 	// memcpy(ivec, cur_salt->iv, 16);
-	AES_cbc_encrypt(cur_salt->blob + BLOBLEN - 32, out, BLOBLEN, &aes_decrypt_key, ivec, AES_DECRYPT);
+	AES_cbc_encrypt(cur_salt->blob + BLOBLEN - 32, out, 32, &aes_decrypt_key, ivec, AES_DECRYPT);
 
 	return memcmp(out + 16, "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10", 16) == 0;
 }
@@ -164,7 +163,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	return cracked[index];
+	return 1;
 }
 
 struct fmt_main fmt_bitwarden = {

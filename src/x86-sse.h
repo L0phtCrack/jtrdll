@@ -72,6 +72,16 @@
 #endif
 #endif
 
+#if __SSE4_2__ || JOHN_SSE4_2
+#define CPU_REQ_SSE4_2			1
+#undef CPU_NAME
+#define CPU_NAME			"SSE4.2"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-sse4.2"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#endif
+
 #ifdef __XOP__
 #define CPU_REQ_XOP			1
 #undef CPU_NAME
@@ -97,8 +107,10 @@
  * except in OpenMP-enabled builds, where it's aligned by different means.
  */
 #define CPU_REQ_AVX			1
+#ifndef CPU_REQ_XOP
 #undef CPU_NAME
 #define CPU_NAME			"AVX"
+#endif
 #ifdef CPU_FALLBACK_BINARY_DEFAULT
 #undef CPU_FALLBACK_BINARY
 #define CPU_FALLBACK_BINARY		"john-non-avx"

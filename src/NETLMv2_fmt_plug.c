@@ -46,6 +46,7 @@ john_register_one(&fmt_NETLMv2);
 
 #include <stdint.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -59,7 +60,6 @@ john_register_one(&fmt_NETLMv2);
 #include "md5.h"
 #include "hmacmd5.h"
 #include "byteorder.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL         "netlmv2"
 #define FORMAT_NAME          "LMv2 C/R"
@@ -79,11 +79,10 @@ john_register_one(&fmt_NETLMv2);
 #define CIPHERTEXT_LENGTH    32
 #define TOTAL_LENGTH         12 + USERNAME_LENGTH + DOMAIN_LENGTH + CHALLENGE_LENGTH + CIPHERTEXT_LENGTH
 
-// these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT   1
-#define MAX_KEYS_PER_CRYPT   1
+#define MAX_KEYS_PER_CRYPT   32
 #ifndef OMP_SCALE
-#define OMP_SCALE            1536
+#define OMP_SCALE            4 // Tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests tests[] = {
@@ -108,9 +107,8 @@ static unsigned char *challenge;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
@@ -405,7 +403,7 @@ struct fmt_main fmt_NETLMv2 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

@@ -1,4 +1,13 @@
-## *John the Ripper* [![Build Status](https://travis-ci.org/magnumripper/JohnTheRipper.svg?branch=bleeding-jumbo)](https://travis-ci.org/magnumripper/JohnTheRipper) [![Circle CI](https://circleci.com/gh/magnumripper/JohnTheRipper/tree/bleeding-jumbo.svg?style=shield)](https://circleci.com/gh/magnumripper/JohnTheRipper/tree/bleeding-jumbo) [![Downloads](https://img.shields.io/badge/Download-Windows%20Build-green.svg)](http://daily-builds.appspot.com/latest) [![License](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](https://github.com/magnumripper/JohnTheRipper/blob/bleeding-jumbo/doc/LICENSE)
+[![Build Status](https://travis-ci.com/magnumripper/JohnTheRipper.svg?branch=bleeding-jumbo)](https://travis-ci.com/magnumripper/JohnTheRipper)
+[![Circle CI](https://circleci.com/gh/magnumripper/JohnTheRipper/tree/bleeding-jumbo.svg?style=shield)](https://circleci.com/gh/magnumripper/JohnTheRipper/tree/bleeding-jumbo)
+[![Downloads](https://img.shields.io/badge/Download-Windows%20Build-green.svg)](http://daily-builds.appspot.com/latest)
+[![License](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](https://github.com/magnumripper/JohnTheRipper/blob/bleeding-jumbo/doc/LICENSE)
+[![LoC](https://tokei.rs/b1/github/magnumripper/JohnTheRipper?category=code)](https://github.com/magnumripper/JohnTheRipper/tree/bleeding-jumbo)
+[![Contributors](https://img.shields.io/github/contributors/magnumripper/JohnTheRipper.svg)](https://github.com/magnumripper/JohnTheRipper/graphs/contributors)
+[![Search hit](https://img.shields.io/github/search/magnumripper/JohnTheRipper/goto.svg?label=Searches)](https://github.com/search?utf8=%E2%9C%93&q=john%20the%20ripper&type=)
+
+John the Ripper
+====================
 
 This is a community-enhanced, "jumbo" version of John the Ripper.
 It has a lot of code, documentation, and data contributed by the
@@ -228,7 +237,7 @@ The rest of documents in alphabetical:
 * README.MinGW - Fedora >= 22 cross-compiling instructions
 * README.mozilla - cracking Mozilla Firefox, Thunderbird and SeaMonkey master passwords
 * README.mpi - using MPI in JtR
-* README-OPENCL - how to use opencl in JtR
+* README-OPENCL - how to use OpenCL in JtR
 * README-PDF - PDF cracking in JtR
 * README-PST - PST cracking in JtR
 * README.pwsafe - cracking Password Safe 3.x and Password Gorilla databases with john

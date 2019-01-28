@@ -62,7 +62,6 @@ john_register_one(&fmt_NETNTLM_old);
 #include "options.h"
 #include "md5.h"
 #include "unicode.h"
-#include "memdbg.h"
 
 #ifndef uchar
 #define uchar unsigned char
@@ -445,7 +444,7 @@ struct fmt_main fmt_NETNTLM_old = {
 		FMT_OMP |
 #endif
 #endif
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

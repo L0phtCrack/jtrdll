@@ -32,7 +32,6 @@
 #include "mask.h"
 #include "external.h"
 #include "unicode.h"
-#include "memdbg.h"
 
 #ifdef JTRDLL
 #include "jtrdll.h"
@@ -218,7 +217,7 @@ int do_regex_hybrid_crack(struct db_main *db, const char *regex,
 
 	cur_regex = regex;
 	if (options.req_maxlength)
-		max_len = options.req_maxlength;
+		max_len = options.eff_maxlength;
 
 	if (bFirst)
 		rexgen_setlocale();
@@ -357,7 +356,7 @@ void do_regex_crack(struct db_main *db, const char *regex)
 #endif
 
 	if (options.req_maxlength)
-		max_len = options.req_maxlength;
+		max_len = options.eff_maxlength;
 
 	cur_regex = regex;
 	rexgen_setlocale();
@@ -374,8 +373,18 @@ void do_regex_crack(struct db_main *db, const char *regex)
 		error();
 	}
 
-	if (rec_restored && john_main_process)
-		fprintf(stderr, "Proceeding with regex:%s\n", regex);
+	if (rec_restored && john_main_process) {
+		fprintf(stderr, "Proceeding with regex:%s", regex);
+		if (options.mask)
+			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.rule_stack)
+			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
+		if (options.req_minlength >= 0 || options.req_maxlength)
+			fprintf(stderr, ", lengths: %d-%d",
+			        options.eff_minlength + mask_add_len,
+			        options.eff_maxlength + mask_add_len);
+		fprintf(stderr, "\n");
+	}
 
 	iter = c_regex_iterator(regex_ptr);
 	if (restore_str) {

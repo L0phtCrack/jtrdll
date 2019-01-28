@@ -42,7 +42,6 @@ john_register_one(&fmt_pkzip);
 #include "pkzip.h"
 #include "pkzip_inffixed.h"  // This file is a data file, taken from zlib
 #include "loader.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL        "PKZIP"
 #define FORMAT_NAME         ""
@@ -53,7 +52,7 @@ john_register_one(&fmt_pkzip);
 #define FORMAT_TAG2_LEN     (sizeof(FORMAT_TAG2)-1)
 
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1000
+#define BENCHMARK_LENGTH    0
 
 #define PLAINTEXT_LENGTH    31
 

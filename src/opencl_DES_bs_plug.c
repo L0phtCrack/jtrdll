@@ -8,7 +8,6 @@
 #ifdef HAVE_OPENCL
 
 #include <string.h>
-#include <assert.h>
 
 #include "arch.h"
 #include "common.h"
@@ -17,7 +16,6 @@
 #include "unicode.h"
 #include "bt_interface.h"
 #include "mask_ext.h"
-#include "memdbg.h"
 
 typedef struct {
 	unsigned char *pxkeys[DES_BS_DEPTH]; /* Pointers into xkeys.c */
@@ -27,23 +25,23 @@ typedef struct {
 extern char appdatadir[_MAX_PATH];
 #endif
 
-static cl_kernel **cmp_kernel = NULL;
-static cl_kernel kernel_high = 0, kernel_low = 0;
-static cl_mem buffer_hash_ids, buffer_bitmap_dupe, *buffer_uncracked_hashes = NULL, *buffer_hash_tables = NULL, *buffer_offset_tables = NULL, *buffer_bitmaps = NULL;
-static unsigned int *zero_buffer = NULL, **hash_tables = NULL;
-static unsigned int *hash_ids = NULL;
-static unsigned int max_uncracked_hashes = 0, max_hash_table_size = 0;
-DES_hash_check_params *hash_chk_params = NULL;
-static WORD current_salt = 0;
+static cl_kernel **cmp_kernel;
+static cl_kernel kernel_high, kernel_low;
+static cl_mem buffer_hash_ids, buffer_bitmap_dupe, *buffer_uncracked_hashes, *buffer_hash_tables, *buffer_offset_tables, *buffer_bitmaps;
+static unsigned int *zero_buffer, **hash_tables;
+static unsigned int *hash_ids;
+static unsigned int max_uncracked_hashes, max_hash_table_size;
+DES_hash_check_params *hash_chk_params;
+static WORD current_salt;
 
-static cl_kernel keys_kernel = 0;
-static cl_mem buffer_raw_keys = 0, buffer_int_des_keys = 0, buffer_int_key_loc = 0;
+static cl_kernel keys_kernel;
+static cl_mem buffer_raw_keys, buffer_int_des_keys, buffer_int_key_loc;
 static int keys_changed = 1;
 static des_combined *des_all;
 static opencl_DES_bs_transfer *des_raw_keys;
-static unsigned int *des_int_key_loc = NULL;
+static unsigned int *des_int_key_loc;
 static unsigned int static_gpu_locations[MASK_FMT_INT_PLHDR];
-static size_t process_key_gws = 0;
+static size_t process_key_gws;
 
 unsigned char opencl_DES_E[48] = {
 	31, 0, 1, 2, 3, 4,
@@ -170,21 +168,17 @@ static void select_bitmap(unsigned int num_ld_hashes, WORD *uncracked_hashes_t, 
 		}
 		if (buf_sz >= 536870912)
 			buf_sz = 536870912;
-		assert(!(buf_sz & (buf_sz - 1)));
 		if (((*bitmap_size_bits) >> 3) > buf_sz)
 			*bitmap_size_bits = buf_sz << 3;
-		assert(!((*bitmap_size_bits) & ((*bitmap_size_bits) - 1)));
 	}
 
 	prepare_bitmap_1(*bitmap_size_bits, bitmaps_ptr, (unsigned WORD *)uncracked_hashes_t, num_ld_hashes);
 
-	assert(!((*bitmap_size_bits) & ((*bitmap_size_bits) - 1)));
-	assert(*bitmap_size_bits <= 0xffffffff);
 	get_num_bits(bits_req, (*bitmap_size_bits));
 
-	hash_chk_params -> bitmap_size_bits = (unsigned int)(*bitmap_size_bits);
-	hash_chk_params -> cmp_steps = cmp_steps;
-	hash_chk_params -> cmp_bits = bits_req;
+	hash_chk_params->bitmap_size_bits = (unsigned int)(*bitmap_size_bits);
+	hash_chk_params->cmp_steps = cmp_steps;
+	hash_chk_params->cmp_bits = bits_req;
 
 	*bitmap_size_bits *= cmp_steps;
 }
@@ -199,8 +193,8 @@ static void fill_buffer(struct db_salt *salt, unsigned int *max_uncracked_hashes
 	OFFSET_TABLE_WORD *offset_table;
 	unsigned int hash_table_size, offset_table_size;
 
-	salt_val = *(WORD *)salt -> salt;
-	num_uncracked_hashes(salt_val) = salt -> count;
+	salt_val = *(WORD *)salt->salt;
+	num_uncracked_hashes(salt_val) = salt->count;
 
 	uncracked_hashes = (WORD *) mem_calloc(2 * num_uncracked_hashes(salt_val), sizeof(WORD));
 	uncracked_hashes_t = (WORD *) mem_calloc(2 * num_uncracked_hashes(salt_val), sizeof(WORD));
@@ -222,8 +216,8 @@ static void fill_buffer(struct db_salt *salt, unsigned int *max_uncracked_hashes
 		}
 	} while ((pw = pw->next));
 
-	if (salt -> count > *max_uncracked_hashes)
-		*max_uncracked_hashes = salt -> count;
+	if (salt->count > *max_uncracked_hashes)
+		*max_uncracked_hashes = salt->count;
 
 	num_uncracked_hashes(salt_val) = create_perfect_hash_table(64, (void *)uncracked_hashes_t,
 				num_uncracked_hashes(salt_val),
@@ -422,10 +416,10 @@ void build_tables(struct db_main *db)
 	memset(hash_chk_params, 0, 4096 * sizeof(DES_hash_check_params));
 
 	if (db) {
-	struct db_salt *salt = db -> salts;
+	struct db_salt *salt = db->salts;
 	do {
 		fill_buffer(salt, &max_uncracked_hashes, &max_hash_table_size);
-	} while((salt = salt -> next));
+	} while((salt = salt->next));
 	}
 	else {
 		fill_buffer_self_test(&max_uncracked_hashes, &max_hash_table_size);
@@ -508,11 +502,11 @@ void set_common_kernel_args_kpc(cl_mem buffer_unchecked_hashes, cl_mem buffer_bs
 void update_buffer(struct db_salt *salt)
 {
 	unsigned int _max_uncracked_hashes = 0, _max_hash_table_size = 0;
-	WORD salt_val = *(WORD *)salt -> salt;
+	WORD salt_val = *(WORD *)salt->salt;
 	release_fill_buffer(salt_val);
 
-	if (salt -> count > LOW_THRESHOLD &&
-		(num_uncracked_hashes(salt_val) - num_uncracked_hashes(salt_val) / 10) < salt -> count)
+	if (salt->count > LOW_THRESHOLD &&
+		(num_uncracked_hashes(salt_val) - num_uncracked_hashes(salt_val) / 10) < salt->count)
 		return;
 
 	fill_buffer(salt, &_max_uncracked_hashes, &_max_hash_table_size);
@@ -931,14 +925,12 @@ void create_int_keys_buffer()
 {
 	unsigned int active_placeholders, i;
 
-	active_placeholders = 0;
+	active_placeholders = 1;
 	if (mask_skip_ranges)
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++) {
 		if (mask_skip_ranges[i] != -1)
 			active_placeholders++;
 	}
-	else
-		active_placeholders = 1;
 
 	buffer_int_des_keys = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, active_placeholders * 7 * ((mask_int_cand.num_int_cand + DES_BS_DEPTH - 1) >> DES_LOG_DEPTH) * sizeof(unsigned int), NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Create buffer_int_des_keys failed.\n");
@@ -1164,7 +1156,7 @@ size_t create_keys_kernel_set_args(int mask_mode)
 	des_finalize_int_keys();
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges!= NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else

@@ -37,7 +37,7 @@ john_register_one(&fmt_opencl_o5logon);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 
 #define FORMAT_LABEL            "o5logon-opencl"
 #define FORMAT_NAME             "Oracle O5LOGON protocol"
@@ -93,7 +93,6 @@ static unsigned int key_idx;
 static struct fmt_main *self;
 
 #include "opencl_autotune.h" // Must come after auto-tune definitions
-#include "memdbg.h"
 
 static size_t get_task_max_work_group_size()
 {
@@ -193,9 +192,7 @@ static void reset(struct db_main *db)
 		                       2 * BUFSIZE, gws_limit, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, ROUNDS, gws_limit,
-		             (cpu(device_info[gpu_id]) ?
-		              500000000ULL : 1000000000ULL));
+		autotune_run(self, ROUNDS, gws_limit, 200);
 	}
 }
 
@@ -269,12 +266,9 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu"\n", __FUNCTION__, count, local_work_size, global_work_size);
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 
 	if (key_idx)
 		BENCH_CLERROR(

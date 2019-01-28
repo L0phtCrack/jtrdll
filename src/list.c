@@ -13,7 +13,6 @@
 
 #include "memory.h"
 #include "list.h"
-#include "memdbg.h"
 
 void list_init(struct list_main **list)
 {
@@ -82,7 +81,7 @@ void list_add_unique(struct list_main *list, char *data)
 	list_add(list, data);
 }
 
-void list_add_global_unique(struct list_main *list, struct list_main *list2,
+void list_add_global_unique(struct list_main *list, struct list_main *global,
                             char *data)
 {
 	struct list_entry *current;
@@ -92,7 +91,7 @@ void list_add_global_unique(struct list_main *list, struct list_main *list2,
 		if (!strcmp(current->data, data)) return;
 	} while ((current = current->next));
 
-	if ((current = list2->head))
+	if (list != global && (current = global->head))
 	do {
 		if (!strcmp(current->data, data)) return;
 	} while ((current = current->next));
@@ -100,7 +99,6 @@ void list_add_global_unique(struct list_main *list, struct list_main *list2,
 	list_add(list, data);
 }
 
-#if DEBUG
 void list_dump(char *message, struct list_main *list)
 {
 	struct list_entry *current;
@@ -112,7 +110,6 @@ void list_dump(char *message, struct list_main *list)
 		fprintf(stderr, "%s\n", current->data);
 	} while ((current = current->next));
 }
-#endif
 
 #if 0
 void list_del_next(struct list_main *list, struct list_entry *prev)

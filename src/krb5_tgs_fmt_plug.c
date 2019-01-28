@@ -25,6 +25,7 @@ john_register_one(&fmt_krb5tgs);
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -37,11 +38,6 @@ john_register_one(&fmt_krb5tgs);
 #include "hmacmd5.h"
 #include "rc4.h"
 #include "unicode.h"
-#include "memdbg.h"
-
-#ifndef OMP_SCALE
-#define OMP_SCALE            256
-#endif
 
 #define FORMAT_LABEL         "krb5tgs"
 #define FORMAT_NAME          "Kerberos 5 TGS etype 23"
@@ -49,14 +45,18 @@ john_register_one(&fmt_krb5tgs);
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME       "MD4 HMAC-MD5 RC4"
 #define BENCHMARK_COMMENT    ""
-#define BENCHMARK_LENGTH     -1000
+#define BENCHMARK_LENGTH     0
 #define PLAINTEXT_LENGTH     125
 #define BINARY_SIZE          0
 #define BINARY_ALIGN         MEM_ALIGN_NONE
 #define SALT_SIZE            sizeof(struct custom_salt *)
 #define SALT_ALIGN           sizeof(struct custom_salt *)
 #define MIN_KEYS_PER_CRYPT   1
-#define MAX_KEYS_PER_CRYPT   1
+#define MAX_KEYS_PER_CRYPT   64
+
+#ifndef OMP_SCALE
+#define OMP_SCALE            4 // Tuned w/ MKPC for core i7
+#endif
 
 /*
   assuming checksum == edata1
@@ -169,9 +169,8 @@ err:
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_alloc_align(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt,
 			MEM_ALIGN_CACHE);
@@ -281,10 +280,10 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		memset(cracked, 0, cracked_size);
 		any_cracked = 0;
 	}
+
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-
 	for (index = 0; index < count; index++) {
 		unsigned char K3[16];
 #ifdef _MSC_VER
@@ -389,7 +388,7 @@ struct fmt_main fmt_krb5tgs = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{NULL},
 		{ FORMAT_TAG },
 		tests

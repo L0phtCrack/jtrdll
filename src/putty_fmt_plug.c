@@ -35,7 +35,6 @@ john_register_one(&fmt_putty);
 #include "sha.h"
 #include "hmac_sha.h"
 #include "loader.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL        "PuTTY"
 #define FORMAT_NAME         "Private Key (RSA/DSA/ECDSA/ED25519)"
@@ -43,7 +42,7 @@ john_register_one(&fmt_putty);
 #define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME      "SHA1/AES 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1001
+#define BENCHMARK_LENGTH    -1
 #define PLAINTEXT_LENGTH    32
 #define BINARY_SIZE         0
 #define BINARY_ALIGN        1
@@ -298,10 +297,7 @@ static int LAME_ssh2_load_userkey(char *passphrase)
 		SHA1_Update(&s, passphrase, passlen);
 		SHA1_Final(key + 20, &s);
 		memset(iv, 0, 32);
-		memset(&akey, 0, sizeof(AES_KEY));
-		if (AES_set_decrypt_key(key, 256, &akey) < 0) {
-			fprintf(stderr, "AES_set_decrypt_key failed!\n");
-		}
+		AES_set_decrypt_key(key, 256, &akey);
 		AES_cbc_encrypt(cur_salt->private_blob, out , cur_salt->private_blob_len, &akey, iv, AES_DECRYPT);
 	}
 	/* Verify the MAC. */

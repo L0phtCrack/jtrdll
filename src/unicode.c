@@ -41,7 +41,6 @@
 #include "config.h"
 #include "md4.h"
 #include "john.h"
-#include "memdbg.h"
 
 UTF16 ucs2_upcase[0x10000];
 UTF16 ucs2_downcase[0x10000];
@@ -59,11 +58,11 @@ static int UnicodeType = -1;
 static int UnicodeInited = 0;
 #endif
 
-/*
- * This is used by single.c for determining that a character is a letter
- */
 UTF8 CP_isLetter[0x100];
 UTF8 CP_isSeparator[0x100];
+UTF8 CP_isUpper[0x100];
+UTF8 CP_isLower[0x100];
+UTF8 CP_isDigit[0x100];
 
 #if ARCH_LITTLE_ENDIAN
 #define BE_FIX(a) a
@@ -346,7 +345,7 @@ int enc_to_utf16(UTF16 *dst, unsigned int maxdstlen, const UTF8 *src,
                  unsigned int srclen)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8) {
+	if ((options.target_enc ? options.target_enc : options.input_enc) != UTF_8) {
 		int i, trunclen = (int)srclen;
 		if (trunclen > maxdstlen)
 			trunclen = maxdstlen;
@@ -404,7 +403,7 @@ int enc_to_utf16_be(UTF16 *dst, unsigned int maxdstlen, const UTF8 *src,
                     unsigned int srclen)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8) {
+	if ((options.target_enc ? options.target_enc : options.input_enc) != UTF_8) {
 		int i, trunclen = (int)srclen;
 		if (trunclen > maxdstlen)
 			trunclen = maxdstlen;
@@ -428,6 +427,17 @@ int enc_to_utf16_be(UTF16 *dst, unsigned int maxdstlen, const UTF8 *src,
 #ifndef UNICODE_NO_OPTIONS
 	}
 #endif
+}
+
+/*
+ * Strlen of UTF-32 (in 32-bit words, not octets).
+ */
+inline unsigned int strlen32(const UTF32 *str)
+{
+	unsigned int len = 0;
+	while (*str++ != 0)
+		len++;
+	return len;
 }
 
 /*
@@ -715,7 +725,7 @@ UTF8 *utf16_to_enc(const UTF16 *source)
 UTF8 *utf16_to_enc_r(UTF8 *dst, int dst_len, const UTF16 *source)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc == UTF_8)
+	if ((options.target_enc ? options.target_enc : options.input_enc) == UTF_8)
 #endif
 		return utf16_to_utf8_r(dst, dst_len, source);
 #ifndef UNICODE_NO_OPTIONS
@@ -763,8 +773,8 @@ inline static UTF8 *utf32_to_utf8(UTF8 *dst, int dst_len, const UTF32 *source)
 	return dst;
 }
 
-inline static int utf8_to_utf32(UTF32 *target, unsigned int len,
-                                const UTF8 *source, unsigned int sourceLen)
+inline int utf8_to_utf32(UTF32 *target, unsigned int len,
+                         const UTF8 *source, unsigned int sourceLen)
 {
 	const UTF32 *targetStart = target;
 	const UTF32 *targetEnd = target + len;
@@ -860,7 +870,7 @@ int enc_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
                  unsigned int srclen)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8)
+	if ((options.target_enc ? options.target_enc : options.input_enc) != UTF_8)
 		return cp_to_utf32(dst, maxdstlen, src, srclen);
 	else
 #endif
@@ -870,7 +880,7 @@ int enc_to_utf32(UTF32 *dst, unsigned int maxdstlen, const UTF8 *src,
 UTF8 *utf32_to_enc(UTF8 *dst, int dst_len, const UTF32 *source)
 {
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc == UTF_8)
+	if ((options.target_enc ? options.target_enc : options.input_enc) == UTF_8)
 #endif
 		return utf32_to_utf8(dst, dst_len, source);
 #ifndef UNICODE_NO_OPTIONS
@@ -961,7 +971,7 @@ int cp_name2id(char *encoding)
 	char enc[16] = "";
 	char *d = enc;
 
-	if (!encoding)
+	if (!encoding || !encoding[0])
 		return CP_UNDEF;
 	if (strlen(encoding) > sizeof(enc))
 		goto err;
@@ -1070,7 +1080,7 @@ void initUnicode(int type)
 {
 	unsigned i, j;
 #ifndef UNICODE_NO_OPTIONS
-	unsigned char *cpU, *cpL, *Sep, *Letter;
+	unsigned char *cpU, *cpL, *Sep, *Letter, *Digit;
 	unsigned char *pos;
 	int encoding;
 
@@ -1377,6 +1387,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_ISO_8859_1 CHARS_WHITESPACE_ISO_8859_1
 			CHARS_CONTROL_ISO_8859_1 CHARS_INVALID_ISO_8859_1;
 		Letter = (unsigned char*)CHARS_ALPHA_ISO_8859_1;
+		Digit = (unsigned char*)CHARS_DIGITS_ISO_8859_1;
 		break;
 	case ISO_8859_2:
 		cpU = (unsigned char*)CHARS_UPPER_ISO_8859_2;
@@ -1385,6 +1396,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_ISO_8859_2 CHARS_WHITESPACE_ISO_8859_2
 			CHARS_CONTROL_ISO_8859_2 CHARS_INVALID_ISO_8859_2;
 		Letter = (unsigned char*)CHARS_ALPHA_ISO_8859_2;
+		Digit = (unsigned char*)CHARS_DIGITS_ISO_8859_2;
 		break;
 	case ISO_8859_7:
 		cpU = (unsigned char*)CHARS_UPPER_ISO_8859_7;
@@ -1393,6 +1405,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_ISO_8859_7 CHARS_WHITESPACE_ISO_8859_7
 			CHARS_CONTROL_ISO_8859_7 CHARS_INVALID_ISO_8859_7;
 		Letter = (unsigned char*)CHARS_ALPHA_ISO_8859_7;
+		Digit = (unsigned char*)CHARS_DIGITS_ISO_8859_7;
 		break;
 	case ISO_8859_15:
 		cpU = (unsigned char*)CHARS_UPPER_ISO_8859_15;
@@ -1401,6 +1414,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_ISO_8859_15 CHARS_WHITESPACE_ISO_8859_15
 			CHARS_CONTROL_ISO_8859_15 CHARS_INVALID_ISO_8859_15;
 		Letter = (unsigned char*)CHARS_ALPHA_ISO_8859_15;
+		Digit = (unsigned char*)CHARS_DIGITS_ISO_8859_15;
 		break;
 	case KOI8_R:
 		cpU = (unsigned char*)CHARS_UPPER_KOI8_R;
@@ -1409,6 +1423,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_KOI8_R CHARS_WHITESPACE_KOI8_R
 			CHARS_CONTROL_KOI8_R CHARS_INVALID_KOI8_R;
 		Letter = (unsigned char*)CHARS_ALPHA_KOI8_R;
+		Digit = (unsigned char*)CHARS_DIGITS_KOI8_R;
 		break;
 	case CP437:
 		cpU = (unsigned char*)CHARS_UPPER_CP437;
@@ -1417,6 +1432,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP437 CHARS_WHITESPACE_CP437
 			CHARS_CONTROL_CP437 CHARS_INVALID_CP437;
 		Letter = (unsigned char*)CHARS_ALPHA_CP437;
+		Digit = (unsigned char*)CHARS_DIGITS_CP437;
 		break;
 	case CP720:
 		cpU = (unsigned char*)CHARS_UPPER_CP720;
@@ -1425,6 +1441,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP720 CHARS_WHITESPACE_CP720
 			CHARS_CONTROL_CP720 CHARS_INVALID_CP720;
 		Letter = (unsigned char*)CHARS_ALPHA_CP720;
+		Digit = (unsigned char*)CHARS_DIGITS_CP720;
 		break;
 	case CP737:
 		cpU = (unsigned char*)CHARS_UPPER_CP737;
@@ -1433,6 +1450,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP737 CHARS_WHITESPACE_CP737
 			CHARS_CONTROL_CP737 CHARS_INVALID_CP737;
 		Letter = (unsigned char*)CHARS_ALPHA_CP737;
+		Digit = (unsigned char*)CHARS_DIGITS_CP737;
 		break;
 	case CP850:
 		cpU = (unsigned char*)CHARS_UPPER_CP850;
@@ -1441,6 +1459,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP850 CHARS_WHITESPACE_CP850
 			CHARS_CONTROL_CP850 CHARS_INVALID_CP850;
 		Letter = (unsigned char*)CHARS_ALPHA_CP850;
+		Digit = (unsigned char*)CHARS_DIGITS_CP850;
 		break;
 	case CP852:
 		cpU = (unsigned char*)CHARS_UPPER_CP852;
@@ -1449,6 +1468,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP852 CHARS_WHITESPACE_CP852
 			CHARS_CONTROL_CP852 CHARS_INVALID_CP852;
 		Letter = (unsigned char*)CHARS_ALPHA_CP852;
+		Digit = (unsigned char*)CHARS_DIGITS_CP852;
 		break;
 	case CP858:
 		cpU = (unsigned char*)CHARS_UPPER_CP858;
@@ -1457,6 +1477,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP858 CHARS_WHITESPACE_CP858
 			CHARS_CONTROL_CP858 CHARS_INVALID_CP858;
 		Letter = (unsigned char*)CHARS_ALPHA_CP858;
+		Digit = (unsigned char*)CHARS_DIGITS_CP858;
 		break;
 	case CP866:
 		cpU = (unsigned char*)CHARS_UPPER_CP866;
@@ -1465,6 +1486,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP866 CHARS_WHITESPACE_CP866
 			CHARS_CONTROL_CP866 CHARS_INVALID_CP866;
 		Letter = (unsigned char*)CHARS_ALPHA_CP866;
+		Digit = (unsigned char*)CHARS_DIGITS_CP866;
 		break;
 	case CP868:
 		cpU = (unsigned char*)CHARS_UPPER_CP868;
@@ -1473,6 +1495,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP868 CHARS_WHITESPACE_CP868
 			CHARS_CONTROL_CP868 CHARS_INVALID_CP868;
 		Letter = (unsigned char*)CHARS_ALPHA_CP868;
+		Digit = (unsigned char*)CHARS_DIGITS_CP868;
 		break;
 	case CP1250:
 		cpU = (unsigned char*)CHARS_UPPER_CP1250;
@@ -1481,6 +1504,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1250 CHARS_WHITESPACE_CP1250
 			CHARS_CONTROL_CP1250 CHARS_INVALID_CP1250;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1250;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1250;
 		break;
 	case CP1251:
 		cpU = (unsigned char*)CHARS_UPPER_CP1251;
@@ -1489,6 +1513,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1251 CHARS_WHITESPACE_CP1251
 			CHARS_CONTROL_CP1251 CHARS_INVALID_CP1251;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1251;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1251;
 		break;
 	case CP1252:
 		cpU = (unsigned char*)CHARS_UPPER_CP1252;
@@ -1497,6 +1522,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1252 CHARS_WHITESPACE_CP1252
 			CHARS_CONTROL_CP1252 CHARS_INVALID_CP1252;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1252;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1252;
 		break;
 	case CP1253:
 		cpU = (unsigned char*)CHARS_UPPER_CP1253;
@@ -1505,6 +1531,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1253 CHARS_WHITESPACE_CP1253
 			CHARS_CONTROL_CP1253 CHARS_INVALID_CP1253;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1253;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1253;
 		break;
 	case CP1254:
 		cpU = (unsigned char*)CHARS_UPPER_CP1254;
@@ -1513,6 +1540,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1254 CHARS_WHITESPACE_CP1254
 			CHARS_CONTROL_CP1254 CHARS_INVALID_CP1254;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1254;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1254;
 		break;
 	case CP1255:
 		cpU = (unsigned char*)CHARS_UPPER_CP1255;
@@ -1521,6 +1549,7 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1255 CHARS_WHITESPACE_CP1255
 			CHARS_CONTROL_CP1255 CHARS_INVALID_CP1255;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1255;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1255;
 		break;
 	case CP1256:
 		cpU = (unsigned char*)CHARS_UPPER_CP1256;
@@ -1529,12 +1558,14 @@ void initUnicode(int type)
 			CHARS_SPECIALS_CP1256 CHARS_WHITESPACE_CP1256
 			CHARS_CONTROL_CP1256 CHARS_INVALID_CP1256;
 		Letter = (unsigned char*)CHARS_ALPHA_CP1256;
+		Digit = (unsigned char*)CHARS_DIGITS_CP1256;
 		break;
 	default:
 		cpU = (unsigned char*)"";
 		cpL = (unsigned char*)"";
 		Sep = (unsigned char*)CP_issep;
 		Letter = (unsigned char*)"";
+		Digit = (unsigned char*)"";
 	}
 
 	for (i = 0; cpU[i]; ++i) {
@@ -1548,14 +1579,31 @@ void initUnicode(int type)
 	for (pos = Sep; *pos; pos++)
 		CP_isSeparator[ARCH_INDEX(*pos)] = 1;
 
+	/* CP_isDigit[c] will return true if c is a digit */
+	memset(CP_isDigit, 0, sizeof(CP_isDigit));
+	for (i = '0'; i <= '9'; i++)
+		CP_isDigit[i] = 1;
+	for (pos = Digit; *pos; pos++)
+		CP_isDigit[ARCH_INDEX(*pos)] = 1;
+
 	/* CP_isLetter[c] will return true if c is a letter */
 	memset(CP_isLetter, 0, sizeof(CP_isLetter));
-	for (i = 'a'; i <= 'z'; i++)
+	memset(CP_isLower, 0, sizeof(CP_isLower));
+	memset(CP_isUpper, 0, sizeof(CP_isUpper));
+	for (i = 'a'; i <= 'z'; i++) {
 		CP_isLetter[i] = 1;
-	for (i = 'A'; i <= 'Z'; i++)
+		CP_isLower[i] = 1;
+	}
+	for (i = 'A'; i <= 'Z'; i++) {
 		CP_isLetter[i] = 1;
+		CP_isUpper[i] = 1;
+	}
 	for (pos = Letter; *pos; pos++)
 		CP_isLetter[ARCH_INDEX(*pos)] = 1;
+	for (pos = cpL; *pos; pos++)
+		CP_isLower[ARCH_INDEX(*pos)] = 1;
+	for (pos = cpU; *pos; pos++)
+		CP_isUpper[ARCH_INDEX(*pos)] = 1;
 
 	if (type == UNICODE_MS_OLD && encoding == CP850) {
 /*
@@ -1670,7 +1718,7 @@ int enc_lc(UTF8 *dst, unsigned dst_bufsize, const UTF8 *src, unsigned src_len)
 	int utf16len, i;
 
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8) {
+	if ((options.target_enc ? options.target_enc : options.input_enc) != UTF_8) {
 		if (dst_bufsize <= src_len)
 			src_len = dst_bufsize - 1;
 		for (i = 0; i < src_len; ++i) {
@@ -1709,7 +1757,7 @@ int enc_uc(UTF8 *dst, unsigned dst_bufsize, const UTF8 *src, unsigned src_len)
 	int utf16len, i;
 
 #ifndef UNICODE_NO_OPTIONS
-	if (options.target_enc != UTF_8) {
+	if ((options.target_enc ? options.target_enc : options.input_enc) != UTF_8) {
 		int len;
 		if (dst_bufsize <= src_len)
 			src_len = dst_bufsize - 1;
@@ -1779,4 +1827,127 @@ char *enc_strupper(char *s)
 	int srclen = strlen(s);
 	enc_uc(ptr, srclen + 1, ptr, srclen);
 	return s;
+}
+
+int enc_hasupper(char *s)
+{
+	while (*s)
+		if (enc_isupper(*s))
+			return 1;
+		else
+			s++;
+	return 0;
+}
+
+int enc_haslower(char *s)
+{
+	while (*s)
+		if (enc_islower(*s))
+			return 1;
+		else
+			s++;
+	return 0;
+}
+
+int enc_hasdigit(char *s)
+{
+	while (*s)
+		if (enc_isdigit(*s))
+			return 1;
+		else
+			s++;
+	return 0;
+}
+
+/*
+ * The concept of UTF-8-32 and associated code was first mentioned at
+ * https://github.com/magnumripper/JohnTheRipper/issues/3510
+ *
+ * Char| Unicode |    UTF-8    |   UTF-32   | UTF-8-32
+ * ----|---------|-------------|------------|-----------
+ *  A  |  U+0041 |          41 | 0x00000041 | 0x00000041
+ *  £  |  U+00A3 |       c2 a3 | 0x000000a3 | 0x0000a3c2
+ *  €  |  U+20AC |    e2 82 ac | 0x000020ac | 0x00ac82e2
+ * :-) | U+1F600 | f0 9f 98 80 | 0x0001f600 | 0x80989ff0
+ *
+ * The UTF-8-32 concept and code is Copyright (c) magnum 2018 and is
+ * hereby released to the general public under the following terms:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted.
+ */
+
+/*
+ * Source is a UTF-8-32 string, destination is a normal UTF-8 string.
+ */
+UTF8 *utf8_32_to_utf8(UTF8 *dst, UTF32 *src)
+{
+	UTF8 *ret = dst;
+	UTF32 c;
+
+	while ((c = *src++))
+	do
+		*dst++ = c & 0xff;
+	while ((c >>= 8));
+
+	*dst = 0;
+
+	return ret;
+}
+
+/*
+ * Convert a UTF-8 string to UTF-8-32. Not much error checking.
+ */
+void utf8_to_utf8_32(UTF32 *dst, UTF8 *src)
+{
+	UTF32 c;
+
+	while ((c = *src++)) {
+		if (c >= 0xC0) {
+			unsigned int eb;
+			eb = opt_trailingBytesUTF8[c & 0x3f];
+
+			if (eb > 3) /* invalid */
+				continue;
+			c += (UTF32)*src++ << 8;
+			if (eb > 1)
+				c += (UTF32)*src++ << 16;
+			if (eb > 2)
+				c += (UTF32)*src++ << 24;
+		}
+		*dst++ = c;
+	}
+	*dst = 0;
+}
+
+/* Convert UTF-32 to UTF-8-32, in place */
+void utf32_to_utf8_32(UTF32 *in_place_string)
+{
+	UTF32 *src = in_place_string;
+	UTF32 *dst = in_place_string;
+
+	while (*src) {
+		UTF32 ch, u8_32 = 0;
+		unsigned short bytesToWrite = 0;
+		const UTF32 byteMask = 0xBF;
+		const UTF32 byteMark = 0x80;
+
+		ch = *src++;
+
+		/* Figure out how many bytes the result will require */
+		if (ch < (UTF32)0x80) {	     bytesToWrite = 1;
+		} else if (ch < (UTF32)0x800) {     bytesToWrite = 2;
+		} else if (ch < (UTF32)0x10000) {   bytesToWrite = 3;
+		} else if (ch < (UTF32)0x110000) {  bytesToWrite = 4;
+		} else {			    bytesToWrite = 3;
+			ch = UNI_REPLACEMENT_CHAR;
+		}
+
+		switch (bytesToWrite) { /* note: everything falls through. */
+		case 4: u8_32 |= ((ch | byteMark) & byteMask) << 24; ch >>= 6;
+		case 3: u8_32 |= ((ch | byteMark) & byteMask) << 16; ch >>= 6;
+		case 2: u8_32 |= ((ch | byteMark) & byteMask) << 8; ch >>= 6;
+		case 1: u8_32 |= (ch | firstByteMark[bytesToWrite]);
+		}
+		*dst++ = u8_32;
+	}
 }

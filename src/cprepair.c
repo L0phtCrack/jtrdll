@@ -17,7 +17,6 @@
 
 #include "params.h"
 #include "unicode.h"
-#include "memdbg.h"
 
 // gcc -Wall -O3 -s -DNOT_JOHN -D_JOHN_MISC_NO_LOG cprepair.c unicode.c misc.c -o ../run/cprepair
 
@@ -28,7 +27,7 @@ struct options_main options;
 #undef LINE_BUFFER_SIZE
 #define LINE_BUFFER_SIZE 0x10000
 
-void dump_stuff_msg(const void *msg, void *x, unsigned int size)
+static void dump_hex(const void *msg, const void *x, unsigned int size)
 {
 	unsigned int i;
 
@@ -127,14 +126,14 @@ static int process_file(char *name)
 			}
 
 			if (options.verbosity == VERB_MAX)
-				dump_stuff_msg(orig, orig, len);
+				dump_hex(orig, orig, len);
 
 			plain = strchr(orig, ':');
 			if (potfile && plain) {
 				len -= (++plain - orig);
 				convin = plain;
 				if (options.verbosity == VERB_MAX)
-					dump_stuff_msg(convin, convin, len);
+					dump_hex(convin, convin, len);
 			} else
 				convin = skip_bom(orig);
 

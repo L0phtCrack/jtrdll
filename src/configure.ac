@@ -64,7 +64,6 @@ dnl -DJOHN_SYSTEMWIDE
 AC_ARG_WITH(systemwide, [AS_HELP_STRING([--with-systemwide],[install for all users])],,[with_systemwide=no])
 AC_ARG_WITH(flock, [AS_HELP_STRING([--with-flock],[use flock() file locking instead of fcntl()])],,[with_flock=no])
 
-AC_ARG_ENABLE([memdbg], [AC_HELP_STRING([--enable-memdbg], [Enable memdbg memory debugging (safe level)])], [memdbg=$enableval], [memdbg=no])
 AC_ARG_ENABLE([asan], [AS_HELP_STRING([--enable-asan], [* Build with AddressSanitizer])], [asan=$enableval], [asan=no])
 AC_ARG_ENABLE([ubsan], [AS_HELP_STRING([--enable-ubsan], [* Build with UndefinedBehaviorSanitizer])], [ubsan=$enableval], [ubsan=no])
 AC_ARG_ENABLE([ubsantrap], [AS_HELP_STRING([--enable-ubsantrap], [* Build with UndefinedBehaviorSanitizer, crashes on failure])], [ubsantrap=$enableval], [ubsantrap=no])
@@ -83,7 +82,7 @@ AC_ARG_ENABLE([pcap], [AC_HELP_STRING([--disable-pcap], [Do not build helpers de
 AC_ARG_ENABLE([native-tests], [AC_HELP_STRING([--disable-native-tests], [Do not test build system for target features.])], [enable_native_tests=$enableval], [enable_native_tests=auto])
 AC_ARG_ENABLE([native-march], [AC_HELP_STRING([--enable-native-march], [Use things like -march=native if valid compiler option(s).])], [enable_native_march=$enableval], [enable_native_march=no])
 AC_ARG_ENABLE([ln-s], [AS_HELP_STRING([--enable-ln-s],[Use ln -s vs symlink.c wrappers (Cygwin only)])], [enable_ln_s=$enableval], [enable_ln_s=no])
-AC_ARG_ENABLE([pkg-config], [AS_HELP_STRING([--disable-pkg-config],[do not use pkg-config for any probing tests])], [enable_pkg_config=$enableval], [enable_pkg_config=auto])
+AC_ARG_ENABLE([pkg-config], [AS_HELP_STRING([--enable-pkg-config],[use pkg-config for some probing tests])], [enable_pkg_config=$enableval], [enable_pkg_config=no])
 AC_ARG_ENABLE([nt-full-unicode], [AS_HELP_STRING([--enable-nt-full-unicode],[support 4-byte UTF-8 for MS formats])], [enable_nt_unicode=$enableval], [enable_nt_unicode=no])
 AC_ARG_ENABLE([int128], [AC_HELP_STRING([--disable-int128], [Do not use int128])], [enable_int128=$enableval], [enable_int128=auto])
 AC_ARG_ENABLE([experimental-code], [AC_HELP_STRING([--enable-experimental-code], [Use experimental code])], [experimental=$enableval], [experimental=no])
@@ -129,6 +128,11 @@ dnl Here we call setting up many -I in CFLAGS, and -L in
 dnl LDFLAGS for 'normal' paths, IF we find them.
 dnl ======================================================================
 AS_IF([test "x$cross_compiling" = xno], [JTR_SET_NORMAL_INCLUDES])
+
+dnl ======================================================================
+dnl only do auto unit-tests logic IF we are not cross compiling
+dnl ======================================================================
+AS_IF([test "x$enable_native_tests" = xyes], [AC_SUBST(UNIT_TESTS_DEPENDENCY,[unit-tests])])
 
 dnl ======================================================================
 dnl check compiler switches here.  OPT_NORMAL, then
@@ -233,10 +237,18 @@ fi
    JTR_FLAG_CHECK([-Wall], 1)
    JTR_FLAG_CHECK([-Wdeclaration-after-statement], 1)
 
+   dnl False positives from gcc 8
+   if (test "x$asan" != xyes); then
+      JTR_NOWARN_CHECK([stringop-truncation], 1)
+      JTR_NOWARN_CHECK([format-overflow], 1)
+   fi
+
    AS_IF([test "x$werror" = xyes],
       JTR_FLAG_CHECK([-Werror], 1)
-      JTR_FLAG_CHECK([-Wno-error=cpp], 1)
-      JTR_FLAG_CHECK([[-Wno-error=#warnings]], 1)
+      JTR_NOWARN_CHECK([error=cpp], 1)
+      JTR_NOWARN_CHECK([[error=#warnings]], 1)
+      JTR_NOWARN_CHECK([error=stringop-truncation], 1)
+      JTR_NOWARN_CHECK([error=format-overflow], 1)
    )
    if test "x$asan" = xyes || test "x$ubsan" = xyes || test "x$ubsantrap" ; then
       JTR_FLAG_CHECK([-fno-omit-frame-pointer], 1)
@@ -247,11 +259,11 @@ fi
    dnl gcc bug workaround, see issue 632
    JTR_FLAG_CHECK([--param allow-store-data-races=0], 1)
    dnl Silly OSX warnings
-   JTR_FLAG_CHECK([-Wno-deprecated-declarations], 1)
+   JTR_NOWARN_CHECK([deprecated-declarations], 1)
    dnl clang warnings
    JTR_FLAG_CHECK([-Wformat-extra-args], 1)
    JTR_FLAG_CHECK([-Wunused-but-set-variable], 1)
-   dnl JTR_FLAG_CHECK([-Wno-unneeded-internal-declaration], 1)
+   dnl JTR_NOWARN_CHECK([unneeded-internal-declaration], 1)
    AS_IF([test "x$JTR_FLAG_Q_CHECK_WORKS" = xyes], [JTR_FLAG_CHECK([-Qunused-arguments],1)])
    dnl Justified and Ancient (see issue 1093)
    JTR_FLAG_CHECK([-std=gnu89], 1)
@@ -656,12 +668,6 @@ if test "x$ompfast" = xyes ; then
    AC_DEFINE([FAST_FORMATS_OMP], 1, ["Enable if you want OpenMP for fast formats"])
 fi
 
-if test "x$memdbg" = xyes ; then
-   MEMDBG_CFLAGS="-DMEMDBG_ON"
-fi
-AC_SUBST([MEMDBG_CFLAGS],["${MEMDBG_CFLAGS}"])
-
-
 LIBS="$BACKUP_LIBS"
 dnl in makefile, we need to know if building extra pcap items.
 if test "x$enable_pcap" != xno ; then
@@ -693,7 +699,7 @@ CFLAGS_ORIG="$CFLAGS"
 LIBS="$OPENSSL_LIBS $COMMONCRYPTO_LIBS $LIBS"
 CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
 AS_IF([test "$with_commoncrypto" = yes], [AC_DEFINE([HAVE_SHA256],1,[Define to 1 if you have the `SHA256' function.])])
-AC_CHECK_FUNCS([SHA256 WHIRLPOOL RIPEMD160 AES_encrypt])
+AC_CHECK_FUNCS([SHA256 WHIRLPOOL RIPEMD160 AES_encrypt DSA_get0_pqg])
 LIBS="$LIBS_ORIG"
 CFLAGS="$CFLAGS_ORIG"
 
@@ -1086,6 +1092,7 @@ AC_CONFIG_FILES([Makefile
                  aes/aesni/Makefile
                  aes/openssl/Makefile
                  secp256k1/Makefile
+                 ed25519-donna/Makefile
                  escrypt/Makefile])
 
 dnl Escaping the '#' in things like "-Wno-error=#warnings" is required in
@@ -1223,12 +1230,6 @@ else
    use_make=$_cv_gnu_make_command
 fi
 
-if test "x$MEMDBG_CFLAGS" = "x"; then
-   memdbg_settings="disabled"
-else
-   memdbg_settings=${MEMDBG_CFLAGS}
-fi
-
 if test "x$asan" = xyes ; then
    asan="enabled"
 else
@@ -1264,7 +1265,7 @@ OpenCL support ............................. ${using_cl}
 Generic crypt(3) format .................... ${using_crypt}
 libgmp (PRINCE mode and faster SRP formats)  ${ac_cv_lib_gmp___gmpz_init}
 128-bit integer (faster PRINCE mode) ....... ${have_int128}
-libz (pkzip format, gpg2john) .............. ${using_zlib}
+libz (pkzip and some other formats) ........ ${using_zlib}
 libbz2 (gpg2john extra decompression logic)  ${using_bz2}
 libpcap (vncpcap2john and SIPdump) ......... ${using_pcap}
 librexgen (regex cracking mode) ............ ${using_rexgen}
@@ -1274,10 +1275,9 @@ ZTEX USB-FPGA module 1.15y support ......... ${ztex}
 EOF
 
 dnl === this section is NOT output, unless there is some debugging flag enabled.
-if test "$ubsan" != "disabled" || test "$asan" != "disabled" || test "$memdbg_settings" != "disabled" || test "$fuzz" != "no" || test "$experimental" != "no" ; then
+if test "$ubsan" != "disabled" || test "$asan" != "disabled" || test "$fuzz" != "no" || test "$experimental" != "no" ; then
 cat <<EOF
 Development options (these may hurt performance when enabled):
-Memdbg memory debugging settings ........... ${memdbg_settings}
 AddressSanitizer ("ASan") .................. ${asan}
 UndefinedBehaviorSanitizer ("UbSan") ....... ${ubsan}
 Fuzzing test ............................... ${fuzz}

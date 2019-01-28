@@ -34,9 +34,6 @@ john_register_one(&fmt_fde);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           1
-#endif
 #endif
 
 #include "arch.h"
@@ -50,7 +47,6 @@ john_register_one(&fmt_fde);
 #include "pbkdf2_hmac_sha1.h"
 #include "aes.h"
 #include "sha2.h"
-#include "memdbg.h"
 
 #define FORMAT_TAG          "$fde$"
 #define TAG_LENGTH          (sizeof(FORMAT_TAG)-1)
@@ -70,10 +66,14 @@ john_register_one(&fmt_fde);
 #define SALT_SIZE           sizeof(struct custom_salt)
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT  SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT  (SSE_GROUP_SZ_SHA1 * 4)
 #else
 #define MIN_KEYS_PER_CRYPT  1
-#define MAX_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT  4
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE           16 // Tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests fde_tests[] = {
@@ -89,7 +89,7 @@ static struct custom_salt {
 	int loaded;
 	unsigned char *cipherbuf;
 	int keysize;
-	int iterations;             // NOTE, not used. Hard coded to 2000 for FDE from droid <= 4.3  (PBKDF2-sha1)
+	int iterations; // NOTE, not used. Hard coded to 2000 for FDE from Android <= 4.3 (PBKDF2-SHA1)
 	int saltlen;
 	unsigned char data[512 * 3];
 	unsigned char salt[16];
@@ -100,9 +100,8 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	max_cracked = self->params.max_keys_per_crypt;
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -168,7 +167,6 @@ static void *get_salt(char *ciphertext)
 	char *ctcopy = strdup(ciphertext);
 	char *keeptr = ctcopy;
 	char *p;
-	// int res;
 	int i;
 	static struct custom_salt cs;
 	memset(&cs, 0, sizeof(cs));
@@ -202,7 +200,7 @@ static void set_salt(void *salt)
 }
 
 // Not reference implementation - this is modified for use by androidfde!
-static void AES_cbc_essiv(unsigned char *src, unsigned char *dst, unsigned char *key, int startsector,int size)
+static void AES_cbc_essiv(unsigned char *src, unsigned char *dst, unsigned char *key, int startsector, int size)
 {
 	AES_KEY aeskey;
 	unsigned char essiv[16];
@@ -214,17 +212,16 @@ static void AES_cbc_essiv(unsigned char *src, unsigned char *dst, unsigned char 
 	SHA256_Init(&ctx);
 	SHA256_Update(&ctx, key, cur_salt->keysize);
 	SHA256_Final(essivhash, &ctx);
-	memset(sectorbuf,0,16);
-	memset(zeroiv,0,16);
-	memset(essiv,0,16);
-	memcpy(sectorbuf,&startsector,4);
+	memset(sectorbuf, 0, 16);
+	memset(zeroiv, 0, 16);
+	memset(essiv, 0, 16);
+	memcpy(sectorbuf, &startsector, 4);
 	AES_set_encrypt_key(essivhash, 256, &aeskey);
 	AES_cbc_encrypt(sectorbuf, essiv, 16, &aeskey, zeroiv, AES_ENCRYPT);
-	AES_set_decrypt_key(key, cur_salt->keysize*8, &aeskey);
+	AES_set_decrypt_key(key, cur_salt->keysize * 8, &aeskey);
 	AES_cbc_encrypt(src, dst, size, &aeskey, essiv, AES_DECRYPT);
 }
 
-// cracked[index] = hash_plugin_check_hash(saved_key[index]);
 void hash_plugin_check_hash(int index)
 {
 	unsigned char keycandidate2[255];
@@ -263,19 +260,19 @@ void hash_plugin_check_hash(int index)
 #endif
 	AES_set_decrypt_key(keycandidate, cur_salt->keysize*8, &aeskey);
 	AES_cbc_encrypt(cur_salt->mkey, keycandidate2, 16, &aeskey, keycandidate+16, AES_DECRYPT);
-	AES_cbc_essiv(cur_salt->data, decrypted1, keycandidate2,0,32);
-	AES_cbc_essiv(cur_salt->data + 1024, decrypted2, keycandidate2,2,128);
+	AES_cbc_essiv(cur_salt->data, decrypted1, keycandidate2, 0, 32);
+	AES_cbc_essiv(cur_salt->data + 1024, decrypted2, keycandidate2, 2, 128);
 
 	// Check for FAT
 	if (!memcmp(decrypted1 + 3, "MSDOS5.0", 8))
 	    cracked[index+j] = 1;
 	else {
 		// Check for extfs
-		memcpy(&v1,decrypted2+72,4);
-		memcpy(&v2,decrypted2+0x3a,2);
-		memcpy(&v3,decrypted2+0x3c,2);
-		memcpy(&v4,decrypted2+0x4c,2);
-		memcpy(&v5,decrypted2+0x48,4);
+		memcpy(&v1, decrypted2+72, 4);
+		memcpy(&v2, decrypted2+0x3a, 2);
+		memcpy(&v3, decrypted2+0x3c, 2);
+		memcpy(&v4, decrypted2+0x4c, 2);
+		memcpy(&v5, decrypted2+0x48, 4);
 #if !ARCH_LITTLE_ENDIAN
 		v1 = JOHNSWAP(v1);
 		v2 = JOHNSWAP(v2);
@@ -300,8 +297,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
-	{
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 		hash_plugin_check_hash(index);
 	}
 	return count;

@@ -25,24 +25,21 @@ john_register_one(&fmt_opencl_ethereum);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "common-opencl.h"
-#include "KeccakHash.h"
+#include "opencl_common.h"
 
 #define FORMAT_NAME             "Ethereum Wallet"
 #define FORMAT_LABEL            "ethereum-opencl"
-#define ALGORITHM_NAME          "PBKDF2-SHA256 OpenCL AES"
+#define ALGORITHM_NAME          "PBKDF2-SHA256 Keccak OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        -1
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_SIZE               sizeof(*cur_salt)
 #define SALT_ALIGN              sizeof(uint64_t)
-#define KERNEL_NAME             "pbkdf2_sha256_kernel"
-#define SPLIT_KERNEL_NAME       "pbkdf2_sha256_loop"
 
-#define HASH_LOOPS              (13*71) // factors 13, 13, 71
-#define ITERATIONS              12000
+#define HASH_LOOPS              (3*3*7*19)
+#define ITERATIONS              262144
 
 struct fmt_tests opencl_ethereum_tests[] = {
         // https://github.com/ethereum/wiki/wiki/Web3-Secret-Storage-Definition, v3 wallets
@@ -54,29 +51,39 @@ struct fmt_tests opencl_ethereum_tests[] = {
 
 #include "opencl_pbkdf2_hmac_sha256.h"
 
-static pass_t *host_pass;			      /** plain ciphertexts **/
-static salt_t *host_salt;			      /** salt **/
-static crack_t *host_crack;			      /** hash**/
+// input
+typedef struct {
+	salt_t pbkdf2;
+	uint8_t encseed[1024];
+	uint32_t eslen;
+} ethereum_salt_t;
+
+// output
+typedef struct {
+	uint32_t hash[BINARY_SIZE / 4];
+} hash_t;
+
+static pass_t *host_pass;                 /** plain ciphertexts **/
+static ethereum_salt_t *host_salt;        /** salt **/
+static hash_t *host_crack;                /** hash**/
 static cl_int cl_error;
-static cl_mem mem_in, mem_out, mem_salt, mem_state;
-static cl_kernel split_kernel;
+static cl_mem mem_in, mem_pbkdf2_out, mem_salt, mem_state, mem_out;
+static cl_kernel split_kernel, final_kernel;
 static struct fmt_main *self;
 
 static custom_salt *cur_salt;
-static uint32_t (*crypt_out)[BINARY_SIZE * 2 / sizeof(uint32_t)];
 
 #define STEP			0
 #define SEED			1024
 
 static const char * warn[] = {
-        "xfer: ",  ", init: " , ", crypt: ", ", res xfer: "
+        "xfer: ",  ", init: ", ", crypt: ", ", final: ", ", res xfer: "
 };
 
 static int split_events[] = { 2, -1, -1 };
 
 // This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 static void create_clobj(size_t kpc, struct fmt_main *self)
 {
@@ -88,29 +95,35 @@ static void create_clobj(size_t kpc, struct fmt_main *self)
 	clCreateBuffer(context[gpu_id], _flags, _size, NULL, &cl_error);\
 	HANDLE_CLERROR(cl_error, _string);
 
-#define CLKERNELARG(kernel, id, arg, msg)\
-	HANDLE_CLERROR(clSetKernelArg(kernel, id, sizeof(arg), &arg), msg);
+#define CLKERNELARG(kernel, id, arg)\
+	HANDLE_CLERROR(clSetKernelArg(kernel, id, sizeof(arg), &arg),\
+	               "Error setting kernel args");
 
 	host_pass = mem_calloc(kpc, sizeof(pass_t));
-	host_crack = mem_calloc(kpc, sizeof(crack_t));
-	crypt_out = mem_calloc(kpc, sizeof(*crypt_out));
-	host_salt = mem_calloc(1, sizeof(salt_t));
+	host_crack = mem_calloc(kpc, sizeof(hash_t));
+	host_salt = mem_calloc(1, sizeof(ethereum_salt_t));
 
 	mem_in = CLCREATEBUFFER(CL_RO, kpc * sizeof(pass_t),
 	                        "Cannot allocate mem in");
-	mem_salt = CLCREATEBUFFER(CL_RO, sizeof(salt_t),
+	mem_salt = CLCREATEBUFFER(CL_RO, sizeof(ethereum_salt_t),
 	                          "Cannot allocate mem salt");
-	mem_out = CLCREATEBUFFER(CL_WO, kpc * sizeof(crack_t),
-	                         "Cannot allocate mem out");
+	mem_pbkdf2_out = CLCREATEBUFFER(CL_RW, kpc * sizeof(crack_t),
+	                                "Cannot allocate pbkdf2 out");
 	mem_state = CLCREATEBUFFER(CL_RW, kpc * sizeof(state_t),
 	                           "Cannot allocate mem state");
+	mem_out = CLCREATEBUFFER(CL_WO, kpc * sizeof(hash_t),
+	                         "Cannot allocate mem out");
 
-	CLKERNELARG(crypt_kernel, 0, mem_in, "Error while setting mem_in");
-	CLKERNELARG(crypt_kernel, 1, mem_salt, "Error while setting mem_salt");
-	CLKERNELARG(crypt_kernel, 2, mem_state, "Error while setting mem_state");
+	CLKERNELARG(crypt_kernel, 0, mem_in);
+	CLKERNELARG(crypt_kernel, 1, mem_salt);
+	CLKERNELARG(crypt_kernel, 2, mem_state);
 
-	CLKERNELARG(split_kernel, 0, mem_state, "Error while setting mem_state");
-	CLKERNELARG(split_kernel, 1 ,mem_out, "Error while setting mem_out");
+	CLKERNELARG(split_kernel, 0, mem_state);
+
+	CLKERNELARG(final_kernel, 0, mem_pbkdf2_out);
+	CLKERNELARG(final_kernel, 1, mem_salt);
+	CLKERNELARG(final_kernel, 2, mem_state);
+	CLKERNELARG(final_kernel, 3, mem_out);
 }
 
 /* ------- Helper functions ------- */
@@ -120,6 +133,7 @@ static size_t get_task_max_work_group_size()
 
 	s = autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, split_kernel));
+	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, final_kernel));
 	return s;
 }
 
@@ -128,13 +142,13 @@ static void release_clobj(void)
 	if (host_crack) {
 		HANDLE_CLERROR(clReleaseMemObject(mem_in), "Release mem in");
 		HANDLE_CLERROR(clReleaseMemObject(mem_salt), "Release mem salt");
-		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
+		HANDLE_CLERROR(clReleaseMemObject(mem_pbkdf2_out), "Release mem out");
 		HANDLE_CLERROR(clReleaseMemObject(mem_state), "Release mem state");
+		HANDLE_CLERROR(clReleaseMemObject(mem_out), "Release mem out");
 
 		MEM_FREE(host_pass);
 		MEM_FREE(host_salt);
 		MEM_FREE(host_crack);
-		MEM_FREE(crypt_out);
 	}
 }
 
@@ -152,16 +166,20 @@ static void reset(struct db_main *db)
 		snprintf(build_opts, sizeof(build_opts),
 		         "-DHASH_LOOPS=%u -DPLAINTEXT_LENGTH=%u",
 		         HASH_LOOPS, PLAINTEXT_LENGTH);
-		opencl_init("$JOHN/kernels/pbkdf2_hmac_sha256_kernel.cl",
+		opencl_init("$JOHN/kernels/ethereum_kernel.cl",
 		            gpu_id, build_opts);
 
 		crypt_kernel =
-			clCreateKernel(program[gpu_id], KERNEL_NAME, &cl_error);
+			clCreateKernel(program[gpu_id], "pbkdf2_sha256_init", &cl_error);
 		HANDLE_CLERROR(cl_error, "Error creating crypt kernel");
 
 		split_kernel =
-			clCreateKernel(program[gpu_id], SPLIT_KERNEL_NAME, &cl_error);
+			clCreateKernel(program[gpu_id], "pbkdf2_sha256_loop", &cl_error);
 		HANDLE_CLERROR(cl_error, "Error creating split kernel");
+
+		final_kernel =
+			clCreateKernel(program[gpu_id], "ethereum_process", &cl_error);
+		HANDLE_CLERROR(cl_error, "Error creating final kernel");
 
 		// Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, HASH_LOOPS, split_events, warn,
@@ -169,9 +187,7 @@ static void reset(struct db_main *db)
 		                       sizeof(state_t), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, ITERATIONS, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, ITERATIONS, 0, 200);
 	}
 }
 
@@ -181,6 +197,7 @@ static void done(void)
 		release_clobj();
 		HANDLE_CLERROR(clReleaseKernel(crypt_kernel), "Release kernel 1");
 		HANDLE_CLERROR(clReleaseKernel(split_kernel), "Release kernel 2");
+		HANDLE_CLERROR(clReleaseKernel(final_kernel), "Release kernel 3");
 		HANDLE_CLERROR(clReleaseProgram(program[gpu_id]),
 		               "Release Program");
 
@@ -235,56 +252,49 @@ static void set_salt(void *salt)
 {
 	cur_salt = (custom_salt*)salt;
 
-	memcpy(host_salt->salt, cur_salt->salt, cur_salt->saltlen);
-	host_salt->length = cur_salt->saltlen;
-	host_salt->rounds = cur_salt->iterations;
+	memcpy(host_salt->pbkdf2.salt, cur_salt->salt, cur_salt->saltlen);
+	host_salt->pbkdf2.length = cur_salt->saltlen;
+	host_salt->pbkdf2.rounds = cur_salt->iterations;
+
+	host_salt->eslen = cur_salt->ctlen;
+	memcpy(host_salt->encseed, cur_salt->ct, cur_salt->ctlen);
 
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt,
-		CL_FALSE, 0, sizeof(salt_t), host_salt, 0, NULL, NULL),
+		CL_FALSE, 0, sizeof(ethereum_salt_t), host_salt, 0, NULL, NULL),
 	    "Copy salt to gpu");
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int i;
 	const int count = *pcount;
-	int index;
-	int loops = (host_salt->rounds + HASH_LOOPS - 1) / HASH_LOOPS;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
+	int i, loops = (host_salt->pbkdf2.rounds + HASH_LOOPS - 1) / HASH_LOOPS;
 
 	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in,
-		CL_FALSE, 0, global_work_size * sizeof(pass_t), host_pass, 0,
+		CL_FALSE, 0, gws * sizeof(pass_t), host_pass, 0,
 		NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
 	// Run kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel,
-		1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
+		1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[1]), "Run kernel");
 
 	for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], split_kernel,
-			1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
+			1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "Run split kernel");
 		BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 		opencl_process_event();
 	}
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], final_kernel,
+		1, NULL, &gws, lws, 0, NULL,
+		multi_profilingEvent[3]), "Run final kernel");
 
 	// Read the result back
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out,
-		CL_TRUE, 0, global_work_size * sizeof(crack_t), host_crack, 0,
-		NULL, multi_profilingEvent[3]), "Copy result back");
-
-	if (!ocl_autotune_running) {
-		for (index = 0; index < count; index++) {
-			Keccak_HashInstance hash;
-
-			Keccak_HashInitialize(&hash, 1088, 512, 256, 0x01); // delimitedSuffix is 0x06 for SHA-3, and 0x01 for Keccak
-			Keccak_HashUpdate(&hash, (unsigned char*)host_crack[index].hash + 16, 16 * 8);
-			Keccak_HashUpdate(&hash, cur_salt->ct, cur_salt->ctlen * 8);
-			Keccak_HashFinal(&hash, (unsigned char*)crypt_out[index]);
-		}
-	}
+		CL_TRUE, 0, gws * sizeof(hash_t), host_crack, 0,
+		NULL, multi_profilingEvent[4]), "Copy result back");
 
 	return count;
 }
@@ -294,14 +304,14 @@ static int cmp_all(void *binary, int count)
 	int index;
 
 	for (index = 0; index < count; index++)
-		if (!memcmp(binary, crypt_out[index], ARCH_SIZE))
+		if (!memcmp(binary, host_crack[index].hash, ARCH_SIZE))
 			return 1;
 	return 0;
 }
 
 static int cmp_one(void *binary, int index)
 {
-	return !memcmp(binary, crypt_out[index], BINARY_SIZE);
+	return !memcmp(binary, host_crack[index].hash, BINARY_SIZE);
 }
 
 static int cmp_exact(char *source, int index)

@@ -42,10 +42,8 @@ john_register_one(&fmt_krb5pa);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
 #endif
-#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "formats.h"
@@ -58,7 +56,6 @@ john_register_one(&fmt_krb5pa);
 #include "hmac_sha.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "krb5_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL       "krb5pa-sha1"
 #define FORMAT_NAME        "Kerberos 5 AS-REQ Pre-Auth etype 17/18" /* aes-cts-hmac-sha1-96 */
@@ -78,11 +75,16 @@ john_register_one(&fmt_krb5pa);
 #define SALT_ALIGN         4
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT (SSE_GROUP_SZ_SHA1 * 2)
 #else
 #define MIN_KEYS_PER_CRYPT 1
-#define MAX_KEYS_PER_CRYPT 1
+#define MAX_KEYS_PER_CRYPT 2
 #endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE          16 // Tuned w/ MKPC for core i7
+#endif
+
 #define MAX_SALTLEN        128
 #define MAX_REALMLEN       64
 #define MAX_USERLEN        64
@@ -110,7 +112,7 @@ static struct custom_salt {
 	unsigned char realm[64];
 	unsigned char user[64];
 	unsigned char salt[128]; /* realm + user */
-	unsigned char ct[44];
+	unsigned char ct[TIMESTAMP_SIZE];
 } *cur_salt;
 
 static unsigned char constant[16];
@@ -121,9 +123,8 @@ static void init(struct fmt_main *self)
 {
 	unsigned char usage[5];
 
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 
@@ -236,8 +237,10 @@ static void *get_salt(char *ciphertext)
 		p = strtokm(NULL, "$");
 	}
 	if (p[-1] == '$') {
-		strcpy((char*)cs.salt, (char*)cs.realm);
-		strcat((char*)cs.salt, (char*)cs.user);
+		strncpy((char*)cs.salt, (char*)cs.realm, sizeof(cs.realm)-1);
+		cs.salt[sizeof(cs.realm)-1] = 0;
+		strncat((char*)cs.salt, (char*)cs.user, sizeof(cs.salt) - sizeof(cs.realm));
+		cs.salt[sizeof(cs.salt)-1] = 0;
 	} else {
 		strcpy((char*)cs.salt, p);
 		p = strtokm(NULL, "$");
@@ -321,43 +324,41 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	const int key_size = (cur_salt->etype == 17) ? 16 : 32;
 	int index;
+
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
-		unsigned char tkey[MAX_KEYS_PER_CRYPT][32];
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
+		unsigned char tkey[MIN_KEYS_PER_CRYPT][32];
 		unsigned char base_key[32];
 		unsigned char Ke[32];
-		unsigned char plaintext[44];
-		int key_size, i;
-		int len[MAX_KEYS_PER_CRYPT];
+		unsigned char plaintext[TIMESTAMP_SIZE];
+		int i;
+		int len[MIN_KEYS_PER_CRYPT];
 #ifdef SIMD_COEF_32
-		unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		unsigned char *pin[MIN_KEYS_PER_CRYPT], *pout[MIN_KEYS_PER_CRYPT];
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			len[i] = strlen(saved_key[i+index]);
 			pin[i] = (unsigned char*)saved_key[i+index];
 			pout[i] = tkey[i];
 		}
-		pbkdf2_sha1_sse((const unsigned char **)pin, len, cur_salt->salt,strlen((char*)cur_salt->salt), 4096, pout, 32, 0);
+		pbkdf2_sha1_sse((const unsigned char **)pin, len, cur_salt->salt,strlen((char*)cur_salt->salt), 4096, pout, key_size, 0);
 #else
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			len[i] = strlen(saved_key[index+i]);
 		}
 		pbkdf2_sha1((const unsigned char*)saved_key[index], len[0],
 		       cur_salt->salt,strlen((char*)cur_salt->salt),
-		       4096, tkey[0], 32, 0);
+		       4096, tkey[0], key_size, 0);
 #endif
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			// generate 128 bits from 40 bits of "kerberos" string
 			// This is precomputed in init()
 			//nfold(8 * 8, (unsigned char*)"kerberos", 128, constant);
-			if (cur_salt->etype == 17)
-				key_size = 16;
-			else
-				key_size = 32;
 
-			dk(base_key, tkey[i], key_size, constant, 32);
+			dk(base_key, tkey[i], key_size, constant, 16);
 
 			/* The "well-known constant" used for the DK function is the key usage number,
 			 * expressed as four octets in big-endian order, followed by one octet indicated below.
@@ -372,12 +373,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			//usage[4] = 0xAA;        // used to derive Ke
 
 			//nfold(sizeof(usage) * 8, usage, sizeof(ke_input) * 8, ke_input);
-			dk(Ke, base_key, key_size, ke_input, 32);
+			dk(Ke, base_key, key_size, ke_input, 16);
 
 			// decrypt the AS-REQ timestamp encrypted with 256-bit AES
 			// here is enough to check the string, further computation below is required
 			// to fully verify the checksum
-			krb_decrypt(cur_salt->ct, 44, plaintext, Ke, key_size);
+			krb_decrypt(cur_salt->ct, TIMESTAMP_SIZE, plaintext, Ke, key_size);
 
 			// Check a couple bytes from known plain (YYYYMMDDHHMMSSZ) and
 			// bail out if we are out of luck.
@@ -390,9 +391,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				//usage[3] = 0x01;        // key number in big-endian format
 				//usage[4] = 0x55;        // used to derive Ki
 				//nfold(sizeof(usage) * 8, usage, sizeof(ki_input) * 8, ki_input);
-				dk(Ki, base_key, key_size, ki_input, 32);
+				dk(Ki, base_key, key_size, ki_input, 16);
 				// derive checksum of plaintext
-				hmac_sha1(Ki, key_size, plaintext, 44, checksum, 20);
+				hmac_sha1(Ki, key_size, plaintext, TIMESTAMP_SIZE, checksum, 20);
 				memcpy(crypt_out[index+i], checksum, BINARY_SIZE);
 			} else {
 				memset(crypt_out[index+i], 0, BINARY_SIZE);

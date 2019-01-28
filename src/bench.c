@@ -50,8 +50,9 @@
 #include "john.h"
 #include "unicode.h"
 #include "config.h"
-#include "common-gpu.h"
+#include "gpu_common.h"
 #include "mask.h"
+#include "aligned.h"
 
 #ifndef BENCH_BUILD
 #include "options.h"
@@ -166,14 +167,11 @@ void ldr_free_test_db(struct db_main *db)
 }
 #endif
 
-#ifdef HAVE_MPI
-#include "john-mpi.h"
-#endif /* HAVE_MPI */
+#include "john_mpi.h"
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif /* _OPENMP */
-#include "memdbg.h"
 
 #define MAX_COST_MSG_LEN 256
 #ifndef BENCH_BUILD
@@ -197,7 +195,7 @@ void clk_tck_init(void)
 int benchmark_time = BENCHMARK_TIME;
 int benchmark_level = -1;
 
-volatile int bench_running;
+static volatile int bench_running;
 
 static void bench_install_handler(void);
 
@@ -223,6 +221,18 @@ static void bench_install_handler(void)
 #endif
 }
 
+static char *strnzcpy_mangle(char *dst, const char *src, int size, int mangle)
+{
+	char *dptr = dst;
+
+	if (size)
+		while (--size && *src)
+			*dptr++ = *src++ ^ mangle;
+	*dptr = 0;
+
+	return dst;
+}
+
 static void bench_set_keys(struct fmt_main *format,
 	struct fmt_tests *current, int cond)
 {
@@ -239,6 +249,9 @@ static void bench_set_keys(struct fmt_main *format,
 
 	length = format->params.benchmark_length;
 	for (index = 0; index < format->params.max_keys_per_crypt; index++) {
+		JTR_ALIGN(MEM_ALIGN_WORD)
+			char random_pass[PLAINTEXT_BUFFER_SIZE];
+
 		do {
 			if (!current->ciphertext)
 				current = format->params.tests;
@@ -254,14 +267,16 @@ static void bench_set_keys(struct fmt_main *format,
 				break;
 		} while (1);
 
+		strnzcpy_mangle(random_pass, plaintext,
+		                sizeof(random_pass), index & 127);
 #ifndef BENCH_BUILD
 		if (options.flags & FLG_MASK_CHK) {
-			plaintext[len] = 0;
-			if (do_mask_crack(len ? plaintext : NULL))
+			random_pass[len] = 0;
+			if (do_mask_crack(len ? random_pass : NULL))
 				return;
 		} else
 #endif
-			format->methods.set_key(plaintext, index);
+			format->methods.set_key(random_pass, index);
 	}
 }
 
@@ -292,8 +307,6 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	static int binary_size = 0;
 	static char s_error[128];
 	static int wait_salts = 0;
-	char *TmpPW[1024];
-	int pw_mangled = 0;
 	char *where;
 	struct fmt_tests *current;
 	int cond;
@@ -308,10 +321,10 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	uint64_t crypts;
 	char *ciphertext;
 	void *salt, *two_salts[2];
-	int index, max, i;
+	int index, max;
 #ifndef BENCH_BUILD
 	unsigned int t_cost[2][FMT_TUNABLE_COSTS];
-	int ntests, pruned;
+	int ntests, pruned, i;
 #endif
 	int salts_done = 0;
 	int wait = 0;
@@ -434,30 +447,6 @@ char *benchmark_format(struct fmt_main *format, int salts,
 	}
 #endif
 
-/* Smashed passwords: -1001 turns into -1 and -1000 turns into 0, and
-   -999 turns into 1 for benchmark length. */
-	if (format->params.benchmark_length < -950) {
-		pw_mangled = 1;
-		format->params.benchmark_length += 1000;
-	}
-
-/* Ensure we use a buffer that can be read past end of word
-   (eg. SIMD optimizations). */
-	i = 0;
-	current = format->params.tests;
-	while (current->ciphertext && i < 1024) {
-		TmpPW[i] = current->plaintext;
-		current->plaintext =
-			strnzcpy(mem_alloc(PLAINTEXT_BUFFER_SIZE),
-			         TmpPW[i++], PLAINTEXT_BUFFER_SIZE);
-
-		/* Smash passwords! */
-		if (current->plaintext[0] && pw_mangled == 1)
-			current->plaintext[0] ^= 5;
-
-		++current;
-	}
-
 	if (format->params.benchmark_length > 0) {
 		cond = (salts == 1) ? 1 : -1;
 		salts = 1;
@@ -534,7 +523,7 @@ char *benchmark_format(struct fmt_main *format, int salts,
 		    format->methods.crypt_all(&count, 0));
 #endif
 
-		crypts += count;
+		crypts += (uint32_t)count;
 #if !OS_TIMER
 		sig_timer_emu_tick();
 #endif
@@ -568,18 +557,6 @@ char *benchmark_format(struct fmt_main *format, int salts,
 			dyna_salt_remove(two_salts[index]);
 		MEM_FREE(two_salts[index]);
 	}
-
-	/* Unsmash/unbuffer the passwords. */
-	i = 0;
-	current = format->params.tests;
-	while (current->ciphertext && i < 1024) {
-		MEM_FREE(current->plaintext);
-		current->plaintext = TmpPW[i++];
-		++current;
-	}
-
-	if (pw_mangled)
-		format->params.benchmark_length -= 1000;
 
 	return event_abort ? "" : NULL;
 }
@@ -652,13 +629,17 @@ int benchmark_all(void)
 #else
 	const char *s_gpu = "";
 #endif
+#ifndef BENCH_BUILD
+	unsigned int loop_fail = 0, loop_total = 0;
+#endif
 	unsigned int total, failed;
-	MEMDBG_HANDLE memHand;
 	struct db_main *test_db;
 #ifdef _OPENMP
 	int ompt;
 	int ompt_start = omp_get_max_threads();
 #endif
+
+	benchmark_running = 1;
 
 #if defined(HAVE_OPENCL)
 	if (!benchmark_time) {
@@ -671,22 +652,18 @@ int benchmark_all(void)
 #endif
 
 #ifndef BENCH_BUILD
-AGAIN:
-#endif
-	total = failed = 0;
 #if defined(WITH_ASAN) || defined(WITH_UBSAN) || defined(DEBUG)
 	if (benchmark_time)
 		puts("NOTE: This is a debug build, speed will be lower than normal");
 #endif
-#ifndef BENCH_BUILD
+
+AGAIN:
 	options.loader.field_sep_char = 31;
 #endif
+	total = failed = 0;
+
 	if ((format = fmt_list))
 	do {
-#if defined(HAVE_OPENCL)
-		int n = 0;
-#endif
-		memHand = MEMDBG_getSnapshot(0);
 #ifndef BENCH_BUILD
 /* Silently skip formats for which we have no tests, unless forced */
 		if (!format->params.tests && format != fmt_list)
@@ -695,7 +672,7 @@ AGAIN:
 /* Just test the encoding-aware formats if --encoding was used explicitly */
 		if (!options.default_enc && options.target_enc != ASCII &&
 		    options.target_enc != ISO_8859_1 &&
-		    !(format->params.flags & FMT_UTF8)) {
+		    !(format->params.flags & FMT_ENC)) {
 			if (options.format == NULL ||
 			    strcasecmp(format->params.label, options.format))
 				continue;
@@ -713,10 +690,11 @@ AGAIN:
 		/* format and needs init called to change the name     */
 		if ((format->params.flags & FMT_DYNAMIC) ||
 		    strstr(format->params.label, "-opencl") ||
+		    strstr(format->params.label, "-ztex") ||
 		    !strcmp(format->params.label, "crypt"))
 			fmt_init(format);
 
-		/* GPU-side mask mode benchmark */
+		/* [GPU-side] mask mode benchmark */
 		if (options.flags & FLG_MASK_CHK) {
 			static struct db_main fakedb;
 
@@ -730,10 +708,14 @@ AGAIN:
 		ompt = omp_get_max_threads();
 #endif /* _OPENMP */
 
+#ifndef BENCH_BUILD
+		if ((options.flags & FLG_LOOPTEST) && john_main_process)
+			printf("#%u ", ++loop_total);
+#endif
 #ifdef HAVE_MPI
 		if (john_main_process)
 #endif
-		printf("%s: %s%s%s%s [%s]%s... ",
+		printf("%s: %s%s%s%s [%s%s%s%s]... ",
 		    benchmark_time ? "Benchmarking" : "Testing",
 		    format->params.label,
 		    format->params.format_name[0] ? ", " : "",
@@ -741,11 +723,15 @@ AGAIN:
 		    format->params.benchmark_comment,
 		    format->params.algorithm_name,
 #ifndef BENCH_BUILD
-			(options.target_enc == UTF_8 &&
-			 format->params.flags & FMT_UNICODE) ?
-		        " in UTF-8 mode" : "");
+#define ENC_SET (!options.default_enc && options.target_enc != ASCII && \
+                                         options.target_enc != ISO_8859_1)
+
+		    (benchmark_time && format->params.flags & FMT_MASK &&
+		     (options.flags & FLG_MASK_CHK)) ? "/mask accel" : "",
+		    ENC_SET ? ", " : "",
+		    ENC_SET ? cp_id2name(options.target_enc) : "");
 #else
-			"");
+		    "", "", "");
 #endif
 		fflush(stdout);
 
@@ -781,7 +767,6 @@ AGAIN:
 
 		switch (format->params.benchmark_length) {
 		case 0:
-		case -1000:
 			if (format->params.tests[1].ciphertext) {
 				msg_m = "Many salts";
 				msg_1 = "Only one salt";
@@ -790,7 +775,6 @@ AGAIN:
 			/* fall through */
 
 		case -1:
-		case -1001:
 			msg_m = "Raw";
 			msg_1 = NULL;
 			break;
@@ -802,10 +786,7 @@ AGAIN:
 
 		total++;
 
-		/* (Ab)used to mute some messages from source() */
-		bench_running = 1;
 		test_db = ldr_init_test_db(format, NULL);
-		bench_running = 0;
 
 		if ((result = benchmark_format(format,
 		    format->params.salt_size ? BENCHMARK_MANY : 1,
@@ -814,6 +795,34 @@ AGAIN:
 			failed++;
 			goto next;
 		}
+#if HAVE_OPENCL
+		{
+			int n = 0;
+
+			s_gpu[0] = 0;
+			for (i = 0; i < MAX_GPU_DEVICES &&
+				     gpu_device_list[i] != -1; i++) {
+				int dev = gpu_device_list[i];
+				int fan, temp, util, cl, ml;
+
+				fan = temp = util = cl = ml = -1;
+
+				if (dev_get_temp[dev])
+					dev_get_temp[dev](temp_dev_id[dev],
+						&temp, &fan, &util, &cl, &ml);
+				if (util <= 0)
+					continue;
+				if (i == 0)
+					n += sprintf(s_gpu + n, ", GPU util: ");
+				else
+					n += sprintf(s_gpu + n, ", GPU%d: ", i);
+
+				if (util > 0)
+					n += sprintf(s_gpu + n, "%u%%", util);
+				else
+					n += sprintf(s_gpu + n, "n/a");
+			}
+#endif
 
 		if (msg_1)
 		if ((result = benchmark_format(format, 1, &results_1,
@@ -823,37 +832,10 @@ AGAIN:
 			goto next;
 		}
 
-#if defined(HAVE_OPENCL)
-		if (benchmark_time > 1)
-		for (i = 0; i < MAX_GPU_DEVICES &&
-			     gpu_device_list[i] != -1; i++) {
-			int dev = gpu_device_list[i];
-			int fan, temp, util, cl, ml;
-
-			fan = temp = util = cl = ml = -1;
-
-			if (dev_get_temp[dev])
-				dev_get_temp[dev](temp_dev_id[dev],
-				                  &temp, &fan, &util, &cl, &ml);
-#if 1
-			if (util <= 0)
-				continue;
-#endif
-			if (i == 0)
-				n += sprintf(s_gpu + n, ", GPU util:");
-			else
-				n += sprintf(s_gpu + n, ", GPU%d:", i);
-
-			if (util > 0)
-				n += sprintf(s_gpu + n, "%u%%", util);
-			else
-				n += sprintf(s_gpu + n, "n/a");
-		}
-#endif
 #ifdef HAVE_MPI
 		if (john_main_process)
 #endif
-			printf(benchmark_time ? "DONE%s\n" : "PASS%s\n", s_gpu);
+			printf(benchmark_time ? "DONE\n" : "PASS\n");
 #ifdef _OPENMP
 		// reset this in case format capped it (we may be testing more formats)
 		omp_set_num_threads(ompt_start);
@@ -877,6 +859,14 @@ AGAIN:
 			       results_m.salts_done, BENCHMARK_MANY);
 		}
 
+		/* Format supports internal (eg. GPU-side) mask */
+		if (benchmark_time && format->params.flags & FMT_MASK &&
+#ifndef BENCH_BUILD
+		    !(options.flags & FLG_MASK_CHK) &&
+#endif
+		    john_main_process)
+			fprintf(stderr, "Note: This format may also be benchmarked using --mask (see doc/MASK).\n");
+
 		benchmark_cps(results_m.crypts, results_m.real, s_real);
 		benchmark_cps(results_m.crypts, results_m.virtual, s_virtual);
 #if !defined(__DJGPP__) && !defined(__BEOS__) && !defined(__MINGW32__) && !defined (_MSC_VER)
@@ -884,15 +874,18 @@ AGAIN:
 		if (john_main_process)
 #endif
 		if (benchmark_time)
-		printf("%s:\t%s c/s real, %s c/s virtual\n",
-			msg_m, s_real, s_virtual);
+			printf("%s:\t%s c/s real, %s c/s virtual%s\n",
+			       msg_m, s_real, s_virtual, s_gpu);
 #else
 #ifdef HAVE_MPI
 		if (john_main_process)
 #endif
 		if (benchmark_time)
-		printf("%s:\t%s c/s\n",
-			msg_m, s_real);
+		printf("%s:\t%s c/s%s\n",
+		       msg_m, s_real, s_gpu);
+#endif
+#if HAVE_OPENCL
+		}
 #endif
 
 		if (!msg_1) {
@@ -927,7 +920,6 @@ next:
 		if (options.flags & FLG_MASK_CHK)
 			mask_done();
 #endif
-		MEMDBG_checkSnapshot_possible_exit_on_error(memHand, 0);
 
 #ifndef BENCH_BUILD
 		/* In case format changed it */
@@ -942,9 +934,22 @@ next:
 			printf("All %u formats passed self-tests!\n", total);
 
 #ifndef BENCH_BUILD
-	if (options.flags & FLG_LOOPTEST && !event_abort)
-		goto AGAIN;
+	if (options.flags & FLG_LOOPTEST) {
+		if (event_abort) {
+			uint32_t p = 100 * loop_fail / loop_total;
+			uint32_t pp = 10000 * loop_fail / loop_total - p * 100;
+
+			printf("Tested %u times, %u failed (%u.%02u%%)\n",
+			       loop_total, loop_fail, p, pp);
+		} else {
+			if (failed)
+				loop_fail++;
+			goto AGAIN;
+		}
+	}
 #endif
+
+	benchmark_running = 0;
 
 	return failed || event_abort;
 }

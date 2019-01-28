@@ -62,7 +62,9 @@ wordlist mode.  This permits for the use of a much larger set of word
 mangling rules with "single crack", and their use is always enabled
 with this mode.  Successfully guessed passwords are also tried against
 all loaded password hashes just in case more users have the same
-password.
+password.  This can be disabled using SingleRetestGuess config option
+or --single-retest-guess=BOOL command-line option (which overrides
+any john.conf setting).
 
 You can add one or several static words with --single-seed=WORD[,WORD]
 in case some word or name is very common in the passwords (eg. for the
@@ -70,12 +72,21 @@ legendary Gawker dump, you'd use "--single-seed=Gawker,Gizmodo".  This
 will result in combinations of those words and the login/GECOS data and
 has proven very effective.  For more words, the --single-wordlist=FILE
 option works the same except it reads words from a wordlist file. When
-using either option, SingleWordsPairMax will be automatically bumped if
-needed - this can increase run time (and success) dramatically.
+using either option, SingleWordsPairMax will be automatically increased
+if needed - this can increase run time (and success) dramatically.
 
 Note that running this mode on many password files simultaneously may
 sometimes get more passwords cracked than it would if you ran it on
 the individual password files separately.
+
+Single mode now works fine on GPU except it can't use GPU-side mask
+generation, so the few very fastest formats can't reach full speed.
+For other modes it works fine but may need a lot of memory (you'll get
+helpful messages if you need to adjust).  Also, you may need to ensure
+there are enough rules and/or base words in use in order to saturate the
+GPU buffers.  Examples of doing so are using "--single:all" and/or
+enabling john.conf parameters "JumboSingleWords" and "PristineGecos".
+Also see the seed options above.
 
 
 	"Incremental" mode.
@@ -141,6 +152,16 @@ specific positions when building a candidate to test.  There is a full
 description of this mode, and the masks available, in the ./doc/MASK
 document.
 
+	SUBSETS mode.
+
+This mode exploits the weakness of low entropy passwords and was inspired
+by 'subsets' external mode, but has many advantages.  Basically, it will
+try subsets of a given charset with increasing lengths. It divides the
+keyspace in many sets of (subset size, password length) and will always
+try a smaller sub-keyspace before a larger one. For example, it will try
+very long passwords consisting of few unique characters before it tries a
+short one with more unique ones.  See ./doc/SUBSETS for more details.
+
 	REGEX mode.
 
 You can think of this as "reverse regexp".  Regex is similar to mask mode but
@@ -153,7 +174,8 @@ the same result as a rule adding two digits to the base word.
 	Multiple stacking of modes.
 
 The mask and regex modes can be stacked upon some other mode (any mode except
-single, but including e.g. stdin and loopback modes).  Regex can be a parent
+single, but including e.g. stdin and loopback modes).  This is sometimes
+referred to as "hybrid mask" or "hybrid regex" modes.  Regex can be a parent
 mode to mask mode even when regex itself runs stacked on some other mode.  In
 that case, mask is always last in chain  (by design, since it can accelerate
 fast GPU formats).  Basically, the first mode is any mode except single, and

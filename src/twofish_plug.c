@@ -186,7 +186,6 @@
  * rest of the code.
  */
 
-
 /*
  * Function called if something is fatally wrong with the implementation.
  * This fatal function is called when a coding error is detected in the
@@ -217,7 +216,6 @@
 
 #include <stdio.h> // this sucks!
 #define Twofish_fatal( msg )      {puts(msg);}
-#include "memdbg.h"
 
 
 /*
@@ -1421,7 +1419,9 @@ void Twofish_prepare_key( Byte key[], int key_len, Twofish_key * xkey )
         }
 
     /* Wipe variables that contained key material. */
+#if 0
     A=B=0;
+#endif
 
     /*
      * And now the dreaded RS multiplication that few seem to understand.
@@ -1525,13 +1525,17 @@ void Twofish_prepare_key( Byte key[], int key_len, Twofish_key * xkey )
         }
 
     /* Wipe variables that contained key material. */
+#if 0
     b = bx = bxx = 0;
+#endif
 
     /* And finally, we can compute the key-dependent S-boxes. */
     fill_keyed_sboxes( &K[32], kCycles, xkey );
 
     /* Wipe array that contained key material. */
+#if 0
     memset( K, 0, sizeof( K ) );
+#endif
     }
 
 

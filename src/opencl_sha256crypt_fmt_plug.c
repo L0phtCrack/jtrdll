@@ -22,7 +22,7 @@ john_register_one(&fmt_opencl_cryptsha256);
 
 #include <string.h>
 
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "options.h"
 #include "opencl_sha256crypt.h"
@@ -61,7 +61,6 @@ static int split_events[3] = { 1, 6, 7 };
 
 //This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -382,8 +381,8 @@ static int calibrate()
 		{0, 0, 0, 0, 0}
 	};
 
-	fprintf(stderr, "Calibration is trying to figure out the best configuration to "
-		        "use at runtime. Please, wait...\n");
+	fprintf(stderr, "\nCalibration is trying to figure out the best "
+		        "configuration to use at runtime. Please, wait...\n");
 
 	i = j = k = l = 0;
 	while (loop_set[0][i]) {
@@ -402,7 +401,7 @@ static int calibrate()
 		//Build the tuned kernel
 		build_kernel(task, opt);
 		autotuned = 0; local_work_size = 0; global_work_size = 0;
-		autotune_run(self, ROUNDS_DEFAULT, 0, 200ULL);
+		autotune_run(self, ROUNDS_DEFAULT, 0, 200);
 		release_clobj();
 		release_kernel();
 
@@ -554,7 +553,7 @@ static int crypt_all(int *pcount, struct db_salt *_salt)
 	size_t gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	gws = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	if (new_keys) {
 		// sort passwords by length

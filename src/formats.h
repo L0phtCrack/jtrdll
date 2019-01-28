@@ -61,7 +61,7 @@ struct db_salt;
  * with formats not fully Unicode-aware is when a format like this is hard-coded
  * to convert from ISO-8859-1 (ie. by just inserting 0x00, effectively just
  * casting every char to a short). Such formats MUST set FMT_UNICODE and MUST
- * NOT set FMT_UTF8, or users will get false negatives when using UTF-8 or
+ * NOT set FMT_ENC, or users will get false negatives when using UTF-8 or
  * codepages.
  */
 #define FMT_UNICODE			0x00000004
@@ -69,13 +69,18 @@ struct db_salt;
  * Honors the --encoding=NAME option. This means it can handle codepages (like
  * cp1251) as well as UTF-8.
  */
-#define FMT_UTF8			0x00000008
+#define FMT_ENC				0x00000008
+/*
+ * This hash type is known to actually use UTF-8 encoding of password, so
+ * trying legacy target encodings should be pointless.
+ */
+#define FMT_UTF8			0x00000010
 /*
  * Mark password->binary = NULL immediately after a hash is cracked. Must be
  * set for formats that read salt->list in crypt_all for the purpose of
  * identification of uncracked hashes for this salt.
  */
-#define FMT_REMOVE			0x00000010
+#define FMT_REMOVE			0x00000020
 /*
  * Format has false positive matches. Thus, do not remove hashes when
  * a likely PW is found.  This should only be set for formats where a
@@ -98,10 +103,12 @@ struct db_salt;
 #define FMT_BS				0x00010000
 /* The split() method unifies the case of characters in hash encodings */
 #define FMT_SPLIT_UNIFIES_CASE		0x00020000
-/* Is this format a dynamic_x format (or a 'thin' format using dynamic code)? */
+/* A dynamic_x format (or a 'thin' format using dynamic code) */
 #define FMT_DYNAMIC			0x00100000
-/* Is this a format which originally truncates at our max. length? */
+/* This format originally truncates at our max. length (eg. descrypt) */
 #define FMT_TRUNC			0x00200000
+/* Format can do "internal mask" (eg. GPU-side mask)? */
+#define FMT_MASK			0x00400000
 #ifdef _OPENMP
 /* Parallelized with OpenMP */
 #define FMT_OMP				0x01000000
@@ -357,6 +364,15 @@ struct fmt_main {
  * over-read the empty string for up to PLAINTEXT_BUFFER_SIZE.
  */
 extern char fmt_null_key[PLAINTEXT_BUFFER_SIZE];
+
+/* Self-test is running */
+extern int self_test_running;
+
+/* Benchmark is running */
+extern int benchmark_running;
+
+/* Self-test or benchmark is running */
+#define bench_or_test_running	(self_test_running || benchmark_running)
 
 /*
  * Linked list of registered formats.

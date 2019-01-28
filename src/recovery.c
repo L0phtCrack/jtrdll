@@ -10,7 +10,7 @@
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  */
 
-#ifndef __FreeBSD__
+#if !(__FreeBSD__ || __APPLE__)
 /* On FreeBSD, defining this precludes the declaration of u_int, which
  * FreeBSD's own <sys/file.h> needs. */
 #if _XOPEN_SOURCE < 500
@@ -59,11 +59,10 @@
 #include "john.h"
 #include "mask.h"
 #include "unicode.h"
-#ifdef HAVE_MPI
-#include "john-mpi.h"
+#include "john_mpi.h"
 #include "signals.h"
-#endif
-#include "memdbg.h"
+#include "jumbo.h"
+#include "opencl_common.h"
 
 char *rec_name = RECOVERY_NAME;
 int rec_name_completed = 0;
@@ -81,7 +80,7 @@ static void (*rec_save_mode)(FILE *file);
 static void (*rec_save_mode2)(FILE *file);
 static void (*rec_save_mode3)(FILE *file);
 
-extern int cracker_max_keys_per_crypt();
+extern int crk_max_keys_per_crypt();
 
 static void rec_name_complete(void)
 {
@@ -283,7 +282,7 @@ static void save_salt_state()
 	// then we end up skipping processing some data. So we save this value, and then
 	// when we resume IF this value is not the same, we ignore the salt resume, and just
 	// start from salt zero.
-	fprintf(rec_file, "%d\n", cracker_max_keys_per_crypt());
+	fprintf(rec_file, "%d\n", crk_max_keys_per_crypt());
 }
 
 void rec_save(void)
@@ -296,7 +295,14 @@ void rec_save(void)
 	int add_mkv_stats = (options.mkv_stats ? 1 : 0);
 	long size;
 	char **opt;
+#if HAVE_OPENCL
+	int add_lws, add_gws;
 
+	add_gws = add_lws =
+		(options.format && strcasestr(options.format, "-opencl") &&
+		 cfg_get_bool(SECTION_OPTIONS, SUBSECTION_OPENCL,
+		              "ResumeWS", 0));
+#endif
 	log_flush();
 
 	if (!rec_file) return;
@@ -313,17 +319,27 @@ void rec_save(void)
 		if (!strncmp(*opt, "--internal-encoding", 19))
 			memcpy(*opt, "--internal-codepage", 19);
 #ifdef HAVE_MPI
-		if (!strncmp(*opt, "--fork", 6))
+		if (fake_fork && !strncmp(*opt, "--fork", 6))
 			fake_fork = 0;
 		else
 #endif
-		if (!strncmp(*opt, "--encoding", 10) ||
-			!strncmp(*opt, "--input-encoding", 16))
+#if HAVE_OPENCL
+		if (add_lws && !strncmp(*opt, "--lws", 5))
+			add_lws = 0;
+		else
+		if (add_gws && !strncmp(*opt, "--gws", 5))
+			add_gws = 0;
+		else
+#endif
+		if (add_enc &&
+		    (!strncmp(*opt, "--encoding", 10) ||
+		     !strncmp(*opt, "--input-encoding", 16)))
 			add_enc = 0;
-		else if (!strncmp(*opt, "--internal-codepage", 19) ||
-		         !strncmp(*opt, "--target-encoding", 17))
+		else if (add_2nd_enc &&
+		         (!strncmp(*opt, "--internal-codepage", 19) ||
+		          !strncmp(*opt, "--target-encoding", 17)))
 			add_2nd_enc = 0;
-		else if (!strncmp(*opt, "--mkv-stats", 11))
+		else if (add_mkv_stats && !strncmp(*opt, "--mkv-stats", 11))
 			add_mkv_stats = 0;
 	}
 
@@ -334,6 +350,9 @@ void rec_save(void)
 	add_argc = add_enc + add_2nd_enc + add_mkv_stats;
 #ifdef HAVE_MPI
 	add_argc += fake_fork;
+#endif
+#if HAVE_OPENCL
+	add_argc += add_lws + add_gws;
 #endif
 	fprintf(rec_file, RECOVERY_V "\n%d\n",
 		rec_argc + (save_format ? 1 : 0) + add_argc);
@@ -382,6 +401,12 @@ void rec_save(void)
 #ifdef HAVE_MPI
 	if (fake_fork)
 		fprintf(rec_file, "--fork=%d\n", mpi_p);
+#endif
+#if HAVE_OPENCL
+	if (add_lws)
+		fprintf(rec_file, "--lws="Zu"\n", local_work_size);
+	if (add_gws)
+		fprintf(rec_file, "--gws="Zu"\n", global_work_size);
 #endif
 
 	fprintf(rec_file, "%u\n%u\n%x\n%x\n%x\n%x\n%x\n%x\n%x\n"
@@ -481,17 +506,6 @@ static void rec_format_error(char *fn)
 {
 	path_done();
 	cleanup_tiny_memory();
-
-	/*
-	 * MEMDBG_PROGRAM_EXIT_CHECKS() would cause the output
-	 *     At Program Exit
-	 *     MemDbg_Validate level 0 checking Passed
-	 * to be writen prior to the
-	 *     Incorrect crash recovery file: ...
-	 * output.
-	 * Not sure if we want this.
-	 */
-	// MEMDBG_PROGRAM_EXIT_CHECKS(stderr); // FIXME
 
 	if (fn && errno && ferror(rec_file))
 		pexit("%s", fn);
@@ -635,18 +649,17 @@ static void restore_salt_state(int type)
 		// still have exactly same count of max_crypts_per  If the max
 		// changes, then we simply start over at salt#1 to avoid any
 		// salt records NOT being processed. properly.
-		status.resume_salt_crypts_per = strtoul(buf2, NULL, 10);
+		status.resume_salt = strtoul(buf2, NULL, 10);
 	} else if (type == 1) {
 		// tells cracker to ignore the check, since this information was not
 		// available in v1 slt records. v1 salt will NOT resume in cracker.c
-		status.resume_salt_crypts_per = -1;
+		status.resume_salt = 0;
 	}
 	for (i = 0; i < 16; ++i) {
 		h[i] = atoi16[ARCH_INDEX(buf[i*2])] << 4;
 		h[i] += atoi16[ARCH_INDEX(buf[i*2+1])];
 	}
 	status.resume_salt_md5 = hash;
-	status.resume_salt = 1;
 }
 
 void rec_restore_mode(int (*restore_mode)(FILE *file))

@@ -5,7 +5,9 @@
  * forms, with or without modification, are permitted.
  */
 
-#if HAVE_LUT3
+#undef RIPEMD_LUT3 /* No good for this format, just here for reference */
+
+#if RIPEMD_LUT3
 #define F1(x, y, z)   lut3(x, y, z, 0x96)
 #define F2(x, y, z)   lut3(x, y, z, 0xca)
 #define F3(x, y, z)   lut3(x, y, z, 0x59)

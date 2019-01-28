@@ -15,11 +15,9 @@ john_register_one(&fmt_ethereum);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               16 // tuned on i7-6600U
-#endif
 #endif
 
 #include "arch.h"
@@ -28,30 +26,29 @@ john_register_one(&fmt_ethereum);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
-#define PBKDF2_HMAC_SHA256_ALSO_INCLUDE_CTX 1 // hack, we can't use our simd pbkdf2 code for presale wallets because of varying salt
+#define PBKDF2_HMAC_SHA256_VARYING_SALT 1
 #include "pbkdf2_hmac_sha256.h"
 #include "ethereum_common.h"
 #include "escrypt/crypto_scrypt.h"
 #include "KeccakHash.h"
 #include "aes.h"
 #include "jumbo.h"
-#include "memdbg.h"
 
 #define FORMAT_NAME             "Ethereum Wallet"
 #define FORMAT_LABEL            "ethereum"
-#ifdef SIMD_COEF_64
+#ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          "PBKDF2-SHA256/scrypt Keccak " SHA256_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "PBKDF2-SHA256/scrypt Keccak 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0
 #define BINARY_SIZE             16
 #define PLAINTEXT_LENGTH        125
 #define SALT_SIZE               sizeof(*cur_salt)
 #define BINARY_ALIGN            sizeof(uint32_t)
 #define SALT_ALIGN              sizeof(uint64_t)
-#ifdef SIMD_COEF_64
+#ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
 #define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA256
 #else
@@ -59,8 +56,14 @@ john_register_one(&fmt_ethereum);
 #define MAX_KEYS_PER_CRYPT      1
 #endif
 
+#ifndef OMP_SCALE
+#define OMP_SCALE               1 // tuned (for slowest salt) w/ MKPC on core i7
+#endif
+
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_out)[BINARY_SIZE * 2 / sizeof(uint32_t)];
+static unsigned char (*saved_presale)[32];
+static int new_keys;
 
 static custom_salt *cur_salt;
 
@@ -71,10 +74,11 @@ static union {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
+	saved_presale =
+		mem_calloc(sizeof(*saved_presale), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 
 	memcpy(dpad.data, "\x02\x00\x00\x00\x00\x00\x00\x00", 8);
@@ -82,6 +86,7 @@ static void init(struct fmt_main *self)
 
 static void done(void)
 {
+	MEM_FREE(saved_presale);
 	MEM_FREE(saved_key);
 	MEM_FREE(crypt_out);
 }
@@ -94,6 +99,7 @@ static void set_salt(void *salt)
 static void ethereum_set_key(char *key, int index)
 {
 	strnzcpy(saved_key[index], key, PLAINTEXT_LENGTH + 1);
+	new_keys = 1;
 }
 
 static char *get_key(int index)
@@ -109,21 +115,21 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
-		unsigned char master[MAX_KEYS_PER_CRYPT][32];
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
+		unsigned char master[MIN_KEYS_PER_CRYPT][32];
 		int i;
 		if (cur_salt->type == 0) {
-#ifdef SIMD_COEF_64
-			int lens[MAX_KEYS_PER_CRYPT];
-			unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+#ifdef SIMD_COEF_32
+			int lens[MIN_KEYS_PER_CRYPT];
+			unsigned char *pin[MIN_KEYS_PER_CRYPT], *pout[MIN_KEYS_PER_CRYPT];
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				lens[i] = strlen(saved_key[index+i]);
 				pin[i] = (unsigned char*)saved_key[index+i];
 				pout[i] = master[i];
 			}
 			pbkdf2_sha256_sse((const unsigned char**)pin, lens, cur_salt->salt, cur_salt->saltlen, cur_salt->iterations, pout, 32, 0);
 #else
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i)
 				pbkdf2_sha256((unsigned char *)saved_key[index+i],
 						strlen(saved_key[index+i]),
 						cur_salt->salt, cur_salt->saltlen,
@@ -131,7 +137,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 						0);
 #endif
 		} else if (cur_salt->type == 1) {
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i)
 				crypto_scrypt((unsigned char *)saved_key[index+i],
 						strlen(saved_key[index+i]),
 						cur_salt->salt,
@@ -139,16 +145,41 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 						cur_salt->r, cur_salt->p,
 						master[i], 32);
 		} else if (cur_salt->type == 2) {
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i)
-				pbkdf2_sha256((unsigned char *)saved_key[index+i],
-						strlen(saved_key[index+i]),
-						(unsigned char *)saved_key[index+i],
-						strlen(saved_key[index+i]),
-						2000, master[i], 16, 0);
+			if (new_keys) {
+				/* Presale. No salt! */
+#ifdef SIMD_COEF_32
+				int lens[MIN_KEYS_PER_CRYPT];
+				int slens[MIN_KEYS_PER_CRYPT];
+				unsigned char *sin[MIN_KEYS_PER_CRYPT];
+				unsigned char *pin[MIN_KEYS_PER_CRYPT], *pout[MIN_KEYS_PER_CRYPT];
+				for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
+					lens[i] = strlen(saved_key[index+i]);
+					pin[i] = (unsigned char*)saved_key[index+i];
+					pout[i] = master[i];
+					sin[i] = pin[i];
+					slens[i] = lens[i];
+				}
+				pbkdf2_sha256_sse_varying_salt((const unsigned char**)pin, lens, sin, slens, 2000, pout, 16, 0);
+				for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
+					memcpy(saved_presale[index + i], pout[i], 32);
+				}
+#else
+
+				for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
+					pbkdf2_sha256((unsigned char *)saved_key[index+i], strlen(saved_key[index+i]), (unsigned char *)saved_key[index+i], strlen(saved_key[index+i]), 2000, master[i], 16, 0);
+				}
+				for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
+					memcpy(saved_presale[index + i], master[i], 32);
+				}
+#endif
+			} else {
+				for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i)
+					memcpy(master[i], saved_presale[index + i], 32);
+			}
 		}
 
 		if (cur_salt->type == 0 || cur_salt->type == 1) {
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				Keccak_HashInstance hash;
 				Keccak_HashInitialize(&hash, 1088, 512, 256, 0x01); // delimitedSuffix is 0x06 for SHA-3, and 0x01 for Keccak
 				Keccak_HashUpdate(&hash, master[i] + 16, 16 * 8);
@@ -156,7 +187,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 				Keccak_HashFinal(&hash, (unsigned char*)crypt_out[index+i]);
 			}
 		} else {
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				AES_KEY akey;
 				Keccak_HashInstance hash;
 				unsigned char iv[16];
@@ -184,6 +215,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			}
 		}
 	}
+	new_keys = 0;
 
 	return count;
 }

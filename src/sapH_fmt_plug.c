@@ -100,7 +100,6 @@ john_register_one(&fmt_sapH);
 
 #define ALGORITHM_NAME          "SHA-1/SHA-2 " SHA1_ALGORITHM_NAME
 
-#include "memdbg.h"
 
 #define BENCHMARK_COMMENT		" (SHA1x1024)"
 #define BENCHMARK_LENGTH		0
@@ -697,12 +696,6 @@ static void *get_salt(char *ciphertext)
 	return &s;
 }
 
-static char *split(char *ciphertext, int index, struct fmt_main *self)
-{
-	/* we 'could' cash switch the SHA/sha and unify case. If they an vary, we will have to. */
-	return ciphertext;
-}
-
 #define COMMON_GET_HASH_VAR crypt_key
 #include "common-get-hash.h"
 
@@ -760,7 +753,7 @@ struct fmt_main fmt_sapH = {
 		fmt_default_reset,
 		fmt_default_prepare,
 		valid,
-		split,
+		fmt_default_split,
 		get_binary,
 		get_salt,
 		{

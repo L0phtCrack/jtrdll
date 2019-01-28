@@ -97,9 +97,13 @@ extern char *fgetl(char *s, int size, FILE *stream);
  * s buffer, then the caller MUST call MEM_FREE to that pointer
  * once it is done with it.
  */
-#ifndef _JOHN_MISC_NO_LOG
 extern char *fgetll(char *s, size_t size, FILE *stream);
-#endif
+
+/*
+ * Similar to strncpy(), but with arbitrary padding. We deliberate do
+ * not guarantee a NUL termination, only padding if applicable.
+ */
+extern void *strncpy_pad(void *dst, const void *src, size_t size, uint8_t pad);
 
 /*
  * Similar to strncpy(), but terminates with only one NUL if there's room
@@ -132,6 +136,12 @@ extern int strnzcpylwrn(char *dst, const char *src, int size);
  * terminates the string.
  */
 extern char *strnzcat(char *dst, const char *src, int size);
+
+/*
+* similar to strncat, but this one protects the dst buffer, AND it
+* assures that dst is properly NULL terminated upon completion.
+*/
+extern char *strnzcatn(char *dst, int size, const char *src, int max_src);
 
 /*
  * Similar to atoi(), but properly handles unsigned int.  Do not use
@@ -176,7 +186,13 @@ char *strtokm(char *s1, const char *delimit);
  */
 const char *jtr_itoa(int num, char *result, int result_len, int base);
 const char *jtr_utoa(unsigned int num, char *result, int result_len, int base);
-const char *jtr_lltoa(long long num, char *result, int result_len, int base);
-const char *jtr_ulltoa(unsigned long long num, char *result, int result_len, int base);
+const char *jtr_lltoa(int64_t num, char *result, int result_len, int base);
+const char *jtr_ulltoa(uint64_t num, char *result, int result_len, int base);
+
+/*
+ * Change some large number to a string possibly using SI prefix
+ * eg. 437281954 -> "417 M"
+ */
+extern char *human_prefix(uint64_t num);
 
 #endif

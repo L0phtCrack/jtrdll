@@ -7,24 +7,18 @@ multiple rules for a single source line.  Below you will find
 descriptions of the rule reject flags, the rule commands (many of them
 are compatible with those of Crack 5.0a), and the preprocessor syntax.
 
-    Note about .include [section] syntax.
+	Note about .include [section] syntax.
 
-A rule section, can include another section of rules, or in more general,
-terms, any section can include another section, within the john.conf
-file format (new in 1.7.8-jumbo-6).  This sectional include is done
-using a 'period' directive.  So within a rule set, a line like:
-.include [list.rules.someother] will be replaced by all of the rules
-from the 'someother' ruleset.  One side effect of being able to include
-rules, is that any rule which would need to start with a period character,
-will have to escape that character (or the config file loader will bail
-out, listing a bugus . directive). At this time, it is not valid for a
-john rule to start with a period, so at this time, this is not a problem.
+A rule section can include another section of rules, or in more general
+terms, any section can include another section within the john.conf
+file format.  This sectional include is done using a 'period' directive.
+So within a rule set, a line like:  .include [list.rules.someother]
+will be replaced by all of the rules from the 'someother' ruleset.
 
-See RULES-hashcat for information about additional rules added to
-1.8-jumbo-2 to allow john to utilize hashcat/InsidePro rules files
-natively. NOTE, there are additional rules commands added to allow
-hashcat rules to be utilized. These additional rules are documented in
-that RULES-hashcat file.
+See doc/RULES-hashcat for information about additional rules added to
+Jumbo to allow john to utilize hashcat/InsidePro rules files natively.
+NOTE, there are additional rules commands added to allow some of the
+hashcat rules to be utilized. These are also documented in RULES-hashcat.
 
 
 	Rule reject flags.
@@ -39,7 +33,7 @@ that RULES-hashcat file.
 -U	reject this rule if --encoding=utf-8 or config variable
 	DefaultEncoding = UTF-8 is used
 ->N	reject this rule unless length N or longer is supported
--<N     reject this rule unless length N or shorter is supported (--min-length)
+-<N	reject this rule unless length N or shorter is supported (--min-length)
 
 
 	Numeric constants and variables.
@@ -49,6 +43,9 @@ following characters:
 
 0...9	for 0...9
 A...Z	for 10...35
+#	for min_length
+@	for (min_length - 1)
+$	for (min_length + 1)
 *	for max_length
 -	for (max_length - 1)
 +	for (max_length + 1)
@@ -58,8 +55,8 @@ m	initial or memorized word's last character position
 p	position of the character last found with the "/" or "%" commands
 z	"infinite" position or length (beyond end of word)
 
-Here max_length is the maximum plaintext length supported for the
-current hash type.
+Here min/max_length is the minimum/maximum plaintext length supported for
+the current hash type (possibly overriden by --min/max-len options).
 
 These may be used to specify character positions, substring lengths, and
 other numeric parameters to rule commands as appropriate for a given
@@ -110,6 +107,7 @@ c	capitalize
 C	lowercase the first character, and uppercase the rest
 t	toggle case of all characters in the word
 TN	toggle case of the character in position N
+WN	toggle shift of the character in position N
 r	reverse: "Fred" -> "derF"
 d	duplicate: "Fred" -> "FredFred"
 f	reflect: "Fred" -> "FredderF"
@@ -117,6 +115,10 @@ f	reflect: "Fred" -> "FredderF"
 }	rotate the word right: "smithj" -> "jsmith"
 $X	append character X to the word
 ^X	prefix the word with character X
+
+WN is a superset of TN.  While TN only case-toggles alphabet letters, eg.
+"a" <-> "A", the WN command will shift-toggle as well.  This is akin to
+using shift or not on a US keyboard, eg. "1" <-> "!".
 
 NOTE, all of these are encoding-aware. Eg. if you do not specify an encoding,
 the l command will lowercase A-Z only. If you use --encoding=iso-8859-1 it will
@@ -150,7 +152,7 @@ or within preprocessor $[c...] or ^[c...] settings. The method used
 within john, is similar to emitting an arbitrary character within
 the C language.  This syntax is \xhh where hh is 2 hex characters.
 So, Az"\x1b[2J" would append then ansi escape sequence to clear the
-screen to the end of the current password.  Or something like $\x10
+screen to the end of the current password.  Or something like $\x0a
 would append a new line character to the end of the word. These
 escaped characters also work properly in all character class commands
 (listed later).
@@ -162,6 +164,10 @@ escaped characters also work properly in all character class commands
 >N	reject the word unless it is greater than N characters long
 _N	reject the word unless it is N characters long
 'N	truncate the word at length N
+aN	reject the word unless it will pass min/max lengths after
+	adding N characters. Used for early rejection
+bN	reject the word unless it will pass min/max lengths after
+	removing N characters
 
 
 	English grammar commands.
@@ -271,7 +277,7 @@ s?CY	replace all characters of class C in the word with Y
 )?C	reject the word unless its last character is in class C
 %NX	reject the word unless it contains at least N instances of X
 %N?C	reject the word unless it contains at least N characters of class C
-U       reject the word unless it is valid UTF-8 (use with -u rule reject)
+U	reject the word unless it is valid UTF-8 (use with -u rule reject)
 eC	title case, where C is the separation character
 e?C	title case, with chars from class C as separation characters.
 	NOTE, see hashcat specific 'E' rule which is generic title case for space

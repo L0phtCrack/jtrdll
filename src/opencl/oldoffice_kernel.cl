@@ -59,9 +59,8 @@ void oldoffice_utf16(__global const uchar *source,
 	while (source < sourceEnd) {
 		if (*source < 0xC0) {
 			*target++ = (UTF16)*source++;
-			if (source >= sourceEnd || target >= targetEnd) {
+			if (target >= targetEnd)
 				break;
-			}
 			continue;
 		}
 		ch = *source;
@@ -105,7 +104,7 @@ void oldoffice_utf16(__global const uchar *source,
 			*target++ = (UTF16)((ch & halfMask) + UNI_SUR_LOW_START);
 		}
 #endif
-		if (source >= sourceEnd || target >= targetEnd)
+		if (target >= targetEnd)
 			break;
 	}
 
@@ -139,6 +138,13 @@ void oldoffice_utf16(__global const uchar *password,
 }
 
 #endif /* encodings */
+
+#if __OS_X__ && gpu_amd(DEVICE_INFO)
+/* This is a workaround for driver/runtime bugs */
+#define MAYBE_VOLATILE volatile
+#else
+#define MAYBE_VOLATILE
+#endif
 
 inline
 void oldoffice_md5(const nt_buffer_t *nt_buffer,
@@ -219,7 +225,6 @@ void oldoffice_md5(const nt_buffer_t *nt_buffer,
 	for (i = 0; i < 4; i++)
 		salt[i] = cs->salt[i];
 
-	md5_init(key);
 	W[0] = md5[0];
 	PUTCHAR(W, 4, GETCHAR(md5, 4));
 	for (i = 0; i < 16; i++)
@@ -233,7 +238,7 @@ void oldoffice_md5(const nt_buffer_t *nt_buffer,
 	for (i = 0; i < 16; i++)
 		PUTCHAR(W, i + 47, GETCHAR(salt, i));
 	PUTCHAR(W, 63, GETCHAR(md5, 0));
-	md5_block(uint, W, key);
+	md5_single(uint, W, key);
 	for (i = 1; i < 5; i++)
 		PUTCHAR(W, i - 1, GETCHAR(md5, i));
 	for (i = 0; i < 16; i++)
@@ -303,7 +308,7 @@ void oldoffice_md5(const nt_buffer_t *nt_buffer,
 		W[i] = 0;
 	W[14] = (16 * (5 + 16)) << 3;
 	W[15] = 0;
-	md5_block(uint, W, key);
+	md5_block(MAYBE_VOLATILE uint, W, key);
 
 	key[1] &= 0xff;
 
@@ -319,8 +324,7 @@ void oldoffice_md5(const nt_buffer_t *nt_buffer,
 			W[i] = 0;
 		W[14] = 9 << 3;
 		W[15] = 0;
-		md5_init(md5);
-		md5_block(uint, W, md5);
+		md5_single(MAYBE_VOLATILE uint, W, md5);
 
 		for (i = 0; i < 32/4; i++)
 			verifier[i] = cs->verifier[i];
@@ -337,8 +341,7 @@ void oldoffice_md5(const nt_buffer_t *nt_buffer,
 			W[i] = 0;
 		W[14] = 16 << 3;
 		W[15] = 0;
-		md5_init(verifier);
-		md5_block(uint, W, verifier);
+		md5_single(MAYBE_VOLATILE uint, W, verifier);
 
 		if (verifier[0] == verifier[4] &&
 		    verifier[1] == verifier[5] &&

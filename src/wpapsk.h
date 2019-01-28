@@ -1,6 +1,6 @@
 /*
  * This software is Copyright (c) 2012 Lukas Odzioba <lukas dot odzioba at gmail dot com>
- * and Copyright (c) 2012-2014 magnum
+ * and Copyright (c) 2012-2018 magnum
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without modification, are permitted.
  *
@@ -24,11 +24,17 @@
 #include "hmacmd5.h"
 #include "hmac_sha.h"
 #include "sha2.h"
+#include "base64_convert.h"
 #include "hccap.h"
 
 #define BINARY_SIZE		sizeof(mic_t)
 #define BINARY_ALIGN		4
+#ifdef WPAPMK
+#define PLAINTEXT_MIN_LEN   64
+#define PLAINTEXT_LENGTH    64
+#else
 #define PLAINTEXT_LENGTH	63 /* We can do 64 but spec. says 63 */
+#endif
 #define SALT_SIZE		(sizeof(hccap_t) - sizeof(mic_t))
 #define SALT_ALIGN		MEM_ALIGN_NONE
 #define BENCHMARK_COMMENT	""
@@ -36,8 +42,7 @@
 #define FORMAT_TAG           "$WPAPSK$"
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 
-typedef struct
-{
+typedef struct {
 	unsigned char keymic[16];
 } mic_t;
 
@@ -55,12 +60,21 @@ typedef struct {
 #ifdef JOHN_OCL_WPAPSK
 	uint8_t  eapol[256 + 64];
 	uint32_t eapol_size;
-	uint8_t  data[64 + 12];
+	uint8_t  data[64 + 12]; /* EAPOL data or PMKID */
 #endif
 	uint8_t  salt[36]; // essid
 } wpapsk_salt;
 
 static struct fmt_tests tests[] = {
+#ifdef WPAPMK
+	{"$WPAPSK$test#..qHuv0A..ZPYJBRzZwAKpEXUJwpza/b69itFaq4.OWoGHfonpc13zCAUsRIfQN2Zar6EXp2BYcRuSkWEJIWjEJJvb4DWZCspbZ51.21.3zy.EY.6........../zZwAKpEXUJwpza/b69itFaq4.OWoGHfonpc13zCAUsQ..................................................................BoK.31m.E2..31m.U2..31m.U2..31m.U................................................................................................................................................................................/X.....E...AkkDQmDg9837LBHG.dGlKA", "cdd79a5acfb070c7e9d1023b870285d639e430b32f31aa37ac825a55b55524ee"},
+	{"$WPAPSK$Coherer#..l/Uf7J..qHUXMunTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosMyXdNxfBZUAYmgKqeb6GBPxLiIZr56NtWTGR/Cp5ldAk61.5I0.Ec.2...........nTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosM.................................................................3X.I.E..1uk0.E..1uk2.E..1uk0....................................................................................................................................................................................../t.....U...8FWdk8OpPckhewBwt4MXYI", "a288fcf0caaacda9a9f58633ff35e8992a01d9c10ba5e02efdf8cb5d730ce7bc"},
+#if (!AC_BUILT || HAVE_OPENSSL_CMAC_H) || defined(JOHN_OCL_WPAPMK)
+	{"$WPAPSK$Neheb#g9a8Jcre9D0WrPnEN4QXDbA5NwAy5TVpkuoChMdFfL/8Dus4i/X.lTnfwuw04ASqHgvo12wJYJywulb6pWM6C5uqiMPNKNe9pkr6LE61.5I0.Eg.2..........1N4QXDbA5NwAy5TVpkuoChMdFfL/8Dus4i/X.lTnfwuw.................................................................3X.I.E..1uk2.E..1uk2.E..1uk4X...................................................................................................................................................................................../t.....k...0sHl.mVkiHW.ryNchcMd4g", "fb57668cd338374412c26208d79aa5c30ce40a110224f3cfb592a8f2e8bf53e8"},
+#endif
+	/* WPAPSK PMKID */
+	{"2582a8281bf9d4308d6f5731d0e61c61*4604ba734d4e*89acf0e761f4*ed487162465a774bfba60eb603a39f3a", "5b13d4babb3714ccc62c9f71864bc984efd6a55f237c7a87fc2151e1ca658a9d"},
+#else
 	/* WPA2 testcase from http://wiki.wireshark.org/SampleCaptures */
 	{"$WPAPSK$Coherer#..l/Uf7J..qHUXMunTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosMyXdNxfBZUAYmgKqeb6GBPxLiIZr56NtWTGR/Cp5ldAk61.5I0.Ec.2...........nTE3nfbMWSwxv27Ua0XutIOrfRSuv9gOCIugIVGlosM.................................................................3X.I.E..1uk0.E..1uk2.E..1uk0....................................................................................................................................................................................../t.....U...8FWdk8OpPckhewBwt4MXYI", "Induction"},
 	{"$WPAPSK$Harkonen#./FgTY0../B4zX6AKFO9kuLT4BQSyqEXwo.6XOiS4u8vlMNNs5grN91SVL.WK3GkF2rXfkPFGGi38MHkHDMbH.sm49Vc3pO4HPSUJE21.5I0.Ec.2........../KFO9kuLT4BQSyqEXwo.6XOiS4u8vlMNNs5grN91SVL..................................................................3X.I.E..1uk2.E..1uk2.E..1uk0.E..................................................................................................................................................................................../t.....U...BIpIs8sePU4r8yNnOxKHfM", "12345678"},
@@ -75,6 +89,9 @@ static struct fmt_tests tests[] = {
 	/* 802.11w with WPA-PSK-SHA256, https://github.com/neheb */
 	{"$WPAPSK$Neheb#g9a8Jcre9D0WrPnEN4QXDbA5NwAy5TVpkuoChMdFfL/8Dus4i/X.lTnfwuw04ASqHgvo12wJYJywulb6pWM6C5uqiMPNKNe9pkr6LE61.5I0.Eg.2..........1N4QXDbA5NwAy5TVpkuoChMdFfL/8Dus4i/X.lTnfwuw.................................................................3X.I.E..1uk2.E..1uk2.E..1uk4X...................................................................................................................................................................................../t.....k...0sHl.mVkiHW.ryNchcMd4g", "bo$$password"},
 #endif
+	/* WPAPSK PMKID */
+	{"2582a8281bf9d4308d6f5731d0e61c61*4604ba734d4e*89acf0e761f4*ed487162465a774bfba60eb603a39f3a", "hashcat!"},
+#endif /* WPAPMK */
 	{NULL}
 };
 
@@ -84,12 +101,16 @@ static hccap_t hccap;			///structure with hccap data
 static wpapsk_salt currentsalt;		///structure for essid
 static mic_t *mic;			///table for MIC keys
 #ifndef JOHN_OCL_WPAPSK
+#ifndef WPAPMK
 static wpapsk_password *inbuffer;	///table for candidate passwords
+#endif
 static wpapsk_hash *outbuffer;		///table for PMK calculated by GPU
 #endif
 
+#ifndef WPAPMK
 static int new_keys = 1;
 static char last_ssid[sizeof(hccap.essid)];
+#endif
 
 /** Below are common functions used by wpapsk_fmt.c and opencl_wpapsk_fmt.c **/
 
@@ -150,9 +171,16 @@ static void *get_binary(char *ciphertext)
 		unsigned char c[BINARY_SIZE];
 		uint32_t dummy;
 	} binary;
-	hccap_t *hccap = decode_hccap(ciphertext);
 
-	memcpy(binary.c, hccap->keymic, BINARY_SIZE);
+	if (!strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)) {
+		hccap_t *hccap = decode_hccap(ciphertext);
+
+		memcpy(binary.c, hccap->keymic, BINARY_SIZE);
+	} else {
+		base64_convert(ciphertext, e_b64_hex, 2 * BINARY_SIZE,
+		               binary.c, e_b64_raw, BINARY_SIZE,
+		               flg_Base64_DONOT_NULL_TERMINATE, 0);
+	}
 	return binary.c;
 }
 
@@ -160,7 +188,22 @@ static void *get_salt(char *ciphertext)
 {
 	static hccap_t s;
 
-	memcpy(&s, decode_hccap(ciphertext), SALT_SIZE);
+	if (!strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)) {
+		memcpy(&s, decode_hccap(ciphertext), SALT_SIZE);
+	} else {
+		memset(&s, 0, sizeof(s));
+		s.keyver = 0;
+		ciphertext += 33;
+		base64_convert(ciphertext, e_b64_hex, 12, s.mac1, e_b64_raw, 6,
+		               flg_Base64_DONOT_NULL_TERMINATE, 0);
+		ciphertext += 13;
+		base64_convert(ciphertext, e_b64_hex, 12, s.mac2, e_b64_raw, 6,
+		               flg_Base64_DONOT_NULL_TERMINATE, 0);
+		ciphertext += 13;
+		base64_convert(ciphertext, e_b64_hex, 64, s.essid, e_b64_raw, 33,
+		               flg_Base64_DONOT_NULL_TERMINATE, 0);
+	}
+
 	return &s;
 }
 
@@ -170,8 +213,24 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	int hashlength = 0;
 	hccap_t *hccap;
 
-	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN) != 0)
-		return 0;
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN)) {
+		int extra;
+
+		if (strnlen(ciphertext, 61) < 61)
+			return 0;
+		if (ciphertext[32] != '*' || hexlenl(ciphertext, NULL) != 32)
+			return 0;
+		if (ciphertext[45] != '*' || hexlenl(ciphertext + 33, NULL) != 12)
+			return 0;
+		if (ciphertext[58] != '*' || hexlenl(ciphertext + 46, NULL) != 12)
+			return 0;
+		if (hexlenl(ciphertext + 59, &extra) < 1)
+			return 0;
+		if (extra)
+			return 0;
+		/* This is a PMKID hash */
+		return 1;
+	}
 
 	hash = strrchr(ciphertext, '#');
 	if (hash == NULL || hash - (ciphertext + FORMAT_TAG_LEN) > 32)
@@ -302,10 +361,17 @@ static void set_salt(void *salt)
 	if (hccap.keyver == 2)
 		alter_endianity(currentsalt.eapol, 256+56);
 	((unsigned int*)currentsalt.eapol)[16 * ((hccap.eapol_size + 8) / 64) + ((hccap.keyver == 1) ? 14 : 15)] = (64 + hccap.eapol_size) << 3;
-	insert_mac(currentsalt.data);
-	insert_nonce(currentsalt.data + 12);
-	if (hccap.keyver < 3)
-		alter_endianity(currentsalt.data, 64 + 12);
+	if (hccap.keyver == 0) {
+		memcpy(currentsalt.data, "PMK Name", 8);
+		memcpy(currentsalt.data + 8, hccap.mac1, 6);
+		memcpy(currentsalt.data + 14, hccap.mac2, 6);
+		alter_endianity(currentsalt.data, 20);
+	} else {
+		insert_mac(currentsalt.data);
+		insert_nonce(currentsalt.data + 12);
+		if (hccap.keyver < 3)
+			alter_endianity(currentsalt.data, 64 + 12);
+	}
 
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_salt, CL_FALSE, 0, sizeof(wpapsk_salt), &currentsalt, 0, NULL, NULL), "Copy setting to gpu");
 #endif
@@ -313,6 +379,7 @@ static void set_salt(void *salt)
 }
 
 #ifndef JOHN_OCL_WPAPSK
+#ifndef WPAPMK
 static void clear_keys(void) {
 	new_keys = 1;
 }
@@ -336,6 +403,7 @@ static char *get_key(int index)
 	ret[length] = '\0';
 	return ret;
 }
+#endif /* WPAPMK */
 
 #if !AC_BUILT || HAVE_OPENSSL_CMAC_H
 
@@ -465,6 +533,26 @@ static void wpapsk_postprocess(int keys)
 {
 	int i;
 	uint8_t data[64 + 12];
+
+	if (hccap.keyver == 0) {
+		uint8_t msg[8 + 6 + 6] = "PMK Name";
+
+		memcpy(msg + 8, hccap.mac1, 6);
+		memcpy(msg + 14, hccap.mac2, 6);
+
+#ifdef _OPENMP
+#pragma omp parallel for default(none) private(i) shared(keys, outbuffer, msg, mic)
+#endif
+		/* Create "keymic" that is actually PMKID */
+		for (i = 0; i < keys; i++) {
+			hmac_sha1((unsigned char*)outbuffer[i].v, 32,
+			          msg, 20,
+			          mic[i].keymic, 16);
+		}
+
+		return;
+	}
+
 	insert_mac(data);
 	insert_nonce(data + 12);
 
@@ -516,31 +604,10 @@ static void wpapsk_postprocess(int keys)
 #endif /* HAVE_OPENSSL_CMAC_H */
 	}
 }
-#endif /* #ifndef JOHN_OCL_WPAPSK */
-
-static int binary_hash_0(void *binary)
-{
-#ifdef WPAPSK_DEBUG
-	puts("binary");
-	uint32_t i, *b = binary;
-
-	for (i = 0; i < 4; i++)
-		printf("%08x ", b[i]);
-	puts("");
-#endif
-	return ((uint32_t *) binary)[0] & PH_MASK_0;
-}
+#endif /* JOHN_OCL_WPAPSK */
 
 static int get_hash_0(int index)
 {
-#ifdef WPAPSK_DEBUG
-	int i;
-	puts("get_hash");
-	uint32_t *b = (uint32_t *)mic[index].keymic;
-	for (i = 0; i < 4; i++)
-		printf("%08x ", b[i]);
-	puts("");
-#endif
 	uint32_t *h = (uint32_t *) mic[index].keymic;
 	return h[0] & PH_MASK_0;
 }
@@ -608,6 +675,18 @@ static int cmp_exact(char *source, int index)
 	return 1;
 }
 
+static int salt_hash(void *salt)
+{
+	hccap_t *s = salt;
+	unsigned int mac1;
+	unsigned int mac2;
+
+	memcpy(&mac1, &s->mac1[2], 4);
+	memcpy(&mac2, &s->mac2[2], 4);
+
+	return (mac1 ^ mac2) & (SALT_HASH_SIZE - 1);
+}
+
 static int salt_compare(const void *x, const void *y)
 {
 	int c = strncmp((const char*)x, (const char*)y, 36);
@@ -617,6 +696,7 @@ static int salt_compare(const void *x, const void *y)
 
 /*
  * key version as first tunable cost
+ * 0=PMKID
  * 1=WPA     (MD5)
  * 2=WPA2    (SHA1)
  * 3=802.11w (SHA256)

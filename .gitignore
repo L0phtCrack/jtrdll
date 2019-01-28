@@ -5,8 +5,15 @@
 *.pot
 *.rec
 *.rej
+
 *.tmp
 *~
+*.old
+*.bak
+*.in
+*.dlst
+*.lst
+*.sam
 
 *.o
 *.exe
@@ -40,6 +47,7 @@ run/mkvcalcproba
 run/mozilla2john
 run/office2john
 run/pfx2john
+run/pp
 run/putty2john
 run/pwsafe2john
 run/racf2john
@@ -53,6 +61,7 @@ run/uaf2john
 run/unafs
 run/undrop
 run/unique
+run/unit-tests
 run/unshadow
 run/vncpcap2john
 run/wpapcap2john
@@ -62,7 +71,6 @@ src/.gdbinit
 src/Unicode
 src/aes/aes.a
 src/arch.h
-src/all_tests.in
 src/all_tests.lst
 src/autoconfig-stamp-h
 src/autoconfig-stamp-h-in
@@ -72,7 +80,6 @@ src/config*.cache
 src/config.status
 src/configure.scan
 src/dyna-comp.dic
-src/dyna-comp.in
 src/dyna-comp.pot
 src/dyna-comp.rec
 src/dynamic_big_crypt.c
@@ -83,9 +90,14 @@ src/generic.h
 src/john_build_rule.h
 src/memdbg_defines.h
 src/secp256k1/secp256k1.a
+src/ed25519-donna/ed25519-donna.a
 src/stamp-h1
 src/version.h
 src/version.h.new
 src/restore_tester_fmt_plug.c
 
+test
 test/
+
+dict
+dict/

@@ -1,9 +1,11 @@
 /*
  * This software is Copyright (c) 2013 Jim Fougeron jfoug AT cox dot net,
  * Copyright (c) 2013 Dhiru Kholia <dhiru.kholia at gmail.com>
- * and Copyright (c) 2014-2017 magnum, and it is hereby released
+ * and Copyright (c) 2014-2018 magnum, and it is hereby released
  * to the general public under the following terms:  Redistribution and use in
  * source and binary forms, with or without modification, are permitted.
+ *
+ * Kudos to ZeroBeat for misc. help, and code snippets derived from hcxtools!
  *
  * MIC is 32-bit Message Integrity Code of DA, SA and payload.
  * PTK is Pairwise Temporal Key, GTK is Group Temporal Key.
@@ -33,7 +35,6 @@
 
 #include "wpapcap2john.h"
 #include "jumbo.h"
-#include "memdbg.h"
 
 //#define WPADEBUG 1
 #define IGNORE_MSG1 0
@@ -43,13 +44,11 @@
 static size_t max_essid = 1024; /* Will grow automagically */
 static size_t max_state = 1024; /* This too */
 
-static uint64_t cur_ts64;
-static uint32_t start_t, start_u, cur_t, cur_u;
+static uint64_t cur_ts64, abs_ts64, start_ts64;
 static uint32_t pkt_num;
-static pcaprec_hdr_t pkt_hdr;
 static uint8_t *full_packet;
 static uint8_t *packet;
-static uint8_t *packet_src, *packet_dst;
+static uint8_t *packet_TA, *packet_RA, *packet_SA, *packet_DA, *bssid;
 static uint8_t *new_p;
 static size_t new_p_sz;
 static int swap_needed;
@@ -57,10 +56,10 @@ static essid_t *essid_db;   /* alloced/realloced to max_essid */
 static int n_essid;
 static WPA4way_t *apsta_db; /* alloced/realloced to max_state */
 static int n_apsta;
-static int n_hashes;
+static int n_handshakes, n_pmkids;
 static int rctime = 2 * 1000000; /* 2 seconds (bumped with -r) */
 static const char *filename;
-static unsigned int link_type, show_unverified = 1, ignore_rc, force_fuzz;
+static unsigned int show_unverified = 1, ignore_rc, force_fuzz;
 static int warn_wpaclean;
 static int warn_snaplen;
 static int verbosity;
@@ -68,6 +67,7 @@ static char filter_mac[18];
 static int filter_hit;
 static int output_dupes;
 static int opt_e_used;
+static uint32_t orig_len, snap_len;
 
 static const char cpItoa64[64] =
 	"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -94,7 +94,7 @@ static const char* const ctl_subtype[16] = {
 	"Subtype 15"
 };
 
-#if HAVE___MINGW_ALIGNED_MALLOC && !defined (MEMDBG_ON)
+#if HAVE___MINGW_ALIGNED_MALLOC
 char *strdup_MSVC(const char *str)
 {
 	char * s;
@@ -138,15 +138,23 @@ static char *to_mac_str(void *ptr)
 	return out[rr++ & 3];
 }
 
-static char *to_compact(void *ptr)
+static char *to_hex(void *ptr, int len)
 {
 	static int rr;
-	static char out[4][18];
+	static char out[8][64];
 	uint8_t *p = ptr;
+	char *o = out[rr & 7];
 
-	sprintf(out[rr & 3], "%02x%02x%02x%02x%02x%02x",
-	        p[0],p[1],p[2],p[3],p[4],p[5]);
-	return out[rr++ & 3];
+	while (len--) {
+		int ret = sprintf(o, "%02x", *p++);
+
+		if (ret < 0)
+			fprintf(stderr, "Error!");
+		else
+			o += ret;
+	}
+
+	return out[rr++ & 7];
 }
 
 static int get_essid_num(uint8_t *bssid)
@@ -230,13 +238,13 @@ static int convert_ivs2(FILE *f_in)
 	}
 
 	if (memcmp(ivs_buf, IVSONLY_MAGIC, 4) == 0) {
-		fprintf(stderr, "%s: old version .ivs file, only WEP handshakes.\n", filename);
+		fprintf(stderr, "%s: old version .ivs file, only WEP handshakes.\n",
+		        filename);
 		MEM_FREE(ivs_buf);
 		return 1;
 	}
 
 	if (memcmp(ivs_buf, IVS2_MAGIC, 4) != 0) {
-		fprintf(stderr, "%s: not an .%s file\n", filename, IVS2_EXTENSION);
 		MEM_FREE(ivs_buf);
 		return 1;
 	}
@@ -428,10 +436,10 @@ static int convert_ivs2(FILE *f_in)
 				        anonce, snonce, wivs2->state, wivs2->keyver,
 				        wivs2->eapol_size, hccap.keyver == 3 ?
 				        " [AES-128-CMAC]" : "",
-				        (apsta_db[ess].fully_cracked) ?
+				        (apsta_db[ess].handshake_done) ?
 				        " (4-way already seen)" : "");
 			}
-			if (output_dupes || !apsta_db[ess].fully_cracked) {
+			if (output_dupes || !apsta_db[ess].handshake_done) {
 				cp = NewKey;
 				cp += sprintf(cp, "%s:$WPAPSK$%s#", essid, essid);
 
@@ -443,25 +451,25 @@ static int convert_ivs2(FILE *f_in)
 				}
 				code_block(&w[i], 0, buf);
 				cp += sprintf(cp, "%s", buf);
-				cp += sprintf(cp, ":%s:%s:%s::WPA", to_compact(hccap.mac2),
-				       to_compact(hccap.mac1),
-				       to_compact(hccap.mac1));
+				cp += sprintf(cp, ":%s:%s:%s::WPA", to_hex(hccap.mac2, 6),
+				              to_hex(hccap.mac1, 6),
+				              to_hex(hccap.mac1, 6));
 				if (hccap.keyver > 1)
 					cp += sprintf(cp, "2");
 				if (hccap.keyver > 2)
 					cp += sprintf(cp, " CMAC");
 				if (hccap.keyver > 3)
 					cp += sprintf(cp, ", ver %d", hccap.keyver);
-				cp += sprintf(cp, "::%s", filename);
+				cp += sprintf(cp, ":%s", filename);
 				if (strcmp(LastKey, NewKey)) {
 					puts(NewKey);
 					fflush(stdout);
 					strcpy(LastKey, NewKey);
-					n_hashes++;
+					n_handshakes++;
 				}
 				/* State seems unreliable
 				if (wivs2->state == 7)
-					apsta_db[ess].fully_cracked = 1;
+					apsta_db[ess].handshake_done = 1;
 				*/
 			}
 
@@ -517,15 +525,15 @@ static void print_auth(int apsta, int ap_msg, int sta_msg,
 		cp += code_block(&w[i], 1, cp);
 	cp += code_block(&w[i], 0, cp);
 
-	cp += sprintf(cp, ":%s:%s:%s::WPA", to_compact(hccap.mac2),
-	              to_compact(hccap.mac1), to_compact(hccap.mac1));
+	cp += sprintf(cp, ":%s:%s:%s::WPA", to_hex(hccap.mac2, 6),
+	              to_hex(hccap.mac1, 6), to_hex(hccap.mac1, 6));
 	if (hccap.keyver > 1)
 		cp += sprintf(cp, "2");
 	if (hccap.keyver > 2)
 		cp += sprintf(cp, " CMAC");
 	if (hccap.keyver > 3)
 		cp += sprintf(cp, ", ver %d", hccap.keyver);
-	cp += sprintf(cp, ":%sverified",
+	cp += sprintf(cp, ", %sverified",
 	              (ap_msg == 1 && sta_msg == 2) ? "not " : "");
 	if (fuzz)
 		cp += sprintf(cp, ", fuzz %d %s", fuzz, (be == 1) ? "BE" : "LE");
@@ -544,7 +552,7 @@ static void print_auth(int apsta, int ap_msg, int sta_msg,
 		        to_mac_str(apsta_db[apsta].staid));
 	printf("%s\n", TmpKey);
 	fflush(stdout);
-	n_hashes++;
+	n_handshakes++;
 }
 
 /*
@@ -576,17 +584,21 @@ static void dump_auth(int apsta, int ap_msg, int sta_msg, int force)
 	int this_fuzz = 0;
 	int endian = apsta_db[apsta].endian;
 	int fuzz = apsta_db[apsta].fuzz;
+	int have_pmkid = !(ap_msg || sta_msg);
+
+	if (have_pmkid)
+		apsta_db[apsta].pmkid_done = 1;
 
 	if (essid_db[get_essid_num(apsta_db[apsta].bssid)].essid_len == 0) {
 		if (essid_db[get_essid_num(apsta_db[apsta].bssid)].prio == 6) {
 			fprintf(stderr,
-		        "%s: WPA handshake for %s but we don't have ESSID%s\n",
-		        filename, to_mac_str(apsta_db[apsta].bssid),
-		        opt_e_used ? "" : " (perhaps -e option needed?)");
+			        "%s: %s for %s but we don't have ESSID yet%s\n",
+			        filename, have_pmkid ? "RSN IE PMKID" : "WPA handshake",
+			        to_mac_str(apsta_db[apsta].bssid),
+			        opt_e_used ? "" : " (perhaps -e option needed?)");
 			essid_db[get_essid_num(apsta_db[apsta].bssid)].prio = 10;
 		}
-		if (!force)
-			return;
+		return;
 	}
 	if (ignore_rc && fuzz) {
 		if ((ap_msg == 1 && sta_msg == 2) || (ap_msg == 3 && sta_msg == 4))
@@ -604,6 +616,33 @@ static void dump_auth(int apsta, int ap_msg, int sta_msg, int force)
 		fprintf(stderr, "Outputting with fuzz: %d (%d seen) %s\n",
 		        this_fuzz, fuzz,
 		        endian ? (endian == 1 ? "BE" : "LE") : "LE/BE");
+
+	if (have_pmkid) {
+		char *essid = get_essid(apsta_db[apsta].bssid);
+
+		fprintf(stderr,
+		        "Dumping RSN IE PMKID at %u.%06u BSSID %s ESSID '%s' STA %s\n",
+		        (uint32_t)(apsta_db[apsta].M[0].ts64 / 1000000),
+		        (uint32_t)(apsta_db[apsta].M[0].ts64 % 1000000),
+		        to_mac_str(apsta_db[apsta].bssid),
+		        get_essid(apsta_db[apsta].bssid),
+		        to_mac_str(apsta_db[apsta].staid));
+		printf("%s:%s*%s*%s*%s:%s:%s:%s::PMKID:%s\n",
+		       essid,
+		       to_hex(apsta_db[apsta].M[0].eapol, 16),
+		       to_hex(apsta_db[apsta].bssid, 6),
+		       to_hex(apsta_db[apsta].staid, 6),
+		       to_hex(essid, strlen(essid)),
+		       to_hex(apsta_db[apsta].staid, 6), // uid
+		       to_hex(apsta_db[apsta].bssid, 6), // gid
+		       to_hex(apsta_db[apsta].bssid, 6), // gecos
+		       filename);
+		fflush(stdout);
+
+		n_pmkids++;
+		remove_handshake(apsta, 0);
+		return;
+	}
 
 	if (!auth24) {
 		fprintf(stderr, "ERROR, M%u null\n", sta_msg);
@@ -660,8 +699,8 @@ static void dump_auth(int apsta, int ap_msg, int sta_msg, int force)
 				print_auth(apsta, ap_msg, sta_msg, hccap, i, j);
 	}
 
-	if (MAX(ap_msg, sta_msg) > 2) {
-		apsta_db[apsta].fully_cracked = 1;
+	if (MAX(ap_msg, sta_msg) > 2 || force) {
+		apsta_db[apsta].handshake_done = 1;
 		remove_handshake(apsta, 1);
 		remove_handshake(apsta, 2);
 		remove_handshake(apsta, 3);
@@ -669,9 +708,13 @@ static void dump_auth(int apsta, int ap_msg, int sta_msg, int force)
 	}
 }
 
-static void dump_any_unver() {
+static void dump_late() {
 	int printed = 0;
 	int i;
+
+	for (i = 0; i < n_apsta; i++)
+		if (apsta_db[i].M[0].eapol)
+			dump_auth(i, 0, 0, 1);
 
 	for (i = 0; i < n_apsta; i++) {
 		int ap_msg = 0, sta_msg = 0;
@@ -687,24 +730,19 @@ static void dump_any_unver() {
 
 		if (ap_msg && sta_msg) {
 			if (verbosity && !printed++)
-				fprintf(stderr, "Dumping unverified auths\n");
-			dump_auth(i, ap_msg, sta_msg, 1);
-			remove_handshake(i, 1);
-			remove_handshake(i, 2);
-			remove_handshake(i, 3);
-			remove_handshake(i, 4);
+				fprintf(stderr, "Dumping unverified and/or post-poned data\n");
+			dump_auth(i, ap_msg, sta_msg, show_unverified);
 		}
 	}
 }
 
-static void learn_essid(uint16_t subtype, int has_ht)
+static void learn_essid(uint16_t subtype, int has_ht, uint8_t *bssid)
 {
 	ieee802_1x_frame_hdr_t *pkt = (ieee802_1x_frame_hdr_t*)packet;
 	ieee802_1x_beacon_tag_t *tag;
-	uint8_t *pFinal = &packet[pkt_hdr.incl_len];
+	uint8_t *pFinal = &packet[snap_len];
 	char essid[32 + 1];
 	int essid_len = 0;
-	uint8_t *bssid = pkt->addr3;
 	int prio = 0;
 	int i;
 
@@ -866,14 +904,12 @@ static int is_zero(void *ptr, size_t len)
 	return 1;
 }
 
-static void handle4way(ieee802_1x_eapol_t *auth)
+static void handle4way(ieee802_1x_eapol_t *auth, uint8_t *bssid)
 {
-	ieee802_1x_frame_hdr_t *pkt = (ieee802_1x_frame_hdr_t*)packet;
-	uint8_t *end = packet + pkt_hdr.incl_len;
+	uint8_t *end = packet + snap_len;
 	int i;
 	int apsta = -1, ess = -1;
 	int msg = 0;
-	uint8_t *bssid;
 	uint8_t *staid;
 	uint32_t nonce_msb; /* First 32 bits of nonce */
 	uint32_t nonce_lsb; /* Last 32 bits of nonce */
@@ -935,14 +971,14 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 	}
 
 	if (!auth->key_info.KeyACK) {
-		staid = packet_src;
+		staid = packet_TA;
 		if (auth->key_info.Secure || auth->wpa_keydatlen == 0) {
 			msg = 4;
 		} else {
 			msg = 2;
 		}
 	} else {
-		staid = packet_dst;
+		staid = packet_RA;
 		if (auth->key_info.Install) {
 			msg = 3;
 		} else {
@@ -950,7 +986,6 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 		}
 	}
 
-	bssid = pkt->addr3;
 
 	/* Find the ESSID in our db. */
 	ess = get_essid_num(bssid);
@@ -982,6 +1017,36 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 			allocate_more_state();
 	}
 	apsta_db[apsta].rc = rc;
+
+	if (auth->wpa_keydatlen == 22) {
+		keydata_t *keydata = ((eapol_keydata_t*)auth)->tag;
+
+		if ((keydata->tagtype == 0xdd || keydata->tagtype == 0x14) &&
+		    !memcmp(keydata->oui, "\x00\x0f\xac", 3) &&
+		    keydata->oui_type == 0x04) {
+			if (is_zero(keydata->data, 16)) {
+				if (verbosity >= 2)
+					fprintf(stderr, "RSN IE w/ all-zero PMKID\n");
+			} else {
+				if (verbosity >= 3)
+					dump_hex("RSN IE PMKID", keydata->data, 16);
+				if (apsta_db[apsta].pmkid_done) {
+					if (verbosity >= 2)
+						fprintf(stderr, "RSN IE PMKID (already seen)\n");
+				} else if (!apsta_db[apsta].M[0].eapol) {
+					/* PMKID is better than a handshake! */
+					apsta_db[apsta].M[0].eapol_size = 16;
+					apsta_db[apsta].M[0].ts64 = cur_ts64;
+					safe_malloc(apsta_db[apsta].M[0].eapol, 16);
+					memcpy(apsta_db[apsta].M[0].eapol, keydata->data, 16);
+					if (verbosity >= 2)
+						fprintf(stderr, "RSN IE PMKID\n");
+					dump_auth(apsta, 0, 0, 0);
+				}
+			}
+			return;
+		}
+	}
 
 	if (msg == 1 || msg == 3) {
 		if (nonce_msb == apsta_db[apsta].anonce_msb &&
@@ -1038,7 +1103,7 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 		}
 	}
 
-	if (!output_dupes && apsta_db[apsta].fully_cracked) {
+	if (!output_dupes && apsta_db[apsta].handshake_done) {
 		if (verbosity >= 2)
 			fprintf(stderr,
 			        "EAPOL M%u, %cnonce %08x...%08x rc %"PRIu64"%s (4-way already seen)\n",
@@ -1107,8 +1172,8 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 		remove_handshake(apsta, 2);
 		remove_handshake(apsta, 3);
 		remove_handshake(apsta, 4);
-		memcpy(apsta_db[apsta].bssid, packet_src, 6);
-		memcpy(apsta_db[apsta].staid, packet_dst, 6);
+		memcpy(apsta_db[apsta].bssid, packet_TA, 6);
+		memcpy(apsta_db[apsta].staid, packet_RA, 6);
 		apsta_db[apsta].M[1].eapol_size = eapol_sz;
 		apsta_db[apsta].M[1].ts64 = cur_ts64;
 		safe_malloc(apsta_db[apsta].M[1].eapol, eapol_sz);
@@ -1147,8 +1212,8 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 		remove_handshake(apsta, 2);
 		remove_handshake(apsta, 3);
 		remove_handshake(apsta, 4);
-		memcpy(apsta_db[apsta].staid, packet_src, 6);
-		memcpy(apsta_db[apsta].bssid, packet_dst, 6);
+		memcpy(apsta_db[apsta].staid, packet_TA, 6);
+		memcpy(apsta_db[apsta].bssid, packet_RA, 6);
 		apsta_db[apsta].M[2].eapol_size = eapol_sz;
 		apsta_db[apsta].M[2].ts64 = cur_ts64;
 		safe_malloc(apsta_db[apsta].M[2].eapol, eapol_sz);
@@ -1214,8 +1279,8 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 		 */
 		remove_handshake(apsta, 3);
 		remove_handshake(apsta, 4);
-		memcpy(apsta_db[apsta].bssid, packet_src, 6);
-		memcpy(apsta_db[apsta].staid, packet_dst, 6);
+		memcpy(apsta_db[apsta].bssid, packet_TA, 6);
+		memcpy(apsta_db[apsta].staid, packet_RA, 6);
 		apsta_db[apsta].M[3].eapol_size = eapol_sz;
 		apsta_db[apsta].M[3].ts64 = cur_ts64;
 		safe_malloc(apsta_db[apsta].M[3].eapol, eapol_sz);
@@ -1283,8 +1348,8 @@ static void handle4way(ieee802_1x_eapol_t *auth)
 
 		remove_handshake(apsta, 2);
 		remove_handshake(apsta, 4);
-		memcpy(apsta_db[apsta].staid, packet_src, 6);
-		memcpy(apsta_db[apsta].bssid, packet_dst, 6);
+		memcpy(apsta_db[apsta].staid, packet_TA, 6);
+		memcpy(apsta_db[apsta].bssid, packet_RA, 6);
 		apsta_db[apsta].M[4].eapol_size = eapol_sz;
 		apsta_db[apsta].M[4].ts64 = cur_ts64;
 		safe_malloc(apsta_db[apsta].M[4].eapol, eapol_sz);
@@ -1355,19 +1420,91 @@ static void handle4way(ieee802_1x_eapol_t *auth)
  * the program will exit gracefully.  It is not an error, it is just an
  * indication we have completed (or that the data we want is not here).
  */
-static int process_packet(void)
+static int process_packet(uint32_t link_type)
 {
+	static const char *last_f;
+	static uint32_t last_l;
 	ieee802_1x_frame_hdr_t *pkt;
 	ieee802_1x_frame_ctl_t *ctl;
 	unsigned int frame_skip = 0;
 	int has_ht;
+	unsigned int tzsp_link = 0;
+
+	if (filename != last_f || link_type != last_l) {
+		last_f = filename;
+		last_l = link_type;
+
+		if (link_type == LINKTYPE_IEEE802_11)
+			fprintf(stderr, "File %s: raw 802.11\n", filename);
+		else if (link_type == LINKTYPE_PRISM_HEADER)
+			fprintf(stderr, "File %s: Prism encapsulation\n", filename);
+		else if (link_type == LINKTYPE_RADIOTAP_HDR)
+			fprintf(stderr, "File %s: Radiotap encapsulation\n", filename);
+		else if (link_type == LINKTYPE_PPI_HDR)
+			fprintf(stderr, "File %s: PPI encapsulation\n", filename);
+		else if (link_type == LINKTYPE_ETHERNET) {
+			unsigned char *packet = full_packet;
+
+			if (snap_len > 47 &&
+			    packet[12] == 0x08 && packet[13] == 0x00 && // IPv4
+			    packet[23] == 17 && // UDP
+			    packet[42] == 0x01 && packet[44] == 0) // TZSP
+			{
+				if (packet[45] == 18)
+					fprintf(stderr, "File %s: 802.11 over TZSP\n", filename);
+				else if (packet[45] == 119)
+					fprintf(stderr, "File %s: Prism over TZSP\n", filename);
+				else
+					fprintf(stderr, "File %s: TZSP unknown encapsulation %02x\n",
+					        filename, packet[45]);
+			} else
+				fprintf(stderr, "File %s: Ethernet encapsulation\n", filename);
+		} else {
+			fprintf(stderr,
+			        "File %s: No 802.11 wireless traffic data (network %d)\n",
+			        filename, link_type);
+			return 0;
+		}
+	}
 
 	packet = full_packet;
 	pkt_num++;
 
+	/*
+	 * Handle TZSP over UDP. This is just a hack[tm].
+	 */
+	if (snap_len > 47 && link_type == LINKTYPE_ETHERNET &&
+	    packet[12] == 0x08 && packet[13] == 0x00 && // IPv4
+	    packet[23] == 17 && // UDP
+	    packet[42] == 0x01 && packet[44] == 0) { // TZSP
+
+		if (packet[45] == 18)
+			tzsp_link = LINKTYPE_IEEE802_11;
+		else if (packet[45] == 119)
+			tzsp_link = LINKTYPE_PRISM_HEADER;
+		else
+			return 0;
+
+		packet += 46;
+		snap_len -= 46;
+		orig_len -= 46;
+
+		while (packet[0] != 0x01) {
+			int len = packet[1] + 2;
+
+			packet += len;
+			snap_len -= len;
+			orig_len -= len;
+		}
+		packet += 1;
+		snap_len -= 1;
+		orig_len -= 1;
+	}
+
 	/* Skip Prism frame if present */
-	if (link_type == LINKTYPE_PRISM_HEADER) {
-		if (pkt_hdr.incl_len < 8)
+	if (link_type == LINKTYPE_PRISM_HEADER ||
+	    tzsp_link == LINKTYPE_PRISM_HEADER) {
+		if (snap_len < 8)
 			return 0;
 		if (packet[7] == 0x40)
 			frame_skip = 64;
@@ -1377,48 +1514,48 @@ static int process_packet(void)
 			frame_skip = swap32u(frame_skip);
 #endif
 		}
-		if (frame_skip < 8 || frame_skip >= pkt_hdr.incl_len)
+		if (frame_skip < 8 || frame_skip >= snap_len)
 			return 0;
 		packet += frame_skip;
-		pkt_hdr.incl_len -= frame_skip;
-		pkt_hdr.orig_len -= frame_skip;
+		snap_len -= frame_skip;
+		orig_len -= frame_skip;
 	}
 
 	/* Skip Radiotap frame if present */
 	if (link_type == LINKTYPE_RADIOTAP_HDR) {
-		if (pkt_hdr.incl_len < 4)
+		if (snap_len < 4)
 			return 0;
 		frame_skip = *(unsigned short*)&packet[2];
 #if !ARCH_LITTLE_ENDIAN
 		frame_skip = swap32u(frame_skip);
 #endif
-		if (frame_skip == 0 || frame_skip >= pkt_hdr.incl_len)
+		if (frame_skip == 0 || frame_skip >= snap_len)
 			return 0;
 		packet += frame_skip;
-		pkt_hdr.incl_len -= frame_skip;
-		pkt_hdr.orig_len -= frame_skip;
+		snap_len -= frame_skip;
+		orig_len -= frame_skip;
 	}
 
 	/* Skip PPI frame if present */
 	if (link_type == LINKTYPE_PPI_HDR) {
-		if (pkt_hdr.incl_len < 4)
+		if (snap_len < 4)
 			return 0;
 		frame_skip = *(unsigned short*)&packet[2];
 #if !ARCH_LITTLE_ENDIAN
 		frame_skip = swap32u(frame_skip);
 #endif
-		if (frame_skip <= 0 || frame_skip >= pkt_hdr.incl_len)
+		if (frame_skip <= 0 || frame_skip >= snap_len)
 			return 0;
 
 		/* Kismet logged broken PPI frames for a period */
 		if (frame_skip == 24 && *(unsigned short*)&packet[8] == 2)
 			frame_skip = 32;
 
-		if (frame_skip == 0 || frame_skip >= pkt_hdr.incl_len)
+		if (frame_skip == 0 || frame_skip >= snap_len)
 			return 0;
 		packet += frame_skip;
-		pkt_hdr.incl_len -= frame_skip;
-		pkt_hdr.orig_len -= frame_skip;
+		snap_len -= frame_skip;
+		orig_len -= frame_skip;
 	}
 
 	/*
@@ -1428,10 +1565,10 @@ static int process_packet(void)
 	 */
 	if (link_type == LINKTYPE_ETHERNET &&
 	    packet[12] == 0x88 && packet[13] == 0x8e) {
-		int new_len = pkt_hdr.incl_len - 12 + sizeof(fake802_11);
+		int new_len = snap_len - 12 + sizeof(fake802_11);
 		ieee802_1x_eapol_t *auth;
 
-		//dump_hex("Orig packet", packet, pkt_hdr.incl_len);
+		//dump_hex("Orig packet", packet, snap_len);
 
 		if (new_len > new_p_sz) {
 			safe_realloc(new_p, new_len);
@@ -1442,7 +1579,7 @@ static int process_packet(void)
 		/* Put original src and dest in the fake 802.11 header */
 		memcpy(new_p + 4, packet, 12);
 		/* Add original EAPOL data */
-		memcpy(new_p + sizeof(fake802_11), packet + 12, pkt_hdr.incl_len - 12);
+		memcpy(new_p + sizeof(fake802_11), packet + 12, snap_len - 12);
 
 		auth = (ieee802_1x_eapol_t*)&packet[14];
 		auth->key_info_u16 = swap16u(auth->key_info_u16);
@@ -1452,67 +1589,96 @@ static int process_packet(void)
 		else
 			memcpy(new_p + 16, packet, 6);
 
-		pkt_hdr.incl_len += sizeof(fake802_11) - 12;
-		pkt_hdr.orig_len += sizeof(fake802_11) - 12;
+		snap_len += sizeof(fake802_11) - 12;
+		orig_len += sizeof(fake802_11) - 12;
 		packet = new_p;
-		//dump_hex("Fake packet", packet, pkt_hdr.incl_len);
+		//dump_hex("Fake packet", packet, snap_len);
 	}
 
-/* our data is in *packet with pkt_hdr being the pcap packet header for it */
+	/* our data is in *packet  */
 	pkt = (ieee802_1x_frame_hdr_t*)packet;
 
-	if (pkt_hdr.incl_len < 10) {
+	if (snap_len < 10) {
 		if (verbosity >= 2)
 			fprintf(stderr, "Truncated data\n");
 		return 0;
 	}
 
-	packet_dst = &packet[4];
-	if (pkt_hdr.incl_len >= 16)
-		packet_src = &packet[10];
-	else
-		packet_src = NULL;
+	packet_RA = pkt->addr1;
+	packet_TA = (snap_len >= 16) ? pkt->addr2 : NULL;
+
+	ctl = (ieee802_1x_frame_ctl_t *)&pkt->frame_ctl;
+
+	if (ctl->toDS == 0 && ctl->fromDS == 0) {
+		packet_DA = packet_RA;
+		packet_SA = packet_TA;
+		bssid = (snap_len >= 22) ? pkt->addr3 : NULL;
+	} else if (ctl->toDS == 0 && ctl->fromDS == 1) {
+		packet_DA = packet_RA;
+		packet_SA = (snap_len >= 22) ? pkt->addr3 : NULL;
+		bssid = packet_TA;
+	} else if (ctl->toDS == 1 && ctl->fromDS == 0) {
+		bssid = packet_RA;
+		packet_SA = packet_TA;
+		packet_DA = (snap_len >= 22) ? pkt->addr3 : NULL;
+	} else /*if (ctl->toDS == 1 && ctl->fromDS == 1)*/ {
+		packet_DA = (snap_len >= 22) ? pkt->addr3 : NULL;
+		packet_SA = (snap_len >= 30) ? &packet[24] : NULL; // addr4
+		bssid = packet_TA; /* If anything */
+	}
 
 	filter_hit = (!filter_mac[0] ||
-	              !strcmp(filter_mac, to_mac_str(packet_dst)) ||
-	              (packet_src && !strcmp(filter_mac, to_mac_str(packet_src))));
+	              !strcmp(filter_mac, to_mac_str(packet_RA)) ||
+	              (packet_TA && !strcmp(filter_mac, to_mac_str(packet_TA))) ||
+	              (packet_SA && !strcmp(filter_mac, to_mac_str(packet_SA))) ||
+	              (packet_DA && !strcmp(filter_mac, to_mac_str(packet_DA))));
 
 	if (verbosity >= 2 && filter_hit) {
 		if (verbosity >= 4)
-			dump_hex("802.11 packet", pkt, pkt_hdr.incl_len);
+			dump_hex("802.11 packet", pkt, snap_len);
 
 		if (verbosity >= 4)
-			fprintf(stderr, "%4d %2d.%06u  %s -> %s %-4d ", pkt_num,
-			        pkt_hdr.ts_sec, pkt_hdr.ts_usec, to_mac_str(packet_src),
-			        to_mac_str(packet_dst), pkt_hdr.incl_len);
+			fprintf(stderr, "%4d %2u.%06u  %s -> %s %-4d ", pkt_num,
+			        (uint32_t)(abs_ts64 / 1000000),
+			        (uint32_t)(abs_ts64 % 1000000),
+			        to_mac_str(packet_TA),
+			        to_mac_str(packet_RA), snap_len);
 		else
-			fprintf(stderr, "%4d %2d.%06u  %s -> %s %-4d ", pkt_num,
-			        cur_t, cur_u, to_mac_str(packet_src),
-			        to_mac_str(packet_dst), pkt_hdr.incl_len);
+			fprintf(stderr, "%4d %2u.%06u  %s -> %s %-4d ", pkt_num,
+			        (uint32_t)(cur_ts64 / 1000000),
+			        (uint32_t)(cur_ts64 % 1000000),
+			        to_mac_str(packet_TA),
+			        to_mac_str(packet_RA), snap_len);
 
-		if (verbosity >= 2 && filter_hit && packet_src) {
-			if (!memcmp(l3mcast, packet_src, 3))
+		if (verbosity >= 3)
+			fprintf(stderr, "\n\tRA %s TA %s DA %s SA %s BSSID %s",
+			        packet_RA ? to_hex(packet_RA, 6) : "null",
+			        packet_TA ? to_hex(packet_TA, 6) : "null",
+			        packet_DA ? to_hex(packet_DA, 6) : "null",
+			        packet_SA ? to_hex(packet_SA, 6) : "null",
+			        bssid ? to_hex(bssid, 6) : "null");
+
+		if (verbosity >= 2 && filter_hit && packet_TA) {
+			if (!memcmp(l3mcast, packet_TA, 3))
 				fprintf(stderr, "[IPv4 mcast src] ");
-			else if ((packet_src[0] & 0x03) == 0x03)
+			else if ((packet_TA[0] & 0x03) == 0x03)
 				fprintf(stderr, "[LA mcast src] ");
-			else if (packet_src[0] & 0x01)
+			else if (packet_TA[0] & 0x01)
 				fprintf(stderr, "[mcast src] ");
-			else if (packet_src[0] & 0x02)
+			else if (packet_TA[0] & 0x02)
 				fprintf(stderr, "[LA src] ");
 		}
-		if (verbosity >= 2 && filter_hit && memcmp(packet_dst, bcast, 6)) {
-			if (!memcmp(l3mcast, packet_dst, 3))
+		if (verbosity >= 2 && filter_hit && memcmp(packet_RA, bcast, 6)) {
+			if (!memcmp(l3mcast, packet_RA, 3))
 				fprintf(stderr, "[IPv4 mcast] ");
-			else if ((packet_dst[0] & 0x03) == 0x03)
+			else if ((packet_RA[0] & 0x03) == 0x03)
 				fprintf(stderr, "[LA mcast] ");
-			else if (packet_dst[0] & 0x01)
+			else if (packet_RA[0] & 0x01)
 				fprintf(stderr, "[mcast] ");
-			else if (packet_dst[0] & 0x02)
+			else if (packet_RA[0] & 0x02)
 				fprintf(stderr, "[LA dst] ");
 		}
 	}
-
-	ctl = (ieee802_1x_frame_ctl_t *)&pkt->frame_ctl;
 
 	has_ht = (ctl->order == 1); /* 802.11n, 4 extra bytes MAC header */
 
@@ -1524,27 +1690,34 @@ static int process_packet(void)
 	 * Beacon is subtype 8 and probe response is subtype 5
 	 * probe request is 4, assoc request is 0, reassoc is 2
 	 */
-	if (ctl->type == 0) {
-		learn_essid(ctl->subtype, has_ht);
+	if (ctl->type == 0 && bssid) {
+		learn_essid(ctl->subtype, has_ht, bssid);
 		return 1;
 	}
 
-	if (!filter_hit && (memcmp(bcast, packet_dst, 6) || packet_src != NULL))
+	if (!filter_hit && (memcmp(bcast, packet_RA, 6) || packet_TA != NULL))
 		return 1;
 
 	/* if not beacon or probe response, then look only for EAPOL 'type' */
 	if (ctl->type == 2) { /* type 2 is data */
 		uint8_t *p = packet;
 		int has_qos = (ctl->subtype & 8) != 0;
+		int has_addr4 = ctl->toDS & ctl->fromDS;
 
-		if ((ctl->toDS ^ ctl->fromDS) != 1) {
+		if (has_qos && verbosity >= 2)
+			fprintf(stderr, "[QoS] ");
+		if (has_addr4 && verbosity >= 2)
+			fprintf(stderr, "[a4] ");
+
+		if (!has_addr4 && ((ctl->toDS ^ ctl->fromDS) != 1)) {
 			/* eapol will ONLY be direct toDS or direct fromDS. */
 			if (verbosity >= 2)
-				fprintf(stderr, "Invalid EAPOL src/dst\n");
+				fprintf(stderr, "Data\n");
 			return 1;
 		}
-		if (sizeof(ieee802_1x_frame_hdr_t)+6+2+(has_qos?2:0)+(has_ht?4:0) >=
-		    pkt_hdr.incl_len) {
+		if (sizeof(ieee802_1x_frame_hdr_t)+6+2+
+		    (has_qos?2:0)+(has_ht?4:0)+(has_addr4?6:0) >=
+		    snap_len) {
 			if (verbosity >= 2)
 				fprintf(stderr, "QoS Null or malformed EAPOL\n");
 			return 1;
@@ -1552,6 +1725,8 @@ static int process_packet(void)
 		/* Ok, find out if this is an EAPOL packet or not. */
 
 		p += sizeof(ieee802_1x_frame_hdr_t);
+		if (has_addr4)
+			p += 6;
 		if (has_qos)
 			p += 2;
 /*
@@ -1570,7 +1745,7 @@ static int process_packet(void)
 			eap = (eapext_t*)p;
 
 			if (eap->type == 0) {
-				if (pkt_hdr.incl_len < sizeof(eapext_t) + (has_qos ? 10 : 8)) {
+				if (snap_len < sizeof(eapext_t) + (has_qos ? 10 : 8)) {
 					fprintf(stderr, "%s: truncated packet\n", filename);
 					return 1;
 				}
@@ -1595,11 +1770,11 @@ static int process_packet(void)
 				return 1;
 			} else if (eap->type == 3) {
 				/* EAP key */
-				if (pkt_hdr.incl_len < sizeof(ieee802_1x_frame_hdr_t) +
+				if (snap_len < sizeof(ieee802_1x_frame_hdr_t) +
 				    (has_qos ? 10 : 8)) {
 					fprintf(stderr, "%s: truncated packet\n", filename);
-				} else
-					handle4way((ieee802_1x_eapol_t*)p);
+				} else if (bssid)
+					handle4way((ieee802_1x_eapol_t*)p, bssid);
 				return 1;
 			} else {
 				if (verbosity >= 2)
@@ -1637,9 +1812,267 @@ static int process_packet(void)
 	return 1;
 }
 
+int pcapng_option_print(FILE *in, size_t len, size_t pad_len,
+                        char *name, int verb_lvl)
+{
+	char *string;
+
+	safe_malloc(string, pad_len + 1);
+
+	if (fread(string, 1, pad_len, in) != pad_len) {
+		fprintf(stderr, "Malformed %s data in %s\n", name, filename);
+		MEM_FREE(string);
+		return 1;
+	}
+	if (verbosity >= verb_lvl) {
+		// These strings are NOT null-terminated unless they happen to be padded
+		string[len] = 0;
+		fprintf(stderr, "File %s %s: %s\n", filename, name, string);
+	}
+
+	MEM_FREE(string);
+	return 0;
+}
+
+void pcapng_option_walk(FILE *in, uint32_t tl)
+{
+	uint16_t res;
+	uint16_t padding;
+	option_header_t opthdr;
+	uint16_t len, pad_len;
+
+	while (1) {
+		res = fread(&opthdr, 1, OH_SIZE, in);
+		if (res != OH_SIZE) {
+			fprintf(stderr, "Malformed data in %s\n", filename);
+			break;
+		}
+		if (opthdr.option_code == 0) {
+			break;
+		}
+		padding = 0;
+		len = opthdr.option_length;
+		if ((len % 4))
+			padding = 4 - (len % 4);
+
+		pad_len = len + padding;
+
+		if (pad_len > tl) {
+			fprintf(stderr, "Malformed data in %s\n", filename);
+			break;
+		}
+		tl -= pad_len;
+
+		if (opthdr.option_code == 1) {
+			if (pcapng_option_print(in, len, pad_len, "comment", 0))
+				break;
+		} else if (opthdr.option_code == 2) {
+			if (pcapng_option_print(in, len, pad_len, "hwinfo", 1))
+				break;
+		} else if (opthdr.option_code == 3) {
+			if (pcapng_option_print(in, len, pad_len, "osinfo", 1))
+				break;
+		} else if (opthdr.option_code == 4) {
+			if (pcapng_option_print(in, len, pad_len, "appinfo", 1))
+				break;
+		} else {
+			// Just skip unknown options
+			fseek(in, pad_len, SEEK_CUR);
+		}
+	}
+}
+
+static int process_ng(FILE *in)
+{
+	unsigned int res;
+	int aktseek;
+
+	block_header_t pcapngbh;
+	section_header_block_t pcapngshb;
+	interface_description_block_t pcapngidb;
+	packet_block_t pcapngpb;
+	enhanced_packet_block_t pcapngepb;
+
+	while (1) {
+		res = fread(&pcapngbh, 1, BH_SIZE, in);
+		if (res == 0) {
+			break;
+		}
+		if (res != BH_SIZE) {
+			printf("failed to read pcapng header block\n");
+			break;
+		}
+		if (pcapngbh.block_type == PCAPNGBLOCKTYPE) {
+			res = fread(&pcapngshb, 1, SHB_SIZE, in);
+			if (res != SHB_SIZE) {
+				printf("failed to read pcapng section header block\n");
+				break;
+			}
+#if !ARCH_LITTLE_ENDIAN
+			pcapngbh.total_length = swap32u(pcapngbh.total_length);
+			pcapngshb.byte_order_magic	= swap32u(pcapngshb.byte_order_magic);
+			pcapngshb.major_version		= swap16u(pcapngshb.major_version);
+			pcapngshb.minor_version		= swap16u(pcapngshb.minor_version);
+			pcapngshb.section_length	= swap64u(pcapngshb.section_length);
+#endif
+			if (pcapngshb.byte_order_magic == PCAPNGMAGICNUMBERBE) {
+				swap_needed = 1;
+				pcapngbh.total_length = swap32u(pcapngbh.total_length);
+				pcapngshb.byte_order_magic	= swap32u(pcapngshb.byte_order_magic);
+				pcapngshb.major_version		= swap16u(pcapngshb.major_version);
+				pcapngshb.minor_version		= swap16u(pcapngshb.minor_version);
+				pcapngshb.section_length	= swap64u(pcapngshb.section_length);
+			}
+			aktseek = ftell(in);
+			if (pcapngbh.total_length > (SHB_SIZE + BH_SIZE + 4)) {
+				pcapng_option_walk(in, pcapngbh.total_length);
+			}
+			fseek(in, aktseek + pcapngbh.total_length - BH_SIZE - SHB_SIZE, SEEK_SET);
+			continue;
+		}
+#if !ARCH_LITTLE_ENDIAN
+		pcapngbh.block_type = swap32u(pcapngbh.block_type);
+		pcapngbh.total_length = swap32u(pcapngbh.total_length);
+#endif
+		if (swap_needed == 1) {
+			pcapngbh.block_type = swap32u(pcapngbh.block_type);
+			pcapngbh.total_length = swap32u(pcapngbh.total_length);
+		}
+
+		if (pcapngbh.block_type == 1) {
+			res = fread(&pcapngidb, 1, IDB_SIZE, in);
+			if (res != IDB_SIZE) {
+				printf("failed to get pcapng interface description block\n");
+				break;
+			}
+#if !ARCH_LITTLE_ENDIAN
+			pcapngidb.linktype	= swap16u(pcapngidb.linktype);
+			pcapngidb.snaplen	= swap32u(pcapngidb.snaplen);
+#endif
+			if (swap_needed == 1) {
+				pcapngidb.linktype	= swap16u(pcapngidb.linktype);
+				pcapngidb.snaplen	= swap32u(pcapngidb.snaplen);
+			}
+
+			fseek(in, pcapngbh.total_length - BH_SIZE - IDB_SIZE, SEEK_CUR);
+		}
+
+		else if (pcapngbh.block_type == 2) {
+			res = fread(&pcapngpb, 1, PB_SIZE, in);
+			if (res != PB_SIZE) {
+				printf("failed to get pcapng packet block (obsolete)\n");
+				break;
+			}
+#if !ARCH_LITTLE_ENDIAN
+			pcapngpb.interface_id	= swap16u(pcapngpb.interface_id);
+			pcapngpb.drops_count	= swap16u(pcapngpb.drops_count);
+			pcapngpb.timestamp_high	= swap32u(pcapngpb.timestamp_high);
+			pcapngpb.timestamp_low	= swap32u(pcapngpb.timestamp_low);
+			pcapngpb.caplen		= swap32u(pcapngpb.caplen);
+			pcapngpb.len		= swap32u(pcapngpb.len);
+#endif
+			if (swap_needed == 1) {
+				pcapngpb.interface_id	= swap16u(pcapngpb.interface_id);
+				pcapngpb.drops_count	= swap16u(pcapngpb.drops_count);
+				pcapngpb.timestamp_high	= swap32u(pcapngpb.timestamp_high);
+				pcapngpb.timestamp_low	= swap32u(pcapngpb.timestamp_low);
+				pcapngpb.caplen		= swap32u(pcapngpb.caplen);
+				pcapngpb.len		= swap32u(pcapngpb.len);
+			}
+
+			if ((pcapngepb.timestamp_high == 0) &&
+			    (pcapngepb.timestamp_low == 0) && !warn_wpaclean++)
+				fprintf(stderr,
+"**\n** Warning: %s seems to be processed with some dubious tool like\n"
+"** 'wpaclean'. Important information may be lost.\n**\n", filename);
+
+			MEM_FREE(full_packet);
+			safe_malloc(full_packet, pcapngepb.caplen);
+			res = fread(full_packet, 1, pcapngpb.caplen, in);
+			if (res != pcapngpb.caplen) {
+				printf("failed to read packet: %s truncated?\n", filename);
+				break;
+			}
+			fseek(in, pcapngbh.total_length - BH_SIZE - PB_SIZE - pcapngepb.caplen, SEEK_CUR);
+
+			MEM_FREE(full_packet);
+			safe_malloc(full_packet, pcapngepb.caplen);
+			res = fread(full_packet, 1, pcapngpb.caplen, in);
+			if (res != pcapngpb.caplen) {
+				printf("failed to read packet: %s truncated?\n", filename);
+				break;
+			}
+
+			fseek(in, pcapngbh.total_length - BH_SIZE - PB_SIZE - pcapngpb.caplen, SEEK_CUR);
+		}
+
+		else if (pcapngbh.block_type == 3) {
+			fseek(in, pcapngbh.total_length - BH_SIZE, SEEK_CUR);
+		}
+
+		else if (pcapngbh.block_type == 4) {
+			fseek(in, pcapngbh.total_length - BH_SIZE, SEEK_CUR);
+		}
+
+		else if (pcapngbh.block_type == 5) {
+			fseek(in, pcapngbh.total_length - BH_SIZE, SEEK_CUR);
+		}
+
+		else if (pcapngbh.block_type == 6) {
+			res = fread(&pcapngepb, 1, EPB_SIZE, in);
+			if (res != EPB_SIZE) {
+				printf("failed to get pcapng enhanced packet block\n");
+				break;
+			}
+#if !ARCH_LITTLE_ENDIAN
+			pcapngepb.interface_id		= swap32u(pcapngepb.interface_id);
+			pcapngepb.timestamp_high	= swap32u(pcapngepb.timestamp_high);
+			pcapngepb.timestamp_low		= swap32u(pcapngepb.timestamp_low);
+			pcapngepb.caplen		= swap32u(pcapngepb.caplen);
+			pcapngepb.len			= swap32u(pcapngepb.len);
+#endif
+			if (swap_needed == 1) {
+				pcapngepb.interface_id		= swap32u(pcapngepb.interface_id);
+				pcapngepb.timestamp_high	= swap32u(pcapngepb.timestamp_high);
+				pcapngepb.timestamp_low		= swap32u(pcapngepb.timestamp_low);
+				pcapngepb.caplen		= swap32u(pcapngepb.caplen);
+				pcapngepb.len			= swap32u(pcapngepb.len);
+			}
+
+			MEM_FREE(full_packet);
+			safe_malloc(full_packet, pcapngepb.caplen);
+			res = fread(full_packet, 1, pcapngepb.caplen, in);
+			if (res != pcapngepb.caplen) {
+				printf("failed to read packet: %s truncated?\n", filename);
+				break;
+			}
+			fseek(in, pcapngbh.total_length - BH_SIZE - EPB_SIZE - pcapngepb.caplen, SEEK_CUR);
+		} else {
+			fseek(in, pcapngbh.total_length - BH_SIZE, SEEK_CUR);
+		}
+		if (pcapngepb.caplen > 0) {
+			snap_len = pcapngepb.caplen;
+			orig_len = pcapngepb.len;
+			// FIXME: Honor if_tsresol from Interface Description Block
+			abs_ts64 = (((uint64_t)pcapngepb.timestamp_high << 32) +
+			              pcapngepb.timestamp_low);
+			if (!start_ts64)
+				start_ts64 = abs_ts64;
+			cur_ts64 = abs_ts64 - start_ts64;
+			if (!process_packet(pcapngidb.linktype))
+				break;
+		}
+	}
+	if (verbosity >= 2)
+		fprintf(stderr, "File %s: End of data\n", filename);
+	dump_late();
+	return 1;
+}
+
 static int get_next_packet(FILE *in)
 {
 	size_t read_size;
+	pcaprec_hdr_t pkt_hdr;
 
 	if (fread(&pkt_hdr, 1, sizeof(pkt_hdr), in) != sizeof(pkt_hdr))
 		return 0;
@@ -1647,40 +2080,37 @@ static int get_next_packet(FILE *in)
 	if (swap_needed) {
 		pkt_hdr.ts_sec = swap32u(pkt_hdr.ts_sec);
 		pkt_hdr.ts_usec = swap32u(pkt_hdr.ts_usec);
-		pkt_hdr.incl_len = swap32u(pkt_hdr.incl_len);
+		pkt_hdr.snap_len = swap32u(pkt_hdr.snap_len);
 		pkt_hdr.orig_len = swap32u(pkt_hdr.orig_len);
 	}
+
+	snap_len = pkt_hdr.snap_len;
+	orig_len = pkt_hdr.orig_len;
 
 	if (pkt_hdr.ts_sec == 0 && pkt_hdr.ts_usec == 0 && !warn_wpaclean++)
 		fprintf(stderr,
 "**\n** Warning: %s seems to be processed with some dubious tool like\n"
 "** 'wpaclean'. Important information may be lost.\n**\n", filename);
 
-	if (pkt_hdr.orig_len > pkt_hdr.incl_len && !warn_snaplen++)
+	if (orig_len > snap_len && !warn_snaplen++)
 		fprintf(stderr,
 		        "**\n** Warning: %s seems to be recorded with insufficient snaplen, packet was %u bytes but only %u bytes were recorded\n**\n",
-		        filename, pkt_hdr.orig_len, pkt_hdr.incl_len);
+		        filename, orig_len, snap_len);
 
-	if (!start_t) {
-		start_t = pkt_hdr.ts_sec;
-		start_u = pkt_hdr.ts_usec;
-	}
-	cur_t = pkt_hdr.ts_sec - start_t;
-	cur_u = pkt_hdr.ts_usec - start_u;
+	abs_ts64 = pkt_hdr.ts_sec * 1000000 + pkt_hdr.ts_usec;
 
-	while (cur_u > 999999) {
-		cur_t--;
-		cur_u += 1000000;
-	}
-	cur_ts64 = cur_t * 1000000 + cur_u;
+	if (!start_ts64)
+		start_ts64 = abs_ts64;
+
+	cur_ts64 = abs_ts64 - start_ts64;
 
 	MEM_FREE(full_packet);
-	safe_malloc(full_packet, pkt_hdr.incl_len);
-	read_size = fread(full_packet, 1, pkt_hdr.incl_len, in);
-	if (verbosity && read_size < pkt_hdr.incl_len)
+	safe_malloc(full_packet, snap_len);
+	read_size = fread(full_packet, 1, snap_len, in);
+	if (verbosity && read_size < snap_len)
 		fprintf(stderr, "%s: truncated last packet\n", filename);
 
-	return (read_size == pkt_hdr.incl_len);
+	return (read_size == snap_len);
 }
 
 static int process(FILE *in)
@@ -1697,8 +2127,12 @@ static int process(FILE *in)
 		swap_needed = 0;
 	else if (main_hdr.magic_number == 0xd4c3b2a1)
 		swap_needed = 1;
-	else {
+	else if (main_hdr.magic_number == PCAPNGBLOCKTYPE) {
+		fseek(in, 0, SEEK_SET);
+		return process_ng(in);
+	} else {
 		if (convert_ivs2(in)) {
+			fprintf(stderr, "%s: unknown file. Supported formats are pcap, pcap-ng and ivs2.\n", filename);
 			return 0;
 		}
 		return 1;
@@ -1712,37 +2146,17 @@ static int process(FILE *in)
 		main_hdr.snaplen = swap32u(main_hdr.snaplen);
 		main_hdr.network = swap32u(main_hdr.network);
 	}
-	link_type = main_hdr.network;
-	if (verbosity)
-		fprintf(stderr, "\n");
-	if (link_type == LINKTYPE_IEEE802_11)
-		fprintf(stderr, "File %s: raw 802.11\n", filename);
-	else if (link_type == LINKTYPE_PRISM_HEADER)
-		fprintf(stderr, "File %s: Prism headers stripped\n", filename);
-	else if (link_type == LINKTYPE_RADIOTAP_HDR)
-		fprintf(stderr, "File %s: Radiotap headers stripped\n", filename);
-	else if (link_type == LINKTYPE_PPI_HDR)
-		fprintf(stderr, "File %s: PPI headers stripped\n", filename);
-	else if (link_type == LINKTYPE_ETHERNET)
-		fprintf(stderr, "File %s: Ethernet headers, non-monitor mode.%s\n",
-		        filename,
-		        opt_e_used ? "" : " Use of -e option likely required.");
-	else {
-		fprintf(stderr,
-		        "File %s: No 802.11 wireless traffic data (network %d)\n",
-		        filename, link_type);
-		return 0;
-	}
+
 
 	while (get_next_packet(in)) {
-		if (!process_packet()) {
+		if (!process_packet(main_hdr.network)) {
 			break;
 		}
 	}
+
 	if (verbosity >= 2)
 		fprintf(stderr, "File %s: End of data\n", filename);
-	if (show_unverified)
-		dump_any_unver();
+	dump_late();
 	return 1;
 }
 
@@ -1874,17 +2288,17 @@ void usage(char *name, int ret)
 {
 	fprintf(stderr,
 	"Converts PCAP or IVS2 files to JtR format.\n"
-	"Supported encapsulations: 802.11, Prism, Radiotap and PPI.\n"
+	"Supported encapsulations: 802.11, Prism, Radiotap, PPI and TZSP over UDP.\n"
 	"Usage: %s [options] <file[s]>\n"
-	"\n-c\tShow only complete auths (incomplete ones might be wrong passwords\n"
-	"\tbut we can crack what passwords were tried).\n"
-	"-v\tBump verbosity (can be used several times, try -vv)\n"
-	"-d\tDo not suppress dupe hashes (per AP/STA pair)\n"
-	"-r\tIgnore replay-count (may output fuzzed-anonce handshakes)\n"
-	"-f <n>\tForce anonce fuzzing with +/- <n>\n"
-	"-e\tManually add Name:MAC pair(s) in case the file lacks beacons.\n"
-	"\teg. -e \"Magnum WIFI:6d:61:67:6e:75:6d\"\n"
-	"-m\tIgnore any packets not involving this mac adress\n\n",
+	"\n-c\t\tShow only complete auths (incomplete ones might be wrong passwords\n"
+	"\t\tbut we can crack what passwords were tried).\n"
+	"-v\t\tBump verbosity (can be used several times, try -vv)\n"
+	"-d\t\tDo not suppress dupe hashes (per AP/STA pair)\n"
+	"-r\t\tIgnore replay-count (may output fuzzed-anonce handshakes)\n"
+	"-f <n>\t\tForce anonce fuzzing with +/- <n>\n"
+	"-e <essid:mac>\tManually add Name:MAC pair(s) in case the file lacks beacons.\n"
+	"\t\teg. -e \"Magnum WIFI:6d:61:67:6e:75:6d\"\n"
+	"-m <mac>\tIgnore any packets not involving this mac adress\n\n",
 	        name);
 	exit(ret);
 }
@@ -1994,10 +2408,13 @@ int main(int argc, char **argv)
 	for (i = 1; i < argc; i++) {
 		int j;
 
+		if (verbosity && i > 1)
+			fprintf(stderr, "\n");
+
 		/* Re-init between pcap files */
 		warn_snaplen = 0;
 		warn_wpaclean = 0;
-		start_t = start_u = 0;
+		start_ts64 = 0;
 		pkt_num = 0;
 		for (j = 0; j < n_essid; j++)
 			if (essid_db[j].prio < 5)
@@ -2014,7 +2431,8 @@ int main(int argc, char **argv)
 	}
 	fprintf(stderr, "\n%d ESSIDS processed and %d AP/STA pairs processed\n",
 	        n_essid, n_apsta);
-	fprintf(stderr, "%d handshakes written\n", n_hashes);
+	fprintf(stderr, "%d handshakes written, %d RSN IE PMKIDs\n",
+	        n_handshakes, n_pmkids);
 
 	MEM_FREE(new_p);
 

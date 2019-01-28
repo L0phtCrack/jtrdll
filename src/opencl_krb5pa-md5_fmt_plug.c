@@ -33,13 +33,12 @@ john_register_one(&FMT_STRUCT);
 #else
 
 #include <string.h>
-#include <assert.h>
 
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "config.h"
 #include "unicode.h"
 #include "loader.h"
@@ -63,7 +62,7 @@ john_register_one(&FMT_STRUCT);
 #define FORMAT_TAG2_LEN         (sizeof(FORMAT_TAG2)-1)
 #define ALGORITHM_NAME          "MD4 HMAC-MD5 RC4 OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1001
+#define BENCHMARK_LENGTH        -1
 #define PLAINTEXT_LENGTH        27 /* Bumped 3x for UTF-8 */
 #define MAX_REALMLEN            64
 #define MAX_USERLEN             64
@@ -114,15 +113,14 @@ static cl_uint *saved_plain, *saved_idx, *saved_int_key_loc;
 static int static_gpu_locations[MASK_FMT_INT_PLHDR];
 
 static cl_mem buffer_return_hashes, buffer_hash_ids, buffer_bitmap_dupe;
-static cl_mem buffer_offset_table_test, buffer_hash_table_test, buffer_bitmaps_test, buffer_salt_test;
-static cl_mem *buffer_offset_tables = NULL, *buffer_hash_tables = NULL, *buffer_bitmaps = NULL, *buffer_salts = NULL;
-static OFFSET_TABLE_WORD *offset_table = NULL;
-static unsigned int **hash_tables = NULL;
-static unsigned int current_salt = 0;
-static cl_uint *loaded_hashes = NULL, max_num_loaded_hashes, *hash_ids = NULL, *bitmaps = NULL, max_hash_table_size = 0;
-static cl_ulong bitmap_size_bits = 0;
+static cl_mem *buffer_offset_tables, *buffer_hash_tables, *buffer_bitmaps, *buffer_salts;
+static OFFSET_TABLE_WORD *offset_table;
+static unsigned int **hash_tables;
+static unsigned int current_salt;
+static cl_uint *loaded_hashes, max_num_loaded_hashes, *hash_ids, *bitmaps, max_hash_table_size;
+static cl_ulong bitmap_size_bits;
 
-static unsigned int key_idx = 0;
+static unsigned int key_idx;
 static unsigned int set_new_keys = 1;
 static struct fmt_main *self;
 static cl_uint *zero_buffer;
@@ -136,7 +134,6 @@ static const char *warn[] = {
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -244,17 +241,6 @@ static void release_clobj(void)
 	}
 }
 
-static void release_clobj_test(void)
-{
-	if (buffer_salt_test) {
-		HANDLE_CLERROR(clReleaseMemObject(buffer_salt_test), "Error Releasing buffer_salt_test.");
-		HANDLE_CLERROR(clReleaseMemObject(buffer_offset_table_test), "Error Releasing buffer_offset_table_test.");
-		HANDLE_CLERROR(clReleaseMemObject(buffer_hash_table_test), "Error Releasing buffer_hash_table_test.");
-		HANDLE_CLERROR(clReleaseMemObject(buffer_bitmaps_test), "Error Releasing buffer_bitmap_test.");
-		buffer_salt_test = 0;
-	}
-}
-
 static void release_base_clobj(void)
 {
 	if (buffer_int_keys) {
@@ -274,11 +260,9 @@ static void release_salt_buffers()
 		k = 0;
 		while (hash_tables[k]) {
 			MEM_FREE(hash_tables[k]);
-			hash_tables[k] = 0;
 			k++;
 		}
 		MEM_FREE(hash_tables);
-		hash_tables = NULL;
 	}
 	if (buffer_offset_tables) {
 		k = 0;
@@ -288,7 +272,6 @@ static void release_salt_buffers()
 			k++;
 		}
 		MEM_FREE(buffer_offset_tables);
-		buffer_offset_tables = NULL;
 	}
 	if (buffer_hash_tables) {
 		k = 0;
@@ -298,7 +281,6 @@ static void release_salt_buffers()
 			k++;
 		}
 		MEM_FREE(buffer_hash_tables);
-		buffer_hash_tables = NULL;
 	}
 	if (buffer_bitmaps) {
 		k = 0;
@@ -308,7 +290,6 @@ static void release_salt_buffers()
 			k++;
 		}
 		MEM_FREE(buffer_bitmaps);
-		buffer_bitmaps = NULL;
 	}
 	if (buffer_salts) {
 		k = 0;
@@ -318,13 +299,11 @@ static void release_salt_buffers()
 			k++;
 		}
 		MEM_FREE(buffer_salts);
-		buffer_salts = NULL;
 	}
 }
 
 static void done(void)
 {
-	release_clobj_test();
 	release_clobj();
 	release_base_clobj();
 
@@ -350,7 +329,7 @@ static void init_kernel(void)
 	clReleaseKernel(crypt_kernel);
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges!= NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else
@@ -569,7 +548,6 @@ static int get_hash_6(int index) { return hash_tables[current_salt][hash_ids[3 +
 static void clear_keys(void)
 {
 	key_idx = 0;
-	set_new_keys = 1;
 }
 
 static void set_key(char *_key, int index)
@@ -621,8 +599,8 @@ static char *get_key(int index)
 	}
 
 	if (t >= global_work_size) {
-		//fprintf(stderr, "Get key error! %d %d\n", t, index);
 		t = 0;
+		int_index = 0;
 	}
 
 	len = saved_idx[t] & 127;
@@ -632,7 +610,7 @@ static char *get_key(int index)
 		out[i] = *key++;
 	out[i] = 0;
 
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
+	if (len && mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			if (mask_gpu_is_static)
 				out[static_gpu_locations[i]] =
@@ -646,7 +624,7 @@ static char *get_key(int index)
 }
 
 /* Use only for smaller bitmaps < 16MB */
-static void prepare_bitmap_4(cl_ulong bmp_sz, cl_uint **bitmap_ptr, uint num_loaded_hashes)
+static void prepare_bitmap_4(cl_ulong bmp_sz, cl_uint **bitmap_ptr, uint32_t num_loaded_hashes)
 {
 	unsigned int i;
 	MEM_FREE(*bitmap_ptr);
@@ -670,7 +648,7 @@ static void prepare_bitmap_4(cl_ulong bmp_sz, cl_uint **bitmap_ptr, uint num_loa
 	}
 }
 /*
-static void prepare_bitmap_1(cl_ulong bmp_sz, cl_uint **bitmap_ptr, uint num_loaded_hashes)
+static void prepare_bitmap_1(cl_ulong bmp_sz, cl_uint **bitmap_ptr, uint32_t num_loaded_hashes)
 {
 	unsigned int i;
 	MEM_FREE(*bitmap_ptr);
@@ -729,7 +707,11 @@ static void select_bitmap(unsigned int num_loaded_hashes)
 		else
 			bitmap_size_bits = 2048 * 1024;
 	}
-	assert(num_loaded_hashes <= 1100100);
+	else {
+		fprintf(stderr, "Too many hashes (%d), max is 1100100\n",
+		        num_loaded_hashes);
+		error();
+	}
 
 	prepare_bitmap_4(bitmap_size_bits, &bitmaps, num_loaded_hashes);
 }
@@ -737,6 +719,7 @@ static void select_bitmap(unsigned int num_loaded_hashes)
 static void prepare_table(struct db_main *db)
 {
 	struct db_salt *salt;
+	int seq_ids = 0;
 
 	max_num_loaded_hashes = 0;
 	max_hash_table_size = 1;
@@ -745,7 +728,7 @@ static void prepare_table(struct db_main *db)
 	do {
 		if (salt->count > max_num_loaded_hashes)
 			max_num_loaded_hashes = salt->count;
-	} while((salt = salt->next));
+	} while ((salt = salt->next));
 
 	MEM_FREE(loaded_hashes);
 	MEM_FREE(hash_ids);
@@ -754,11 +737,11 @@ static void prepare_table(struct db_main *db)
 	loaded_hashes = (cl_uint*) mem_alloc(4 * max_num_loaded_hashes * sizeof(cl_uint));
 	hash_ids = (cl_uint*) mem_alloc((3 * max_num_loaded_hashes + 1) * sizeof(cl_uint));
 
-	hash_tables = (unsigned int **)mem_alloc(sizeof(unsigned int*) * (db->salt_count + 1));
-	buffer_offset_tables = (cl_mem *)mem_alloc(sizeof(cl_mem) * (db->salt_count + 1));
-	buffer_hash_tables = (cl_mem *)mem_alloc(sizeof(cl_mem) * (db->salt_count + 1));
-	buffer_bitmaps = (cl_mem *)mem_alloc(sizeof(cl_mem) * (db->salt_count + 1));
-	buffer_salts = (cl_mem *)mem_alloc(sizeof(cl_mem) * (db->salt_count + 1));
+	hash_tables = (unsigned int **)mem_calloc(sizeof(unsigned int*), db->salt_count + 1);
+	buffer_offset_tables = (cl_mem *)mem_calloc(sizeof(cl_mem), db->salt_count + 1);
+	buffer_hash_tables = (cl_mem *)mem_calloc(sizeof(cl_mem), db->salt_count + 1);
+	buffer_bitmaps = (cl_mem *)mem_calloc(sizeof(cl_mem), db->salt_count + 1);
+	buffer_salts = (cl_mem *)mem_calloc(sizeof(cl_mem), db->salt_count + 1);
 
 	hash_tables[db->salt_count] = NULL;
 	buffer_offset_tables[db->salt_count] = NULL;
@@ -797,12 +780,13 @@ static void prepare_table(struct db_main *db)
 			error();
 		}
 		num_loaded_hashes = salt->count;
+		salt->sequential_id = seq_ids++;
 
-		num_loaded_hashes = create_perfect_hash_table(128, (void *)loaded_hashes,
-				num_loaded_hashes,
-			        &offset_table,
-			        &offset_table_size,
-			        &hash_table_size, 0);
+		num_loaded_hashes = create_perfect_hash_table(128, (void*)loaded_hashes,
+		                                              num_loaded_hashes,
+		                                              &offset_table,
+		                                              &offset_table_size,
+		                                              &hash_table_size, 0);
 
 		if (!num_loaded_hashes) {
 			MEM_FREE(hash_table_128);
@@ -842,17 +826,15 @@ static void prepare_table(struct db_main *db)
 		MEM_FREE(bitmaps);
 		MEM_FREE(offset_table);
 
-	} while((salt = salt->next));
+	} while ((salt = salt->next));
 }
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-	size_t gws = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand %d\n", __FUNCTION__, count, local_work_size, gws, key_idx, mask_int_cand.num_int_cand);
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 
 	// copy keys to the device
 	if (set_new_keys || ocl_autotune_running) {
@@ -959,7 +941,7 @@ static void reset(struct db_main *db)
 	                       2 * BUFSIZE, gws_limit, db);
 
 	// Auto tune execution from shared/included code.
-	autotune_run_extra(self, 11, gws_limit, 300, CL_TRUE);
+	autotune_run_extra(self, 11, gws_limit, 200, CL_TRUE);
 }
 
 struct fmt_main FMT_STRUCT = {
@@ -977,7 +959,7 @@ struct fmt_main FMT_STRUCT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8 | FMT_REMOVE,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ FORMAT_TAG, FORMAT_TAG2 },
 		tests

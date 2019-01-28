@@ -51,7 +51,6 @@ extern int nice(int);
 #include "signals.h"
 #include "bench.h"
 #include "formats.h"
-#include "memdbg.h"
 
 int idle_requested(struct fmt_main *format)
 {
@@ -66,12 +65,17 @@ int idle_requested(struct fmt_main *format)
 	if (strstr(format->params.label, "-opencl"))
 		return 0;
 #endif
+	if (strstr(format->params.label, "-ztex"))
+		return 0;
 
 	return 1;
 }
 
 void idle_init(struct fmt_main *format)
 {
+#if !(defined(__MINGW32__) || defined (_MSC_VER) || defined(__BEOS__) || defined(__HAIKU__))
+	static int once;
+#endif
 #if defined(_POSIX_PRIORITY_SCHEDULING) && defined(SCHED_IDLE)
 	struct sched_param param = {0};
 #endif
@@ -94,8 +98,10 @@ void idle_init(struct fmt_main *format)
  * least some versions of Linux on Alpha), so we try 20.  We assume that we're
  * started with a non-negative nice value (so no need to increment it by more
  * than 20).
+ * Changed to 19 in Jumbo because some systems have problem with 20. See
+ * Github #3513
  */
-	if (nice(20) == -1)
+	if (!once++ && nice(19) == -1)
 		perror("nice");
 #endif
 

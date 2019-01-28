@@ -30,7 +30,7 @@ john_register_one(&fmt_opencl_sevenzip);
 #include "formats.h"
 #include "common.h"
 #include "misc.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 #include "aes.h"
 #include "crc32.h"
@@ -38,15 +38,14 @@ john_register_one(&fmt_opencl_sevenzip);
 #include "dyna_salt.h"
 #include "lzma/LzmaDec.h"
 #include "lzma/Lzma2Dec.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL		"7z-opencl"
 #define FORMAT_NAME		"7-Zip"
 #define FORMAT_TAG		"$7z$"
 #define TAG_LENGTH		(sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"SHA256 AES OPENCL"
+#define ALGORITHM_NAME		"SHA256 AES OpenCL"
 #define BENCHMARK_COMMENT	" (512K iterations)"
-#define BENCHMARK_LENGTH	-1000
+#define BENCHMARK_LENGTH	0
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 #define PLAINTEXT_LENGTH	((55-8)/2) // 23, rar3 uses 22
@@ -315,7 +314,7 @@ static void reset(struct db_main *db)
 		                       sizeof(sevenzip_state), 0, db);
 
 		//  Auto tune execution from shared/included code.
-		autotune_run(self, 1 << 19, 0, 15000000000ULL);
+		autotune_run(self, 1 << 19, 0, 200);
 	}
 }
 
@@ -647,10 +646,11 @@ exit_good:
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
+	size_t *lws = (local_work_size && !(count % local_work_size)) ?
+		&local_work_size : NULL;
 	int index;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	//fprintf(stderr, "%s(%d) lws %zu gws %zu\n", __FUNCTION__, count, local_work_size, global_work_size);
+	global_work_size = count;
 
 	if (any_cracked) {
 		memset(cracked, 0, cracked_size);
@@ -660,7 +660,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	if (ocl_autotune_running || new_keys) {
 		int i;
 
-		global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+		global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
 		// Copy data to gpu
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
@@ -776,7 +776,7 @@ struct fmt_main fmt_opencl_sevenzip = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_UTF8 | FMT_DYNA_SALT | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_ENC | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{
 			"iteration count",
 			"padding size",

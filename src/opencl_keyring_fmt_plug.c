@@ -16,15 +16,12 @@ john_register_one(&fmt_opencl_keyring);
 
 #include <stdint.h>
 #include <string.h>
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 #include "arch.h"
 #include "formats.h"
 #include "common.h"
 #include "misc.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 #include "aes.h"
 #include "sha2.h"
@@ -34,7 +31,7 @@ john_register_one(&fmt_opencl_keyring);
 #define FORMAT_NAME		"GNOME Keyring"
 #define FORMAT_TAG			"$keyring$"
 #define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
-#define ALGORITHM_NAME		"SHA256 OpenCL AES"
+#define ALGORITHM_NAME		"SHA256 AES OpenCL"
 #define BENCHMARK_COMMENT	""
 #define BENCHMARK_LENGTH	-1
 #define MIN_KEYS_PER_CRYPT	1
@@ -57,18 +54,18 @@ typedef struct {
 } keyring_password;
 
 typedef struct {
-	uint8_t key[16];
-	uint8_t iv[16];
+	uint32_t cracked;
 } keyring_hash;
 
 typedef struct {
 	uint32_t length;
 	uint32_t iterations;
 	uint8_t salt[SALTLEN];
+	uint32_t crypto_size;
+	uint8_t ct[LINE_BUFFER_SIZE / 2]; /* after hex conversion */
 } keyring_salt;
 
 static int *cracked;
-static int any_cracked;
 
 static struct custom_salt {
 	unsigned int iterations;
@@ -90,10 +87,10 @@ static keyring_salt currentsalt;
 static cl_mem mem_in, mem_out, mem_setting;
 static struct fmt_main *self;
 
-#define insize (sizeof(keyring_password) * global_work_size)
-#define outsize (sizeof(keyring_hash) * global_work_size)
+#define insize (sizeof(keyring_password) * gws)
+#define outsize (sizeof(keyring_hash) * gws)
 #define settingsize (sizeof(keyring_salt))
-#define cracked_size (sizeof(*cracked) * global_work_size)
+#define cracked_size (sizeof(*cracked) * gws)
 
 #define STEP                    0
 #define SEED                    256
@@ -102,9 +99,8 @@ static const char * warn[] = {
 	"xfer: "  ,  ", crypt: "    ,  ", xfer: "
 };
 
-//This file contains auto-tuning routine(s). It has to be included after formats definitions.
+// This file contains auto-tuning routine(s). It has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -112,7 +108,7 @@ static size_t get_task_max_work_group_size()
 	return autotune_get_task_max_work_group_size(FALSE, 0, crypt_kernel);
 }
 
-static void create_clobj(size_t global_work_size, struct fmt_main *self)
+static void create_clobj(size_t gws, struct fmt_main *self)
 {
 	cl_int cl_error;
 	inbuffer = (keyring_password*) mem_calloc(1, insize);
@@ -120,7 +116,7 @@ static void create_clobj(size_t global_work_size, struct fmt_main *self)
 
 	cracked = mem_calloc(1, cracked_size);
 
-	/// Allocate memory
+	// Allocate memory
 	mem_in =
 	    clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, insize, NULL,
 	    &cl_error);
@@ -176,12 +172,18 @@ static void init(struct fmt_main *_self)
 static void reset(struct db_main *db)
 {
 	if (!autotuned) {
-		char build_opts[64];
+		char build_opts[128];
 		cl_int cl_error;
+		int iter;
+
+		if (db->real)
+			db = db->real;
+
+		iter = MIN(db->max_cost[0], options.loader.max_cost[0]);
 
 		snprintf(build_opts, sizeof(build_opts),
-		         "-DPLAINTEXT_LENGTH=%d -DSALTLEN=%d",
-		         PLAINTEXT_LENGTH, SALTLEN);
+		         "-DPLAINTEXT_LENGTH=%d -DSALTLEN=%d -DLINE_BUFFER_SIZE=%d",
+		         PLAINTEXT_LENGTH, SALTLEN, LINE_BUFFER_SIZE);
 		opencl_init("$JOHN/kernels/keyring_kernel.cl",
 		            gpu_id, build_opts);
 
@@ -194,8 +196,7 @@ static void reset(struct db_main *db)
 		                       sizeof(keyring_password), 0, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, 1, 0, cpu(device_info[gpu_id]) ?
-		             500000000ULL : 1000000000ULL);
+		autotune_run(self, iter, 0, 200);
 	}
 }
 
@@ -298,9 +299,11 @@ static void *get_salt(char *ciphertext)
 static void set_salt(void *salt)
 {
 	cur_salt = (struct custom_salt *)salt;
-	memcpy((char*)currentsalt.salt, cur_salt->salt, SALTLEN);
+	memcpy(currentsalt.salt, cur_salt->salt, SALTLEN);
 	currentsalt.length = SALTLEN;
 	currentsalt.iterations = cur_salt->iterations;
+	currentsalt.crypto_size = cur_salt->crypto_size;
+	memcpy(currentsalt.ct, cur_salt->ct, cur_salt->crypto_size);
 	HANDLE_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_setting,
 	                                    CL_FALSE, 0, settingsize,
 	                                    &currentsalt, 0, NULL, NULL),
@@ -325,86 +328,42 @@ static char *get_key(int index)
 	return ret;
 }
 
-static int verify_decrypted_buffer(unsigned char *buffer, int len)
-{
-	guchar digest[16];
-	MD5_CTX ctx;
-	MD5_Init(&ctx);
-	MD5_Update(&ctx, buffer + 16, len - 16);
-	MD5_Final(digest, &ctx);
-	return memcmp(buffer, digest, 16) == 0;
-}
-
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	int index;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
-
-	if (any_cracked) {
-		memset(cracked, 0, cracked_size);
-		any_cracked = 0;
-	}
-
-	/// Copy data to gpu
+	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
 		insize, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
-	/// Run kernel
+	// Run kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-		NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]),
+		NULL, &gws, lws, 0, NULL, multi_profilingEvent[1]),
 	    "Run kernel");
-	BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 
-	/// Read the result back
-	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_FALSE, 0,
+	// Read the result back
+	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0,
 		outsize, outbuffer, 0, NULL, multi_profilingEvent[2]), "Copy result back");
 
-	/// Await completion of all the above
-	BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
-
-	if (ocl_autotune_running)
-		return count;
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-	for (index = 0; index < count; index++) {
-		unsigned char buffer[LINE_BUFFER_SIZE / 2];
-		unsigned char iv[16];
-		AES_KEY akey;
-		unsigned char *p = outbuffer[index].iv;
-
-		memcpy(iv, p, 16);
-		memcpy(buffer, cur_salt->ct, cur_salt->crypto_size);
-		memset(&akey, 0, sizeof(AES_KEY));
-		if (AES_set_decrypt_key(outbuffer[index].key, 128, &akey) < 0) {
-			fprintf(stderr, "AES_set_decrypt_key failed!\n");
-		}
-
-		AES_cbc_encrypt(buffer, buffer, cur_salt->crypto_size, &akey, iv, AES_DECRYPT);
-		if (verify_decrypted_buffer(buffer, cur_salt->crypto_size))
-		{
-			cracked[index] = 1;
-#ifdef _OPENMP
-#pragma omp atomic
-#endif
-			any_cracked |= 1;
-		}
-	}
 	return count;
 }
 
 static int cmp_all(void *binary, int count)
 {
-	return any_cracked;
+	int index;
+
+	for (index = 0; index < count; index++)
+		if (outbuffer[index].cracked)
+			return 1;
+	return 0;
 }
 
 static int cmp_one(void *binary, int index)
 {
-	return cracked[index];
+	return outbuffer[index].cracked;
 }
 
 static int cmp_exact(char *source, int index)
@@ -414,10 +373,9 @@ static int cmp_exact(char *source, int index)
 
 static unsigned int iteration_count(void *salt)
 {
-	struct custom_salt *my_salt;
+	struct custom_salt *my_salt = salt;
 
-	my_salt = salt;
-	return (unsigned int) my_salt->iterations;
+	return (unsigned int)my_salt->iterations;
 }
 
 struct fmt_main fmt_opencl_keyring = {
@@ -435,7 +393,7 @@ struct fmt_main fmt_opencl_keyring = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP,
+		FMT_CASE | FMT_8_BIT,
 		{
 			"iteration count",
 		},

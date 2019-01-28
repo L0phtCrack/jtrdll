@@ -30,7 +30,6 @@
 #include "mask.h"
 #include "regex.h"
 #include "unicode.h"
-#include "memdbg.h"
 
 #ifdef JTRDLL
 #include "jtrdll.h"
@@ -204,27 +203,17 @@ int ext_has_function(char *mode, char *function)
 
 void ext_init(char *mode, struct db_main *db)
 {
-	if (db && db->format) {
-		/* This is second time we are called, just update max length */
-		ext_cipher_limit = maxlen =
-			db->format->params.plaintext_length - mask_add_len;
-		if (mask_num_qw > 1) {
-			ext_cipher_limit /= mask_num_qw;
-			maxlen /= mask_num_qw;
-		}
+	ext_minlen = options.eff_minlength;
+	ext_cipher_limit = maxlen = options.eff_maxlength;
+	ext_target_utf8 = (options.target_enc == UTF_8);
+
+	/* This is second time we are called, just update the above */
+	if (db && db->format)
 		return;
-	} else
-		ext_cipher_limit = maxlen = options.length;
 
 	ext_time = (int) time(NULL);
 
-	ext_target_utf8 = (options.target_enc == UTF_8);
-
 	ext_maxlen = options.req_maxlength;
-	if (options.req_minlength > 0)
-		ext_minlen = options.req_minlength;
-	else
-		ext_minlen = 0;
 
 #if HAVE_REXGEN
 	/* Hybrid regex */
@@ -499,9 +488,16 @@ void do_external_crack(struct db_main *db)
 
 	log_event("Proceeding with external mode: %.100s", ext_mode);
 
-	if (rec_restored && john_main_process)
-		fprintf(stderr, "Proceeding with external:%s\n",
-		        ext_mode);
+	if (rec_restored && john_main_process) {
+		fprintf(stderr, "Proceeding with external:%s", ext_mode);
+		if (options.rule_stack)
+			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
+		if (options.req_minlength >= 0 || options.req_maxlength)
+			fprintf(stderr, ", lengths: %d-%d",
+			        options.eff_minlength + mask_add_len,
+			        options.eff_maxlength + mask_add_len);
+		fprintf(stderr, "\n");
+	}
 
 	internal = (unsigned char *)int_word;
 	external = ext_word;

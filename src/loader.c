@@ -46,7 +46,6 @@
 #include "base64_convert.h"
 #include "md5.h"
 #include "single.h"
-#include "memdbg.h"
 
 #ifdef HAVE_CRYPT
 extern struct fmt_main fmt_crypt;
@@ -87,6 +86,8 @@ int single_skip_login;
 static int pristine_gecos;
 static int single_skip_login;
 #endif
+
+static int jumbo_split_string;
 
 /*
  * There should be legislation against adding a BOM to UTF-8, not to
@@ -304,6 +305,9 @@ void ldr_init_database(struct db_main *db, struct db_options *db_options)
 	db->salt_count = db->password_count = db->guess_count = 0;
 
 	db->format = NULL;
+
+	jumbo_split_string =
+		cfg_get_bool(SECTION_OPTIONS, NULL, "JumboSingleWords", 1);
 }
 
 /*
@@ -414,7 +418,7 @@ static void ldr_set_encoding(struct fmt_main *format)
 				options.target_enc = options.input_enc;
 		} else if (options.internal_cp &&
 		           (format->params.flags & FMT_UNICODE) &&
-		           (format->params.flags & FMT_UTF8)) {
+		           (format->params.flags & FMT_ENC)) {
 			options.target_enc = options.internal_cp;
 		}
 	}
@@ -446,7 +450,7 @@ static void ldr_set_encoding(struct fmt_main *format)
 	if (options.internal_cp && options.internal_cp != UTF_8 &&
 	    (!options.target_enc || options.target_enc == UTF_8)) {
 		if ((format->params.flags & FMT_UNICODE) &&
-		    (format->params.flags & FMT_UTF8))
+		    (format->params.flags & FMT_ENC))
 			options.target_enc = options.internal_cp;
 	}
 
@@ -820,6 +824,8 @@ static int ldr_split_line(char **login, char **ciphertext,
 					printf("\"disabled\":true,");
 				if (is_dynamic)
 					printf("\"dynamic\":true,");
+				if (huge_line)
+					printf("\"truncated\":true,");
 				if (prepared_eq_ciphertext)
 					printf("\"prepareEqCiphertext\":true,");
 				printf("\"canonHash\":[");
@@ -832,7 +838,8 @@ static int ldr_split_line(char **login, char **ciphertext,
 			check_field_separator(alt->params.label);
 			/* Canonical hash or hashes (like halves of LM) */
 			for (part = 0; part < valid; part++) {
-				char *split = alt->methods.split(prepared, part, alt);
+				char *split = alt->methods.split(prepared,
+				                                 part, alt);
 
 				if (db_opts->showtypes_json)
 					printf("%s\"%s\"",
@@ -842,8 +849,23 @@ static int ldr_split_line(char **login, char **ciphertext,
 					printf("%c%s", fs, split);
 				check_field_separator(split);
 			}
-			if (db_opts->showtypes_json)
-				printf("]}");
+			if (db_opts->showtypes_json) {
+				printf("]");
+				if (huge_line) {
+					printf(",\"truncHash\":[");
+					for (part = 0; part < valid; part++) {
+						char *split = alt->methods.split(prepared, part, alt);
+						char tr[LINE_BUFFER_SIZE + 1];
+
+						ldr_pot_source(split, tr);
+						printf("%s\"%s\"",
+						       part ? "," : "",
+						       escape_json(tr));
+					}
+					printf("]");
+				}
+				printf("}");
+			}
 		} while ((alt = alt->next));
 		if (db_opts->showtypes_json) {
 			if (bad_char)
@@ -1012,6 +1034,59 @@ static char* ldr_conv(char *word)
 	return word;
 }
 
+/*
+ * Optional Jumbo-specific inner pass for ldr_split_string,
+ * JEdgarHoover -> J Edgar Hoover and other stuff.
+ */
+static void ldr_split_more(struct list_main *dst, char *src)
+{
+	int l, u, d = 0;
+
+	l = enc_haslower(src);
+	u = enc_hasupper(src);
+	if (l + u == 1)
+		d = enc_hasdigit(src);
+
+	if (l + u + d >= 2) {
+		char *word, *pos;
+		char c;
+
+		pos = src;
+		do {
+			word = pos;
+			if (enc_isdigit(*word))
+				while (*pos && enc_isdigit(pos[1]))
+					pos++;
+			else if (enc_isupper(*word) && !l)
+				while (*pos && enc_isupper(pos[1]))
+					pos++;
+			else if (enc_islower(*word) && !u)
+				while (*pos && enc_islower(pos[1]))
+					pos++;
+			else if (enc_hasupper(&pos[1]))
+				while (*pos && !enc_isupper(pos[1]))
+					pos++;
+			else
+				while (*pos && !enc_isdigit(pos[1]))
+					pos++;
+
+			if (!*pos) {
+				if (word > src)
+				{
+					list_add_global_unique(dst, single_seed, word);
+				}
+				break;
+			}
+
+			c = *++pos;
+			*pos = 0;
+			list_add_global_unique(dst, single_seed, word);
+			*pos = c;
+
+		} while (c && dst->count < LDR_WORDS_MAX);
+	}
+}
+
 static void ldr_split_string(struct list_main *dst, char *src)
 {
 	char *word, *pos;
@@ -1020,15 +1095,25 @@ static void ldr_split_string(struct list_main *dst, char *src)
 	pos = src;
 	do {
 		word = pos;
-		while (*word && CP_isSeparator[ARCH_INDEX(*word)]) word++;
-		if (!*word) break;
+		while (*word && CP_isSeparator[ARCH_INDEX(*word)])
+			word++;
+
+		if (!*word)
+			break;
 
 		pos = word;
-		while (!CP_isSeparator[ARCH_INDEX(*pos)]) pos++;
+		while (!CP_isSeparator[ARCH_INDEX(*pos)])
+			pos++;
+
 		c = *pos;
 		*pos = 0;
 		list_add_global_unique(dst, single_seed, word);
+
+		if (jumbo_split_string)
+			ldr_split_more(dst, word);
+
 		*pos++ = c;
+
 	} while (c && dst->count < LDR_WORDS_MAX);
 }
 
@@ -1040,15 +1125,18 @@ static struct list_main *ldr_init_words(char *login, char *gecos, char *home)
 	list_init(&words);
 
 	if (*login && login != no_username && !single_skip_login)
+		/* Never mind global dupes, this must be first in list */
 		list_add(words, ldr_conv(login));
-	ldr_split_string(words, ldr_conv(gecos));
-	if (login != no_username && !single_skip_login)
+	if (*gecos)
+		ldr_split_string(words, ldr_conv(gecos));
+	if ((pos = strrchr(home, '/')) && pos[1])
+		list_add_global_unique(words, single_seed, ldr_conv(&pos[1]));
+	if (*login && login != no_username && !single_skip_login)
 		ldr_split_string(words, ldr_conv(login));
 	if (pristine_gecos && *gecos)
 		list_add_global_unique(words, single_seed, ldr_conv(gecos));
-	if ((pos = strrchr(home, '/')) && pos[1])
-		list_add_global_unique(words, single_seed, ldr_conv(&pos[1]));
 
+	/* Add the global seeds onto this list (just a link added!) */
 	list_add_list(words, single_seed);
 
 	return words;
@@ -1382,7 +1470,6 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	struct fmt_main fake_list;
 	struct db_main *testdb;
 	struct fmt_tests *current;
-	extern volatile int bench_running;
 
 	if (!(current = format->params.tests))
 		return NULL;
@@ -1402,7 +1489,7 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	ldr_init_password_hash(testdb);
 
 	ldr_loading_testdb = 1;
-	bench_running++;
+	self_test_running++;
 	while (current->ciphertext) {
 		char *ex_len_line = NULL;
 		char _line[LINE_BUFFER_SIZE], *line = _line;
@@ -1432,7 +1519,7 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 		current++;
 		MEM_FREE(ex_len_line);
 	}
-	bench_running--;
+	self_test_running--;
 
 	ldr_fix_database(testdb);
 	ldr_loading_testdb = 0;
@@ -1991,7 +2078,6 @@ void ldr_fix_database(struct db_main *db)
 			fprintf(stderr, "%s%d password hash%s cracked,"
 			        " %d left\n", total ? "\n" : "", total,
 			        total != 1 ? "es" : "", db->password_count);
-		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		exit(0);
 	}
 }

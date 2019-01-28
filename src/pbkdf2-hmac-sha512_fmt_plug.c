@@ -25,8 +25,12 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #include <assert.h>
 #include <stdint.h>
 
-#include "misc.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
+#include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "sha2.h"
@@ -35,7 +39,6 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #include "pbkdf2_hmac_sha512.h"
 
 #define FORMAT_LABEL            "PBKDF2-HMAC-SHA512"
-#undef FORMAT_NAME
 #define FORMAT_NAME             "GRUB2 / OS X 10.8+"
 
 #ifdef SIMD_COEF_64
@@ -56,14 +59,11 @@ john_register_one(&fmt_pbkdf2_hmac_sha512);
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 #endif
-#ifdef _OPENMP
-#include <omp.h>
+
 #ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
+#define OMP_SCALE               1 // Use --tune=auto for tuning to your job
 #endif
 
-#include "memdbg.h"
 
 #define PAD_SIZE                128
 #define PLAINTEXT_LENGTH        125
@@ -79,9 +79,8 @@ static uint32_t (*crypt_out)[PBKDF2_SHA512_BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 }
@@ -133,7 +132,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 #ifdef SSE_GROUP_SZ_SHA512
 		int lens[SSE_GROUP_SZ_SHA512], i;
 		unsigned char *pin[SSE_GROUP_SZ_SHA512];

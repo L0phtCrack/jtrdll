@@ -14,7 +14,6 @@
 #include "arch.h"
 #include "common.h"
 #include "DES_bs.h"
-#include "memdbg.h"
 
 #if DES_BS_ASM && defined(_OPENMP) && defined(__GNUC__)
 #warning Assembly code and OpenMP are both requested - will provide the former, but not the latter (for DES-based hashes).  This may likely be corrected by enabling SIMD intrinsics with the C compiler (try adding -msse2 to OMPFLAGS).
@@ -326,7 +325,7 @@ typedef struct {
 	(dst).f = vec_sel((a).f, (b).f, (vector bool int)(c).f); \
 	(dst).g = vec_sel((a).g, (b).g, (vector bool int)(c).g)
 
-#elif defined(__MIC__) && DES_BS_DEPTH == 512
+#elif (defined(__MIC__) || defined(__AVX512F__)) && DES_BS_DEPTH == 512
 #include <immintrin.h>
 #ifdef _MSC_VER
 #include<intrin.h>

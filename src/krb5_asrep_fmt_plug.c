@@ -1,7 +1,7 @@
 /*
  * This software is
  * Copyright (c) 2015 Michael Kramer <michael.kramer@uni-konstanz.de>,
- * Copyright (c) 2015 magnum,
+ * Copyright (c) 2015-2018 magnum,
  * Copyright (c) 2016 Fist0urs <eddy.maaalou@gmail.com>,
  * Copyright (c) 2017 @harmj0y,
  * Copyright (c) 2017 Dhiru Kholia <dhiru [at] openwall.com>
@@ -62,13 +62,12 @@ john_register_one(&fmt_krb5asrep);
 
 #include <stdio.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE                4
-#endif
 #endif
 
+#include "arch.h"
 #include "misc.h"
 #include "formats.h"
 #include "common.h"
@@ -80,17 +79,16 @@ john_register_one(&fmt_krb5asrep);
 #include "unicode.h"
 #include "krb5_common.h"
 #include "krb5_asrep_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "krb5asrep"
 #define FORMAT_NAME             "Kerberos 5 AS-REP etype 17/18/23"
 #ifdef SIMD_COEF_32
-#define ALGORITHM_NAME          "MD4 HMAC-MD5 RC4 / PBKDF2 HMAC-SHA1 AES " SHA1_ALGORITHM_NAME  // XXX too big?
+#define ALGORITHM_NAME          "MD4 HMAC-MD5 RC4 / PBKDF2 HMAC-SHA1 AES " SHA1_ALGORITHM_NAME
 #else
 #define ALGORITHM_NAME          "MD4 HMAC-MD5 RC4 / PBKDF2 HMAC-SHA1 AES 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 #define MIN_PLAINTEXT_LENGTH    0
 #define PLAINTEXT_LENGTH        125
 #define BINARY_SIZE             0
@@ -99,10 +97,14 @@ john_register_one(&fmt_krb5asrep);
 #define SALT_ALIGN              sizeof(struct custom_salt *)
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT      SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT      (SSE_GROUP_SZ_SHA1 * 2)
 #else
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      2
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               16 // Tuned w/ MKPC for core i7
 #endif
 
 /*
@@ -152,9 +154,8 @@ static void init(struct fmt_main *self)
 {
 	unsigned char usage[5];
 
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_alloc_align(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt,
 			MEM_ALIGN_CACHE);
@@ -221,23 +222,22 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT)
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT)
 	{
-		unsigned char tkey[MAX_KEYS_PER_CRYPT][32];
-		int len[MAX_KEYS_PER_CRYPT];
+		unsigned char tkey[MIN_KEYS_PER_CRYPT][32];
+		int len[MIN_KEYS_PER_CRYPT];
 		int i;
-
 		unsigned char K3[16];
 #ifdef _MSC_VER
 		unsigned char ddata[65536];
 #else
-		unsigned char ddata[cur_salt->edata2len + 1];
+		unsigned char ddata[cur_salt->edata2len];
 #endif
 		unsigned char checksum[16];
 		RC4_KEY rckey;
 
 		if (cur_salt->etype == 23) {
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				if (new_keys) {
 					MD4_CTX ctx;
 					unsigned char key[16];
@@ -282,40 +282,41 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			// from krb5 software package.
 			// https://www.ietf.org/rfc/rfc3962.txt document, https://www.ietf.org/rfc/rfc3961.txt, and
 			// http://www.zeroshell.org/kerberos/Kerberos-operation/
-			int key_size;
-#ifdef SIMD_COEF_32
-			unsigned char *pin[MAX_KEYS_PER_CRYPT], *pout[MAX_KEYS_PER_CRYPT];
+			const int key_size = (cur_salt->etype == 17) ? 16 : 32;
 
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+#ifdef SIMD_COEF_32
+			unsigned char *pin[MIN_KEYS_PER_CRYPT], *pout[MIN_KEYS_PER_CRYPT];
+
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				len[i] = strlen(saved_key[i+index]);
 				pin[i] = (unsigned char*)saved_key[i+index];
 				pout[i] = tkey[i];
 			}
-			pbkdf2_sha1_sse((const unsigned char **)pin, len, (unsigned char*)cur_salt->salt, strlen(cur_salt->salt), 4096, pout, 32, 0);
+			pbkdf2_sha1_sse((const unsigned char **)pin, len, (unsigned char*)cur_salt->salt, strlen(cur_salt->salt), 4096, pout, key_size, 0);
 #else
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				len[i] = strlen(saved_key[index+i]);
 				pbkdf2_sha1((const unsigned char*)saved_key[index], len[i],
 						(unsigned char*)cur_salt->salt, strlen(cur_salt->salt),
-						4096, tkey[i], 32, 0);
+						4096, tkey[i], key_size, 0);
 			}
 #endif
-			for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+			for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 				unsigned char Ki[32];
-				unsigned char plaintext[4096] = { 0 }; // XXX
+#ifdef _MSC_VER
+				unsigned char plaintext[65536];
+#else
+				unsigned char plaintext[cur_salt->edata2len];
+#endif
 				unsigned char checksum[20];
 				unsigned char base_key[32];
 				unsigned char Ke[32];
 
-				if (cur_salt->etype == 17)
-					key_size = 16;
-				else
-					key_size = 32;
 				dk(base_key, tkey[i], key_size, constant, 16);
 				dk(Ke, base_key, key_size, ke_input, 16);
 				krb_decrypt(cur_salt->edata2, cur_salt->edata2len, plaintext, Ke, key_size);
 				// derive checksum of plaintext
-				dk(Ki, base_key, key_size, ki_input, 32);
+				dk(Ki, base_key, key_size, ki_input, 16);
 				hmac_sha1(Ki, key_size, plaintext, cur_salt->edata2len, checksum, 20);
 				if (!memcmp(checksum, cur_salt->edata1, 12)) {
 					cracked[index+i] = 1;
@@ -364,7 +365,7 @@ struct fmt_main fmt_krb5asrep = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
+		FMT_CASE | FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_OMP | FMT_DYNA_SALT | FMT_HUGE_INPUT,
 		{NULL},
 		{ FORMAT_TAG },
 		tests

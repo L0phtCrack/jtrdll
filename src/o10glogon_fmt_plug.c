@@ -24,11 +24,9 @@ john_register_one(&fmt_o10glogon);
 
 #include <string.h>
 #include <openssl/des.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048
-#endif
 #endif
 
 #include "arch.h"
@@ -39,7 +37,6 @@ john_register_one(&fmt_o10glogon);
 #include "md5.h"
 #include "unicode.h"
 #include "base64_convert.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL                    "o10glogon"
 #define FORMAT_NAME                     "Oracle 10g-logon protocol"
@@ -58,11 +55,14 @@ john_register_one(&fmt_o10glogon);
 #define SALT_SIZE                       (sizeof(ora10g_salt))
 #define SALT_ALIGN                      (sizeof(unsigned int))
 #define CIPHERTEXT_LENGTH               16
-
-#define MIN_KEYS_PER_CRYPT		1
-#define MAX_KEYS_PER_CRYPT		1
 #define MAX_HASH_LEN                    (FORMAT_TAG_LEN+MAX_USERNAME_LEN+1+64+1+64+1+160)
 
+#define MIN_KEYS_PER_CRYPT		1
+#define MAX_KEYS_PER_CRYPT		16
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               8 // Tuned w/ MKPC for core i7
+#endif
 
 //#define DEBUG_ORACLE
 //
@@ -94,9 +94,8 @@ static DES_key_schedule desschedule1;	// key 0x0123456789abcdef
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	DES_set_key((DES_cblock *)"\x01\x23\x45\x67\x89\xab\xcd\xef", &desschedule1);
 	cur_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*cur_key));
@@ -403,7 +402,7 @@ struct fmt_main fmt_o10glogon = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE | FMT_CASE | FMT_OMP,
+		FMT_8_BIT | FMT_UNICODE | FMT_ENC | FMT_SPLIT_UNIFIES_CASE | FMT_CASE | FMT_OMP,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

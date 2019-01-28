@@ -23,13 +23,12 @@
 #include "memory.h"
 #include "common.h"
 #include "johnswap.h"
-#include "memdbg.h"
 
-#if (defined (_MSC_VER) || HAVE___MINGW_ALIGNED_MALLOC) && !defined (MEMDBG_ON)
+#if (defined (_MSC_VER) || HAVE___MINGW_ALIGNED_MALLOC)
 char *strdup_MSVC(const char *str)
 {
 	char * s;
-	s = (char*)mem_alloc_func(strlen(str)+1);
+	s = (char*)mem_alloc(strlen(str)+1);
 	if (s != NULL)
 		strcpy(s, str);
 	return s;
@@ -52,11 +51,6 @@ static void add_memory_link(void *v) {
 	p->next = mem_alloc_tiny_memory;
 	p->mem = v;
 	mem_alloc_tiny_memory = p;
-	// mark these as 'tiny' memory, so that memory snapshot checking does not
-	// flag these as leaks.  At program exit, this memory will still get checked,
-	// but it should be freed, so will still be globally checked for leaks.
-	MEMDBG_tag_mem_from_alloc_tiny(v);
-	MEMDBG_tag_mem_from_alloc_tiny((void*)p);
 }
 // call at program exit.
 void cleanup_tiny_memory()
@@ -72,74 +66,45 @@ void cleanup_tiny_memory()
 	}
 }
 
-void *mem_alloc_func(size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	)
+void *mem_alloc(size_t size)
 {
 	void *res;
 
 	if (!size)
 		return NULL;
-#if defined (MEMDBG_ON)
-	res = (char*) MEMDBG_alloc(size, file, line);
-#else
-	res = malloc(size);
-#endif
-	if (!res) {
+
+	if (!(res = malloc(size))) {
 		fprintf(stderr, "mem_alloc(): %s trying to allocate "Zu" bytes\n", strerror(ENOMEM), size);
-		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		error();
 	}
 
 	return res;
 }
 
-void *mem_calloc_func(size_t nmemb, size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	)
+void *mem_calloc(size_t nmemb, size_t size)
 {
 	void *res;
 
 	if (!nmemb || !size)
 		return NULL;
-#if defined (MEMDBG_ON)
-	size *= nmemb;
-	res = (char*) MEMDBG_alloc(size, file, line);
-	memset(res, 0, size);
-#else
-	res = calloc(nmemb, size);
-#endif
-	if (!res) {
+
+	if (!(res = calloc(nmemb, size))) {
 		fprintf(stderr, "mem_calloc(): %s trying to allocate "Zu" bytes\n", strerror(ENOMEM), nmemb * size);
-		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		error();
 	}
 
 	return res;
 }
 
-void *mem_realloc_func(void *old_ptr, size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	)
+void *mem_realloc(void *old_ptr, size_t size)
 {
 	void *res;
 
 	if (!size)
 		return NULL;
-#if defined (MEMDBG_ON)
-	res = (char*) MEMDBG_realloc(old_ptr, size, file, line);
-#else
-	res = realloc(old_ptr, size);
-#endif
-	if (!res) {
+
+	if (!(res = realloc(old_ptr, size))) {
 		fprintf(stderr, "mem_realloc(): %s trying to allocate "Zu" bytes\n", strerror(ENOMEM), size);
-		MEMDBG_PROGRAM_EXIT_CHECKS(stderr);
 		error();
 	}
 
@@ -150,25 +115,21 @@ void *mem_realloc_func(void *old_ptr, size_t size
  * if -DDEBUG we turn mem_alloc_tiny() to essentially be just a malloc()
  * with additional alignment. The reason for this is it's way easier to
  * trace bugs that way.
- * Also, with -DDEBUG or -DMEMDBG we always return exactly the requested
+ * Also, with -DDEBUG we always return exactly the requested
  * alignment, in order to trigger bugs!
  */
 #ifdef DEBUG
 #undef  MEM_ALLOC_SIZE
 #define MEM_ALLOC_SIZE 0
 #endif
-void *mem_alloc_tiny_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-)
+void *mem_alloc_tiny(size_t size, size_t align)
 {
 	static char *buffer = NULL;
 	static size_t bufree = 0;
 	size_t mask;
 	char *p;
 
-#if defined(DEBUG) || defined(MEMDBG)
+#if defined(DEBUG)
 	size += align;
 #endif
 #ifdef DEBUG
@@ -202,7 +163,7 @@ void *mem_alloc_tiny_func(size_t size, size_t align
 				p -= (size_t)p & mask;
 				bufree -= need;
 				buffer = p + size;
-#if defined(DEBUG) || defined(MEMDBG)
+#if defined(DEBUG)
 				/* Ensure alignment is no better than requested */
 				if (((size_t)p & ((mask << 1) + 1)) == 0)
 					p += align;
@@ -214,24 +175,16 @@ void *mem_alloc_tiny_func(size_t size, size_t align
 		if (size + mask > MEM_ALLOC_SIZE ||
 		    bufree > MEM_ALLOC_MAX_WASTE)
 			break;
-#if defined (MEMDBG_ON)
-		buffer = (char*)mem_alloc_func(MEM_ALLOC_SIZE, file, line);
-#else
 		buffer = (char*)mem_alloc(MEM_ALLOC_SIZE);
-#endif
 		add_memory_link((void*)buffer);
 		bufree = MEM_ALLOC_SIZE;
 	} while (1);
 
-#if defined (MEMDBG_ON)
-	p = (char*)mem_alloc_func(size + mask, file, line);
-#else
 	p = (char*)mem_alloc(size + mask);
-#endif
 	add_memory_link((void*)p);
 	p += mask;
 	p -= (size_t)p & mask;
-#if defined(DEBUG) || defined(MEMDBG)
+#if defined(DEBUG)
 	/* Ensure alignment is no better than requested */
 	if (((size_t)p & ((mask << 1) + 1)) == 0)
 		p += align;
@@ -239,37 +192,20 @@ void *mem_alloc_tiny_func(size_t size, size_t align
 	return p;
 }
 
-void *mem_calloc_tiny_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	) {
-#if defined (MEMDBG_ON)
-	char *cp = (char*)mem_alloc_tiny_func(size, align, file, line);
-#else
+void *mem_calloc_tiny(size_t size, size_t align)
+{
 	char *cp = (char*) mem_alloc_tiny(size, align);
-#endif
+
 	memset(cp, 0, size);
 	return cp;
 }
 
-void *mem_alloc_copy_func(void *src, size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	) {
-#if defined (MEMDBG_ON)
-	return memcpy(mem_alloc_tiny_func(size, align, file, line), src, size);
-#else
+void *mem_alloc_copy(void *src, size_t size, size_t align)
+{
 	return memcpy(mem_alloc_tiny(size, align), src, size);
-#endif
 }
 
-void *mem_alloc_align_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	)
+void *mem_alloc_align(size_t size, size_t align)
 {
 	void *ptr = NULL;
 	if (align < sizeof(void*))
@@ -279,9 +215,7 @@ void *mem_alloc_align_func(size_t size, size_t align
 #ifdef DEBUG
     assert(!(align & (align - 1)));
 #endif
-#if defined (MEMDBG_ON)
-	ptr = (char*) MEMDBG_alloc_align(size, align, file, line);
-#elif HAVE_POSIX_MEMALIGN
+#if HAVE_POSIX_MEMALIGN
 	if (posix_memalign(&ptr, align, size))
 		pexit("posix_memalign ("Zu" bytes)", size);
 #elif HAVE_ALIGNED_ALLOC
@@ -321,96 +255,23 @@ void *mem_alloc_align_func(size_t size, size_t align
 	return ptr;
 }
 
-void *mem_calloc_align_func(size_t count, size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	)
+void *mem_calloc_align(size_t count, size_t size, size_t align)
 {
-#if defined (MEMDBG_ON)
-	void *ptr = mem_alloc_align_func(size * count, align, file, line);
-#else
-	void *ptr = mem_alloc_align_func(size * count, align);
-#endif
+	void *ptr = mem_alloc_align(size * count, align);
 
 	memset(ptr, 0, size * count);
 	return ptr;
 }
 
-char *str_alloc_copy_func(char *src
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	) {
+char *str_alloc_copy(char *src)
+{
 	size_t size;
 
 	if (!src) return "";
 	if (!*src) return "";
 
 	size = strlen(src) + 1;
-#if defined (MEMDBG_ON)
-	return (char *)memcpy(mem_alloc_tiny_func(size, MEM_ALIGN_NONE, file, line), src, size);
-#else
 	return (char *)memcpy(mem_alloc_tiny(size, MEM_ALIGN_NONE), src, size);
-#endif
-}
-
-void dump_text(void *in, int len)
-{
-	unsigned char *p = (unsigned char*)in;
-
-	while (len--) {
-		fputc(isprint(*p) ? *p : '.', stdout);
-		p++;
-	}
-	fputc('\n', stdout);
-}
-
-void dump_stuff_noeol(void *x, unsigned int size)
-{
-	unsigned int i;
-	for (i=0;i<size;i++)
-	{
-		printf("%.2x", ((unsigned char*)x)[i]);
-		if ( (i%4)==3 )
-		printf(" ");
-	}
-}
-void dump_stuff(void* x, unsigned int size)
-{
-	dump_stuff_noeol(x,size);
-	printf("\n");
-}
-void dump_stuff_msg(const void *msg, void *x, unsigned int size) {
-	printf("%s : ", (char *)msg);
-	dump_stuff(x, size);
-}
-void dump_stuff_msg_sepline(const void *msg, void *x, unsigned int size) {
-	printf("%s :\n", (char *)msg);
-	dump_stuff(x, size);
-}
-
-void dump_stuff_be_noeol(void *x, unsigned int size) {
-	unsigned int i;
-	for (i=0;i<size;i++)
-	{
-		printf("%.2x", ((unsigned char*)x)[i^3]);
-		if ( (i%4)==3 )
-		printf(" ");
-	}
-}
-void dump_stuff_be(void* x, unsigned int size)
-{
-	dump_stuff_be_noeol(x,size);
-	printf("\n");
-}
-void dump_stuff_be_msg(const void *msg, void *x, unsigned int size) {
-	printf("%s : ", (char *)msg);
-	dump_stuff_be(x, size);
-}
-void dump_stuff_be_msg_sepline(const void *msg, void *x, unsigned int size) {
-	printf("%s :\n", (char *)msg);
-	dump_stuff_be(x, size);
 }
 
 void alter_endianity_w16(void * _x, unsigned int size) {
@@ -481,152 +342,170 @@ void alter_endianity(void *_x, unsigned int size) {
 // for SHA384/SHA512 128 byte FLAT interleaved hash (arrays of 16 8 byte ints), but we do not BE interleave.
 #define SHA64GETPOSne(i,index)      ( (index&(SIMD_COEF_64-1))*8 + ((i)&(0xffffffff-7) )*SIMD_COEF_64 + ((i)&7) + (unsigned int)index/SIMD_COEF_64*SHA_BUF_SIZ*8*SIMD_COEF_64 )
 
-void dump_stuff_mmx_noeol(void *buf, unsigned int size, unsigned int index) {
+void dump_text_msg(const void *msg, const void *in, int len)
+{
+	unsigned char *p = (unsigned char*)in;
+
+	printf("%s : ", (char *)msg);
+	while (len--) {
+		fputc(isprint(*p) ? *p : '.', stdout);
+		p++;
+	}
+	fputc('\n', stdout);
+}
+
+void dump_stuff_msg(const void *msg, const void *x, unsigned int size)
+{
 	unsigned int i;
+
+	printf("%s : ", (char *)msg);
+	for (i=0;i<size;i++)
+	{
+		printf("%.2x", ((unsigned char*)x)[i]);
+		if ( (i%4)==3 )
+		printf(" ");
+	}
+	fputc('\n', stdout);
+}
+
+void dump_stuff_be_msg(const void *msg, const void *x, unsigned int size)
+{
+	unsigned int i;
+
+	printf("%s : ", (char *)msg);
+	for (i=0;i<size;i++)
+	{
+		printf("%.2x", ((unsigned char*)x)[i^3]);
+		if ( (i%4)==3 )
+		printf(" ");
+	}
+	fputc('\n', stdout);
+}
+
+void dump_stuff_mmx_msg(const void *msg, const void *buf, unsigned int size,
+                        unsigned int index)
+{
+	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[GETPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
+	fputc('\n', stdout);
 }
-void dump_stuff_mmx(void *buf, unsigned int size, unsigned int index) {
-	dump_stuff_mmx_noeol(buf, size, index);
-	printf("\n");
-}
-void dump_stuff_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_stuff_mmx(buf, size, index);
-}
-void dump_stuff_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s :\n", (char*)msg);
-	dump_stuff_mmx(buf, size, index);
-}
-void dump_out_mmx_noeol(void *buf, unsigned int size, unsigned int index) {
+
+void dump_out_mmx_msg(const void *msg, const void *buf, unsigned int size,
+                      unsigned int index)
+{
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[GETOUTPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-}
-void dump_out_mmx(void *buf, unsigned int size, unsigned int index) {
-	dump_out_mmx_noeol(buf,size,index);
-	printf("\n");
-}
-void dump_out_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_out_mmx(buf, size, index);
-}
-void dump_out_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s :\n", (char*)msg);
-	dump_out_mmx(buf, size, index);
+	fputc('\n', stdout);
 }
 
 #if defined (SIMD_PARA_MD5)
 #define GETPOSMPARA(i, index)	( (index&(SIMD_COEF_32-1))*4 + (((i)&(0xffffffff-3))%64)*SIMD_COEF_32 + (i/64)*SIMD_COEF_32*SIMD_PARA_MD5*64 +    ((i)&3)  + (unsigned int)index/SIMD_COEF_32*64*SIMD_COEF_32  )
 // multiple para blocks
-void dump_stuff_mpara_mmx_noeol(void *buf, unsigned int size, unsigned int index) {
+void dump_stuff_mpara_mmx_msg(const void *msg, const void *buf, unsigned int size,
+                              unsigned int index)
+{
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[GETPOSMPARA(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
+	fputc('\n', stdout);
 }
-void dump_stuff_mpara_mmx(void *buf, unsigned int size, unsigned int index) {
-	dump_stuff_mpara_mmx_noeol(buf, size, index);
-	printf("\n");
-}
+
 // obuf has to be at lease size long.  This function will unwind the SSE-para buffers into a flat.
-void getbuf_stuff_mpara_mmx(unsigned char *oBuf, void *buf, unsigned int size, unsigned int index) {
+void getbuf_stuff_mpara_mmx(unsigned char *oBuf, const void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
+
 	for (i=0;i<size;i++)
 		*oBuf++ = ((unsigned char*)buf)[GETPOSMPARA(i, index)];
 }
-void dump_stuff_mpara_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_stuff_mpara_mmx(buf, size, index);
-}
-void dump_stuff_mpara_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s :\n", (char*)msg);
-	dump_stuff_mpara_mmx(buf, size, index);
-}
 #endif
 
-void dump_stuff_shammx(void *buf, unsigned int size, unsigned int index) {
+void dump_stuff_shammx_msg(const void *msg, const void *buf, unsigned int size,
+                           unsigned int index)
+{
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[SHAGETPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-	printf("\n");
+	fputc('\n', stdout);
 }
-void dump_stuff_shammx_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_stuff_shammx(buf, size, index);
-}
-void dump_out_shammx(void *buf, unsigned int size, unsigned int index) {
+
+void dump_out_shammx_msg(const void *msg, const void *buf, unsigned int size,
+                         unsigned int index)
+{
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[SHAGETOUTPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-	printf("\n");
-}
-void dump_out_shammx_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_out_shammx(buf, size, index);
+	fputc('\n', stdout);
 }
 
-void dump_stuff_shammx64(void *buf, unsigned int size, unsigned int index) {
+void dump_stuff_shammx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[SHA64GETPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-	printf("\n");
+	fputc('\n', stdout);
 }
-void dump_stuff_shammx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_stuff_shammx64(buf, size, index);
-}
-void dump_stuff_mmx64(void *buf, unsigned int size, unsigned int index) {
+
+void dump_stuff_mmx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[SHA64GETPOSne(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-	printf("\n");
-}
-void dump_stuff_mmx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_stuff_mmx64(buf, size, index);
+	fputc('\n', stdout);
 }
 
-void dump_out_shammx64(void *buf, unsigned int size, unsigned int index) {
+void dump_out_shammx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index) {
 	unsigned int i;
+
+	printf("%s : ", (char*)msg);
 	for (i=0;i<size;i++)
 	{
 		printf("%.2x", ((unsigned char*)buf)[SHA64GETOUTPOS(i, index)]);
 		if ( (i%4)==3 )
 			printf(" ");
 	}
-	printf("\n");
-}
-void dump_out_shammx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index) {
-	printf("%s : ", (char*)msg);
-	dump_out_shammx64(buf, size, index);
+	fputc('\n', stdout);
 }
 #endif
 
@@ -750,7 +629,7 @@ alloc_region_t(region_t * region, size_t size)
 	base = aligned = NULL;
 	if (size + 63 < size) {
 		errno = ENOMEM;
-	} else if ((base = libc_malloc(size + 63)) != NULL) {
+	} else if ((base = malloc(size + 63)) != NULL) {
 		aligned = base + 63;
 		aligned -= (uintptr_t)aligned & 63;
 	}
@@ -775,7 +654,7 @@ int free_region_t(region_t * region)
 		if (munmap(region->base, region->base_size))
 			return -1;
 #else
-		libc_free(region->base);
+		free(region->base);
 #endif
 	}
 	init_region_t(region);

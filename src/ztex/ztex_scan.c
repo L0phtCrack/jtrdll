@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2016 Denis Burykin
+ * This software is Copyright (c) 2016,2018 Denis Burykin
  * [denis_burykin yahoo com], [denis-burykin2014 yandex ru]
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,11 @@
 
 extern struct list_main *jtr_devices_allow;
 
+static int firmware_is_ok(struct ztex_device *dev)
+{
+	return !strncmp("inouttraffic JtR 1.8.x", dev->product_string, 22);
+}
+
 // Find Ztex USB devices (of supported type)
 // Check "--devices" command-line option
 // Upload firmware (device resets) if necessary
@@ -52,7 +57,9 @@ static int ztex_scan(struct ztex_dev_list *new_dev_list, struct ztex_dev_list *d
 
 		// If john is invoked with "--devices" command-line option,
 		// use only listed boards.
-		if (jtr_devices_allow->count) {
+		// If the board has SN of unsupported format - upload firmware.
+		if (jtr_devices_allow->count && (ztex_sn_is_valid(dev->snString)
+					|| !firmware_is_ok(dev)) ) {
 			if (!list_check(jtr_devices_allow, dev->snString)) {
 				ztex_dev_list_remove(new_dev_list, dev);
 				continue;
@@ -71,13 +78,16 @@ static int ztex_scan(struct ztex_dev_list *new_dev_list, struct ztex_dev_list *d
 		}
 
 		// Check firmware
-		if (!strncmp("inouttraffic", dev->product_string, 12)) {
+		if (firmware_is_ok(dev)) {
 			count++;
 			continue;
 		}
-		// 3rd party firmware or dummy firmware, do upload/override
+		// 3rd party firmware
 		else if (ZTEX_FW_3RD_PARTY_OVERWRITE
-			|| !strncmp("USB-FPGA Module 1.15y (default)", dev->product_string, 31)) {
+			// dummy firmware, do upload/override
+			|| !strncmp("USB-FPGA Module 1.15y (default)", dev->product_string, 31)
+			// inouttraffic firmware of other version
+			|| !strncmp("inouttraffic", dev->product_string, 12) ) {
 			// upload firmware
 			result = ztex_firmware_upload(dev, ZTEX_FW_IHX_PATH);
 			if (result >= 0) {

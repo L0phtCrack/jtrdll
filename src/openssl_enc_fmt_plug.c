@@ -59,7 +59,6 @@ john_register_one(&fmt_openssl);
 #include "common.h"
 #include "formats.h"
 #include "jumbo.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL        "openssl-enc"
 #define FORMAT_NAME         "OpenSSL \"enc\" encryption"
@@ -88,6 +87,7 @@ static struct custom_salt {
 	int kpa;
 	int datalen;
 	unsigned char kpt[256];
+	int asciipct;
 	unsigned char data[1024];
 	unsigned char last_chunks[32];
 } *cur_salt;
@@ -209,7 +209,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 	q = q + 1;
 	if ((q - p - 1) != 1)
 		return 0;
-	if (*p != '0' && *p != '1')
+	if (*p != '0' && *p != '1' && *p != '2')
 		return 0;
 	if (strlen(q) > sizeof(cur_salt->kpt) - 1)
 		return 0;
@@ -251,6 +251,12 @@ static void *get_salt(char *ciphertext)
 		if (cs.kpa) {
 			p = strtokm(NULL, "$");
 			strncpy((char*)cs.kpt, p, 255);
+			if (cs.kpa == 2) {
+				cs.asciipct = atoi(p);
+				if (!cs.asciipct) {
+					cs.asciipct = 90;
+				}
+			}
 		}
 	}
 	else {
@@ -265,6 +271,12 @@ static void *get_salt(char *ciphertext)
 		if (cs.kpa) {
 			p = strtokm(NULL, "$");
 			strncpy((char*)cs.kpt, p, 255);
+			if (cs.kpa == 2) {
+				cs.asciipct = atoi(p);
+				if (!cs.asciipct) {
+					cs.asciipct = 90;
+				}
+			}
 		}
 	}
 
@@ -272,22 +284,44 @@ static void *get_salt(char *ciphertext)
 	return (void *)&cs;
 }
 
+static int count_ascii(unsigned char *data, int len) {
+	int nascii = 0;
+	int c;
+	for (c = 0 ; c < len ; c++) {
+		if (data[c] == 0x0a || data[c] == 0x0d || (data[c] >= 32 && data[c] < 127))
+			nascii++;
+	}
+	return nascii;
+}
+
 static int kpa(unsigned char *key, unsigned char *iv, int inlined)
 {
 	AES_KEY akey;
 	unsigned char out[1024];
-	if (AES_set_decrypt_key(key, 256, &akey) < 0) {
-		fprintf(stderr, "AES_set_decrypt_key failed in crypt!\n");
-	}
+	AES_set_decrypt_key(key, 256, &akey);
 	if (inlined) {
 		AES_cbc_encrypt(cur_salt->last_chunks, out, 16, &akey, iv, AES_DECRYPT);
-		if (memmem(out, 16, cur_salt->kpt, strlen((char*)cur_salt->kpt)))
-			return 0;
+		if (cur_salt->kpa == 1) {
+			if (memmem(out, 16, cur_salt->kpt, strlen((char*)cur_salt->kpt)))
+				return 0;
+		} else if (cur_salt->kpa == 2) {
+			int len = check_pkcs_pad(out, 16, 16);
+			int nascii = count_ascii(out, len);
+			if ( (nascii * 100) / len >= cur_salt->asciipct )
+				return 0;
+		}
 	}
 	else {
 		AES_cbc_encrypt(cur_salt->data, out, cur_salt->datalen, &akey, iv, AES_DECRYPT);
-		if (memmem(out, cur_salt->datalen, cur_salt->kpt, strlen((char*)cur_salt->kpt)))
-			return 0;
+		if (cur_salt->kpa == 1) {
+			if (memmem(out, cur_salt->datalen, cur_salt->kpt, strlen((char*)cur_salt->kpt)))
+				return 0;
+		} else if (cur_salt->kpa == 2) {
+			int len = check_pkcs_pad(out, cur_salt->datalen, 16);
+			int nascii = count_ascii(out, len);
+			if ( (nascii * 100) / len >= cur_salt->asciipct )
+				return 0;
+		}
 	}
 	return -1;
 }

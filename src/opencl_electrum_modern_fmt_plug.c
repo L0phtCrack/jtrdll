@@ -33,7 +33,7 @@ john_register_one(&fmt_opencl_electrum_modern);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "johnswap.h"
 #include "secp256k1.h"
 #include "aes.h"
@@ -41,7 +41,6 @@ john_register_one(&fmt_opencl_electrum_modern);
 #include "hmac_sha.h"
 #include "pbkdf2_hmac_common.h"
 
-#undef FORMAT_NAME
 #define FORMAT_NAME             "Electrum Wallet 2.8+"
 #define FORMAT_LABEL            "electrum-modern-opencl"
 #define FORMAT_TAG              "$electrum$"
@@ -56,7 +55,6 @@ john_register_one(&fmt_opencl_electrum_modern);
 #define MAX_KEYS_PER_CRYPT      1
 #define KERNEL_NAME             "pbkdf2_sha512_kernel"
 #define SPLIT_KERNEL_NAME       "pbkdf2_sha512_loop"
-#define CONFIG_NAME             "pbkdf2_sha512"
 
 #define HASH_LOOPS              250
 #define ITERATIONS              10000
@@ -126,7 +124,6 @@ static int split_events[] = { 2, -1, -1 };
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -202,9 +199,7 @@ static void reset(struct db_main *db)
 		                       sizeof(state_t), 0, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, ITERATIONS, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, ITERATIONS, 0, 200);
 	}
 }
 
@@ -351,28 +346,27 @@ static const char *group_order = "fffffffffffffffffffffffffffffffebaaedce6af48a0
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	int i;
 	const int count = *pcount;
-	int index;
+	size_t gws = count;
+	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
+		&local_work_size : NULL;
+	int i, index;
 	int loops = (host_salt->rounds + HASH_LOOPS - 1) / HASH_LOOPS;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
-
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
 
 	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
-		global_work_size * sizeof(pass_t), host_pass, 0, NULL,
+		gws * sizeof(pass_t), host_pass, 0, NULL,
 		multi_profilingEvent[0]), "Copy data to gpu");
 
 	// Run kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-				NULL, &global_work_size, lws, 0, NULL,
+				NULL, &gws, lws, 0, NULL,
 				multi_profilingEvent[1]), "Run kernel");
 
 	for (i = 0; i < (ocl_autotune_running ? 1 : loops); i++) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 					split_kernel, 1, NULL,
-					&global_work_size, lws, 0, NULL,
+					&gws, lws, 0, NULL,
 					multi_profilingEvent[2]), "Run split kernel");
 		BENCH_CLERROR(clFinish(queue[gpu_id]), "clFinish");
 		opencl_process_event();
@@ -380,7 +374,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	// Read the result back
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0,
-				global_work_size * sizeof(crack_t), host_crack,
+				gws * sizeof(crack_t), host_crack,
 				0, NULL, multi_profilingEvent[3]), "Copy result back");
 
 	if (!ocl_autotune_running) {

@@ -43,7 +43,6 @@ john_register_one(&fmt_dahua);
 #include "johnswap.h"
 #include "params.h"
 #include "options.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "dahua"
 #define FORMAT_NAME             "\"MD5 based authentication\" Dahua"
@@ -119,7 +118,7 @@ static int valid(char *ciphertext, struct fmt_main *self)
 static void *get_binary(char *ciphertext)
 {
 	static union {
-		char c[BINARY_SIZE];
+		char c[BINARY_SIZE+1];
 		ARCH_WORD dummy;
 	} buf;
 	char *p;

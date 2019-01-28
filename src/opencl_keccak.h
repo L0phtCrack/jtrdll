@@ -7,6 +7,11 @@
  * but not liability.
  */
 
+#ifndef _OPENCL_KECCAK_H
+#define _OPENCL_KECCAK_H
+
+#include "opencl_misc.h"
+
 /******** The Keccak-f[1600] permutation ********/
 
 /*** Constants. ***/
@@ -169,3 +174,5 @@ inline void hash(uint8_t* out, uint outlen, const uint8_t* in, uint inlen,
   }
 
 defkeccak(256)
+
+#endif /* _OPENCL_KECCAK_H */

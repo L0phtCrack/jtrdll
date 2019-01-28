@@ -20,9 +20,6 @@ john_register_one(&fmt_oldoffice);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               256
-#endif
 #endif
 
 #include "md5.h"
@@ -36,20 +33,23 @@ john_register_one(&fmt_oldoffice);
 #include "options.h"
 #include "unicode.h"
 #include "dyna_salt.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "oldoffice"
 #define FORMAT_NAME             "MS Office <= 2003"
 #define ALGORITHM_NAME          "MD5/SHA1 RC4 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 #define PLAINTEXT_LENGTH        64
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            MEM_ALIGN_NONE
 #define SALT_SIZE               sizeof(dyna_salt*)
 #define SALT_ALIGN              MEM_ALIGN_WORD
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      64
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               8 // Tuned w/ MKPC for core i7
+#endif
 
 #define CIPHERTEXT_LENGTH       (TAG_LEN + 120)
 #define FORMAT_TAG              "$oldoffice$"
@@ -111,9 +111,8 @@ static custom_salt *cur_salt = &cs;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = 3 * PLAINTEXT_LENGTH > 125 ?
 			125 : 3 * PLAINTEXT_LENGTH;
@@ -341,8 +340,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index++)
-	{
+	for (index = 0; index < count; index++) {
 		int i;
 		RC4_KEY key;
 
@@ -463,9 +461,7 @@ static int cmp_one(void *binary, int index)
 
 static int cmp_exact(char *source, int index)
 {
-	extern volatile int bench_running;
-
-	if (cur_salt->type < 4 && !bench_running) {
+	if (cur_salt->type < 4 && !bench_or_test_running) {
 		unsigned char *cp, out[11];
 		int i;
 
@@ -519,7 +515,7 @@ struct fmt_main fmt_oldoffice = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_UTF8 | FMT_SPLIT_UNIFIES_CASE | FMT_DYNA_SALT,
+		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_UNICODE | FMT_ENC | FMT_SPLIT_UNIFIES_CASE | FMT_DYNA_SALT,
 		{
 			"hash type",
 		},

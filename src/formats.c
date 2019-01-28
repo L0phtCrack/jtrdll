@@ -18,15 +18,13 @@
 #include "options.h"
 #include "loader.h"
 #endif
+#include "john.h"
 
 /* this is just for advance_cursor() */
-#ifdef HAVE_OPENCL
-#include "common-opencl.h"
-#endif
+#include "opencl_common.h"
 #include "jumbo.h"
 #include "bench.h"
 #include "omp_autotune.h"
-#include "memdbg.h"
 
 char fmt_null_key[PLAINTEXT_BUFFER_SIZE];
 
@@ -34,9 +32,10 @@ struct fmt_main *fmt_list = NULL;
 static struct fmt_main **fmt_tail = &fmt_list;
 static char *buf_key;
 
-extern volatile int bench_running;
-
 int fmt_raw_len;
+
+int self_test_running;
+int benchmark_running;
 
 #ifndef BENCH_BUILD
 static int orig_min, orig_max, orig_len;
@@ -88,6 +87,15 @@ void fmt_init(struct fmt_main *format)
 			orig_len = format->params.plaintext_length;
 		}
 #endif
+		if (john_main_process && !bench_or_test_running &&
+#ifndef BENCH_BUILD
+		    !options.listconf && options.target_enc != UTF_8 &&
+#endif
+		    format->params.flags & FMT_UTF8)
+			fprintf(stderr, "Warning: %s format should always be "
+			        "UTF-8. Use --target-encoding=utf8\n",
+				format->params.label);
+
 		format->private.initialized = 1;
 	}
 #ifndef BENCH_BUILD
@@ -106,7 +114,8 @@ void fmt_init(struct fmt_main *format)
 			format->params.min_keys_per_crypt =
 				options.force_maxkeys;
 	}
-	if (options.req_maxlength > format->params.plaintext_length) {
+	if (!(options.flags & FLG_LOOPBACK_CHK) &&
+	    options.req_maxlength > format->params.plaintext_length) {
 		fprintf(stderr, "Can't set max length larger than %u "
 		        "for %s format\n",
 		        format->params.plaintext_length,
@@ -323,19 +332,12 @@ static char* is_key_right(struct fmt_main *format, int index,
 }
 #endif
 
-#ifdef JUMBO_JTR
 static char *fmt_self_test_body(struct fmt_main *format,
     void *binary_copy, void *salt_copy, struct db_main *db, int full_lvl)
 {
 	static char s_size[200];
 #ifndef BENCH_BUILD
 	char *ret;
-#endif
-#else
-static char *fmt_self_test_body(struct fmt_main *format,
-    void *binary_copy, void *salt_copy)
-{
-	static char s_size[32];
 #endif
 	struct fmt_tests *current;
 	char *ciphertext, *plaintext;
@@ -390,6 +392,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 #endif
 #ifndef BENCH_BUILD
 	if (options.flags & FLG_NOTESTS) {
+		self_test_running = 0;
 		fmt_init(format);
 		dyna_salt_init(format);
 		if (db->real) {
@@ -404,9 +407,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		return NULL;
 	}
 #endif
-
-	MemDbg_Validate_msg(MEMDBG_VALIDATE_DEEPEST,
-	                    "\nAt start of self-test:");
 
 	if (!(current = format->params.tests)) return NULL;
 	ntests = 0;
@@ -486,35 +486,22 @@ static char *fmt_self_test_body(struct fmt_main *format,
 				return "get_hash method not allowed for FMT_HUGE_INPUT";
 		}
 	}
-#ifndef JUMBO_JTR
-	fmt_init(format);
-#endif
 
 	ml = format->params.plaintext_length;
 #ifndef BENCH_BUILD
 	/* UTF-8 bodge in reverse. Otherwise we will get truncated keys back
 	   from the max-length self-test */
 	if ((options.target_enc == UTF_8) &&
-	    (format->params.flags & FMT_UTF8) &&
+	    (format->params.flags & FMT_ENC) &&
 	    (format->params.flags & FMT_UNICODE))
 		ml /= 3;
 
 	omp_autotune_run(db);
 #endif
 
-#ifndef JUMBO_JTR
-	format->methods.reset(NULL);
-#endif
 	format->methods.reset(db);
 	dyna_salt_init(format);
 
-#ifndef JUMBO_JTR
-	if (!(current = format->params.tests)) return NULL;
-	ntests = 0;
-	while ((current++)->ciphertext)
-		ntests++;
-	current = format->params.tests;
-#endif
 	if ((format->methods.split == fmt_default_split) &&
 	    (format->params.flags & FMT_SPLIT_UNIFIES_CASE))
 		return "FMT_SPLIT_UNIFIES_CASE";
@@ -522,6 +509,22 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	if ((format->params.flags & FMT_OMP_BAD) &&
 	    !(format->params.flags & FMT_OMP))
 		return "FMT_OMP_BAD";
+
+	if ((format->params.flags & FMT_ENC) &&
+	    !(format->params.flags & FMT_UNICODE))
+		return "FMT_ENC without FMT_UNICODE";
+
+	if ((format->params.flags & FMT_ENC) &&
+	    !(format->params.flags & FMT_8_BIT))
+		return "FMT_ENC without FMT_8_BIT";
+
+	if ((format->params.flags & FMT_UTF8) &&
+	    !(format->params.flags & FMT_8_BIT))
+		return "FMT_UTF8 without FMT_8_BIT";
+
+	if ((format->params.flags & FMT_UNICODE) &&
+	    !(format->params.flags & FMT_8_BIT))
+		return "FMT_UNICODE without FMT_8_BIT";
 
 	if ((format->methods.binary == fmt_default_binary) &&
 	    (format->params.binary_size > 0))
@@ -546,20 +549,14 @@ static char *fmt_self_test_body(struct fmt_main *format,
 	index = 0; max = format->params.max_keys_per_crypt;
 
 	do {
-		if (strnlen(current->ciphertext, LINE_BUFFER_SIZE + 1) >
-		    LINE_BUFFER_SIZE &&
+		if (strnlen(current->ciphertext, LINE_BUFFER_SIZE) >
+		    MAX_CIPHERTEXT_SIZE &&
 		    !(format->params.flags & FMT_HUGE_INPUT))
 			return "Long test vector but not FMT_HUGE_INPUT";
 
 		if (!current->fields[1])
 			current->fields[1] = current->ciphertext;
 		ciphertext = format->methods.prepare(current->fields, format);
-#ifndef JUMBO_JTR
-		if (!ciphertext || strlen(ciphertext) < 7)
-			return "prepare";
-		if (format->methods.valid(ciphertext, format) != 1)
-			return "valid";
-#else
 		if (!ciphertext || (strcmp(format->params.label, "plaintext") &&
 		                    strlen(ciphertext) < 7))
 			return "prepare";
@@ -567,7 +564,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			snprintf(s_size, sizeof(s_size), "valid (%s)", ciphertext);
 			return s_size;
 		}
-#endif
 
 #if !defined(BENCH_BUILD)
 		if (extra_tests && !dhirutest++ &&
@@ -641,15 +637,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
  * hold the binary ciphertexts and salts.  We do this by copying the values
  * returned by binary() and salt() only to the declared sizes.
  */
-#ifndef JUMBO_JTR
-		binary = format->methods.binary(ciphertext);
-		if (!is_aligned(binary, format->params.binary_align) &&
-		    !binary_align_warned) {
-			puts("Warning: binary() returned misaligned pointer");
-			binary_align_warned = 1;
-		}
-		memcpy(binary_copy, binary, format->params.binary_size);
-#else
 		if (!(binary = format->methods.binary(ciphertext)))
 			return "binary() returned NULL";
 #if ARCH_ALLOWS_UNALIGNED
@@ -661,7 +648,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			puts("Warning: binary() returned misaligned pointer");
 			binary_align_warned = 1;
 		}
-#endif
 
 		/* validate that binary() returns cleaned buffer */
 		if (extra_tests && !binary_cleaned_warned && format->params.binary_size) {
@@ -688,14 +674,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		binary = binary_copy;
 
 		salt = format->methods.salt(ciphertext);
-#ifndef JUMBO_JTR
-		if (!is_aligned(salt, format->params.salt_align) &&
-		    !salt_align_warned) {
-			puts("Warning: salt() returned misaligned pointer");
-			salt_align_warned = 1;
-		}
-		memcpy(salt_copy, salt, format->params.salt_size);
-#else
 		if (!salt)
 			return "salt() returned NULL";
 		dyna_salt_create(salt);
@@ -708,7 +686,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			puts("Warning: salt() returned misaligned pointer");
 			salt_align_warned = 1;
 		}
-#endif
 
 		/* validate that salt dupe checks will work */
 		if (!salt_dupe_warned && format->params.salt_size) {
@@ -785,12 +762,15 @@ static char *fmt_self_test_body(struct fmt_main *format,
 		    format->methods.source(ciphertext, binary)))
 			return "source";
 
+		if (format->params.salt_size == 0 &&
+		    format->methods.salt_hash(salt))
+			return "salt_hash non-zero with salt_size of 0";
+
 		if ((unsigned int)format->methods.salt_hash(salt) >=
 		    SALT_HASH_SIZE)
 			return "salt_hash";
 
 		format->methods.set_salt(salt);
-#ifdef JUMBO_JTR
 #ifndef BENCH_BUILD
 		if ((format->methods.get_hash[0] != fmt_default_get_hash) &&
 		    strlen(ciphertext) > MAX_CIPHERTEXT_SIZE)
@@ -806,38 +786,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			return "Could not find salt in db - salt() return inconsistent?";
 		}
 #endif
-#endif
-#ifndef JUMBO_JTR
-		format->methods.set_key(current->plaintext, index);
-
-		{
-			int count = index + 1;
-			int match = format->methods.crypt_all(&count, NULL);
-/* If salt is NULL, the return value must always match *count the way it is
- * after the crypt_all() call. */
-			if (match != count)
-				return "crypt_all";
-		}
-
-		for (size = 0; size < PASSWORD_HASH_SIZES; size++)
-		if (format->methods.binary_hash[size] &&
-		    format->methods.get_hash[size](index) !=
-		    format->methods.binary_hash[size](binary)) {
-			sprintf(s_size, "get_hash[%d](%d)", size, index);
-			return s_size;
-		}
-
-		if (!format->methods.cmp_all(binary, index + 1))
-			return "cmp_all";
-		if (!format->methods.cmp_one(binary, index))
-			return "cmp_one";
-		if (!format->methods.cmp_exact(ciphertext, index))
-			return "cmp_exact";
-
-		if (strncmp(format->methods.get_key(index), plaintext,
-		    format->params.plaintext_length))
-			return "get_key";
-#else
 #ifndef BENCH_BUILD
 		if (extra_tests && maxlength == 0) {
 			//int min = format->params.min_keys_per_crypt;
@@ -885,7 +833,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 				}
 			}
 		}
-#endif
 
 #endif
 		if (full_lvl >= 0) {
@@ -932,20 +879,13 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			return ret;
 #endif
 /* Remove some old keys to better test cmp_all() */
-		if (index & 1)
-#ifndef JUMBO_JTR
-			format->methods.set_key(fmt_null_key, index);
-#else
-			fmt_set_key(longcand(format, index, sl), index);
-#endif
+		if (index & 1) {
+			format->methods.clear_keys();
+			for (i = 0; i <= index; i++)
+				fmt_set_key(fmt_null_key, i);
+		}
 
 /* 0 1 2 3 4 6 9 13 19 28 42 63 94 141 211 316 474 711 1066 ... */
-#ifndef JUMBO_JTR
-		if (index >= 2 && max > ntests)
-			index += index >> 1;
-		else
-			index++;
-#else
 		if (index >= 2 && max > ntests) {
 /* Always call set_key() even if skipping. Some formats depend on it. */
 			for (i = index + 1;
@@ -954,7 +894,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 			index = i;
 		} else
 			index++;
-#endif
 
 		if (index >= max) {
 			format->methods.clear_keys();
@@ -1009,13 +948,8 @@ static char *fmt_self_test_body(struct fmt_main *format,
 						"crypt should set FMT_8_BIT");
 					return s_size;
 				}
-			} else if (!strncasecmp(format->params.label, "wpapsk", 6)) {
-/*
- * WPAPSK technically handles 8-bit, but a WPAPSK passphrase is 8 to 63
- * printable ASCII characters according to the spec. IEEE Std. 802.11i-2004,
- * Annex H.4.1: Each character in the pass-phrase must have an encoding in
- * the range of 32 to 126 (decimal), inclusive.
- */
+			} else if (!strncasecmp(format->params.label, "wpapsk-pmk", 10)) {
+/* WPAPSK-PMK is 64 hex digits */
 				if (format->params.flags & FMT_8_BIT) {
 					snprintf(s_size, sizeof(s_size),
 						"%s should not set FMT_8_BIT",
@@ -1099,8 +1033,6 @@ static char *fmt_self_test_body(struct fmt_main *format,
 
 	format->methods.clear_keys();
 	format->private.initialized = 2;
-
-	MemDbg_Validate_msg(MEMDBG_VALIDATE_DEEPEST, "At end of self-test:");
 
 	return NULL;
 }
@@ -1652,26 +1584,6 @@ static void *alloc_binary(void **alloc, size_t size, size_t align)
 	return p;
 }
 
-#ifndef JUMBO_JTR
-char *fmt_self_test(struct fmt_main *format)
-{
-	char *retval;
-	void *binary_alloc, *salt_alloc;
-	void *binary_copy, *salt_copy;
-
-	binary_copy = alloc_binary(&binary_alloc,
-	    format->params.binary_size, format->params.binary_align);
-	salt_copy = alloc_binary(&salt_alloc,
-	    format->params.salt_size, format->params.salt_align);
-
-	retval = fmt_self_test_body(format, binary_copy, salt_copy);
-
-	MEM_FREE(salt_alloc);
-	MEM_FREE(binary_alloc);
-
-	return retval;
-}
-#else
 char *fmt_self_test(struct fmt_main *format, struct db_main *db)
 {
 	char *retval;
@@ -1683,20 +1595,17 @@ char *fmt_self_test(struct fmt_main *format, struct db_main *db)
 	salt_copy = alloc_binary(&salt_alloc,
 	    format->params.salt_size?format->params.salt_size:1, format->params.salt_align);
 
-	/* We use this to keep opencl_process_event() from doing stuff
-	 * while self-test is running. */
-	bench_running = 1;
+	self_test_running = 1;
 
 	retval = fmt_self_test_body(format, binary_copy, salt_copy, db, benchmark_level);
 
-	bench_running = 0;
+	self_test_running = 0;
 
 	MEM_FREE(salt_alloc);
 	MEM_FREE(binary_alloc);
 
 	return retval;
 }
-#endif
 
 void fmt_default_init(struct fmt_main *self)
 {

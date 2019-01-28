@@ -40,7 +40,6 @@ john_register_one(&fmt_opencl_mscash2);
 #include "config.h"
 #include "mscash_common.h"
 
-#include "memdbg.h"
 
 #define SQRT_2                      0x5a827999
 #define SQRT_3                      0x6ed9eba1
@@ -77,7 +76,7 @@ static void set_key(char*, int) ;
 static void init(struct fmt_main *__self)
 {
 	//Prepare OpenCL environment.
-	opencl_preinit();
+	opencl_load_environment();
 
 	/* Read LWS/GWS prefs from config or environment */
 	opencl_get_user_preferences(FORMAT_LABEL);
@@ -106,13 +105,13 @@ static void reset(struct db_main *db)
 			self->params.max_keys_per_crypt += selectDevice(gpu_device_list[i], self);
 
 		///Allocate memory
-		key_host = mem_calloc(self -> params.max_keys_per_crypt, sizeof(*key_host));
-		dcc_hash_host = (cl_uint*)mem_alloc(4 * sizeof(cl_uint) * self -> params.max_keys_per_crypt);
-		dcc2_hash_host = (cl_uint*)mem_alloc(4 * sizeof(cl_uint) * self -> params.max_keys_per_crypt);
-		hmac_sha1_out  = (cl_uint*)mem_alloc(5 * sizeof(cl_uint) * self -> params.max_keys_per_crypt);
+		key_host = mem_calloc(self->params.max_keys_per_crypt, sizeof(*key_host));
+		dcc_hash_host = (cl_uint*)mem_alloc(4 * sizeof(cl_uint) * self->params.max_keys_per_crypt);
+		dcc2_hash_host = (cl_uint*)mem_alloc(4 * sizeof(cl_uint) * self->params.max_keys_per_crypt);
+		hmac_sha1_out  = (cl_uint*)mem_alloc(5 * sizeof(cl_uint) * self->params.max_keys_per_crypt);
 
-		memset(dcc_hash_host, 0, 4 * sizeof(cl_uint) * self -> params.max_keys_per_crypt);
-		memset(dcc2_hash_host, 0, 4 * sizeof(cl_uint) * self -> params.max_keys_per_crypt);
+		memset(dcc_hash_host, 0, 4 * sizeof(cl_uint) * self->params.max_keys_per_crypt);
+		memset(dcc2_hash_host, 0, 4 * sizeof(cl_uint) * self->params.max_keys_per_crypt);
 
 		initialized++;
 	}
@@ -383,7 +382,7 @@ struct fmt_main fmt_opencl_mscash2 = {
 		SALT_ALIGN,
 		MAX_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG2 },
 		mscash2_common_tests

@@ -35,7 +35,6 @@ john_register_one(&FMT_STRUCT);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"plaintext"
 #define FORMAT_TAG			"$0$"
@@ -220,6 +219,9 @@ static int get_hash_6(int index)
 static void set_key(char *key, int index)
 {
 	char *p = saved_key[index];
+
+	if (options.verbosity >= VERB_DEBUG && !bench_or_test_running)
+		fprintf(stderr, "%s(%s, %d)\n", __FUNCTION__, key, index);
 
 	while (*key)
 		*p++ = *key++;

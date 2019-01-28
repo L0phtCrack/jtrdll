@@ -1,6 +1,6 @@
 /*
  * This software is Copyright (c) 2012 Lukas Odzioba <ukasz at openwall.net>
- * and Copyright (c) 2012-2014 magnum, and it is hereby released to the general
+ * and Copyright (c) 2012-2018 magnum, and it is hereby released to the general
  * public under the following terms: Redistribution and use in source and
  * binary forms, with or without modification, are permitted.
  *
@@ -22,10 +22,11 @@ john_register_one(&fmt_opencl_wpapsk);
 #include "misc.h"
 #include "config.h"
 #include "options.h"
-#include "common-opencl.h"
+#include "unicode.h"
+#include "opencl_common.h"
 
 static cl_mem mem_in, mem_out, mem_salt, mem_state, pinned_in, pinned_out;
-static cl_kernel wpapsk_init, wpapsk_loop, wpapsk_pass2, wpapsk_final_md5, wpapsk_final_sha1, wpapsk_final_sha256;
+static cl_kernel wpapsk_init, wpapsk_loop, wpapsk_pass2, wpapsk_final_md5, wpapsk_final_sha1, wpapsk_final_sha256, wpapsk_final_pmkid;
 static size_t key_buf_size;
 static unsigned int *inbuffer;
 static struct fmt_main *self;
@@ -34,7 +35,7 @@ static struct fmt_main *self;
 #include "wpapsk.h"
 
 #define FORMAT_LABEL		"wpapsk-opencl"
-#define FORMAT_NAME		"WPA/WPA2/PMF PSK"
+#define FORMAT_NAME		"WPA/WPA2/PMF/PMKID PSK"
 #define ALGORITHM_NAME		"PBKDF2-SHA1 OpenCL"
 
 #define ITERATIONS		4095
@@ -69,9 +70,8 @@ static const char * warn[] = {
 
 static int split_events[] = { 2, -1, -1 };
 
-//This file contains auto-tuning routine(s). Has to be included after formats definitions.
+// This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -84,6 +84,8 @@ static size_t get_task_max_work_group_size()
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_md5));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_sha1));
 	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_sha256));
+	s = MIN(s, autotune_get_task_max_work_group_size(FALSE, 0, wpapsk_final_pmkid));
+
 	return s;
 }
 
@@ -93,7 +95,7 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 
 	key_buf_size = 64 * gws;
 
-	/// Allocate memory
+	// Allocate memory
 	pinned_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, key_buf_size, NULL, &ret_code);
 	HANDLE_CLERROR(ret_code, "Error allocating pinned in");
 	mem_in = clCreateBuffer(context[gpu_id], CL_MEM_READ_ONLY, key_buf_size, NULL, &ret_code);
@@ -134,6 +136,10 @@ static void create_clobj(size_t gws, struct fmt_main *self)
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 0, sizeof(mem_state), &mem_state), "Error while setting mem_state kernel argument");
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 1, sizeof(mem_salt), &mem_salt), "Error while setting mem_salt kernel argument");
 	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_sha256, 2, sizeof(mem_out), &mem_out), "Error while setting mem_out kernel argument");
+
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 0, sizeof(mem_state), &mem_state), "Error while setting mem_state kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 1, sizeof(mem_salt), &mem_salt), "Error while setting mem_salt kernel argument");
+	HANDLE_CLERROR(clSetKernelArg(wpapsk_final_pmkid, 2, sizeof(mem_out), &mem_out), "Error while setting mem_out kernel argument");
 }
 
 static void release_clobj(void)
@@ -164,6 +170,7 @@ static void done(void)
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_md5), "Release Kernel");
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_sha1), "Release Kernel");
 		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_sha256), "Release Kernel");
+		HANDLE_CLERROR(clReleaseKernel(wpapsk_final_pmkid), "Release Kernel");
 
 		HANDLE_CLERROR(clReleaseProgram(program[gpu_id]), "Release Program");
 
@@ -202,6 +209,13 @@ static void init(struct fmt_main *_self)
 	static char valgo[32] = "";
 
 	self = _self;
+
+	/*
+	 * Implementations seen IRL that have 8 *bytes* (of eg. UTF-8) passwords
+	 * as opposed to 8 *characters*
+	 */
+	if (options.target_enc == UTF_8)
+		self->params.plaintext_min_length = 2;
 
 	opencl_prepare_dev(gpu_id);
 	/* VLIW5 does better with just 2x vectors due to GPR pressure */
@@ -254,6 +268,8 @@ static void reset(struct db_main *db)
 		HANDLE_CLERROR(ret_code, "Error creating kernel");
 		wpapsk_final_sha256 = clCreateKernel(program[gpu_id], "wpapsk_final_sha256", &ret_code);
 		HANDLE_CLERROR(ret_code, "Error creating kernel");
+		wpapsk_final_pmkid = clCreateKernel(program[gpu_id], "wpapsk_final_pmkid", &ret_code);
+		HANDLE_CLERROR(ret_code, "Error creating kernel");
 
 		// Initialize openCL tuning (library) for this format.
 		opencl_init_auto_setup(SEED, 2 * HASH_LOOPS, split_events,
@@ -262,9 +278,7 @@ static void reset(struct db_main *db)
 		                       2 * ocl_v_width * sizeof(wpapsk_state), 0, db);
 
 		// Auto tune execution from shared/included code.
-		autotune_run(self, 2 * ITERATIONS * 2 + 2, 0,
-		             (cpu(device_info[gpu_id]) ?
-		              1000000000 : 10000000000ULL));
+		autotune_run(self, 2 * ITERATIONS * 2 + 2, 0, 200);
 	}
 }
 
@@ -274,17 +288,16 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int i;
 	size_t scalar_gws;
 	size_t *lws = local_work_size ? &local_work_size : NULL;
-	extern volatile int bench_running;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER_VW(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 	scalar_gws = global_work_size * ocl_v_width;
 
-	/// Copy data to gpu
+	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0, scalar_gws * 64, inbuffer, 0, NULL, multi_profilingEvent[0]), "Copy data to gpu");
 
-	/// Run kernel
+	// Run kernel
 	if (new_keys || strcmp(last_ssid, hccap.essid) ||
-	    ocl_autotune_running || bench_running) {
+	    ocl_autotune_running || bench_or_test_running) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_init, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[1]), "Run initial kernel");
 
 		for (i = 0; i < (ocl_autotune_running ? 1 : ITERATIONS / HASH_LOOPS); i++) {
@@ -305,7 +318,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		strcpy(last_ssid, hccap.essid);
 	}
 
-	if (hccap.keyver == 1)
+	if (hccap.keyver == 0)
+		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_pmkid, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[4]), "Run final kernel (PMKID)");
+	else if (hccap.keyver == 1)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_md5, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[4]), "Run final kernel (MD5)");
 	else if (hccap.keyver == 2)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_sha1, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[4]), "Run final kernel (SHA1)");
@@ -313,7 +328,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], wpapsk_final_sha256, 1, NULL, &global_work_size, lws, 0, NULL, multi_profilingEvent[4]), "Run final kernel (SHA256)");
 	BENCH_CLERROR(clFinish(queue[gpu_id]), "Failed running final kernel");
 
-	/// Read the result back
+	// Read the result back
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], mem_out, CL_TRUE, 0, sizeof(mic_t) * scalar_gws, mic, 0, NULL, multi_profilingEvent[5]), "Copy result back");
 
 	return count;
@@ -334,11 +349,13 @@ struct fmt_main fmt_opencl_wpapsk = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE,
+		FMT_8_BIT | FMT_CASE,
 		{
-			"key version [1:WPA 2:WPA2 3:802.11w]"
+			"key version [0:PMKID 1:WPA 2:WPA2 3:802.11w]"
 		},
-		{ FORMAT_TAG},
+		{
+			FORMAT_TAG, ""
+		},
 		tests
 	}, {
 		init,
@@ -354,7 +371,7 @@ struct fmt_main fmt_opencl_wpapsk = {
 		},
 		fmt_default_source,
 		{
-			binary_hash_0,
+			fmt_default_binary_hash_0,
 			fmt_default_binary_hash_1,
 			fmt_default_binary_hash_2,
 			fmt_default_binary_hash_3,
@@ -362,7 +379,7 @@ struct fmt_main fmt_opencl_wpapsk = {
 			fmt_default_binary_hash_5,
 			fmt_default_binary_hash_6
 		},
-		fmt_default_salt_hash,
+		salt_hash,
 		salt_compare,
 		set_salt,
 		set_key,

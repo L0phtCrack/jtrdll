@@ -6,17 +6,14 @@
  */
 #ifdef HAVE_OPENCL
 
-#if defined(JTRDLL) && defined(_MSC_VER)
+#if defined(_MSC_VER)
 #include<gettimeofday.h>
 #else
 #include <sys/time.h>
 #endif
 
-#include <assert.h>
-
 #include "opencl_mscash2_helper_plug.h"
 #include "options.h"
-#include "memdbg.h"
 
 #define PADDING				1024
 
@@ -244,7 +241,6 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 			lwsLimit = 8;
 		if (lwsInit > 8)
 			lwsInit = 8;
-		assert(lwsInit <= lwsLimit);
 	}
 
 	if (gwsInit > gwsLimit)
@@ -303,7 +299,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 
 		timeMs = calcMs(startc, endc);
 		count = (size_t)((kernelRunMs / timeMs) * (long double)gwsInit);
-		count = GET_MULTIPLE_OR_BIGGER(count, gwsRound);
+		count = GET_NEXT_MULTIPLE(count, gwsRound);
 
 		MEM_FREE(hostDccHashes);
 		MEM_FREE(hostDcc2Hashes);
@@ -331,7 +327,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 
 		timeMs = calcMs(startc, endc);
 		count = (size_t)((kernelRunMs / timeMs) * (long double)count);
-		count = GET_MULTIPLE_OR_BIGGER(count, gwsRound);
+		count = GET_NEXT_MULTIPLE(count, gwsRound);
 
 		MEM_FREE(hostDccHashes);
 		MEM_FREE(hostDcc2Hashes);
@@ -409,7 +405,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 
 	if (tuneGws && tuneLws) {
 		count = (size_t)((kernelRunMs / minTimeMs) * (long double)count);
-		count = GET_MULTIPLE_OR_BIGGER(count, gwsRound);
+		count = GET_NEXT_MULTIPLE(count, gwsRound);
 	}
 
 	if (tuneGws) {
@@ -425,7 +421,7 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 	/* Auto tune finish.*/
 
 	if (devParam[jtrUniqDevId].devGws % gwsRound) {
-		devParam[jtrUniqDevId].devGws = GET_MULTIPLE_OR_BIGGER(devParam[jtrUniqDevId].devGws, gwsRound);
+		devParam[jtrUniqDevId].devGws = GET_NEXT_MULTIPLE(devParam[jtrUniqDevId].devGws, gwsRound);
 		releaseDevObjGws(jtrUniqDevId);
 		if (devParam[jtrUniqDevId].devGws > gwsLimit)
 			devParam[jtrUniqDevId].devGws = gwsLimit;
@@ -438,13 +434,6 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 		createDevObjGws(devParam[jtrUniqDevId].devGws, jtrUniqDevId);
 	}
 
-	assert(!(devParam[jtrUniqDevId].devLws & (devParam[jtrUniqDevId].devLws -1)));
-	assert(!(gwsRound & (devParam[jtrUniqDevId].devLws - 1)));
-	assert(!(devParam[jtrUniqDevId].devGws % gwsRound));
-	assert(devParam[jtrUniqDevId].devLws <= lwsLimit);
-	assert(devParam[jtrUniqDevId].devGws <= gwsLimit);
-	assert(devParam[jtrUniqDevId].devLws <= PADDING);
-
 	if (options.verbosity > VERB_LEGACY)
 	fprintf(stdout, "Device %d  GWS: "Zu", LWS: "Zu"\n", jtrUniqDevId,
 			devParam[jtrUniqDevId].devGws, devParam[jtrUniqDevId].devLws);
@@ -456,8 +445,6 @@ static size_t autoTune(int jtrUniqDevId, long double kernelRunMs)
 size_t selectDevice(int jtrUniqDevId, struct fmt_main *self)
 {
 	char buildOpts[300];
-
-	assert(jtrUniqDevId < MAX_GPU_DEVICES);
 
 	sprintf(buildOpts, "-D SALT_BUFFER_SIZE=" Zu, SALT_BUFFER_SIZE);
 	opencl_init("$JOHN/kernels/pbkdf2_kernel.cl", jtrUniqDevId, buildOpts);

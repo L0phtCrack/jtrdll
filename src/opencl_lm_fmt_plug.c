@@ -21,7 +21,6 @@ john_register_one(&fmt_opencl_lm);
 #include "formats.h"
 #include "config.h"
 #include "opencl_lm_hst_dev_shared.h"
-#include "memdbg.h"
 
 #define FORMAT_NAME			""
 #define FORMAT_TAG           "$LM$"
@@ -186,7 +185,7 @@ struct fmt_main fmt_opencl_lm = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_8_BIT | FMT_BS | FMT_TRUNC | FMT_SPLIT_UNIFIES_CASE | FMT_REMOVE,
+		FMT_8_BIT | FMT_BS | FMT_TRUNC | FMT_SPLIT_UNIFIES_CASE | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

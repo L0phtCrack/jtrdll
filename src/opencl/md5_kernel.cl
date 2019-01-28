@@ -21,22 +21,37 @@
 #include "opencl_misc.h"
 #include "opencl_mask.h"
 
+#undef MD5_LUT3 /* No good for this format, just here for reference */
 
 /* The basic MD5 functions */
-#ifdef USE_BITSELECT
+#if MD5_LUT3
+#define F(x, y, z)	lut3(x, y, z, 0xca)
+#define G(x, y, z)	lut3(x, y, z, 0xe4)
+#elif USE_BITSELECT
 #define F(x, y, z)	bitselect((z), (y), (x))
 #define G(x, y, z)	bitselect((y), (x), (z))
 #else
 #if HAVE_ANDNOT
-#define F(x, y, z) ((x & y) ^ ((~x) & z))
+#define F(x, y, z)	((x & y) ^ ((~x) & z))
 #else
-#define F(x, y, z) (z ^ (x & (y ^ z)))
+#define F(x, y, z)	(z ^ (x & (y ^ z)))
 #endif
 #define G(x, y, z)	((y) ^ ((z) & ((x) ^ (y))))
 #endif
+
+#if MD5_LUT3
+#define H(x, y, z)	lut3(x, y, z, 0x96)
+#define H2 H
+#else
 #define H(x, y, z)	(((x) ^ (y)) ^ (z))
 #define H2(x, y, z)	((x) ^ ((y) ^ (z)))
+#endif
+
+#if MD5_LUT3
+#define I(x, y, z)	lut3(x, y, z, 0x39)
+#else
 #define I(x, y, z)	((y) ^ ((x) | ~(z)))
+#endif
 
 /* The MD5 transformation for all four rounds. */
 #define STEP(f, a, b, c, d, x, t, s)	  \
@@ -304,9 +319,10 @@ __kernel void md5(__global uint *keys,
 #if USE_LOCAL_BITMAPS
 	uint lid = get_local_id(0);
 	uint lws = get_local_size(0);
-	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS];
+	/* We must allocate for the possibility of non-log2 LWS */
+	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 4) * SELECT_CMP_STEPS];
 
-	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
+	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS + lws - 1) / lws); i++)
 		s_bitmaps[i*lws + lid] = bitmaps[i*lws + lid];
 
 	barrier(CLK_LOCAL_MEM_FENCE);

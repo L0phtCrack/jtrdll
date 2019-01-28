@@ -1,7 +1,8 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 # This script will stack rules from john's .conf file. (2 3 or 4 sections get stacked)
 
+use warnings;
 use File::Basename;
 use lib dirname(__FILE__).'/';
 use lib dirname(__FILE__).'/../run';

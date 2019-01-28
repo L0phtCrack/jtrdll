@@ -1,20 +1,26 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# Copyright (C) 2015, Dhiru Kholia <dhiru [at] kth.se>
+# This software is Copyright (c) 2015, Dhiru Kholia <dhiru.kholia at gmail.com>
+# and it is hereby released to the general public under the following terms:
 #
-# Shouldn't this be called pkcs8tojohn.py instead?
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted.
+#
+# pylint: disable=invalid-name,line-too-long,missing-docstring,pointless-string-statement
 
 import sys
-import traceback
+from binascii import hexlify
 
 try:
     from asn1crypto import pem
     from asn1crypto.keys import EncryptedPrivateKeyInfo
 except ImportError:
-    sys.stderr.write("asn1crypto python package is missing, please install it using 'pip install asn1crypto' command.\n")
+    sys.stderr.write("asn1crypto python package is missing, please install it using 'pip install --user asn1crypto' command.\n")
     # traceback.print_exc()
     sys.exit(-1)
+
+PY3 = sys.version_info[0] == 3
 
 """
 
@@ -40,49 +46,73 @@ $ openssl asn1parse -in test.pem
    70:d=1  hl=4 l= 640 prim: OCTET STRING      [HEX DUMP]:C4BC6BC5447BED58...
 """
 
-
 def unwrap_pkcs8(blob):
     if not pem.detect(blob):
-        return
+        return False
 
     _, _, der_bytes = pem.unarmor(blob)
-    data = EncryptedPrivateKeyInfo.load(der_bytes).native
+    return unwrap_pkcs8_data(der_bytes)
 
-    if "encryption_algorithm" not in data:
-        return
-    if "encrypted_data" not in data:
-        return
-    if "algorithm" not in data["encryption_algorithm"]:
-        return
-    if data["encryption_algorithm"]["algorithm"] != "pbes2":
-        sys.stderr.write("[%s] encryption_algorithm <%s> is not supported currently!\n" %
-                         (sys.argv[0], data["encryption_algorithm"]["algorithm"]))
-        return
 
-    # encryption data
-    encrypted_data = data["encrypted_data"]
+def unwrap_pkcs8_data(blob):
+    try:
+        data = EncryptedPrivateKeyInfo.load(blob).native
 
-    # KDF
-    params = data["encryption_algorithm"]["parameters"]
-    kdf = params["key_derivation_func"]
-    if kdf["algorithm"] != "pbkdf2":
-        sys.stderr.write("[%s] kdf algorithm <%s> is not supported currently!\n" %
-                         (sys.argv[0], kdf["algorithm"]))
-        return
-    kdf_params = kdf["parameters"]
-    salt = kdf_params["salt"]
-    iterations = kdf_params["iteration_count"]
+        if "encryption_algorithm" not in data:
+            return False
+        if "encrypted_data" not in data:
+            return False
+        if "algorithm" not in data["encryption_algorithm"]:
+            return False
+        if data["encryption_algorithm"]["algorithm"] != "pbes2":
+            sys.stderr.write("[%s] encryption_algorithm <%s> is not supported currently!\n" %
+                             (sys.argv[0], data["encryption_algorithm"]["algorithm"]))
+            return False
 
-    # Cipher
-    cipher_params = params["encryption_scheme"]
-    cipher = cipher_params["algorithm"]
-    iv = cipher_params["parameters"]
+        # encryption data
+        encrypted_data = data["encrypted_data"]
 
-    if cipher != "tripledes_3key":
-        sys.stderr.write("[%s] cipher <%s> is not supported currently!\n" % (sys.argv[0], cipher))
-        return
+        # KDF
+        params = data["encryption_algorithm"]["parameters"]
+        kdf = params["key_derivation_func"]
+        if kdf["algorithm"] != "pbkdf2":
+            sys.stderr.write("[%s] kdf algorithm <%s> is not supported currently!\n" %
+                             (sys.argv[0], kdf["algorithm"]))
+            return False
+        kdf_params = kdf["parameters"]
+        salt = kdf_params["salt"]
+        iterations = kdf_params["iteration_count"]
 
-    sys.stdout.write("$PEM$1$1$%s$%s$%s$%d$%s\n" % (salt.encode("hex"), iterations, iv.encode("hex"), len(encrypted_data), encrypted_data.encode("hex")))
+        # Cipher
+        cipher_params = params["encryption_scheme"]
+        cipher = cipher_params["algorithm"]
+        iv = cipher_params["parameters"]
+
+        if cipher == "tripledes_3key":
+            cid = 1
+        elif cipher == "aes128_cbc":
+            cid = 2
+        elif cipher == "aes192_cbc":
+            cid = 3
+        elif cipher == "aes256_cbc":
+            cid = 4
+        else:
+            sys.stderr.write("[%s] cipher <%s> is not supported currently!\n" % (sys.argv[0], cipher))
+            return False
+
+        salth = hexlify(salt)
+        encrypted_datah = hexlify(encrypted_data)
+        ivh = hexlify(iv)
+
+        if PY3:
+            salth = salth.decode("ascii")
+            encrypted_datah = encrypted_datah.decode("ascii")
+            ivh = ivh.decode("ascii")
+
+        sys.stdout.write("$PEM$1$%d$%s$%s$%s$%d$%s\n" % (cid, salth, iterations, ivh, len(encrypted_data), encrypted_datah))
+        return True
+    except ValueError:
+        return False
 
 
 if __name__ == "__main__":
@@ -97,8 +127,12 @@ if __name__ == "__main__":
             if b'PRIVATE KEY-----' in blob:
                 sys.stderr.write("[%s] try using sshng2john.py on this file instead!\n" % sys.argv[0])
             else:
+                # try as DER payload
+                ret = unwrap_pkcs8_data(blob)
+                if not ret:
+                    sys.stderr.write("[%s] is this really a private key in PKCS #8 format?\n" % sys.argv[0])
+
+        else:
+            ret = unwrap_pkcs8(blob)
+            if not ret:
                 sys.stderr.write("[%s] is this really a private key in PKCS #8 format?\n" % sys.argv[0])
-
-            continue
-
-        unwrap_pkcs8(blob)

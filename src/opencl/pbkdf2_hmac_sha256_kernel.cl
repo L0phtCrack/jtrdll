@@ -1,42 +1,32 @@
 /*
  * This software is Copyright (c) 2013 Lukas Odzioba <ukasz at openwall dot net>
- * and Copyright 2014 magnum
+ * and Copyright 2014 - 2018 magnum
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
  *
- *  increased salt.  Now unlimited salt length. (Dec 2017, JimF)
+ * Now unlimited salt length. (Dec 2017, JimF)
+ *
+ * skip_bytes means "skip leading output bytes" and can be given in
+ * multiples of underlying hash size (in this case 32). So to calculate only
+ * byte 33-64 (second chunk) you can say "outlen=32 skip_bytes=32"
+ * for a 2x boost. The 1st byte of output array will then be 1st byte of second
+ * chunk so its actual size can be 32 as opposed to 64.
  */
 
 #include "opencl_device_info.h"
 #include "opencl_misc.h"
 #include "opencl_sha2.h"
+#include "opencl_pbkdf2_hmac_sha256.h"
 
-typedef struct {
-	uchar length;
-	uchar v[PLAINTEXT_LENGTH];
-} pass_t;
+#ifdef GLOBAL_SALT_NO_INIT
+#define SALT_TYPE __global const
+#else
+#define SALT_TYPE MAYBE_CONSTANT
+#endif
 
-typedef struct {
-	uint hash[8]; /** 256 bits **/
-} crack_t;
-
-typedef struct {
-	uint rounds;
-	uchar salt[179];
-	uint length;
-} salt_t;
-
-typedef struct {
-	uint ipad[8];
-	uint opad[8];
-	uint hash[8];
-	uint W[8];
-	uint rounds;
-} state_t;
-
-inline void preproc(__global const uchar *key, uint keylen,
-                    uint *state, uint padding)
+inline void _phsk_preproc(__global const uchar *key, uint keylen,
+                          __global uint *state, uint padding)
 {
 	uint j, t;
 	uint W[16];
@@ -68,9 +58,9 @@ inline void preproc(__global const uchar *key, uint keylen,
 }
 
 
-inline void hmac_sha256(uint *output, uint *ipad_state,
-                        uint *opad_state, __constant uchar *salt,
-                        uint saltlen)
+inline void _phsk_hmac_sha256(__global uint *output, __global uint *ipad_state,
+                              __global uint *opad_state, SALT_TYPE uchar *salt,
+                              uint saltlen, uchar add)
 {
 	uint i, j, last;
 	uint W[16], ctx[8];
@@ -102,7 +92,7 @@ inline void hmac_sha256(uint *output, uint *ipad_state,
 
 	if (last <= 51) {
 		// this is last limb, everything fits
-		PUTCHAR_BE(W, last + 3, 1);		// should be add to allow more than 32 bytes to be returned!
+		PUTCHAR_BE(W, last + 3, add);
 		PUTCHAR_BE(W, last + 4, 0x80);
 		W[15] = (64 + saltlen + 4) << 3;
 	} else {
@@ -137,8 +127,7 @@ inline void hmac_sha256(uint *output, uint *ipad_state,
 		output[j] = ctx[j];
 }
 
-__kernel void pbkdf2_sha256_loop(__global state_t *state,
-                                 __global crack_t *out)
+__kernel void pbkdf2_sha256_loop(__global state_t *state)
 {
 	uint idx = get_global_id(0);
 	uint i, round, rounds = state[idx].rounds;
@@ -212,45 +201,74 @@ __kernel void pbkdf2_sha256_loop(__global state_t *state,
 		tmp_out[7] ^= H;
 	}
 
-	if (rounds >= HASH_LOOPS) { // there is still work to do
-		state[idx].rounds = rounds - HASH_LOOPS;
-		for (i = 0; i < 8; i++) {
-			state[idx].hash[i] = tmp_out[i];
-			state[idx].W[i] = W[i];
-		}
-	}
-	else { // rounds == 0 - we're done
-		for (i = 0; i < 8; i++)
-			out[idx].hash[i] = SWAP32(tmp_out[i]);
+	state[idx].rounds = rounds - HASH_LOOPS;
+	for (i = 0; i < 8; i++) {
+		state[idx].hash[i] = tmp_out[i];
+		state[idx].W[i] = W[i];
 	}
 }
 
-__kernel void pbkdf2_sha256_kernel(__global const pass_t *inbuffer,
-                                   __constant salt_t *gsalt,
-                                   __global state_t *state)
+#ifndef GLOBAL_SALT_NO_INIT
+__kernel void pbkdf2_sha256_init(__global const pass_t *inbuffer,
+                                 MAYBE_CONSTANT salt_t *salt,
+                                 __global state_t *state)
 {
-
-	uint ipad_state[8];
-	uint opad_state[8];
-	uint tmp_out[8];
 	uint i, idx = get_global_id(0);
+	uint pass = salt->skip_bytes / 32;
 
-	__global const uchar *pass = inbuffer[idx].v;
-	__constant uchar *salt = gsalt->salt;
-	uint passlen = inbuffer[idx].length;
-	uint saltlen = gsalt->length;
+	state[idx].rounds = salt->rounds - 1;
 
-	state[idx].rounds = gsalt->rounds - 1;
+	_phsk_preproc(inbuffer[idx].v, inbuffer[idx].length,
+	              state[idx].ipad, 0x36363636);
+	_phsk_preproc(inbuffer[idx].v, inbuffer[idx].length,
+	              state[idx].opad, 0x5c5c5c5c);
 
-	preproc(pass, passlen, ipad_state, 0x36363636);
-	preproc(pass, passlen, opad_state, 0x5c5c5c5c);
+	_phsk_hmac_sha256(state[idx].hash, state[idx].ipad, state[idx].opad,
+	                  salt->salt, salt->length, pass + 1);
 
-	hmac_sha256(tmp_out, ipad_state, opad_state, salt, saltlen);
+	for (i = 0; i < 8; i++)
+		state[idx].W[i] = state[idx].hash[i];
 
-	for (i = 0; i < 8; i++) {
-		state[idx].ipad[i] = ipad_state[i];
-		state[idx].opad[i] = opad_state[i];
-		state[idx].hash[i] = tmp_out[i];
-		state[idx].W[i] = tmp_out[i];
+	state[idx].pass = pass;
+}
+#endif
+
+__kernel void pbkdf2_sha256_final(__global crack_t *out,
+                                  MAYBE_CONSTANT salt_t *salt,
+                                  __global state_t *state)
+{
+	uint idx = get_global_id(0);
+
+#ifdef RAR5
+	out[idx].hash[0] = SWAP32(state[idx].hash[0]);
+	out[idx].hash[1] = SWAP32(state[idx].hash[1]);
+	out[idx].hash[0] ^= SWAP32(state[idx].hash[2]);
+	out[idx].hash[1] ^= SWAP32(state[idx].hash[3]);
+	out[idx].hash[0] ^= SWAP32(state[idx].hash[4]);
+	out[idx].hash[1] ^= SWAP32(state[idx].hash[5]);
+	out[idx].hash[0] ^= SWAP32(state[idx].hash[6]);
+	out[idx].hash[1] ^= SWAP32(state[idx].hash[7]);
+#else
+	uint i;
+	uint base = (state[idx].pass - salt->skip_bytes / 32) * 8;
+
+	// First/next 32 bytes of output
+	for (i = 0; i < 8; i++)
+		out[idx].hash[base + i] = SWAP32(state[idx].hash[i]);
+
+#ifndef GLOBAL_SALT_NO_INIT
+	uint pass = ++state[idx].pass;
+
+	/* Was this the last pass? If not, prepare for next one */
+	if (4 * base + 32 < OUTLEN) {
+		_phsk_hmac_sha256(state[idx].hash, state[idx].ipad, state[idx].opad,
+		                  salt->salt, salt->length, pass + 1);
+
+		for (i = 0; i < 8; i++)
+			state[idx].W[i] = state[idx].hash[i];
+
+		state[idx].rounds = salt->rounds - 1;
 	}
+#endif /* GLOBAL_SALT_NO_INIT */
+#endif /* RAR5 */
 }

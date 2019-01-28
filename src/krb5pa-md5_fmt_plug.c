@@ -51,9 +51,6 @@ john_register_one(&fmt_mskrb5);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE          1024
-#endif
 #endif
 
 #include "arch.h"
@@ -66,7 +63,6 @@ john_register_one(&fmt_mskrb5);
 #include "hmacmd5.h"
 #include "md4.h"
 #include "rc4.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL       "krb5pa-md5"
 #define FORMAT_NAME        "Kerberos 5 AS-REQ Pre-Auth etype 23" /* md4 rc4-hmac-md5 */
@@ -76,7 +72,7 @@ john_register_one(&fmt_mskrb5);
 
 #define ALGORITHM_NAME     "32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT  ""
-#define BENCHMARK_LENGTH   -1000
+#define BENCHMARK_LENGTH   0
 #define PLAINTEXT_LENGTH   125
 #define MAX_REALMLEN       64
 #define MAX_USERLEN        64
@@ -90,9 +86,12 @@ john_register_one(&fmt_mskrb5);
 #define SALT_ALIGN         4
 #define TOTAL_LENGTH       (14 + 2 * (CHECKSUM_SIZE + TIMESTAMP_SIZE) + MAX_REALMLEN + MAX_USERLEN + MAX_SALTLEN)
 
-// these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT 1
-#define MAX_KEYS_PER_CRYPT 1
+#define MAX_KEYS_PER_CRYPT 32
+
+#ifndef OMP_SCALE
+#define OMP_SCALE          2 // Tuned w/ MKPC for core i7
+#endif
 
 // Second and third plaintext will be replaced in init() under come encodings
 static struct fmt_tests tests[] = {
@@ -129,9 +128,8 @@ static int keys_prepared;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
 	saved_len   = mem_calloc(self->params.max_keys_per_crypt,
@@ -427,7 +425,7 @@ struct fmt_main fmt_mskrb5 = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

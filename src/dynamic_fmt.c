@@ -91,6 +91,7 @@ static DYNAMIC_primitive_funcp _Funcs_1[] =
 #include "md5.h"
 #include "md4.h"
 #include "dynamic.h"
+#include "dynamic_compiler.h"
 #include "options.h"
 #include "config.h"
 #include "sha.h"
@@ -141,7 +142,6 @@ static unsigned int m_ompt;
 
 #include "dynamic_types.h"
 
-#include "memdbg.h"
 
 #if (defined (_OPENMP)||defined(FORCE_THREAD_MD5_body)) && defined (_MSC_VER)
 unsigned DES_bs_max_kpc, DES_bs_min_kpc, DES_bs_all_p;
@@ -849,9 +849,7 @@ static void init(struct fmt_main *pFmt)
 	force_md5_ctx = curdat.force_md5_ctx;
 
 	fmt_Dynamic.params.max_keys_per_crypt = pFmt->params.max_keys_per_crypt;
-	fmt_Dynamic.params.min_keys_per_crypt = pFmt->params.max_keys_per_crypt;
-	if (pFmt->params.min_keys_per_crypt > 64)
-		pFmt->params.min_keys_per_crypt = 64;
+	fmt_Dynamic.params.min_keys_per_crypt = pFmt->params.min_keys_per_crypt;
 	fmt_Dynamic.params.flags              = pFmt->params.flags;
 	fmt_Dynamic.params.format_name        = pFmt->params.format_name;
 	fmt_Dynamic.params.algorithm_name     = pFmt->params.algorithm_name;
@@ -1626,13 +1624,26 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	// single crypt.  That eliminates almost 1/2 of the calls to md5_crypt() for the format show in this example.
 	if (keys_dirty)
 	{
+		int did_key_clean = 0;
+		// NOTE, once we KNOW the proper MIN_KEYS_PER_CRYPT for each format, then we can change this to:
+		//    if (m_count % curdat.min_keys_per_crypt)
+		// That will only clean if they 'last' crypt block is not fully filled in. But for now, any
+		// short block (that is NOT the global MIN_KEYS_PER_CRYPT), will be fully cleaned, even if it
+		// does not need to be.
+		if (m_count < MAX_KEYS_PER_CRYPT && m_count != MIN_KEYS_PER_CRYPT) {
+			did_key_clean = 1;
+			__nonMP_DynamicFunc__clean_input2_full();
+			__nonMP_DynamicFunc__clean_input_full();
+		}
 		if (curdat.store_keys_normal_but_precompute_hash_to_output2)
 		{
 			keys_dirty = 0;
-			if (curdat.pSetup->flags & MGF_FULL_CLEAN_REQUIRED2)
-				__nonMP_DynamicFunc__clean_input2_full();
-			else
-				__nonMP_DynamicFunc__clean_input2();
+			if (!did_key_clean) {
+				if (curdat.pSetup->flags & MGF_FULL_CLEAN_REQUIRED2)
+					__nonMP_DynamicFunc__clean_input2_full();
+				else
+					__nonMP_DynamicFunc__clean_input2();
+			}
 			if (curdat.store_keys_in_input_unicode_convert)
 				__nonMP_md5_unicode_convert(1);
 			__nonMP_DynamicFunc__append_keys2();
@@ -1780,6 +1791,39 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	// Since this array is in a structure, we assign a simple pointer to it
 	// before walking.  Trivial improvement, but every cycle counts :)
+
+	if (dynamic_compiler_failed) {
+		unsigned int i;
+		DC_ProcData dc;
+		dc.iSlt = cursalt;
+		dc.nSlt = saltlen;
+		dc.iSlt2 = cursalt2;
+		dc.nSlt2 = saltlen2;
+		dc.iUsr = username;
+		dc.nUsr = usernamelen;
+		dynamic_use_sse = 0;
+		for (i = 0; i < m_count; ++i) {
+			if (curdat.store_keys_in_input) {
+#if MD5_X2
+				if (i & 1)
+					dc.iPw = input_buf_X86[i >> MD5_X2].x2.b2;
+				else
+#endif
+					dc.iPw = input_buf_X86[i >> MD5_X2].x1.b;
+			} else
+				dc.iPw = saved_key[i];
+			dc.nPw = saved_key_len[i];
+#if MD5_X2
+			if (i & 1) {
+				dc.oBin = crypt_key_X86[i >> MD5_X2].x2.B2;
+			}
+			else
+#endif
+			dc.oBin = crypt_key_X86[i >> MD5_X2].x1.B;
+			run_one_RDP_test(&dc);
+		}
+		return m_count;
+	}
 	{
 #ifdef _OPENMP
 	if ((curdat.pFmtMain->params.flags & FMT_OMP) == FMT_OMP) {
@@ -2455,16 +2499,17 @@ static void *get_salt(char *ciphertext)
  *********************************************************************************/
 static int salt_hash(void *salt)
 {
-	unsigned long H;
+	uintptr_t H;
+
 	if (!salt) return 0;
 	if ( (curdat.pSetup->flags&MGF_SALTED) == 0)
 		return 0;
 
 	// salt is now a pointer, but WORD aligned.  We remove that word alingment, and simply use the next bits
 #if ARCH_ALLOWS_UNALIGNED
-	H = *((unsigned long*)salt);
+	H = *((uintptr_t*)salt);
 #else
-	memcpy(&H, salt, 8);
+	memcpy(&H, salt, sizeof(H));
 #endif
 
 	// Mix up the pointer value (H^(H>>9)) so that if we have a fixed sized allocation
@@ -2920,7 +2965,7 @@ static struct fmt_main fmt_Dynamic =
  **************************************************************
  *************************************************************/
 
-static void Dynamic_Load_itoa16_w2()
+void Dynamic_Load_itoa16_w2()
 {
 	char buf[3];
 	unsigned int i;
@@ -7445,9 +7490,6 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 	pFmt->params.max_keys_per_crypt = MAX_KEYS_PER_CRYPT_X86;
 	pFmt->params.algorithm_name = ALGORITHM_NAME_X86;
 #endif
-	pFmt->params.min_keys_per_crypt = pFmt->params.max_keys_per_crypt;
-	if (pFmt->params.min_keys_per_crypt > 64)
-		pFmt->params.min_keys_per_crypt = 64;
 	dynamic_use_sse = curdat.dynamic_use_sse;
 
 	// Ok, set the new 'constants' data
@@ -7532,7 +7574,7 @@ int dynamic_SETUP(DYNAMIC_Setup *Setup, struct fmt_main *pFmt)
 	}
 //	else printf("  split set to split()\n");
 	if (Setup->flags & MGF_UTF8)
-		pFmt->params.flags |= FMT_UTF8;
+		pFmt->params.flags |= FMT_ENC;
 	if (Setup->flags & MGF_INPBASE64a) {
 		curdat.dynamic_base64_inout = 1;
 		pFmt->methods.binary = binary_b64a;
@@ -8157,9 +8199,7 @@ struct fmt_main *dynamic_THIN_FORMAT_LINK(struct fmt_main *pFmt, char *ciphertex
 		pFmt->params.plaintext_min_length = pFmtLocal->params.plaintext_min_length;
 	}
 	pFmt->params.max_keys_per_crypt = pFmtLocal->params.max_keys_per_crypt;
-	pFmt->params.min_keys_per_crypt = pFmtLocal->params.max_keys_per_crypt;
-	if (pFmt->params.min_keys_per_crypt > 64)
-		pFmt->params.min_keys_per_crypt = 64;
+	pFmt->params.min_keys_per_crypt = pFmtLocal->params.min_keys_per_crypt;
 	pFmt->params.flags = pFmtLocal->params.flags;
 	if (pFmtLocal->params.salt_size)
 		pFmt->params.salt_size = sizeof(void*);
@@ -8259,7 +8299,15 @@ static char *FixupIfNeeded(char *ciphertext, private_subformat_data *pPriv)
 			for (i = 0; i < 10; ++i) {
 				if ((pPriv->FldMask & (MGF_FLDx_BIT<<i)) == (MGF_FLDx_BIT<<i)) {
 					char Fld[8];
+#if __GNUC__ == 8
+/* suppress false positive GCC 8 warning */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-overflow="
+#endif
 					sprintf(Fld, "$$F%d", i);
+#if __GNUC__ == 8
+#pragma GCC diagnostic pop
+#endif
 					if (!strstr(&ciphertext[pPriv->dynamic_SALT_OFFSET-1], Fld))
 						return ciphertext;
 				}
@@ -8326,6 +8374,23 @@ int dynamic_real_salt_length(struct fmt_main *pFmt)
 	return -1;
 }
 
+void dynamic_switch_compiled_format_to_RDP(struct fmt_main *pFmt)
+{
+	if (pFmt->params.flags & FMT_DYNAMIC) {
+		private_subformat_data *pPriv = pFmt->private.data;
+
+		// in case there was any
+		__nonMP_DynamicFunc__clean_input_full();
+		__nonMP_DynamicFunc__clean_input2_full();
+
+		if (pPriv == NULL || pPriv->pSetup == NULL)
+			return;
+		pPriv->dynamic_use_sse = 0;
+		dynamic_use_sse = 0;
+		curdat.dynamic_use_sse = 0;
+		pFmt->params.algorithm_name = "Dynamic RDP";
+	}
+}
 #else
 #warning Notice: Dynamic format disabled from build.
 #endif /* DYNAMIC_DISABLED */

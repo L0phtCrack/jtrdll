@@ -16,7 +16,6 @@
 #include "list.h"
 #include "john_getopt.h"
 #include "john.h"
-#include "memdbg.h"
 
 #define FLG_ZERO			0x0
 
@@ -60,8 +59,11 @@ static char *opt_find(struct opt_entry *list, char *opt,
 					if (length == strlen(list->name))
 						break;
 				} else {
-					*entry = NULL;
-					return NULL;
+					if (strncmp(found->name, list->name,
+					            strlen(found->name))) {
+						*entry = NULL;
+						return NULL;
+					}
 				}
 			}
 		} while ((++list)->name);

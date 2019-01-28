@@ -186,9 +186,10 @@ __kernel void sha1(__global uint *keys,
 #if USE_LOCAL_BITMAPS
 	uint lid = get_local_id(0);
 	uint lws = get_local_size(0);
-	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS];
+	/* We must allocate for the possibility of non-log2 LWS */
+	uint __local s_bitmaps[(BITMAP_SIZE_BITS >> 4) * SELECT_CMP_STEPS];
 
-	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS) / lws); i++)
+	for (i = 0; i < (((BITMAP_SIZE_BITS >> 5) * SELECT_CMP_STEPS + lws - 1) / lws); i++)
 		s_bitmaps[i*lws + lid] = bitmaps[i*lws + lid];
 
 	barrier(CLK_LOCAL_MEM_FENCE);
@@ -196,13 +197,26 @@ __kernel void sha1(__global uint *keys,
 
 	keys += base >> 6;
 
+#ifndef TWICE
 	for (i = 0; i < (len+3)/4; i++)
-		W[i] = SWAP32(*keys++);
+		W[i] = SWAP32(keys[i]);
 
 	PUTCHAR_BE(W, len, 0x80);
 	W[15] = len << 3;
+#endif
 
 	for (i = 0; i < NUM_INT_KEYS; i++) {
+#ifdef TWICE
+		uint j;
+
+		for (j = 0; j < (len+3)/4; j++)
+			W[j] = SWAP32(keys[j]);
+		for (; j < 15; j++)
+			W[j] = 0;
+
+		PUTCHAR_BE(W, len, 0x80);
+		W[15] = len << 3;
+#endif
 #if NUM_INT_KEYS > 1
 		PUTCHAR_BE(W, GPU_LOC_0, (int_keys[i] & 0xff));
 

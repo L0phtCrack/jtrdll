@@ -1,7 +1,5 @@
 #if HAVE_OPENCL
 
-#include <assert.h>
-
 #include "options.h"
 #include "opencl_hash_check_128.h"
 #include "mask_ext.h"
@@ -18,7 +16,6 @@ static cl_uint *zero_buffer = NULL;
 static cl_mem buffer_offset_table, buffer_hash_table, buffer_return_hashes, buffer_hash_ids, buffer_bitmap_dupe, buffer_bitmaps;
 static struct fmt_main *self;
 
-#include "memdbg.h"
 
 void ocl_hc_128_init(struct fmt_main *_self)
 {
@@ -223,12 +220,11 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 16384 ||
+			max_local_mem_sz_bytes < 32768 ||
 			cpu(device_info[gpu_id]))
 			bitmap_size_bits = 256 * 1024;
 
 		else {
-			bitmap_size_bits = 32 * 1024;
 			cmp_steps = 4;
 			use_local = 1;
 		}
@@ -240,12 +236,12 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 32768 ||
+			(platform_apple(platform_id) && gpu_nvidia(device_info[gpu_id])) ||
+			max_local_mem_sz_bytes < 65536 ||
 			cpu(device_info[gpu_id]))
 			bitmap_size_bits = 256 * 1024;
 
 		else {
-			bitmap_size_bits = 64 * 1024;
 			cmp_steps = 4;
 			use_local = 1;
 		}
@@ -256,7 +252,7 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 			bitmap_size_bits = 1024 * 1024;
 
 		else if (amd_gcn_11(device_info[gpu_id]) ||
-			max_local_mem_sz_bytes < 32768)
+			max_local_mem_sz_bytes < 128 * 1024)
 			bitmap_size_bits = 512 * 1024;
 
 		else if (amd_vliw4(device_info[gpu_id]) ||
@@ -266,7 +262,6 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 		}
 
 		else {
-			bitmap_size_bits = 32 * 1024;
 			cmp_steps = 8;
 			use_local = 1;
 		}
@@ -306,11 +301,25 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 		}
 		if (buf_sz >= 536870912)
 			buf_sz = 536870912;
-		assert(!(buf_sz & (buf_sz - 1)));
 		if ((bitmap_size_bits >> 3) > buf_sz)
 			bitmap_size_bits = buf_sz << 3;
-		assert(!(bitmap_size_bits & (bitmap_size_bits - 1)));
 		cmp_steps = 1;
+	}
+
+	if (use_local) {
+		/*
+		 * bitmap_size_bits must be even log2.  We can't count on allocating
+		 * ALL local memory so need to settle for, worst case, half of it.
+		 */
+		bitmap_size_bits = 1;
+		while ((bitmap_size_bits << 1) < max_local_mem_sz_bytes)
+			bitmap_size_bits <<= 1;
+
+		/* Limit to usable local mem size */
+		while ((bitmap_size_bits >> 1) * cmp_steps > bitmap_size_bits)
+			cmp_steps--;
+
+		//fprintf(stderr, "\nPicked bitmap size %u steps %u max mem usage %zu of %zu\n", (uint32_t)bitmap_size_bits, (uint32_t)cmp_steps, (bitmap_size_bits >> 3) * cmp_steps * sizeof(int), get_local_memory_size(gpu_id));
 	}
 
 	if (cmp_steps == 1)
@@ -321,13 +330,6 @@ char* ocl_hc_128_select_bitmap(unsigned int num_ld_hashes)
 
 	else
 		prepare_bitmap_8(bitmap_size_bits, &bitmaps);
-
-	/*
-	 * Much better speed seen on Macbook Pro with GT 650M. Not sure why -
-	 * or what we should actually test for.
-	 */
-	if (platform_apple(platform_id) && gpu_nvidia(device_info[gpu_id]))
-		use_local = 0;
 
 	sprintf(kernel_params,
 		"-D SELECT_CMP_STEPS=%u"
@@ -352,7 +354,6 @@ void ocl_hc_128_crobj(cl_kernel kernel)
 		max_alloc_size_bytes >>= 1;
 	}
 	if (max_alloc_size_bytes >= 536870912) max_alloc_size_bytes = 536870912;
-	assert(!(max_alloc_size_bytes & (max_alloc_size_bytes - 1)));
 
 	if (!cache_size_bytes) cache_size_bytes = 1024;
 

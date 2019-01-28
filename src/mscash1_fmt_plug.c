@@ -39,7 +39,6 @@ john_register_one(&fmt_mscash);
 #include "loader.h"
 #include "johnswap.h"
 #include "mscash_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"mscash"
 #define FORMAT_NAME			"MS Cache Hash (DCC)"
@@ -731,7 +730,7 @@ struct fmt_main fmt_mscash = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_UTF8,
+		FMT_CASE | FMT_8_BIT | FMT_SPLIT_UNIFIES_CASE | FMT_OMP | FMT_UNICODE | FMT_ENC,
 		{ NULL },
 		{ FORMAT_TAG },
 		mscash1_common_tests

@@ -72,22 +72,14 @@ extern unsigned int mem_saving_level;
  * if size is 0.
  * If an error occurs, the function does not return.
  */
-extern void *mem_alloc_func(size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern void *mem_alloc(size_t size);
 
 /*
  * Allocates nmemb*size bytes using calloc(3) and returns a pointer to the
  * allocated memory, or NULL if nmemb or/and size are 0.
  * If an error occurs, the function does not return.
  */
-extern void *mem_calloc_func(size_t nmemb, size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern void *mem_calloc(size_t nmemb, size_t size);
 
 /*
  * Change an existing allocated block to size bytes and return a pointer to
@@ -95,46 +87,12 @@ extern void *mem_calloc_func(size_t nmemb, size_t size
  * possible.
  * If an error occurs, the function does not return.
  */
-extern void *mem_realloc_func(void *old_ptr, size_t size
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
-
-#if defined (MEMDBG_ON)
-#define mem_alloc(a) mem_alloc_func(a,__FILE__,__LINE__)
-#define mem_calloc(a,b) mem_calloc_func(a,b,__FILE__,__LINE__)
-#define mem_realloc(a,b) mem_realloc_func(a,b,__FILE__,__LINE__)
-#define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b,__FILE__,__LINE__)
-#define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b,__FILE__,__LINE__)
-#define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c,__FILE__,__LINE__)
-#define str_alloc_copy(a) str_alloc_copy_func(a,__FILE__,__LINE__)
-#define mem_alloc_align(a,b) mem_alloc_align_func(a,b,__FILE__,__LINE__)
-#define mem_calloc_align(a,b,c) mem_calloc_align_func(a,b,c,__FILE__,__LINE__)
-#else
-#define mem_alloc(a) mem_alloc_func(a)
-#define mem_calloc(a,b) mem_calloc_func(a,b)
-#define mem_realloc(a,b) mem_realloc_func(a,b)
-#define mem_alloc_tiny(a,b) mem_alloc_tiny_func(a,b)
-#define mem_calloc_tiny(a,b) mem_calloc_tiny_func(a,b)
-#define mem_alloc_copy(a,b,c) mem_alloc_copy_func(a,b,c)
-#define str_alloc_copy(a) str_alloc_copy_func(a)
-#define mem_alloc_align(a,b) mem_alloc_align_func(a,b)
-#define mem_calloc_align(a,b,c) mem_calloc_align_func(a,b,c)
-#endif
+extern void *mem_realloc(void *old_ptr, size_t size);
 
 /* These allow alignment and are wrappers to system-specific functions */
-void *mem_alloc_align_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+void *mem_alloc_align(size_t size, size_t align);
 
-void *mem_calloc_align_func(size_t count, size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+void *mem_calloc_align(size_t count, size_t size, size_t align);
 
 /*
  * Frees memory allocated with mem_alloc() and sets the pointer to NULL.
@@ -143,7 +101,6 @@ void *mem_calloc_align_func(size_t count, size_t size, size_t align
 #undef MEM_FREE
 
 #ifdef _MSC_VER
-#if !defined (MEMDBG_ON)
 #define malloc(a) _aligned_malloc(a,16)
 #define realloc(a,b) _aligned_realloc(a,b,16)
 #define calloc(a,b) memset(_aligned_malloc(a*b,16),0,a*b)
@@ -157,18 +114,8 @@ char *strdup_MSVC(const char *str);
 		(ptr) = NULL; \
 	} \
 }
-#else
-#define MEM_FREE(ptr) \
-{ \
-	if ((ptr)) { \
-		MEMDBG_free(((const void*)ptr),__FILE__,__LINE__); \
-		(ptr) = NULL; \
-	} \
-}
-#endif
 
 #elif HAVE___MINGW_ALIGNED_MALLOC
-#if !defined (MEMDBG_ON)
 #define malloc(a) __mingw_aligned_malloc(a,(sizeof(long long)))
 #define realloc(a,b) __mingw_aligned_realloc(a,b,(sizeof(long long)))
 #define calloc(a,b) memset(__mingw_aligned_malloc(a*b,(sizeof(long long))),0,a*b)
@@ -183,15 +130,6 @@ char *strdup_MSVC(const char *str);
 		(ptr) = NULL; \
 	} \
 }
-#else
-#define MEM_FREE(ptr) \
-{ \
-	if ((ptr)) { \
-		MEMDBG_free(((const void*)ptr),__FILE__,__LINE__); \
-		(ptr) = NULL; \
-	} \
-}
-#endif
 
 #else
 #define MEM_FREE(ptr) \
@@ -207,39 +145,23 @@ char *strdup_MSVC(const char *str);
  * Similar to the above function, except the memory can't be freed.
  * This one is used to reduce the overhead.
  */
-extern void *mem_alloc_tiny_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern void *mem_alloc_tiny(size_t size, size_t align);
 
 /*
  * this version same as mem_alloc_tiny, but initialized the memory
  * to NULL bytes, like CALLOC(3) function does
  */
-extern void *mem_calloc_tiny_func(size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern void *mem_calloc_tiny(size_t size, size_t align);
 
 /*
  * Uses mem_alloc_tiny() to allocate the memory, and copies src in there.
  */
-extern void *mem_alloc_copy_func(void *src, size_t size, size_t align
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern void *mem_alloc_copy(void *src, size_t size, size_t align);
 
 /*
  * Similar to the above function, but for ASCIIZ strings.
  */
-extern char *str_alloc_copy_func(char *src
-#if defined (MEMDBG_ON)
-	, char *file, int line
-#endif
-	);
+extern char *str_alloc_copy(char *src);
 
 /*
  * This will 'cleanup' the memory allocated by mem_alloc_tiny().  All
@@ -248,47 +170,55 @@ extern char *str_alloc_copy_func(char *src
  */
 extern void cleanup_tiny_memory();
 
+#define STRINGIZE2(s) #s
+#define STRINGIZE(s) STRINGIZE2(s)
 
-void dump_text(void *in, int len);
-void dump_stuff(void *x, unsigned int size);
-void dump_stuff_msg(const void *msg, void *x, unsigned int size);
-void dump_stuff_noeol(void *x, unsigned int size);
-void dump_stuff_msg_sepline(const void *msg, void *x, unsigned int size);
-void dump_stuff_be(void *x, unsigned int size);
-void dump_stuff_be_msg(const void *msg, void *x, unsigned int size);
-void dump_stuff_be_noeol(void *x, unsigned int size);
-void dump_stuff_be_msg_sepline(const void *msg, void *x, unsigned int size);
+#define dump_stuff(d, sz) dump_stuff_msg(STRINGIZE(d), d, sz)
+#define dump_stuff_be(d, sz) dump_stuff_be_msg(STRINGIZE(d), d, sz)
+#define dump_stuff_mmx(d, sz, idx) dump_stuff_mmx_msg(STRINGIZE(d), d, sz, idx)
+#define dump_stuff_mmx64(d, sz, idx)	  \
+	dump_stuff_mmx64_msg(STRINGIZE(d), d, sz, idx)
+#define dump_out_mmx(d, sz, idx)	  \
+	dump_out_mmx_msg(STRINGIZE(d), d, sz, idx)
+#define dump_stuff_shammx(d, sz, idx)	  \
+	dump_stuff_shammx_msg(STRINGIZE(d), d, sz, idx)
+#define dump_out_shammx(d, sz, idx)	  \
+	dump_out_shammx_msg(STRINGIZE(d), d, sz, idx)
+#define dump_stuff_shammx64(d, sz, idx)	  \
+	dump_stuff_shammx64_msg(STRINGIZE(d), d, sz, idx)
+#define dump_out_shammx64(d, sz, idx)	  \
+	dump_out_shammx64_msg(STRINGIZE(d), d, sz, idx)
+#define dump_stuff_mpara_mmx(d, sz, idx)	  \
+	dump_stuff_mpara_mmx_msg(STRINGIZE(d), d, sz, idx)
+
+/* Dump an array (or variable) as hex */
+#define dump_le(d) dump_stuff_msg(STRINGIZE(d), d, sizeof(d))
+#define dump_be(d) dump_stuff_be_msg(STRINGIZE(d), d, sizeof(d))
+
+/* Dump memory as text (non-printables as dots) */
+#define dump_text(d, sz) dump_text_msg(STRINGIZE(d), d, sz)
+
+void dump_text_msg(const void *msg, const void *in, int len);
+
+void dump_stuff_msg(const void *msg, const void *x, unsigned int size);
+void dump_stuff_be_msg(const void *msg, const void *x, unsigned int size);
 
 #if defined (SIMD_COEF_32) || defined(NT_X86_64) || defined (SIMD_PARA_MD5) || defined (SIMD_PARA_MD4) || defined (SIMD_PARA_SHA1)
-void dump_stuff_mmx(void *x, unsigned int size, unsigned int index);
-void dump_stuff_mmx_noeol(void *x, unsigned int size, unsigned int index);
-void dump_stuff_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_stuff_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index);
+void dump_stuff_mmx_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
 // for flat input, we do want to see SHA512 without byte swapping.
-void dump_stuff_mmx64(void *buf, unsigned int size, unsigned int index);
-void dump_stuff_mmx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_out_mmx(void *x, unsigned int size, unsigned int index);
-void dump_out_mmx_noeol(void *x, unsigned int size, unsigned int index);
-void dump_out_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_out_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_stuff_shammx(void *x, unsigned int size, unsigned int index);
-void dump_stuff_shammx_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_out_shammx(void *x, unsigned int size, unsigned int index);
-void dump_out_shammx_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_stuff_shammx64(void *x, unsigned int size, unsigned int index);
-void dump_stuff_shammx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_out_shammx64(void *x, unsigned int size, unsigned int index);
-void dump_out_shammx64_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
+void dump_stuff_mmx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
+void dump_out_mmx_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
+void dump_stuff_shammx_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
+void dump_out_shammx_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
+void dump_stuff_shammx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
+void dump_out_shammx64_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
 #endif
 
 #if defined (SIMD_PARA_MD5)
 // these functions help debug arrays of contigious MD5 prepared PARA buffers. Seen in sunmd5 at the current time.
-void dump_stuff_mpara_mmx(void *x, unsigned int size, unsigned int index);
-void dump_stuff_mpara_mmx_noeol(void *x, unsigned int size, unsigned int index);
-void dump_stuff_mpara_mmx_msg(const void *msg, void *buf, unsigned int size, unsigned int index);
-void dump_stuff_mpara_mmx_msg_sepline(const void *msg, void *buf, unsigned int size, unsigned int index);
+void dump_stuff_mpara_mmx_msg(const void *msg, const void *buf, unsigned int size, unsigned int index);
 // a 'getter' to help debugging.  Returns a flat buffer, vs printing it out.
-void getbuf_stuff_mpara_mmx(unsigned char *oBuf, void *buf, unsigned int size, unsigned int index);
+void getbuf_stuff_mpara_mmx(unsigned char *oBuf, const void *buf, unsigned int size, unsigned int index);
 #endif
 
 /*

@@ -30,7 +30,6 @@
 #include "unicode.h"
 #include "mask.h"
 #include "regex.h"
-#include "memdbg.h"
 
 #ifdef JTRDLL
 #include "jtrdll.h"
@@ -42,14 +41,19 @@ static double cand;
 
 static double get_progress(void)
 {
-	unsigned long long mask_mult = mask_tot_cand ? mask_tot_cand : 1;
+	uint64_t mask_mult = mask_tot_cand ? mask_tot_cand : 1;
+	uint64_t factors = crk_stacked_rule_count * mask_mult;
+	uint64_t pos = status.cands;
+	double keyspace;
 
 	emms();
 
-	if (!cand)
+	keyspace = cand * factors;
+
+	if (!keyspace)
 		return -1;
 
-	return 100.0 * status.cands / (cand * mask_mult);
+	return 100.0 * pos / keyspace;
 }
 
 typedef char(*char2_table)
@@ -503,8 +507,18 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	log_event("Proceeding with \"incremental\" mode: %.100s", mode);
 
-	if (rec_restored && john_main_process)
-		fprintf(stderr, "Proceeding with incremental:%s\n", mode);
+	if ((options.flags & FLG_BATCH_CHK || rec_restored) && john_main_process) {
+		fprintf(stderr, "Proceeding with incremental:%s", mode);
+		if (options.mask)
+			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.rule_stack)
+			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
+		if (options.req_minlength >= 0 || options.req_maxlength)
+			fprintf(stderr, ", lengths: %d-%d",
+			        options.eff_minlength + mask_add_len,
+			        options.eff_maxlength + mask_add_len);
+		fprintf(stderr, "\n");
+	}
 
 
 #ifdef JTRDLL
@@ -574,7 +588,8 @@ void do_incremental_crack(struct db_main *db, char *mode)
 		min_length = 0;
 	if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
 		max_length = CHARSET_LENGTH;
-	max_count = cfg_get_int(SECTION_INC, mode, "CharCount");
+	max_count = options.charcount ?
+		options.charcount : cfg_get_int(SECTION_INC, mode, "CharCount");
 
 	/* Hybrid mask */
 	our_fmt_len -= mask_add_len;
@@ -589,9 +604,10 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 #endif
 
-	/* Command-line can override lengths from config file */
-	if (options.req_minlength >= 0) {
-		min_length = options.req_minlength;
+	/* Format's min length or -min-len option can override config */
+	if (options.req_minlength >= 0 ||
+	    options.eff_minlength > min_length) {
+		min_length = options.eff_minlength;
 
 #if HAVE_REXGEN
 		if (regex)
@@ -601,17 +617,17 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			min_length = 0;
 	}
 
-	if (options.req_maxlength && !mask_maxlength_computed) {
-		max_length = options.req_maxlength;
+	if (options.req_maxlength) {
+		max_length = options.eff_maxlength;
 #if HAVE_REXGEN
 		if (regex)
 			max_length--;
 #endif
 	}
 
-	if (options.req_minlength >= 0 && min_length > max_length &&
-		(options.req_maxlength == 0 || mask_maxlength_computed) &&
-		options.req_minlength <= CHARSET_LENGTH) {
+	if (options.req_minlength >= 0 && !options.req_maxlength &&
+	    min_length > max_length &&
+	    options.eff_minlength <= CHARSET_LENGTH) {
 		max_length = min_length;
 	}
 
@@ -760,7 +776,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	}
 
 	for (pos = min_length; pos <= max_length; pos++)
-		cand += pow(real_count, pos);
+		cand += pow(MIN(real_count, max_count), pos);
 
 #ifdef JTRDLL
 	if (jtrdll_is_preflight)
@@ -776,7 +792,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	if (options.node_count)
 		cand *= (double)(options.node_max - options.node_min + 1) /
-		options.node_count;
+			options.node_count;
 
 	if (!(db->format->params.flags & FMT_CASE) && is_mixedcase(allchars)) {
 		log_event("! Mixed-case charset, "

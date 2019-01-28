@@ -21,12 +21,18 @@
     ///NVIDIA: GTX 570 don't allow full unroll.
     #if amd_vliw4(DEVICE_INFO) || amd_vliw5(DEVICE_INFO)
         #define UNROLL_LOOP    133128
-    #elif amd_gcn(DEVICE_INFO)
+    #elif amd_gcn(DEVICE_INFO) && DEV_VER_MAJOR < 2500
         #define UNROLL_LOOP    132098
+    #elif amd_gcn(DEVICE_INFO) && DEV_VER_MAJOR >= 2500
+        #define UNROLL_LOOP    34079748
     #elif (nvidia_sm_2x(DEVICE_INFO) || nvidia_sm_3x(DEVICE_INFO))
         #define UNROLL_LOOP    132098
     #elif nvidia_sm_5x(DEVICE_INFO)
         #define UNROLL_LOOP    33686536
+    #elif nvidia_sm_6x(DEVICE_INFO)
+        #define UNROLL_LOOP    132104
+    #elif gpu_intel(DEVICE_INFO)
+        #define UNROLL_LOOP    262658
     #else
         #define UNROLL_LOOP    0
     #endif
@@ -76,6 +82,38 @@ inline void any_hash_cracked(
     }
 }
 
+/*
+ * Reverse 4 rounds more in SHA-256 and SHA-512 OpenCL kernels
+ *
+ * 1. To avoid data transfers from GPU to CPU, I'm using a Bloom filter;
+ * 2. It can produce false positives;
+ * 3. The best approach is to discard as many candidates as possible on GPU
+ *    and avoid costly transfers;
+ * 4. If I reverse rounds I will have less data to compare;
+ * 5. So I'll face more false positives;
+ * 6. That will impact performance.
+ *
+ * That said, for a future version, based on how many hashes were loaded to
+ * crack, we can:
+ * -> use a reversed sha_block() version when running a session with only a few
+ *    keys.
+ *
+ * I tested it using a session like this one:
+ *   Loaded 4000002 password hashes with no different salts (Raw-SHA256-opencl [SHA256 OpenCL])
+ *
+ * Using mask on a "Titan X Maxwell", JtR will hash (and discard) more than
+ * 110 millions keys per crypt_all() call.
+ *
+ * 1. Running JtR as it is now:
+ *    False positives per crypt_all() [1]: 1515: 0,0014%
+ *
+ * 2. When I reverse steps (less bytes to use on filtering, more data transfers):
+ *    False positives per crypt_all() [1]: 208320: 0,0939%
+ *    Since data transfers GPU->CPU are slow:
+ *     => Result is a 300000Kp/s penalty.
+ *
+ * [1] Of course, one could be a crack.
+ */
 inline void sha512_block(	  const uint64_t * const buffer,
 				  const uint32_t total, uint64_t * const H) {
 

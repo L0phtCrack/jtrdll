@@ -30,7 +30,7 @@
 #include "autoconfig.h"
 #else
 #include <sys/mman.h>
-#define _GNU_SOURCE
+#define _GNU_SOURCE 1
 #define _FILE_OFFSET_BITS 64
 #define __USE_MINGW_ANSI_STDIO 1
 #ifdef __SIZEOF_INT128__
@@ -133,7 +133,6 @@
 #include "rules.h"
 #include "mask.h"
 #include "regex.h"
-#include "memdbg.h"
 
 #define _STR_VALUE(arg) #arg
 #define STR_MACRO(n)    _STR_VALUE(n)
@@ -143,8 +142,6 @@ int prince_elem_cnt_max;
 int prince_wl_max;
 char *prince_skip_str;
 char *prince_limit_str;
-
-extern int rpp_real_run; /* set to 1 when we really get into prince mode */
 
 static double progress;
 static char *mem_map, *map_pos, *map_end;
@@ -157,9 +154,7 @@ static char *regex;
 #else
 
 #undef MIN
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #undef MAX
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
 
 #endif
 
@@ -184,6 +179,11 @@ static char *regex;
 #define ALLOC_NEW_DUPES  0x100000
 
 #define ENTRY_END_HASH   0xFFFFFFFF
+
+#ifndef JTR_MODE
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#define MAX(a,b) (((a) > (b)) ? (a) : (b))
+#endif
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -462,7 +462,11 @@ static void check_realloc_elems (db_entry_t *db_entry)
 
     if (db_entry->elems_buf == NULL)
     {
+#ifdef JTR_MODE
       fprintf (stderr, "Out of memory trying to allocate "Zu" bytes\n", (size_t) elems_alloc_new * sizeof (elem_t));
+#else
+      fprintf (stderr, "Out of memory trying to allocate %zu bytes\n", (size_t) elems_alloc_new * sizeof (elem_t));
+#endif
 
 #ifndef JTR_MODE
       exit (-1);
@@ -489,7 +493,11 @@ static void check_realloc_chains (db_entry_t *db_entry)
 
     if (db_entry->chains_buf == NULL)
     {
+#ifdef JTR_MODE
       fprintf (stderr, "Out of memory trying to allocate "Zu" bytes\n", (size_t) chains_alloc_new * sizeof (chain_t));
+#else
+      fprintf (stderr, "Out of memory trying to allocate %zu bytes\n", (size_t) chains_alloc_new * sizeof (chain_t));
+#endif
 
 #ifndef JTR_MODE
       exit (-1);
@@ -827,7 +835,7 @@ static void add_uniq (db_entry_t *db_entry, char *input_buf, int input_len)
 mpz_t save;
 
 #ifndef JTR_MODE
-static void catch_int ()
+static void catch_int (int signum)
 {
   FILE *fp = fopen (SAVE_FILE, "w");
 
@@ -839,7 +847,7 @@ static void catch_int ()
 
   fclose (fp);
 
-  exit (0);
+  exit (signum==0?0:signum);
 }
 
 int main (int argc, char *argv[])
@@ -1072,8 +1080,8 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
       case IDX_CASE_PERMUTE:          case_permute      = 1;              break;
       case IDX_DUPE_CHECK_DISABLE:    dupe_check        = 0;              break;
       case IDX_SAVE_POS_DISABLE:      save_pos          = 0;              break;
-      case IDX_SKIP:                  mpz_set_str (skip,  optarg, 0);     break;
-      case IDX_LIMIT:                 mpz_set_str (limit, optarg, 0);     break;
+      case IDX_SKIP:                  mpz_set_str (skip,  optarg, 10);    break;
+      case IDX_LIMIT:                 mpz_set_str (limit, optarg, 10);    break;
       case IDX_OUTPUT_FILE:           output_file       = optarg;         break;
 
       default: return (-1);
@@ -1184,8 +1192,11 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   setmode (fileno (stdout), O_BINARY);
   #endif
 #else
-  char last_buf[PLAINTEXT_BUFFER_SIZE] = "\r";
-  char *last = last_buf;
+  union {
+    char buffer[LINE_BUFFER_SIZE];
+    ARCH_WORD dummy;
+  } aligned;
+  char *last = aligned.buffer;
   int loopback = (options.flags & FLG_PRINCE_LOOPBACK) ? 1 : 0;
   int mask_mult = MAX(1, mask_num_qw);
   int our_fmt_len = (db->format->params.plaintext_length + ((mask_mult - 1) * mask_add_len)) / mask_mult - mask_add_len;
@@ -1196,12 +1207,12 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
             loopback ? " in loopback mode" : "");
 
   /* This mode defaults to length 16 (unless lowered by format)... */
-  pw_min = MAX(PW_MIN, options.req_minlength);
+  pw_min = MAX(PW_MIN, options.eff_minlength);
   pw_max = MIN(PW_MAX, our_fmt_len);
 
   /* ...but can be bumped or decreased using -max-len */
-  if (options.req_maxlength && !mask_maxlength_computed)
-    pw_max = options.req_maxlength;
+  if (options.req_maxlength)
+    pw_max = options.eff_maxlength;
 
 #if HAVE_REXGEN
   /* Hybrid regex */
@@ -1294,10 +1305,27 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   if (!(wordlist = cfg_get_param(SECTION_OPTIONS, NULL, "Wordlist")))
     wordlist = options.wordlist = WORDLIST_NAME;
 
-  if (rec_restored && john_main_process)
-    fprintf(stderr, "Proceeding with prince%c%s\n",
+  if (rec_restored && john_main_process) {
+    fprintf(stderr, "Proceeding with prince%c%s",
             loopback ? '-' : ':',
             loopback ? "loopback" : path_expand(wordlist));
+    if (options.activewordlistrules) {
+      if (options.rule_stack)
+        fprintf(stderr, ", rules:(%s x %s)",
+                options.activewordlistrules, options.rule_stack);
+      else
+        fprintf(stderr, ", rules:%s", options.activewordlistrules);
+    }
+    if (options.mask)
+      fprintf(stderr, ", hybrid mask:%s", options.mask);
+    if (!options.activewordlistrules && options.rule_stack)
+      fprintf(stderr, ", rules-stack:%s", options.rule_stack);
+    if (options.req_minlength >= 0 || options.req_maxlength)
+      fprintf(stderr, ", lengths: %d-%d",
+              options.eff_minlength + mask_add_len,
+              pw_max + mask_add_len);
+    fprintf(stderr, "\n");
+  }
 
   log_event("- Wordlist file: %.100s", path_expand(wordlist));
   log_event("- Will generate candidates of length %d - %d", pw_min, pw_max);
@@ -1322,12 +1350,15 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
       error();
     }
 
-  /* rules.c honors -min/max-len options on its own */
-    rules_init(options.internal_cp == options.target_enc ?
-               pw_max : db->format->params.plaintext_length);
+    rules_init(db, pw_max);
     rule_count = rules_count(&ctx, -1);
 
-    log_event("- %d preprocessed word mangling rules", rule_count);
+    if (rules_stacked_after)
+      log_event("- Total %u (%d x %u) preprocessed word mangling rules",
+                rule_count * crk_stacked_rule_count,
+                rule_count, crk_stacked_rule_count);
+    else
+      log_event("- %d preprocessed word mangling rules", rule_count);
 
     list_init(&rule_list);
 
@@ -1379,7 +1410,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
         else
           log_event("- Rule #%d: '%.100s' accepted",
                     rule_number + 1, prerule);
-      } else
+      } else if (strncmp(prerule, "!!", 2))
         log_event("- Rule #%d: '%.100s' rejected",
                   rule_number + 1, prerule);
 
@@ -1511,6 +1542,9 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   FILE *read_fp;
   uint64_t file_len;
   int warn = cfg_get_bool(SECTION_OPTIONS, NULL, "WarnEncoding", 0);
+#ifdef HAVE_MMAP
+  int mmap_max = cfg_get_int(SECTION_OPTIONS, NULL, "WordlistMemoryMapMaxSize");
+#endif
 
   if (!john_main_process)
     warn = 0;
@@ -1533,7 +1567,12 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
   }
 
 #ifdef HAVE_MMAP
-  if (options.flags & FLG_PRINCE_MMAP)
+  if (mmap_max == -1)
+  {
+    mmap_max = 1 << 20;
+  }
+  if (options.flags & FLG_PRINCE_MMAP &&
+      mmap_max && mmap_max >= (file_len >> 20))
   {
     log_event("- Memory mapping wordlist ("LLd" bytes)",
               (long long)file_len);
@@ -1694,8 +1733,13 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
     {
       const char old_c = input_buf[0];
 
+#ifdef JTR_MODE
       const char new_cu = toupper (ARCH_INDEX(old_c));
       const char new_cl = tolower (ARCH_INDEX(old_c));
+#else
+      const char new_cu = toupper (old_c);
+      const char new_cl = tolower (old_c);
+#endif
 
       if (old_c != new_cu)
       {
@@ -2402,7 +2446,7 @@ void do_prince_crack(struct db_main *db, char *wordlist, int rules)
 
   if (save_pos)
   {
-    catch_int ();
+    catch_int (0);
   }
 #endif
 

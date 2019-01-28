@@ -12,6 +12,11 @@ john_register_one(&fmt_pfx);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "memory.h"
@@ -19,19 +24,12 @@ john_register_one(&fmt_pfx);
 #include "formats.h"
 #include "johnswap.h"
 #include "hmac_sha.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
-#endif
 #include "twofish.h"
 #include "sha.h"
 #include "loader.h"
 #include "simd-intrinsics.h"
 #include "pkcs12.h"
 #include "pfx_common.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "pfx"
 #define FORMAT_NAME             ""
@@ -45,14 +43,18 @@ john_register_one(&fmt_pfx);
 #define BENCHMARK_LENGTH        -1
 #if !defined(SIMD_COEF_32)
 #define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MAX_KEYS_PER_CRYPT	4
 #else
 // FIXME.  We have to handle this in some other manner (in init).  We need to
 // find the LCM of all possible 'groups'.  So if we have 2 8 and 24 as our
 // groups, this count needs to be 24.  If it was 2 8 24 and 32, then we would
 // need min/max keys to be 96
 #define MIN_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
-#define MAX_KEYS_PER_CRYPT	SSE_GROUP_SZ_SHA1
+#define MAX_KEYS_PER_CRYPT	(SSE_GROUP_SZ_SHA1 * 4)
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               8 // Tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests tests[] = {
@@ -84,9 +86,8 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*saved_key));
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
@@ -458,6 +459,7 @@ struct fmt_main fmt_pfx = {
 		MAX_KEYS_PER_CRYPT,
 		FMT_CASE | FMT_8_BIT | FMT_OMP | FMT_HUGE_INPUT,
 		{
+			"iteration count",
 			"mac-type [1:SHA1 224:SHA224 256:SHA256 384:SHA384 512:SHA512]",
 		},
 		{ FORMAT_TAG },
@@ -472,6 +474,7 @@ struct fmt_main fmt_pfx = {
 		pfx_common_get_binary,
 		pfx_common_get_salt,
 		{
+			pfx_iteration_count,
 			pfx_get_mac_type,
 		},
 		fmt_default_source,

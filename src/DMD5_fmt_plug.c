@@ -26,11 +26,9 @@ john_register_one(&fmt_DMD5);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
 #endif
 
 #include "arch.h"
@@ -38,7 +36,6 @@ john_register_one(&fmt_DMD5);
 #include "md5.h"
 #include "common.h"
 #include "formats.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "dmd5"
 #define FORMAT_NAME             "DIGEST-MD5 C/R"
@@ -56,7 +53,11 @@ john_register_one(&fmt_DMD5);
 #define CIPHERTEXT_LENGTH       (DSIZE * 4)
 #define PLAINTEXT_LENGTH        32
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      1024
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               2 // Tuned w/ MKPC for core i7
+#endif
 
 static const char itoa16_shr_04[] =
 	"0000000000000000"
@@ -95,13 +96,13 @@ static const char itoa16_and_0f[] =
 	"0123456789abcdef";
 
 static struct custom_salt {
-	unsigned char login_id[DSIZE];   // username:realm
+	unsigned char login_id[DSIZE + 64 /* sizeof(realm) */];   // username:realm
 	unsigned int  login_id_len;
 
 	unsigned char nonces[DSIZE];     // :nonce:cnonce[:authzid]
 	unsigned int  nonces_len;
 
-	unsigned char prehash_KD[DSIZE]; // :nonce:nc:cnonce:qop:hex_A2_hash
+	unsigned char prehash_KD[DSIZE + 2 * MD5_HEX_SIZE]; // :nonce:nc:cnonce:qop:hex_A2_hash
 	unsigned int  prehash_KD_len;
 } *cur_salt;
 
@@ -118,9 +119,8 @@ static struct fmt_tests tests[] = {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       PLAINTEXT_LENGTH + 1);
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -224,7 +224,7 @@ static void *get_salt(char *ciphertext)
 	char *ccopy = strdup(ciphertext);
 	char *p, *data = ccopy + FORMAT_TAG_LEN;
 	MD5_CTX ctx;
-	char A2[DSIZE];
+	char A2[DSIZE + sizeof(digest_uri)];
 	unsigned char hash[BINARY_SIZE];
 	unsigned char hex_hash[2*MD5_HEX_SIZE];
 	static struct custom_salt cs;

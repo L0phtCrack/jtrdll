@@ -42,7 +42,6 @@ john_register_one(&fmt_KeePass);
 #include "aes.h"
 #include "twofish.h"
 #include "chacha.h"
-#include "memdbg.h"
 
 #ifndef OMP_SCALE
 #define OMP_SCALE               4 // This and MKPC tuned for core i7
@@ -174,7 +173,6 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		if (cur_salt->algorithm == 0) {
 			/* AES decrypt cur_salt->contents with final_key */
 			memcpy(iv, cur_salt->enc_iv, 16);
-			memset(&akey, 0, sizeof(AES_KEY));
 			AES_set_decrypt_key(final_key, 256, &akey);
 		} else if (cur_salt->algorithm == 1) {
 			memcpy(iv, cur_salt->enc_iv, 16);
@@ -220,7 +218,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		else if (cur_salt->version == 2 && cur_salt->algorithm == 2) {
 			unsigned char dec_buf[32];
 
-			chacha_decrypt_bytes(&ckey, cur_salt->contents, dec_buf, 32);
+			chacha_decrypt_bytes(&ckey, cur_salt->contents, dec_buf, 32, 20);
 			if (!memcmp(dec_buf, cur_salt->expected_bytes, 32)) {
 				cracked[index] = 1;
 #ifdef _OPENMP
@@ -294,6 +292,7 @@ struct fmt_main fmt_KeePass = {
 		{
 			"iteration count",
 			"version",
+			"algorithm [0=AES, 1=TwoFish, 2=ChaCha]",
 		},
 		{ FORMAT_TAG },
 		keepass_tests
@@ -309,6 +308,7 @@ struct fmt_main fmt_KeePass = {
 		{
 			keepass_iteration_count,
 			keepass_version,
+			keepass_algorithm,
 		},
 		fmt_default_source,
 		{

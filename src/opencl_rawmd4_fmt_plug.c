@@ -20,8 +20,7 @@ john_register_one(&FMT_STRUCT);
 #else
 
 #include <string.h>
-#include <assert.h>
-#if defined(JTRDLL) && defined(_MSC_VER)
+#if defined(_MSC_VER)
 #include<gettimeofday.h>
 #else
 #include <sys/time.h>
@@ -39,7 +38,7 @@ john_register_one(&FMT_STRUCT);
 
 #define PLAINTEXT_LENGTH    55 /* Max. is 55 with current kernel */
 #define BUFSIZE             ((PLAINTEXT_LENGTH+3)/4*4)
-#define FORMAT_LABEL        "Raw-MD4-opencl"
+#define FORMAT_LABEL        "raw-MD4-opencl"
 #define FORMAT_NAME         ""
 #define ALGORITHM_NAME      "MD4 OpenCL"
 #define BENCHMARK_COMMENT   ""
@@ -67,7 +66,6 @@ static struct fmt_main *self;
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
 
-#include "memdbg.h"
 
 static struct fmt_tests tests[] = {
 	{"8a9d093f14f8701df17732b2bb182c74", "password"},
@@ -202,7 +200,7 @@ static void init_kernel(unsigned int num_ld_hashes, char *bitmap_para)
 	shift64_ot_sz = (((1ULL << 63) % offset_table_size) * 2) % offset_table_size;
 
 	for (i = 0; i < MASK_FMT_INT_PLHDR; i++)
-		if (mask_skip_ranges!= NULL && mask_skip_ranges[i] != -1)
+		if (mask_skip_ranges && mask_skip_ranges[i] != -1)
 			static_gpu_locations[i] = mask_int_cand.int_cpu_mask_ctx->
 				ranges[mask_skip_ranges[i]].pos;
 		else
@@ -305,6 +303,7 @@ static int get_hash_6(int index) { return hash_table_128[hash_ids[3 + 3 * index]
 
 static void clear_keys(void)
 {
+	memset(saved_idx, 0, sizeof(cl_uint) * global_work_size);
 	key_idx = 0;
 }
 
@@ -367,7 +366,7 @@ static char *get_key(int index)
 		out[i] = *key++;
 	out[i] = 0;
 
-	if (mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
+	if (len && mask_skip_ranges && mask_int_cand.num_int_cand > 1) {
 		for (i = 0; i < MASK_FMT_INT_PLHDR && mask_skip_ranges[i] != -1; i++)
 			if (mask_gpu_is_static)
 				out[static_gpu_locations[i]] =
@@ -386,9 +385,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
-	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand%d\n", __FUNCTION__, count, local_work_size, global_work_size, key_idx, mask_int_cand.num_int_cand);
+	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand %d\n", __FUNCTION__, count, local_work_size, global_work_size, key_idx, mask_int_cand.num_int_cand);
 
 	// copy keys to the device
 	if (key_idx)
@@ -479,6 +478,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	if (tune_gws) {
 		create_clobj_kpc(pcount);
 		set_kernel_args_kpc();
+		clear_keys();
 		for (i = 0; i < pcount; i++)
 			set_key(key, i);
 		gettimeofday(&startc, NULL);
@@ -553,7 +553,7 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	/* Auto tune finish.*/
 
 	if (global_work_size % local_work_size) {
-		global_work_size = GET_MULTIPLE_OR_BIGGER(global_work_size, local_work_size);
+		global_work_size = GET_NEXT_MULTIPLE(global_work_size, local_work_size);
 		get_power_of_two(global_work_size);
 		release_clobj_kpc();
 		if (global_work_size > gws_limit)
@@ -569,11 +569,6 @@ static void auto_tune(struct db_main *db, long double kernel_run_ms)
 	}
 
 	clear_keys();
-
-	assert(!(local_work_size & (local_work_size -1)));
-	assert(!(global_work_size % local_work_size));
-	assert(local_work_size <= lws_limit);
-	assert(global_work_size <= gws_limit);
 
 	self->params.max_keys_per_crypt = global_work_size;
 	if (options.verbosity > VERB_LEGACY)
@@ -598,10 +593,10 @@ static void reset(struct db_main *db)
 		create_clobj();
 		set_kernel_args();
 
-		auto_tune(db, 300);
+		auto_tune(db, 100);
 	}
 	else {
-		int tune_time = (options.flags & FLG_MASK_CHK) ? 300 : 50;
+		int tune_time = (options.flags & FLG_MASK_CHK) ? 100 : 50;
 
 		ocl_hc_128_prepare_table_test();
 
@@ -632,7 +627,7 @@ struct fmt_main FMT_STRUCT = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_8_BIT | FMT_REMOVE,
+		FMT_CASE | FMT_8_BIT | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ FORMAT_TAG },
 		tests

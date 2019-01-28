@@ -21,7 +21,6 @@ john_register_one(&fmt_opencl_DES);
 #include "config.h"
 #include "opencl_DES_bs.h"
 #include "opencl_DES_hst_dev_shared.h"
-#include "memdbg.h"
 
 #define FORMAT_NAME			"traditional crypt(3)"
 
@@ -270,7 +269,7 @@ struct fmt_main fmt_opencl_DES = {
 		sizeof(WORD),
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_CASE | FMT_TRUNC | FMT_BS | FMT_REMOVE,
+		FMT_CASE | FMT_TRUNC | FMT_BS | FMT_REMOVE | FMT_MASK,
 		{ NULL },
 		{ NULL },
 		tests

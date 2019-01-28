@@ -21,10 +21,9 @@ john_register_one(&fmt_sspr);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4
 #endif
-#endif
+
+#define OMP_SCALE               1  // MKPC and OMP_SCALE tuned on Core i7-6600U
 
 #include "formats.h"
 #include "md5.h"
@@ -35,9 +34,6 @@ john_register_one(&fmt_sspr);
 #include "params.h"
 #include "options.h"
 #include "sspr_common.h"
-#define CPU_FORMAT              1
-#include "sspr_variable_code.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "sspr"
 #define ALGORITHM_NAME          "MD5/SHA1/SHA256/SHA512 32/" ARCH_BITS_STR
@@ -48,7 +44,7 @@ john_register_one(&fmt_sspr);
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define SALT_ALIGN              sizeof(uint32_t)
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      1
+#define MAX_KEYS_PER_CRYPT      4
 
 static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
@@ -57,9 +53,8 @@ static struct custom_salt *cur_salt;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 }
@@ -68,11 +63,6 @@ static void done(void)
 {
 	MEM_FREE(saved_key);
 	MEM_FREE(crypt_out);
-}
-
-static int valid(char *ciphertext, struct fmt_main *self)
-{
-	return sspr_valid(ciphertext, self, 1);
 }
 
 static void set_salt(void *salt)
@@ -199,6 +189,7 @@ struct fmt_main fmt_sspr = {
 		FMT_CASE | FMT_8_BIT | FMT_OMP,
 		{
 			"KDF [0:MD5 1:SHA1 2:SHA1_SALT 3:SHA256_SALT 4:SHA512_SALT]",
+			"iteration count",
 		},
 		{ FORMAT_TAG },
 		sspr_tests
@@ -207,12 +198,13 @@ struct fmt_main fmt_sspr = {
 		done,
 		fmt_default_reset,
 		fmt_default_prepare,
-		valid,
+		sspr_valid,
 		fmt_default_split,
 		sspr_get_binary,
 		sspr_get_salt,
 		{
 			sspr_get_kdf_type,
+			sspr_get_iteration_count,
 		},
 		fmt_default_source,
 		{

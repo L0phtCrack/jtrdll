@@ -20,7 +20,7 @@ john_register_one(&fmt_opencl_cryptMD5);
 #include "misc.h"
 #include "path.h"
 #include "config.h"
-#include "common-opencl.h"
+#include "opencl_common.h"
 #include "options.h"
 #include "md5crypt_common.h"
 
@@ -53,7 +53,6 @@ static const char * warn[] = {
 
 //This file contains auto-tuning routine(s). Has to be included after formats definitions.
 #include "opencl_autotune.h"
-#include "memdbg.h"
 
 /* ------- Helper functions ------- */
 static size_t get_task_max_work_group_size()
@@ -68,8 +67,8 @@ typedef struct {
 } crypt_md5_salt;
 
 typedef struct {
-	unsigned int length;
 	unsigned char v[PLAINTEXT_LENGTH];
+	unsigned char length;
 } crypt_md5_password;
 
 typedef struct {
@@ -341,7 +340,7 @@ static void reset(struct db_main *db)
 		                       sizeof(crypt_md5_password), 0, db);
 
 		//Auto tune execution from shared/included code.
-		autotune_run(self, 1000, 0, 500);
+		autotune_run(self, 1000, 0, 200);
 	}
 }
 
@@ -354,9 +353,10 @@ static void *get_binary(char *ciphertext)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t *lws = (local_work_size && !(count % local_work_size)) ?
+		&local_work_size : NULL;
 
-	global_work_size = GET_MULTIPLE_OR_BIGGER(count, local_work_size);
+	global_work_size = count;
 
 	///Copy data to GPU memory
 	if (new_keys)

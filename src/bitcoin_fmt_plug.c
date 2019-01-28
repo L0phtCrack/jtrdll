@@ -29,9 +29,6 @@ john_register_one(&fmt_bitcoin);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
 #endif
 
 #include "arch.h"
@@ -45,7 +42,6 @@ john_register_one(&fmt_bitcoin);
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "jumbo.h"
-#include "memdbg.h"
 
 #define FORMAT_LABEL            "Bitcoin"
 #define FORMAT_NAME             "Bitcoin Core"
@@ -67,7 +63,7 @@ john_register_one(&fmt_bitcoin);
 #endif
 
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1000
+#define BENCHMARK_LENGTH        0
 #define PLAINTEXT_LENGTH        125
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
@@ -79,6 +75,10 @@ john_register_one(&fmt_bitcoin);
 #else
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      1
+#endif
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               1 // Tuned w/ MKPC for core i7
 #endif
 
 #define SZ                      128
@@ -100,6 +100,10 @@ static struct fmt_tests bitcoin_tests[] = {
 	{"$bitcoin$96$23582816ecc192d621e22069f5849583684301882a0128aeebd34c208e200db5dfc8feba73d9284156887223ea288b02$16$3052e5cd17a35872$83181$96$c10fd1099feefaff326bc5437bd9be9afc4eee67d8965abe6b191a750c787287a96dc5afcad3a887ce0848cdcfe15516$66$03ff11e4003e96d7b8a028e12aed4f0a041848f58e4c41eebe6cb862f758da6cb7", "openwall123"},
 	/* bitcoin-0.5.2-win32-setup.exe from January 2012 */
 	{"$bitcoin$96$a8d2a30b9a5419934cbb7cb0727ddc16c4bebdbf30d7e099ca35f2b1b7ba04cc42eb5b865bff8f65fc6ba9e15428d84f$16$872581181d72f577$128205$96$0a8d43558ed2b55f4a53491df66e6a71003db4588d11dc0a88b976122c2849a74c2bfaace36424cf029795db6fd2c78f$130$04ff53a6f68eab1c52e5b561b4616edb5bed4d7510cdb4931c8da68732a86d86f3a3f7de266f17c8d03e02ebe8e2c86e2f5de0007217fd4aaf5742ca7373113060", "openwall"},
+	/* PRiVCY-qt.exe <- privcy-1.1.1.0.tar.gz */
+	{"$bitcoin$96$d98326490616ef9f59767c5bf148061565fe1b21078445725ef31629e8ee430bf4d04896d5064b6651ab4c19021e2d7c$16$51ee8c9ab318da9e$46008$96$819f6c8e618869c7933b85f6c59d15ca6786876edc435ba3f400e272c2999b43e0e3cda27acd928d1adbccd01b613e66$66$03feefa49b8cbbdbb327b7c477586e4a3275132cf6778f05bc11c517dc2e9107cb", "openwall"},
+	// Truncated PRiVCY hash
+	{"$bitcoin$64$65fe1b21078445725ef31629e8ee430bf4d04896d5064b6651ab4c19021e2d7c$16$51ee8c9ab318da9e$46008$96$819f6c8e618869c7933b85f6c59d15ca6786876edc435ba3f400e272c2999b43e0e3cda27acd928d1adbccd01b613e66$66$03feefa49b8cbbdbb327b7c477586e4a3275132cf6778f05bc11c517dc2e9107cb", "openwall"},
 	{NULL}
 };
 
@@ -121,9 +125,8 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	any_cracked = 0;
@@ -137,16 +140,6 @@ static void done(void)
 	MEM_FREE(saved_key);
 }
 // #define  BTC_DEBUG
-
-#ifdef BTC_DEBUG
-static void print_hex(unsigned char *str, int len)
-{
-	int i;
-	for (i = 0; i < len; ++i)
-		printf("%02x", str[i]);
-	printf("\n");
-}
-#endif
 
 static int valid(char *ciphertext, struct fmt_main *self)
 {
@@ -279,18 +272,18 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-	for (index = 0; index < count; index += MAX_KEYS_PER_CRYPT) {
+	for (index = 0; index < count; index += MIN_KEYS_PER_CRYPT) {
 		unsigned char output[SZ];
 		SHA512_CTX sha_ctx;
 		int i;
 
 #ifdef SIMD_COEF_64
-		char unaligned_buf[MAX_KEYS_PER_CRYPT*SHA_BUF_SIZ*sizeof(uint64_t)+MEM_ALIGN_SIMD];
+		char unaligned_buf[MIN_KEYS_PER_CRYPT*SHA_BUF_SIZ*sizeof(uint64_t)+MEM_ALIGN_SIMD];
 		uint64_t *key_iv = (uint64_t*)mem_align(unaligned_buf, MEM_ALIGN_SIMD);
 		JTR_ALIGN(8)  unsigned char hash1[SHA512_DIGEST_LENGTH];            // 512 bits
 		int index2;
 
-		for (index2 = 0; index2 < MAX_KEYS_PER_CRYPT; index2++) {
+		for (index2 = 0; index2 < MIN_KEYS_PER_CRYPT; index2++) {
 			// The first hash for this password
 			SHA512_Init(&sha_ctx);
 			SHA512_Update(&sha_ctx, saved_key[index+index2], strlen(saved_key[index+index2]));
@@ -307,7 +300,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			}
 
 			// We need to set ONE time, the upper half of the data buffer.  We put the 0x80 byte (in BE format), at offset
-			// 512-bits (SHA512_DIGEST_LENGTH) multiplied by the SIMD_COEF_64 (same as MAX_KEYS_PER_CRYPT), then zero
+			// 512-bits (SHA512_DIGEST_LENGTH) multiplied by the SIMD_COEF_64 (same as MIN_KEYS_PER_CRYPT), then zero
 			// out the rest of the buffer, putting 512 (#bits) at the end.  Once this part of the buffer is set up, we never
 			// touch it again, for the rest of the crypt.  We simply overwrite the first half of this buffer, over and over
 			// again, with BE results of the prior hash.
@@ -320,7 +313,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		for (i = 1; i < cur_salt->cry_rounds; i++)  // start at 1; the first iteration is already done
 			SIMDSHA512body(key_iv, key_iv, NULL, SSEi_MIXED_IN|SSEi_OUTPUT_AS_INP_FMT);
 
-		for (index2 = 0; index2 < MAX_KEYS_PER_CRYPT; index2++) {
+		for (index2 = 0; index2 < MIN_KEYS_PER_CRYPT; index2++) {
 			AES_KEY aes_key;
 			unsigned char key[32];
 			unsigned char iv[16];
@@ -329,19 +322,15 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if ARCH_LITTLE_ENDIAN==1
 			for (i = 0; i < sizeof(key)/sizeof(uint64_t); i++)  // the derived key
 				((uint64_t *)key)[i] = JOHNSWAP64(key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
-			for (i = 0; i < sizeof(iv)/sizeof(uint64_t); i++)   // the derived iv
-				((uint64_t *)iv)[i]  = JOHNSWAP64(key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(uint64_t) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64]);
 #else
 			for (i = 0; i < sizeof(key)/sizeof(uint64_t); i++)  // the derived key
 				((uint64_t *)key)[i] = key_iv[SIMD_COEF_64*i + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
-			for (i = 0; i < sizeof(iv)/sizeof(uint64_t); i++)   // the derived iv
-				((uint64_t *)iv)[i]  = key_iv[SIMD_COEF_64*(sizeof(key)/sizeof(uint64_t) + i) + (index2&(SIMD_COEF_64-1)) + index2/SIMD_COEF_64*SHA_BUF_SIZ*SIMD_COEF_64];
 #endif
 
 			AES_set_decrypt_key(key, 256, &aes_key);
-			AES_cbc_encrypt(cur_salt->cry_master, output, cur_salt->cry_master_length, &aes_key, iv, AES_DECRYPT);
+			AES_cbc_encrypt(cur_salt->cry_master + cur_salt->cry_master_length - 32, output, 32, &aes_key, iv, AES_DECRYPT);
 
-			if (check_pkcs_pad(output, cur_salt->cry_master_length, 16) == 32) {
+			if (check_pkcs_pad(output, 32, 16) == 16) {
 				cracked[index + index2] = 1;
 #ifdef _OPENMP
 #pragma omp atomic
@@ -364,9 +353,9 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		}
 
 		AES_set_decrypt_key(key_iv, 256, &aes_key);
-		AES_cbc_encrypt(cur_salt->cry_master, output, cur_salt->cry_master_length, &aes_key, key_iv + 32, AES_DECRYPT);
+		AES_cbc_encrypt(cur_salt->cry_master + cur_salt->cry_master_length - 32, output, 32, &aes_key, key_iv + 32, AES_DECRYPT);
 
-		if (check_pkcs_pad(output, cur_salt->cry_master_length, 16) == 32) {
+		if (check_pkcs_pad(output, 32, 16) == 16) {
 			cracked[index] = 1;
 #ifdef _OPENMP
 #pragma omp atomic
