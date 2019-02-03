@@ -351,7 +351,7 @@ extern int fileno(FILE *);
 // starting at at VC 2015 is no longer the same as snprintf (as it was prior).  The _snprintf
 // was kept at the legacy problematic manner, while snprintf now 'works' properly.
 // _MSC_VER == 1900 is the key for VC 2015
-#define snprintf(str, size, ...) vc_fixed_snprintf((str), (size), __VA_ARGS__)
+#define snprintf vc_fixed_snprintf
 extern int vc_fixed_snprintf(char *Dest, size_t max_cnt, const char *Fmt, ...);
 #endif
 #undef alloca

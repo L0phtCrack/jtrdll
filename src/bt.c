@@ -16,6 +16,7 @@
 #include<gettimeofday.h>
 #else
 #include <sys/time.h>
+#endif
 
 #include "status.h"
 #include "misc.h" // error()
@@ -347,7 +348,7 @@ static void calc_hash_mdoulo_table_size(unsigned int *store, auxilliary_offset_d
 	unsigned int i = 0;
 
 	while (i < ptr->collisions) {
-		store[i] =  modulo_op(loaded_hashes + (ptr->hash_location_list[i]) * binary_size_actual, hash_table_size, shift64_ht_sz, shift128_ht_sz);
+		store[i] =  modulo_op((char *)loaded_hashes + (ptr->hash_location_list[i]) * binary_size_actual, hash_table_size, shift64_ht_sz, shift128_ht_sz);
 		i++;
 	}
 }

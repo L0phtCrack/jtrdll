@@ -245,11 +245,14 @@ void cfg_init(char *name, int allow_missing)
 
 	number = 0;
 	while (fgetl(line, sizeof(line), file))
-	if (cfg_process_line(line, ++number)) cfg_error(cfg_name, number);
+	if (cfg_process_line(line, ++number)) 
+		cfg_error(cfg_name, number);
 
-	if (ferror(file)) pexit("fgets");
+	if (ferror(file)) 
+		pexit("fgets");
 
-	if (fclose(file)) pexit("fclose");
+	if (fclose(file)) 
+		pexit("fclose");
 
 	// merge final section (if it is a 'Local:" section)
 	cfg_merge_local_section();

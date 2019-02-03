@@ -77,7 +77,7 @@ volatile int illegal_instruction = 0;
 #endif
 
 #ifdef _WIN32
-
+#include"path.h"
 HANDLE hPotWatch = NULL;
 
 void check_potwatch()
@@ -106,7 +106,8 @@ void install_potwatch()
 		return;
 	}
 
-	strncpy(potdir, path_expand(options.activepot), MAX_PATH);
+	char *expanded_path = path_expand(options.activepot);
+	strncpy(potdir, expanded_path, MAX_PATH);
 	potdir[MAX_PATH] = 0;
 	lastslash = strrchr(potdir, '\\');
 	if (!lastslash)

@@ -1948,6 +1948,7 @@ static void john_run(void)
 			fprintf(stderr,
 "Warning: Disabled SingleRetestGuessed due to deep recursion. You may now run\n"
 "         '--loopback --rules=none' to test all guesses against other salts.\n");
+#endif
 	}
 }
 
@@ -2083,7 +2084,6 @@ int main(int argc, char **argv)
 	path_init(argv);
 
 #ifndef JTRDLL
-
 	if (!strcmp(name, "unshadow")) {
 		CPU_detect_or_fallback(argv, 0);
 		return unshadow(argc, argv);
