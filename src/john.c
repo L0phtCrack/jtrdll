@@ -1782,9 +1782,11 @@ static void john_run(void)
 		}
 
 		/* Format supports internal (eg. GPU-side) mask */
+#ifndef JTRDLL
 		if (database.format->params.flags & FMT_MASK &&
 		    !(options.flags & FLG_MASK_CHK) && john_main_process)
 			fprintf(stderr, "Note: This format may be a lot faster with --mask acceleration (see doc/MASK).\n");
+#endif
 
 		/* Some formats truncate at max. length */
 		if (!(database.format->params.flags & FMT_TRUNC) &&

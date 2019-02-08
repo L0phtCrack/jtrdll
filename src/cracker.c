@@ -841,6 +841,7 @@ static int crk_password_loop(struct db_salt *salt)
 			last_warn_kpc = crk_key_index;
 			if (options.node_count)
 				fprintf(stderr, "%u: ", NODE);
+#ifndef JTRDLL
 			fprintf(stderr, "Warning: Only %d candidates %s, "
 			        "minimum %d%cneeded for performance.\n",
 			        crk_key_index,
@@ -848,6 +849,7 @@ static int crk_password_loop(struct db_salt *salt)
 			        mask_increments_len ? "buffered" : "left",
 			        crk_params->min_keys_per_crypt,
 			        single_running ? '\n' : ' ');
+#endif
 
 			if (!--kpc_warn_limit) {
 				if (options.node_count)
