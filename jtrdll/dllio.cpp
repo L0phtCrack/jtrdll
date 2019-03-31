@@ -20,7 +20,7 @@
 #include <CL/cl_ext.h>
 #endif
 #include<exception>
-#include<hash_set>
+#include<unordered_set>
 
 
 
@@ -40,15 +40,15 @@ extern "C"
 #include"jtrdll.h"
 
 // memory allocation tables
-std::hash_set<void *> g_malloc_allocations;
-std::hash_set<void *> g__aligned_malloc_allocations;
-//std::hash_set<void *> g__malloca_allocations;
-std::hash_set<cl_event> g_cl_events;
-std::hash_set<cl_mem> g_cl_mem_objects;
-std::hash_set<cl_context> g_cl_contexts;
-std::hash_set<cl_command_queue> g_cl_command_queues;
-std::hash_set<cl_program> g_cl_programs; 
-std::hash_set<cl_kernel> g_cl_kernels;
+std::unordered_set<void *> g_malloc_allocations;
+std::unordered_set<void *> g__aligned_malloc_allocations;
+//std::unordered_set<void *> g__malloca_allocations;
+std::unordered_set<cl_event> g_cl_events;
+std::unordered_set<cl_mem> g_cl_mem_objects;
+std::unordered_set<cl_context> g_cl_contexts;
+std::unordered_set<cl_command_queue> g_cl_command_queues;
+std::unordered_set<cl_program> g_cl_programs; 
+std::unordered_set<cl_kernel> g_cl_kernels;
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -682,63 +682,63 @@ extern "C"
 
 	JTRDLL_IMPEXP void jtrdll_cleanup(void)
 	{
-		for (std::hash_set<void *>::iterator iter = g_malloc_allocations.begin(); iter != g_malloc_allocations.end(); iter++)
+		for (std::unordered_set<void *>::iterator iter = g_malloc_allocations.begin(); iter != g_malloc_allocations.end(); iter++)
 		{
 			void *ptr = *iter;
 			free(ptr);
 		}
 		g_malloc_allocations.clear();
 
-		for (std::hash_set<void *>::iterator iter = g__aligned_malloc_allocations.begin(); iter != g__aligned_malloc_allocations.end(); iter++)
+		for (std::unordered_set<void *>::iterator iter = g__aligned_malloc_allocations.begin(); iter != g__aligned_malloc_allocations.end(); iter++)
 		{
 			void *ptr = *iter;
 			_aligned_free(ptr);
 		}
 		g__aligned_malloc_allocations.clear();
 
-		//	for (std::hash_set<void *>::iterator iter = g__malloca_allocations.begin(); iter != g__malloca_allocations.end(); iter++)
+		//	for (std::unordered_set<void *>::iterator iter = g__malloca_allocations.begin(); iter != g__malloca_allocations.end(); iter++)
 		//	{
 		//		void *ptr = *iter;
 		//		_freea(ptr);
 		//	}
 		//	g__malloca_allocations.clear();
 
-		for (std::hash_set<cl_event>::iterator iter = g_cl_events.begin(); iter != g_cl_events.end(); iter++)
+		for (std::unordered_set<cl_event>::iterator iter = g_cl_events.begin(); iter != g_cl_events.end(); iter++)
 		{
 			cl_event event = *iter;
 			clReleaseEvent(event);
 		}
 		g_cl_events.clear();
 
-		for (std::hash_set<cl_mem>::iterator iter = g_cl_mem_objects.begin(); iter != g_cl_mem_objects.end(); iter++)
+		for (std::unordered_set<cl_mem>::iterator iter = g_cl_mem_objects.begin(); iter != g_cl_mem_objects.end(); iter++)
 		{
 			cl_mem mem = *iter;
 			clReleaseMemObject(mem);
 		}
 		g_cl_mem_objects.clear();
 
-		for (std::hash_set<cl_kernel>::iterator iter = g_cl_kernels.begin(); iter != g_cl_kernels.end(); iter++)
+		for (std::unordered_set<cl_kernel>::iterator iter = g_cl_kernels.begin(); iter != g_cl_kernels.end(); iter++)
 		{
 			cl_kernel kernel = *iter;
 			clReleaseKernel(kernel);
 		}
 		g_cl_kernels.clear();
 
-		for (std::hash_set<cl_program>::iterator iter = g_cl_programs.begin(); iter != g_cl_programs.end(); iter++)
+		for (std::unordered_set<cl_program>::iterator iter = g_cl_programs.begin(); iter != g_cl_programs.end(); iter++)
 		{
 			cl_program program = *iter;
 			clReleaseProgram(program);
 		}
 		g_cl_programs.clear();
 
-		for (std::hash_set<cl_command_queue>::iterator iter = g_cl_command_queues.begin(); iter != g_cl_command_queues.begin(); iter++)
+		for (std::unordered_set<cl_command_queue>::iterator iter = g_cl_command_queues.begin(); iter != g_cl_command_queues.begin(); iter++)
 		{
 			cl_command_queue command_queue = *iter;
 			clReleaseCommandQueue(command_queue);
 		}
 		g_cl_command_queues.clear();
 
-		for (std::hash_set<cl_context>::iterator iter = g_cl_contexts.begin(); iter != g_cl_contexts.end(); iter++)
+		for (std::unordered_set<cl_context>::iterator iter = g_cl_contexts.begin(); iter != g_cl_contexts.end(); iter++)
 		{
 			cl_context context = *iter;
 			clReleaseContext(context);

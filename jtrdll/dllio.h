@@ -11,6 +11,7 @@
 #include<sys/stat.h>
 #include<io.h>
 #ifdef _WIN32
+#include<process.h>
 #include<wchar.h>
 #include<tchar.h>
 #endif

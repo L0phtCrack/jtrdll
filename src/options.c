@@ -1078,6 +1078,11 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 				         options.loader.field_sep_char);
 	}
 
+	if (options.node_count)
+	{
+		options.max_wordfile_memory /= options.node_count;
+	}
+
 	rec_argc = argc; rec_argv = argv;
 	rec_check = 0;
 }

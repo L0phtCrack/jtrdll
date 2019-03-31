@@ -1281,16 +1281,32 @@ static char *mingw_try_relative_path(char *self_path)
 }
 #endif
 
+#ifdef _MSC_VER
+static char *realpath(const char *path, char *fullpath)
+{
+	char * ret = _fullpath(fullpath, path,  _MAX_PATH);
+	if (!ret)
+	{
+		return NULL;
+	}
+	size_t len = strlen(ret) + 1;
+	char *ret2 = mem_alloc(len);
+	memcpy(ret2, ret, len);
+	if (ret != fullpath)
+	{
+		__real_free(ret);
+	}
+	return ret2;
+
+}
+#endif
+
 static char *include_source(char *pathname, int sequential_id, char *opts)
 {
 	char *include, *full_path;
 	char *global_opts;
 
 #if I_REALPATH
-
-#ifdef _MSC_VER
-#define realpath(N,R) _fullpath((R),(N),_MAX_PATH)
-#endif
 
 	char *pex = path_expand_safe(pathname);
 
@@ -1299,18 +1315,12 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 
 	MEM_FREE(pex);
 
-#ifdef _MSC_VER
-	/* Hack to eliminate spaces in pathname, other platforms may want quoted string instead to keep spaces */
-	GetShortPathNameA(full_path, full_path, strlen(full_path));
-#endif
-
 #else
 	full_path = path_expand_safe(pathname);
 #if defined(__CYGWIN__) || defined(__MINGW32__)
 	full_path = mingw_try_relative_path(full_path);
 #endif
 #endif
-
 
 	include = (char *) mem_calloc(LINE_BUFFER_SIZE, sizeof(char));
 
@@ -1343,15 +1353,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 			extra_opencl_kernel_args
 );
 
-#ifdef _MSC_VER
-
-#undef free		
-	free(full_path);		// must use real free here
-#define free(a) _aligned_free(a)
-
-#else
 	MEM_FREE(full_path);
-#endif
 
 	return include;
 }

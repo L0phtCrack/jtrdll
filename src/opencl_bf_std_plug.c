@@ -262,8 +262,10 @@ void BF_select_device(struct fmt_main *fmt) {
 	fmt->params.min_keys_per_crypt = opencl_calc_min_kpc(local_work_size,
 	                                                     global_work_size, 1);
 
+#ifndef JTRDLL
 	if (options.verbosity > VERB_LEGACY)
 		fprintf(stderr, "Local worksize (LWS) %d, Global worksize (GWS) %d\n", (int)local_work_size, (int)global_work_size);
+#endif
 }
 
 void opencl_BF_std_set_key(char *key, int index, int sign_extension_bug) {

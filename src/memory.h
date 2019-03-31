@@ -118,6 +118,8 @@ void *mem_calloc_align(size_t count, size_t size, size_t align);
 #undef strdup
 #endif
 
+inline void __real_free(void *p) { free(p); }
+
 #define malloc(a) _aligned_malloc(a,16)
 #define realloc(a,b) _aligned_realloc(a,b,16)
 #define calloc(a,b) memset(_aligned_malloc(a*b,16),0,a*b)

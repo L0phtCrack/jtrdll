@@ -220,6 +220,7 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 		local_work_size = mpi_lws;
 		global_work_size = mpi_gws;
 
+#ifndef JTRDLL
 		if (john_main_process && !(options.flags & FLG_SHOW_CHK) &&
 		    ((autotune_real_db && !mask_increments_len) ||
 		     options.verbosity > VERB_DEFAULT)) {
@@ -228,6 +229,7 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 			        local_work_size, global_work_size,
 			        global_work_size / local_work_size);
 		}
+#endif
 	} else
 #endif
 	if (!(options.flags & FLG_SHOW_CHK) && !(options.lws && options.gws) &&
@@ -235,12 +237,14 @@ static void autotune_run_extra(struct fmt_main *self, unsigned int rounds,
 	     options.verbosity > VERB_DEFAULT)) {
 		if (benchmark_running)
 			fprintf(stderr, "\n");
+#ifndef JTRDLL
 		if (options.node_count)
 			fprintf(stderr, "%u: ", NODE);
 		fprintf(stderr,
 "Local worksize (LWS) "Zu", global worksize (GWS) "Zu" ("Zu" blocks)\n",
 		        local_work_size, global_work_size,
 		        global_work_size / local_work_size);
+#endif
 	}
 #ifdef DEBUG
 	else if (!(options.flags & FLG_SHOW_CHK))

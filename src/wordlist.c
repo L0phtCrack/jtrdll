@@ -388,7 +388,12 @@ void wordlist_hybrid_fix_state(void)
 
 static double get_progress(void)
 {
+#ifdef JTRDLL
+	struct _stat64 file_stat;
+#else
 	struct stat file_stat;
+#endif
+
 	int64_t pos;
 	uint64_t size;
 	uint64_t mask_mult = mask_tot_cand ? mask_tot_cand : 1;
@@ -411,7 +416,11 @@ static double get_progress(void)
 		pos = map_pos - mem_map;
 		size = map_end - mem_map;
 	} else {
+#ifdef JTRDLL
+		if (_fstat64(fileno(word_file), &file_stat))
+#else
 		if (fstat(fileno(word_file), &file_stat))
+#endif
 			pexit("fstat");
 		pos = jtr_ftell64(word_file);
 		jtr_fseek64(word_file, 0, SEEK_END);
@@ -1452,6 +1461,10 @@ process_word:
 					}
 				}
 next_word:
+#ifdef JTRDLL
+				if (event_abort)
+					break;
+#endif
 				if (--my_words_left)
 					continue;
 				if (skip_lines(their_words, line))

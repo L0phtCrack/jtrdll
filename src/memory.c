@@ -641,7 +641,7 @@ alloc_region_t(region_t * region, size_t size)
 	return aligned;
 }
 
-inline void init_region_t(region_t * region)
+void init_region_t(region_t * region)
 {
 	region->base = region->aligned = NULL;
 	region->base_size = region->aligned_size = 0;
