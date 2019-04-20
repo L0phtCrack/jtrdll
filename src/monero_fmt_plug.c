@@ -8,6 +8,13 @@
  * modification, are permitted.
  */
 
+#if !AC_BUILT
+#if __GNUC__ && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define ARCH_LITTLE_ENDIAN 1
+#endif
+#endif
+#include "arch.h"
+#if ARCH_LITTLE_ENDIAN
 #if FMT_EXTERNS_H
 extern struct fmt_main fmt_monero;
 #elif FMT_REGISTERS_H
@@ -34,9 +41,9 @@ john_register_one(&fmt_monero);
 #define FORMAT_NAME             "monero Wallet"
 #define FORMAT_TAG              "$monero$"
 #define TAG_LENGTH              (sizeof(FORMAT_TAG) - 1)
-#define ALGORITHM_NAME          "Pseudo-AES / ChaCha / Various 64/" ARCH_BITS_STR
+#define ALGORITHM_NAME          "Pseudo-AES / ChaCha / Various 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        7
 #define PLAINTEXT_LENGTH        125
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
@@ -274,3 +281,14 @@ struct fmt_main fmt_monero = {
 };
 
 #endif /* plugin stanza */
+
+#else
+#if !defined(FMT_EXTERNS_H) && !defined(FMT_REGISTERS_H)
+#ifdef __GNUC__
+#warning ": monero format requires little-endian, format disabled."
+#elif _MSC_VER
+#pragma message(": monero format requires little-endian, format disabled.")
+#endif
+#endif
+
+#endif	/* ARCH_LITTLE_ENDIAN */

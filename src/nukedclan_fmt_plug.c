@@ -24,6 +24,10 @@ john_register_one(&fmt_nk);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "md5.h"
 #include "sha.h"
@@ -33,27 +37,13 @@ john_register_one(&fmt_nk);
 #include "params.h"
 #include "options.h"
 
-#ifdef _OPENMP
-#include <omp.h>
-// Tuned on core i7 quad HT
-//   1  5059K
-//  16  8507k
-//  64  8907k   ** this was chosen.
-// 128  8914k
-// 256  8810k
-#ifndef OMP_SCALE
-#define OMP_SCALE    64
-#endif
-#endif
-
-
 #define FORMAT_LABEL		"nk"
 #define FORMAT_NAME		"Nuked-Klan CMS"
 #define FORMAT_TAG		"$nk$*"
 #define FORMAT_TAG_LEN	(sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"SHA1 MD5 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1 /* change to 0 once there's any speedup for "many salts" */
+#define BENCHMARK_LENGTH	0x107
 #define PLAINTEXT_LENGTH	32
 #define CIPHERTEXT_LENGTH	(4+32+40+3+1)
 #define BINARY_SIZE		16
@@ -61,7 +51,11 @@ john_register_one(&fmt_nk);
 #define BINARY_ALIGN		sizeof(uint32_t)
 #define SALT_ALIGN			sizeof(int)
 #define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	64
+#define MAX_KEYS_PER_CRYPT	256
+
+#ifndef OMP_SCALE
+#define OMP_SCALE			128 // MKPC and scale tuned for i7
+#endif
 
 static struct fmt_tests nk_tests[] = {
 	{"$nk$*379637b4fcde21b2c5fbc9a00af505e997443267*#17737d3661312121d5ae7d5c6156c0298", "openwall"},
@@ -94,9 +88,8 @@ inline static void hex_encode(unsigned char *str, int len, unsigned char *out)
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 }

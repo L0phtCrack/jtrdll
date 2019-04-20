@@ -134,7 +134,7 @@ void inc_hybrid_fix_state(void)
 	memcpy(hybrid_rec_numbers, numbers, length);
 }
 
-static void inc_format_error(char *charset)
+static void inc_format_error(const char *charset)
 {
 	log_event("! Incorrect charset file format: %.100s", charset);
 	if (john_main_process)
@@ -175,7 +175,7 @@ static int has_8bit(char *chars)
 }
 
 static void inc_new_length(unsigned int length,
-struct charset_header *header, FILE *file, char *charset,
+	struct charset_header *header, FILE *file, const char *charset,
 	char *char1, char2_table char2, chars_table *chars)
 {
 	long offset;
@@ -287,10 +287,11 @@ struct charset_header *header, FILE *file, char *charset,
 		}
 }
 
-static int expand(char *dst, char *src, int size)
+static int expand(char *dst, const char *src, int size)
 {
 	char present[CHARSET_SIZE];
-	char *dptr = dst, *sptr = src;
+	char *dptr = dst;
+	const char *sptr = src;
 	int count = size;
 	unsigned int i;
 
@@ -321,7 +322,7 @@ static int expand(char *dst, char *src, int size)
 	return 0;
 }
 
-static void inc_new_count(unsigned int length, int count, char *charset,
+static void inc_new_count(unsigned int length, int count, const char *charset,
 	char *allchars, char *char1, char2_table char2, chars_table *chars)
 {
 	int pos, ci;
@@ -421,20 +422,18 @@ update_ending:
 	}
 	else
 #endif
-		if (f_new) {
-			if (do_external_hybrid_crack(db, key))
-				return 1;
-			inc_hybrid_fix_state();
-		}
-		else
-			if (options.mask) {
-				if (do_mask_crack(key))
-					return 1;
-			}
-			else
-				if (!f_filter || ext_filter_body(key_i, key = key_e))
-					if (crk_process_key(key))
-						return 1;
+	if (f_new) {
+		if (do_external_hybrid_crack(db, key))
+			return 1;
+		inc_hybrid_fix_state();
+	} else
+	if (options.flags & FLG_MASK_CHK) {
+		if (do_mask_crack(key))
+			return 1;
+	} else
+	if (!f_filter || ext_filter_body(key_i, key = key_e))
+		if (crk_process_key(key))
+			return 1;
 
 	pos = length;
 	if (fixed < length) {
@@ -460,11 +459,11 @@ update_ending:
 	return 0;
 }
 
-void do_incremental_crack(struct db_main *db, char *mode)
+void do_incremental_crack(struct db_main *db, const char *mode)
 {
-	char *charset;
+	const char *charset;
 	int min_length, max_length, max_count;
-	char *extra;
+	const char *extra;
 	FILE *file;
 	struct charset_header *header;
 	unsigned int check;
@@ -476,7 +475,7 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	unsigned int fixed, count;
 	int last_length, last_count;
 	int pos;
-	int our_fmt_len = db->format->params.plaintext_length;
+	int our_fmt_len = options.eff_maxlength;
 
 	if (!mode) {
 		if (db->format == &fmt_LM) {
@@ -509,8 +508,8 @@ void do_incremental_crack(struct db_main *db, char *mode)
 
 	if ((options.flags & FLG_BATCH_CHK || rec_restored) && john_main_process) {
 		fprintf(stderr, "Proceeding with incremental:%s", mode);
-		if (options.mask)
-			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.flags & FLG_MASK_CHK)
+			fprintf(stderr, ", hybrid mask:%s", options.eff_mask);
 		if (options.rule_stack)
 			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
 		if (options.req_minlength >= 0 || options.req_maxlength)
@@ -587,14 +586,19 @@ void do_incremental_crack(struct db_main *db, char *mode)
 	if ((min_length = cfg_get_int(SECTION_INC, mode, "MinLen")) < 0)
 		min_length = 0;
 	if ((max_length = cfg_get_int(SECTION_INC, mode, "MaxLen")) < 0)
-		max_length = CHARSET_LENGTH;
+		max_length = MIN(CHARSET_LENGTH, options.eff_maxlength);
+	else if (max_length > our_fmt_len) {
+		log_event("! MaxLen = %d is too large for this hash type", max_length);
+		if (john_main_process && !options.force_maxlength)
+			fprintf(stderr, "Warning: MaxLen = %d is too large "
+			    "for the current hash type, reduced to %d\n",
+			    max_length, our_fmt_len);
+		max_length = our_fmt_len;
+	}
+
+
 	max_count = options.charcount ?
 		options.charcount : cfg_get_int(SECTION_INC, mode, "CharCount");
-
-	/* Hybrid mask */
-	our_fmt_len -= mask_add_len;
-	if (mask_num_qw > 1)
-		our_fmt_len /= mask_num_qw;
 
 #if HAVE_REXGEN
 	/* Hybrid regex */
@@ -617,13 +621,10 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			min_length = 0;
 	}
 
-	if (options.req_maxlength) {
-		max_length = options.eff_maxlength;
 #if HAVE_REXGEN
-		if (regex)
-			max_length--;
+	if (regex)
+		max_length--;
 #endif
-	}
 
 	if (options.req_minlength >= 0 && !options.req_maxlength &&
 	    min_length > max_length &&
@@ -650,17 +651,6 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			"length for the current hash type (%d)\n",
 			min_length, db->format->params.plaintext_length);
 		error();
-	}
-
-	if (max_length > our_fmt_len) {
-		log_event("! MaxLen = %d is too large for this hash type",
-			max_length);
-		if (john_main_process)
-			fprintf(stderr, "Warning: MaxLen = %d is too large "
-			"for the current hash type, reduced to %d\n",
-			max_length,
-			our_fmt_len);
-		max_length = our_fmt_len;
 	}
 
 	if (max_length > CHARSET_LENGTH) {
@@ -927,19 +917,17 @@ void do_incremental_crack(struct db_main *db, char *mode)
 			}
 			else
 #endif
-				if (f_new) {
-					if (!skip && do_external_hybrid_crack(db, fmt_null_key))
-						break;
-					inc_hybrid_fix_state();
-				}
-				else
-					if (options.mask) {
-						if (!skip && do_mask_crack(fmt_null_key))
-							break;
-					}
-					else
-						if (!skip && crk_process_key(fmt_null_key))
-							break;
+			if (f_new) {
+				if (!skip && do_external_hybrid_crack(db, fmt_null_key))
+					break;
+				inc_hybrid_fix_state();
+			} else
+			if (options.flags & FLG_MASK_CHK) {
+				if (!skip && do_mask_crack(fmt_null_key))
+					break;
+			} else
+			if (!skip && crk_process_key(fmt_null_key))
+				break;
 		}
 
 		if (count)

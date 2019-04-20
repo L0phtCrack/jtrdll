@@ -21,6 +21,7 @@
 #include "options.h"
 #include "john.h"
 #include "unicode.h"
+#include "mask.h"
 #include "encoding_data.h"
 
 /*
@@ -72,7 +73,7 @@ unsigned int rules_stacked_after;
 /*
  * Line number of stacked rule in use.
  */
-int rules_stacked_number = 1;
+int rules_stacked_number;
 
 /*
  * Configuration file line number, only set after a rules_check() call if
@@ -389,7 +390,7 @@ static void rules_init_classes(void)
 		char user_class_num[] = "0";
 		char *user_class;
 		user_class_num[0] = i;
-		if ((user_class = cfg_get_param("UserClasses", NULL,
+		if ((user_class = (char*)cfg_get_param("UserClasses", NULL,
 		                                user_class_num))) {
 			if ((user_class = userclass_expand(user_class)))
 				rules_init_class(i, user_class);
@@ -558,7 +559,7 @@ int rules_init_stack(char *ruleset, rule_stack *stack_ctx,
 			error();
 		}
 
-		rules_init(db, options.eff_maxlength);
+		rules_init(db, options.eff_maxlength + mask_add_len);
 		rule_count = rules_count(&ctx, -1);
 
 		log_event("- %d preprocessed stacked rules", rule_count);
@@ -1354,13 +1355,15 @@ char *rules_apply(char *word_in, char *rule, int split, char *last)
 			break;
 
 		case 'M':
-			memory = memory_buffer;
-			strnfcpy(memory_buffer, in, STACK_MAXLEN);
+			memcpy(memory = memory_buffer, in, length + 1);
 			rules_vars['m'] = (unsigned char)length - 1;
 			break;
 
 		case 'Q':
-			if (!strncmp(memory, in, STACK_MAXLEN))
+			if (NEXT) {
+				if (!strcmp(memory, in))
+					REJECT
+			} else if (!strncmp(memory, in, STACK_MAXLEN))
 				REJECT
 			break;
 
@@ -1830,9 +1833,9 @@ char *rules_process_stack(char *key, rule_stack *ctx)
 
 	if (!ctx->rule) {
 		ctx->rule = ctx->stack_rule->head;
-		rules_stacked_number = 1;
+		rules_stacked_number = 0;
 		log_event("+ Stacked Rule #%u: '%.100s' accepted",
-		          rules_stacked_number, ctx->rule->data);
+		          rules_stacked_number + 1, ctx->rule->data);
 	}
 
 	rules_stacked_after = 0;
@@ -1859,12 +1862,11 @@ char *rules_process_stack_all(char *key, rule_stack *ctx)
 
 	if (!ctx->rule) {
 		ctx->rule = ctx->stack_rule->head;
-		rules_stacked_number = 1;
+		rules_stacked_number = 0;
 		if (!stack_rules_mute)
 			log_event("+ Stacked Rule #%u: '%.100s' accepted",
-			          rules_stacked_number, ctx->rule->data);
-	} else
-		ctx->rule = ctx->rule->next;
+			          rules_stacked_number + 1, ctx->rule->data);
+	}
 
 	rules_stacked_after = 0;
 
@@ -1877,7 +1879,7 @@ char *rules_process_stack_all(char *key, rule_stack *ctx)
 			rules_stacked_number++;
 			if (!stack_rules_mute)
 			    log_event("+ Stacked Rule #%u: '%.100s' accepted",
-			          rules_stacked_number, ctx->rule->data);
+			          rules_stacked_number + 1, ctx->rule->data);
 		}
 	}
 

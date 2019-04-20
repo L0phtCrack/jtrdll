@@ -297,7 +297,7 @@ static char *get_key(int index)
 }
 
 /* ------- Initialization  ------- */
-static void build_kernel(char *task, char *custom_opts)
+static void build_kernel(const char *task, const char *custom_opts)
 {
 	int major, minor;
 

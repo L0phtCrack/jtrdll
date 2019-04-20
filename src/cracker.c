@@ -156,6 +156,14 @@ static void crk_help(void)
 	printed = 1;
 }
 
+static void crk_set_kpc_warn(void)
+{
+	kpc_warn = crk_params->min_keys_per_crypt;
+
+	if (cfg_get_bool(SECTION_OPTIONS, NULL, "RelaxKPCWarningCheck", 0))
+		kpc_warn -= kpc_warn / (crk_db->loaded ? crk_db->salt_count : 1);
+}
+
 void crk_init(struct db_main *db, void (*fix_state)(void),
 	struct db_keys *guesses)
 {
@@ -219,16 +227,13 @@ void crk_init(struct db_main *db, void (*fix_state)(void),
 
 	crk_guesses = guesses;
 
-	kpc_warn = crk_params->min_keys_per_crypt;
+	crk_set_kpc_warn();
 
 	if (db->loaded) {
 		size = crk_params->max_keys_per_crypt * sizeof(uint64_t);
 		memset(crk_timestamps = mem_alloc(size), -1, size);
 	} else
 		crk_stdout_key[0] = 0;
-
-	if (cfg_get_bool(SECTION_OPTIONS, NULL, "RelaxKPCWarningCheck", 0))
-		kpc_warn -= kpc_warn / (db->loaded ? db->salt_count : 1);
 
 	rec_save();
 
@@ -460,8 +465,8 @@ static int crk_process_guess(struct db_salt *salt, struct db_password *pw,
 
 		if (crk_guesses && !dupe) {
 			strnfcpy(crk_guesses->ptr, key,
-			         options.eff_maxlength);
-			crk_guesses->ptr += options.eff_maxlength;
+			         crk_params->plaintext_length);
+			crk_guesses->ptr += crk_params->plaintext_length;
 			crk_guesses->count++;
 		}
 	}
@@ -837,19 +842,21 @@ static int crk_password_loop(struct db_salt *salt)
 		if (!initial_value)
 			initial_value = kpc_warn_limit;
 
-		if (last_warn_kpc != crk_key_index) {
+		if (kpc_warn > crk_params->min_keys_per_crypt)
+			crk_set_kpc_warn();
+
+		if (crk_key_index < kpc_warn && last_warn_kpc != crk_key_index) {
 			last_warn_kpc = crk_key_index;
 			if (options.node_count)
 				fprintf(stderr, "%u: ", NODE);
-#ifndef JTRDLL
-			fprintf(stderr, "Warning: Only %d candidates %s, "
-			        "minimum %d%cneeded for performance.\n",
+			fprintf(stderr, "Warning: Only %d%s candidate%s %s, "
+			        "minimum %d needed for performance.\n",
 			        crk_key_index,
+			        mask_int_cand.num_int_cand > 1 ? " base" : "",
+			        crk_key_index > 1 ? "s" : "",
 			        single_running ? "buffered for the current salt" :
 			        mask_increments_len ? "buffered" : "left",
-			        crk_params->min_keys_per_crypt,
-			        single_running ? '\n' : ' ');
-#endif
+			        crk_params->min_keys_per_crypt);
 
 			if (!--kpc_warn_limit) {
 				if (options.node_count)
@@ -1117,7 +1124,7 @@ static int process_key(char *key)
 	if (event_pending)
 	if (crk_process_event()) return 1;
 
-	strnzcpy(crk_stdout_key, key, options.eff_maxlength + 1);
+	strnzcpy(crk_stdout_key, key, crk_params->plaintext_length + 1);
 	if (options.verbosity > 1)
 		puts(crk_stdout_key);
 
@@ -1182,8 +1189,8 @@ int crk_process_salt(struct db_salt *salt)
 	crk_methods.clear_keys();
 
 	while (count--) {
-		strnzcpy(key, ptr, options.eff_maxlength + 1);
-		ptr += options.eff_maxlength;
+		strnzcpy(key, ptr, crk_params->plaintext_length + 1);
+		ptr += crk_params->plaintext_length;
 
 		crk_methods.set_key(key, index++);
 		if (index >= crk_params->max_keys_per_crypt || !count ||

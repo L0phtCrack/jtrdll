@@ -20,12 +20,8 @@ john_register_one(&fmt_agile_keychain);
 #else
 
 #include <string.h>
-
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1 // tuned on core i7
-#endif
 #endif
 
 #include "arch.h"
@@ -40,6 +36,10 @@ john_register_one(&fmt_agile_keychain);
 #include "pbkdf2_hmac_sha1.h"
 #include "agilekeychain_common.h"
 
+#ifndef OMP_SCALE
+#define OMP_SCALE               4	// MKPC and OMP_SCALE tuned for core i7
+#endif
+
 #define FORMAT_LABEL            "agilekeychain"
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          "PBKDF2-SHA1 AES " SHA1_ALGORITHM_NAME
@@ -47,7 +47,7 @@ john_register_one(&fmt_agile_keychain);
 #define ALGORITHM_NAME          "PBKDF2-SHA1 AES 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
 #define SALT_ALIGN              sizeof(int)
@@ -68,9 +68,8 @@ static struct custom_salt *cur_salt;
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	cracked = mem_calloc_align(sizeof(*cracked),

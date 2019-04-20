@@ -43,7 +43,7 @@ john_register_one(&FMT_STRUCT);
 #define FORMAT_NAME         ""
 #define ALGORITHM_NAME      "MD5 OpenCL"
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1
+#define BENCHMARK_LENGTH    0x107
 #define CIPHERTEXT_LENGTH   32
 #define DIGEST_SIZE         16
 #define BINARY_SIZE         16
@@ -407,10 +407,12 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t *lws = (local_work_size && !(count % local_work_size)) ?
-		&local_work_size : NULL;
 
-	global_work_size = count;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
+
+	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand%d\n", __FUNCTION__, count, local_work_size, global_work_size, key_idx, mask_int_cand.num_int_cand);
 
 	// copy keys to the device
 	if (key_idx)

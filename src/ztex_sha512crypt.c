@@ -37,7 +37,7 @@
 #define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
 
 #define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		0
+#define BENCHMARK_LENGTH		7
 */
 #define	SALT_LENGTH			16
 #define CIPHERTEXT_LENGTH	86
@@ -77,7 +77,8 @@ static struct device_bitstream bitstream = {
 	4096,		// 4K keys/fpga for self-test
 	512 * 1024,	// Would be 32 MB of USB traffic on 64-byte keys
 	512,		// Max. number of entries in onboard comparator.
-	160,		// Min. number of keys for effective device utilization
+	12 * 16,	// Min. number of keys for effective device utilization
+	0,
 	1, { 160 },	// Programmable clocks
 	"sha512crypt",	// label for configuration file
 	"\x00", 1		// Initialization data
@@ -149,6 +150,43 @@ static struct fmt_tests tests[] = {
 */
 	{NULL}
 };
+
+
+static int valid_salt0(char * ciphertext, struct fmt_main * self) {
+	char *pos, *start;
+	char *salt_pos;
+
+	if (!valid(ciphertext, self)) // -Wunused-function
+		return 0;
+
+	if (strncmp(ciphertext, FORMAT_TAG, FORMAT_TAG_LEN))
+		return 0;
+
+	ciphertext += FORMAT_TAG_LEN;
+
+	if (!strncmp(ciphertext, ROUNDS_PREFIX, sizeof(ROUNDS_PREFIX) - 1)) {
+		const char *num = ciphertext + sizeof(ROUNDS_PREFIX) - 1;
+		char *endp;
+
+		if (!strtoul(num, &endp, 10))
+			return 0;
+		if (*endp == '$')
+			ciphertext = endp + 1;
+	}
+	salt_pos = ciphertext;
+	for (pos = ciphertext; *pos && *pos != '$'; pos++);
+	if (!*pos || pos < ciphertext || pos > &ciphertext[SALT_LENGTH]) return 0;
+	if (pos == salt_pos) {
+		printf("Warning: ZTEX: sha512crypt hash with salt_length=0 skipped.\n");
+		return 0;
+	}
+
+	start = ++pos;
+	while (atoi64[ARCH_INDEX(*pos)] != 0x7F) pos++;
+	if (*pos || pos - start != CIPHERTEXT_LENGTH)
+		return 0;
+	return 1;
+}
 
 
 static void *get_salt(char *ciphertext)
@@ -322,7 +360,7 @@ struct fmt_main fmt_ztex_sha512crypt = {
 		device_format_done,
 		device_format_reset,
 		fmt_default_prepare,
-		valid,
+		valid_salt0,
 		fmt_default_split,
 		get_binary,
 		get_salt,

@@ -37,7 +37,7 @@ john_register_one(&FMT_STRUCT);
 #define FORMAT_NAME             ""
 #define ALGORITHM_NAME          "RIPEMD160 AES256_XTS OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 
 /* 64 is the actual maximum used by Truecrypt software as of version 7.1a */
 #define PLAINTEXT_LENGTH        64
@@ -414,11 +414,11 @@ static int apply_keyfiles(unsigned char *pass, size_t pass_memsz, int nkeyfiles)
 
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
-	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
 	int i;
+	const int count = *pcount;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	if (psalt->nkeyfiles) {
 		for (i = 0; i < count; i++) {
@@ -434,7 +434,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 
 	// Run kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1,
-		NULL, &gws, lws, 0, NULL,
+		NULL, &global_work_size, lws, 0, NULL,
 	        multi_profilingEvent[1]), "Run kernel");
 
 	// Read the result back

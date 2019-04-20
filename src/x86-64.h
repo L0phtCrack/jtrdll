@@ -1,8 +1,8 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 2003,2006,2008,2010,2011,2015 by Solar Designer
+ * Copyright (c) 2003,2006,2008,2010,2011,2015,2019 by Solar Designer
  *
- * ...with a trivial change in the jumbo patch, by Alain Espinosa.
+ * ...with Jumbo changes by Alain Espinosa, JimF and magnum
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted.
@@ -39,58 +39,6 @@
 #endif
 #define ARCH_INDEX(x)			((unsigned int)(unsigned char)(x))
 
-#define CPU_DETECT			0
-
-#if !defined(JOHN_NO_SIMD) && defined(__SSE2__)
-#define CPU_NAME			"SSE2"
-#endif
-
-#if !defined(JOHN_NO_SIMD) && (__SSSE3__ || JOHN_SSSE3)
-#undef CPU_DETECT
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_SSSE3			1
-#undef CPU_NAME
-#define CPU_NAME			"SSSE3"
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-ssse3"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
-#endif
-
-#if !defined(JOHN_NO_SIMD) && (__SSE4_1__ || JOHN_SSE4_1)
-#undef CPU_DETECT
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_SSE4_1			1
-#undef CPU_NAME
-#define CPU_NAME			"SSE4.1"
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-sse4.1"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
-#endif
-
-#if !defined(JOHN_NO_SIMD) && (__SSE4_2__ || JOHN_SSE4_2)
-#undef CPU_DETECT
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_SSE4_2			1
-#undef CPU_NAME
-#define CPU_NAME			"SSE4.2"
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-sse4.2"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
-#endif
-
-#if !defined(JOHN_NO_SIMD) && defined(__XOP__)
-#define JOHN_XOP			1
-#endif
-#if !defined(JOHN_NO_SIMD) && (defined(__AVX__) || defined(JOHN_XOP) || defined(JOHN_AVX2))
-#define JOHN_AVX			1
-#endif
-
 #define DES_ASM				0
 #define DES_128K			0
 #define DES_X2				0
@@ -99,165 +47,153 @@
 #define DES_EXTB			1
 #define DES_COPY			0
 #define DES_BS				1
-#if defined(JOHN_NO_SIMD) || !defined(__SSE2__)
-#define DES_BS_VECTOR			0
-#define DES_BS_ALGORITHM_NAME		"DES 64/64"
-#elif !defined(JOHN_NO_SIMD) && defined(JOHN_AVX) && (defined(__GNUC__) || defined(_OPENMP))
-/*
- * Require gcc for AVX/XOP because DES_bs_all is aligned in a gcc-specific way,
- * except in OpenMP-enabled builds, where it's aligned by different means.
- */
-#undef CPU_DETECT
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_AVX			1
-#undef CPU_NAME
-#define CPU_NAME			"AVX"
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-avx"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
-#define DES_BS_ASM			0
-#if 0
-/* 512-bit as 2x256 */
-#define DES_BS_VECTOR			8
-#if defined(JOHN_XOP)
-#undef DES_BS
-#define DES_BS				3
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 X2 XOP-16"
-#else
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 X2 AVX-16"
-#endif
-#elif 0
-/* 384-bit as 256+128 */
-#define DES_BS_VECTOR_SIZE		8
-#define DES_BS_VECTOR			6
-#if defined(JOHN_XOP)
-#undef DES_BS
-#define DES_BS				3
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 XOP-16 + 128/128 XOP-16"
-#else
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX-16 + 128/128 AVX-16"
-#endif
-#elif 0
-/* 384-bit as 256+64+64 */
-#define DES_BS_NO_AVX128
-#define DES_BS_VECTOR_SIZE		8
-#define DES_BS_VECTOR			6
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX-16 + 64/64 MMX + 64/64"
-#elif 0
-/* 320-bit as 256+64 MMX */
-#define DES_BS_VECTOR_SIZE		8
-#define DES_BS_VECTOR			5
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX-16 + 64/64 MMX"
-#elif 0
-/* 320-bit as 256+64 */
-#define DES_BS_NO_MMX
-#define DES_BS_VECTOR_SIZE		8
-#define DES_BS_VECTOR			5
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX-16 + 64/64"
-#elif __AVX2__ || JOHN_AVX2
-/* 256-bit as 1x256 */
-#define DES_BS_VECTOR			4
-#undef CPU_NAME
-#define CPU_NAME			"AVX2"
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_AVX2			1
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-avx2"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
-#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX2-16"
-#elif 0
-/* 256-bit as 2x128 */
-#define DES_BS_NO_AVX256
-#define DES_BS_VECTOR			4
-#ifdef JOHN_XOP
-#undef DES_BS
-#define DES_BS				3
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 X2 XOP-16"
-#else
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 X2 AVX-16"
-#endif
-#else
-/* 128-bit */
-#define DES_BS_VECTOR			2
-#ifdef JOHN_XOP
-#undef DES_BS
-#define DES_BS				3
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 XOP-16"
-#else
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 AVX-16"
-#endif
-#endif
-#elif !defined(JOHN_NO_SIMD) && (defined(__SSE2__) && defined(_OPENMP))
-#define DES_BS_ASM			0
-#if 1
-#define DES_BS_VECTOR			2
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2-16"
-#elif 0
-#define DES_BS_VECTOR			3
-#define DES_BS_VECTOR_SIZE		4
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2-16 + 64/64 MMX"
-#elif 0
-#define DES_BS_NO_MMX
-#define DES_BS_VECTOR			3
-#define DES_BS_VECTOR_SIZE		4
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2-16 + 64/64"
-#elif 0
-#define DES_BS_NO_MMX
-#define DES_BS_VECTOR			4
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 X2 SSE2-16"
-#else
-#define DES_BS_VECTOR			4
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2-16 + 64/64 MMX + 64/64"
-#endif
-#else
-#define DES_BS_ASM			1
-#define DES_BS_VECTOR			2
-#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2-16"
-#endif
 #define DES_BS_EXPAND			1
 
-#if !defined(JOHN_NO_SIMD) && CPU_DETECT && DES_BS == 3
-#define CPU_REQ_XOP			1
-#undef CPU_NAME
-#define CPU_NAME			"XOP"
-#ifdef CPU_FALLBACK_BINARY_DEFAULT
-#undef CPU_FALLBACK_BINARY
-#define CPU_FALLBACK_BINARY		"john-non-xop"
-#endif
+#if !defined(JOHN_NO_SIMD)
+
+#ifdef __AVX512BW__
+#define JOHN_AVX512BW			1
+#define JOHN_AVX512F			1
+#elif defined(__AVX512F__)
+#define JOHN_AVX512F			1
+#elif defined(__AVX2__)
+#define JOHN_AVX2			1
+#elif defined(__XOP__)
+#define JOHN_XOP			1
+#elif defined(__AVX__)
+#define JOHN_AVX			1
+#elif defined(__SSE4_2__)
+#define JOHN_SSE4_2			1
+#elif defined(__SSE4_1__)
+#define JOHN_SSE4_1			1
+#elif defined(__SSSE3__)
+#define JOHN_SSSE3			1
 #endif
 
-#if !defined(JOHN_NO_SIMD) && (__AVX512F__ || JOHN_AVX512F)
-#undef DES_BS_VECTOR
-#define DES_BS_VECTOR			8
-#undef DES_BS_ALGORITHM_NAME
-#define DES_BS_ALGORITHM_NAME		"DES 512/512 AVX-512"
-#undef CPU_DETECT
-#define CPU_DETECT			1
-#define CPU_REQ				1
-#define CPU_REQ_AVX512F			1
-#undef CPU_NAME
-#define CPU_NAME			"AVX512F"
-#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
-#define CPU_FALLBACK_BINARY		"john-non-avx512f"
-#define CPU_FALLBACK_BINARY_DEFAULT
-#endif
+#if defined(JOHN_AVX512F) || defined(JOHN_AVX2) || defined(JOHN_XOP)
+#define JOHN_AVX			1
 #endif
 
-#if !defined(JOHN_NO_SIMD) && (__AVX512BW__ || JOHN_AVX512BW)
-#undef CPU_DETECT
+#ifdef JOHN_AVX512BW
 #define CPU_DETECT			1
 #define CPU_REQ				1
-#define CPU_REQ_AVX512BW			1
-#undef CPU_NAME
+#define CPU_REQ_AVX512BW		1
 #define CPU_NAME			"AVX512BW"
 #if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
 #define CPU_FALLBACK_BINARY		"john-non-avx512bw"
 #define CPU_FALLBACK_BINARY_DEFAULT
 #endif
+#elif defined(JOHN_AVX512F)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX512F			1
+#define CPU_NAME			"AVX512F"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx512"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_AVX2)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX2			1
+#define CPU_NAME			"AVX2"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx2"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_XOP)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_XOP			1
+#define CPU_NAME			"XOP"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-xop"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_AVX)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_AVX			1
+#define CPU_NAME			"AVX"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-avx"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_SSE4_2)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSE4_2			1
+#define CPU_NAME			"SSE4.2"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-sse4.2"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_SSE4_1)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSE4_1			1
+#define CPU_NAME			"SSE4.1"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-sse4.1"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(JOHN_SSSE3)
+#define CPU_DETECT			1
+#define CPU_REQ				1
+#define CPU_REQ_SSSE3			1
+#define CPU_NAME			"SSSE3"
+#if CPU_FALLBACK && !defined(CPU_FALLBACK_BINARY)
+#define CPU_FALLBACK_BINARY		"john-non-ssse3"
+#define CPU_FALLBACK_BINARY_DEFAULT
+#endif
+#elif defined(__SSE2__)
+#define CPU_NAME			"SSE2"
+#endif
+
+#endif /* !defined(JOHN_NO_SIMD) */
+
+#if defined(JOHN_NO_SIMD) || !defined(__SSE2__)
+#define DES_BS_VECTOR			0
+#define DES_BS_ALGORITHM_NAME		"DES 64/64"
+#elif defined(JOHN_AVX) && (defined(__GNUC__) || defined(_OPENMP))
+/*
+ * Require gcc for non-OpenMP AVX+ builds, because DES_bs_all is aligned in a
+ * gcc-specific way in those.  (In non-OpenMP SSE2 builds, it's aligned in the
+ * assembly file.  In OpenMP builds, it's aligned by our runtime code.)
+ */
+#ifdef JOHN_AVX512F
+#define DES_BS_VECTOR			8
+#undef DES_BS
+#define DES_BS				4
+#define DES_BS_ALGORITHM_NAME		"DES 512/512 AVX512F"
+#elif defined(JOHN_AVX2)
+#define DES_BS_VECTOR			4
+#define DES_BS_ALGORITHM_NAME		"DES 256/256 AVX2"
+#else
+#define DES_BS_VECTOR			2
+#ifdef JOHN_XOP
+#undef DES_BS
+#define DES_BS				3
+#define DES_BS_ALGORITHM_NAME		"DES 128/128 XOP"
+#else
+#define DES_BS_ALGORITHM_NAME		"DES 128/128 AVX"
+#endif
+#endif
+#elif defined(__SSE2__)
+/* Not AVX+ or non-gcc non-OpenMP */
+#ifndef _OPENMP
+#undef DES_BS_ASM
+#define DES_BS_ASM			1
+#endif
+#define DES_BS_VECTOR			2
+#define DES_BS_ALGORITHM_NAME		"DES 128/128 SSE2"
+#endif
+
+#ifndef CPU_FALLBACK
+#define CPU_FALLBACK			0
+#endif
+#if !defined(CPU_FALLBACK_BINARY) && defined(CPU_FALLBACK_BINARY_DEFAULT)
+#define CPU_FALLBACK_BINARY		CPU_FALLBACK_BINARY_DEFAULT
 #endif
 
 #define MD5_ASM				0
@@ -401,32 +337,6 @@
 
 #define BF_ASM				0
 #define BF_SCALE			1
-
-/*
- * 3x (as opposed to 2x) interleaving provides substantial speedup on Core 2
- * CPUs, as well as slight speedup on some other CPUs.  Unfortunately, it
- * results in lower cumulative performance with multiple concurrent threads or
- * processes on some newer SMT-capable CPUs.  While this has nothing to do with
- * AVX per se, building for AVX implies we do not intend to run on a Core 2
- * (which has at most SSE4.1), so checking for AVX here provides an easy way to
- * avoid this performance regression in AVX-enabled builds.  In multi-binary
- * packages with runtime fallbacks, the AVX-enabled binary would invoke a
- * non-AVX fallback binary from its john.c if run e.g. on a Core 2.  We could
- * check for SSE4.2 rather than AVX here, as SSE4.2 was introduced along with
- * SMT-capable Nehalem microarchitecture CPUs, but apparently those CPUs did
- * not yet exhibit the performance regression with 3x interleaving.  Besides,
- * some newer CPUs capable of SSE4.2 but not AVX happen to lack SMT, so will
- * likely benefit from the 3x interleaving with no adverse effects for the
- * multi-threaded case.
- *
- * In Jumbo, we may get BF_X2 from autoconf (after testing ht cpuid flag).
- */
-#ifndef BF_X2
-#if !defined(JOHN_NO_SIMD) && __AVX__ && HAVE_HT && _OPENMP
-#define BF_X2				1
-#else
 #define BF_X2				3
-#endif
-#endif
 
 #endif

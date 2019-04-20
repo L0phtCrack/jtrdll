@@ -30,15 +30,16 @@ RM = rm -f
 MKDIR = @MKDIR_P@
 TR = tr
 SED = @SED@
+FIND = @FIND@
 NULL = /dev/null
 SORT = @SORT@
 STRIP = @STRIP@
-CPPCHECK=cppcheck
+PEFLAGS = peflags --dynamicbase=true --nxcompat=true
 
 SHELL = /bin/sh
 VPATH = @srcdir@
 
-subdirs = aes secp256k1 escrypt ed25519-donna @ZTEX_SUBDIRS@
+subdirs = aes secp256k1 ed25519-donna @ZTEX_SUBDIRS@
 top_srcdir = @top_srcdir@
 srcdir = @srcdir@
 prefix = @prefix@
@@ -76,8 +77,8 @@ JOHN_OBJS = \
 	MD5_fmt.o MD5_std.o md5crypt_common.o \
 	BF_fmt.o BF_std.o BF_common.o \
 	scrypt_fmt.o \
-	escrypt/crypto_scrypt-best.o escrypt/crypto_scrypt-common.o \
-	escrypt/sha256.o \
+	yescrypt/yescrypt-opt.o yescrypt/yescrypt-common.o \
+	yescrypt/sha256.o \
 	AFS_fmt.o \
 	LM_fmt.o \
 	trip_fmt.o \
@@ -105,7 +106,7 @@ JOHN_OBJS = \
 	memory.o misc.o options.o params.o path.o recovery.o rpp.o rules.o signals.o single.o status.o \
 	tty.o  wordlist.o \
 	mkv.o mkvlib.o \
-	subsets.o \
+	subsets.o unicode_range.o \
 	listconf.o \
 	fake_salts.o \
 	win32_memmap.o \
@@ -117,7 +118,8 @@ JOHN_OBJS = \
 	regex.o pp.o \
 	c3_fmt.o \
 	lzma/LzmaDec.o lzma/Lzma2Dec.o \
-	unique.o gpg2john.o
+	unique.o gpg2john.o \
+	showformats.o
 
 OCL_OBJS = opencl_common.o opencl_autotune.o bt.o bt_hash_type_64.o bt_hash_type_128.o bt_hash_type_192.o bt_twister.o
 
@@ -184,11 +186,15 @@ endif
 #  also need to figure out -mpreferred-stack-boundary=4 and add (or whatever the stack size is)
 #
 #########################################################
-default:	@UNIT_TESTS_DEPENDENCY@
+default:
 	$(MAKE) find_version
 	@$(MAKE) $(PROJ) \
 		JOHN_OBJS="$(JOHN_OBJS) @CC_ASM_OBJS@" \
 		AESNI_ARCH=@AESNI_ARCH@
+
+	@if [ "$(OS)" = "Windows_NT" ]; then \
+		$(MAKE) peflags; \
+	fi
 	@echo
 	@echo Make process completed.
 
@@ -372,7 +378,7 @@ listconf.o:	listconf.c autoconfig.h os.h os-autoconf.h jumbo.h arch.h simd-intri
 
 LM_fmt.o:	LM_fmt.c arch.h misc.h jumbo.h autoconfig.h memory.h DES_bs.h common.h loader.h params.h list.h formats.h os.h os-autoconf.h
 
-loader.o:	loader.c autoconfig.h jumbo.h arch.h os.h os-autoconf.h misc.h params.h path.h memory.h list.h signals.h formats.h dyna_salt.h loader.h options.h getopt.h common.h config.h unicode.h dynamic.h simd-intrinsics.h pseudo_intrinsics.h aligned.h simd-intrinsics-load-flags.h fake_salts.h john.h cracker.h logger.h base64_convert.h
+loader.o:	loader.c autoconfig.h jumbo.h arch.h os.h os-autoconf.h misc.h params.h path.h memory.h list.h signals.h formats.h dyna_salt.h loader.h options.h getopt.h common.h config.h unicode.h dynamic.h simd-intrinsics.h pseudo_intrinsics.h aligned.h simd-intrinsics-load-flags.h fake_salts.h john.h cracker.h logger.h base64_convert.h showformats.h
 
 logger.o:	logger.c os.h os-autoconf.h autoconfig.h jumbo.h arch.h misc.h params.h path.h memory.h status.h options.h list.h loader.h formats.h getopt.h common.h config.h recovery.h unicode.h dynamic.h simd-intrinsics.h pseudo_intrinsics.h aligned.h simd-intrinsics-load-flags.h john_mpi.h cracker.h signals.h
 
@@ -402,7 +408,10 @@ missing_getopt.o:	missing_getopt.c missing_getopt.h os.h os-autoconf.h autoconfi
 
 mkv.o:	mkv.c arch.h misc.h jumbo.h autoconfig.h params.h path.h memory.h os.h os-autoconf.h signals.h formats.h loader.h list.h logger.h status.h recovery.h config.h charset.h external.h compiler.h cracker.h options.h getopt.h common.h john.h mkv.h mkvlib.h mask.h
 
-subsets.o: subsets.c subsets.h loader.h cracker.h options.h logger.h status.h recovery.h
+subsets.o: subsets.c subsets.h unicode_range.h loader.h cracker.h options.h logger.h status.h recovery.h
+
+unicode_range.o: unicode_range.c unicode_range.h
+	$(CC) $(CFLAGS) $(OPT_NORMAL) -O0 unicode_range.c
 
 mkvcalcproba.o:	mkvcalcproba.c autoconfig.h params.h arch.h mkvlib.h memory.h jumbo.h os.h os-autoconf.h
 
@@ -452,7 +461,9 @@ sboxes.o:	sboxes.c nonstd.c
 
 sboxes-s.o:	sboxes-s.c
 
-scrypt_fmt.o:	scrypt_fmt.c escrypt/crypto_scrypt.h arch.h misc.h jumbo.h autoconfig.h common.h memory.h formats.h params.h base64_convert.h os.h os-autoconf.h
+scrypt_fmt.o:	scrypt_fmt.c yescrypt/yescrypt.h arch.h misc.h jumbo.h autoconfig.h common.h memory.h formats.h params.h base64_convert.h os.h os-autoconf.h
+
+showformats.o:	showformats.c showformats.h loader.h options.h config.h dynamic.h
 
 sha2.o:	sha2.c arch.h sha2.h aligned.h openssl_local_overrides.h md4.h md5.h jtr_sha2.h johnswap.h common.h memory.h stdbool.h params.h os.h os-autoconf.h autoconfig.h jumbo.h
 
@@ -532,10 +543,10 @@ zip2john.o:	zip2john.c arch.h common.h memory.h jumbo.h formats.h params.h misc.
 ######## End auto-generated
 
 princeprocessor:
-	$(CC) @CFLAGS@ @JOHN_NO_SIMD@ @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ @OPENMP_CFLAGS@ @HAVE_MPI@ @PTHREAD_CFLAGS@ @HT@ $(RELEASE_BLD) $(CPPFLAGS) $(OPT_NORMAL) -Wno-declaration-after-statement -std=c99 -DLINUX pp.c $(LDFLAGS) -o ../run/pp
+	$(CC) @CFLAGS@ @JOHN_NO_SIMD@ @CFLAGS_EXTRA@ @OPENSSL_CFLAGS@ @OPENMP_CFLAGS@ @HAVE_MPI@ @PTHREAD_CFLAGS@ @HT@ $(RELEASE_BLD) $(CPPFLAGS) $(OPT_NORMAL) -std=c99 -DLINUX pp.c $(LDFLAGS) -o ../run/pp
 
 pp.o:	pp.c autoconfig.h arch.h win32_memmap.h os.h os-autoconf.h jumbo.h mmap-windows.c memory.h mpz_int128.h int128.h misc.h config.h params.h common.h path.h signals.h loader.h list.h formats.h logger.h status.h recovery.h options.h getopt.h external.h compiler.h cracker.h john.h unicode.h prince.h rpp.h rules.h mask.h
-	$(CC) $(CFLAGS) $(OPT_NORMAL) -DJTR_MODE -Wno-declaration-after-statement -std=c99 -c pp.c
+	$(CC) $(CFLAGS) $(OPT_NORMAL) -DJTR_MODE -std=c99 -c pp.c
 
 version.h: find_version
 
@@ -737,7 +748,8 @@ unrarppm.o:	unrarppm.c arch.h aes.h autoconfig.h aes/aes_func.h unrar.h unrarhlp
 # to a dynamic format in a config file, so we deviate from core here.
 check: default
 	../run/john --list=build-info
-	../run/john --test=0 --verbosity=2
+	$(MAKE) unit-tests
+	../run/john --test=0 --verbosity=2 --format=cpu
 	../run/john --test=0 --verbosity=2 --format=dynamic-all
 
 depend:
@@ -836,7 +848,8 @@ clean:
 	@for exe in ${PROJ}; do \
 	  ($(RM) $$exe.exe) \
 	done
-	$(RM) john-macosx-* *.o escrypt/*.o *.bak core
+	$(RM) ../run/unit-tests@EXE_EXT@
+	$(RM) john-macosx-* *.o yescrypt/*.o *.bak core
 	$(RM) ../run/kernels/*
 	$(RM) lzma/*.o
 	$(RM) tests/*.o
@@ -967,12 +980,19 @@ strip: default
 	@echo Stripping executables.
 	$(STRIP) $(PROJ)
 
-### cppcheck static coverage analysis
-#
-.PHONY: cppcheck
+.PHONY: peflags
+peflags:
+	@echo Securing executables.
+	$(PEFLAGS) $(PROJ)
 
-cppcheck:
-	$(CPPCHECK) --enable=all --force -q .
+.PHONY: windows-package
+windows-package: default
+	@echo Deploying for Windows.
+	$(MAKE) peflags
+	$(SED) -i -e 's/\r*$$/\r/' ../doc/*
+	$(SED) -i -e 's/\r*$$/\r/' ../run/*.conf
+	$(SED) -i -e 's/\r*$$/\r/' ../run/password.lst
+	$(FIND) ../doc -type f -not -name "*.txt" -exec $(MV) "{}" "{}".txt \;
 
 ### Copy OpenCL stuff to run/kernels
 #

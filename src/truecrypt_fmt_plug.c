@@ -588,16 +588,12 @@ struct fmt_main fmt_truecrypt = {
 		"tc_aes_xts",                     // FORMAT_LABEL
 		"TrueCrypt AES256_XTS", // FORMAT_NAME
 #if SSE_GROUP_SZ_SHA512
-		"SHA512 " SHA512_ALGORITHM_NAME " /RIPEMD160/WHIRLPOOL",
+		"SHA512/RIPEMD160/WHIRLPOOL " SHA512_ALGORITHM_NAME,
 #else
-#if ARCH_BITS >= 64
-		"SHA512 64/" ARCH_BITS_STR " /RIPEMD160/WHIRLPOOL",
-#else
-		"SHA512 32/" ARCH_BITS_STR " /RIPEMD160/WHIRLPOOL",
-#endif
+		"SHA512/RIPEMD160/WHIRLPOOL 32/" ARCH_BITS_STR,
 #endif
 		"",                               // BENCHMARK_COMMENT
-		-1,                               // BENCHMARK_LENGTH
+		0x107,                            // BENCHMARK_LENGTH
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
@@ -659,7 +655,7 @@ struct fmt_main fmt_truecrypt_ripemd160 = {
 		"TrueCrypt AES256_XTS", // FORMAT_NAME
 		"RIPEMD160 32/" ARCH_BITS_STR,    // ALGORITHM_NAME,
 		"",                               // BENCHMARK_COMMENT
-		-1,                               // BENCHMARK_LENGTH
+		0x107,                            // BENCHMARK_LENGTH
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
@@ -708,7 +704,7 @@ struct fmt_main fmt_truecrypt_ripemd160boot = {
 		"TrueCrypt AES/Twofish/Serpent", // FORMAT_NAME
 		"RIPEMD160 32/" ARCH_BITS_STR, // ALGORITHM_NAME,
 		"", // BENCHMARK_COMMENT
-		-1, // BENCHMARK_LENGTH
+		0x107, // BENCHMARK_LENGTH
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
@@ -765,7 +761,7 @@ struct fmt_main fmt_truecrypt_sha512 = {
 #endif
 #endif
 		"",                               // BENCHMARK_COMMENT
-		-1,                               // BENCHMARK_LENGTH
+		0x107,                            // BENCHMARK_LENGTH
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,
@@ -817,13 +813,9 @@ struct fmt_main fmt_truecrypt_whirlpool = {
 	{
 		"tc_whirlpool",                   // FORMAT_LABEL
 		"TrueCrypt AES256_XTS", // FORMAT_NAME
-#if ARCH_BITS >= 64
-		"WHIRLPOOL 64/" ARCH_BITS_STR,    // ALGORITHM_NAME,
-#else
 		"WHIRLPOOL 32/" ARCH_BITS_STR,    // ALGORITHM_NAME,
-#endif
 		"",                               // BENCHMARK_COMMENT
-		-1,                               // BENCHMARK_LENGTH
+		0x107,                            // BENCHMARK_LENGTH
 		0,
 		PLAINTEXT_LENGTH,
 		BINARY_SIZE,

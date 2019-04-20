@@ -43,7 +43,7 @@
 #include "recovery.h"
 #include "mask.h"
 #include "unicode.h"
-#include "unicode_range.c"
+#include "unicode_range.h"
 
 #define SUBSET_DEBUG 1
 
@@ -394,7 +394,7 @@ static int submit(UTF32 *subset)
 		utf32_to_enc(out, sizeof(out), subset);
 	}
 
-	if (options.mask)
+	if (options.flags & FLG_MASK_CHK)
 		return do_mask_crack((char*)out);
 	else
 		return crk_process_key((char*)out);
@@ -508,15 +508,15 @@ int do_subsets_crack(struct db_main *db, char *req_charset)
 	for (i = 1; i <= maxdiff; i++)
 		done_len[i] = MAX(MAX(i, options.eff_minlength), 1) - 1;
 
-	default_set = cfg_get_param("Subsets", NULL, "DefaultCharset");
+	default_set = (char*)cfg_get_param("Subsets", NULL, "DefaultCharset");
 	if (!req_charset)
 		req_charset = default_set;
 
-	if (req_charset) {
+	if (req_charset && *req_charset) {
 		if (strlen(req_charset) == 1 && isdigit(req_charset[0])) {
 			int cnum = atoi(req_charset);
 			char pl[2] = { '0' + cnum, 0 };
-			char *c = cfg_get_param("Subsets", NULL, pl);
+			char *c = (char*)cfg_get_param("Subsets", NULL, pl);
 
 			if (c)
 				req_charset = c;
@@ -603,8 +603,8 @@ int do_subsets_crack(struct db_main *db, char *req_charset)
 		fprintf(stderr, "Proceeding with \"subsets\"%s%s",
 		        req_charset ? ": " : "",
 		        req_charset ? req_charset : "");
-		if (options.mask)
-			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.flags & FLG_MASK_CHK)
+			fprintf(stderr, ", hybrid mask:%s", options.eff_mask);
 		if (options.rule_stack)
 			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
 		if (options.req_minlength >= 0 || options.req_maxlength)

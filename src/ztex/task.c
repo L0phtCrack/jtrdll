@@ -37,19 +37,13 @@ static void task_result_list_add(struct task_result_list *list,
 	task_result->next = list->result_list;
 	list->result_list = task_result;
 	list->count++;
-	if (list->index) {
-		MEM_FREE(list->index);
-		list->index = NULL;
-	}
+	//MEM_FREE(list->index);
 }
 
 
 static void task_result_list_create_index(struct task_result_list *list)
 {
-	if (list->index) {
-		MEM_FREE(list->index);
-		list->index = NULL;
-	}
+	MEM_FREE(list->index);
 	if (!list->count)
 		return;
 
@@ -98,7 +92,7 @@ static void task_result_list_clear(struct task_result_list *list)
 	}
 	if (!list->result_list) {
 		if (list->count)
-			fprintf(stderr,"task_result_list_clear: result=NULL,"
+			fprintf(stderr,"task_result_list_clear: result_list=NULL,"
 				" count=%d\n", list->count);
 		return;
 	}
@@ -114,6 +108,7 @@ static void task_result_list_clear(struct task_result_list *list)
 		result = next;
 	}
 	list->count = 0;
+	MEM_FREE(list->index);
 	list->result_list = NULL;
 }
 
@@ -138,6 +133,7 @@ struct task *task_new(struct task_list *task_list,
 	static struct timeval zero_time = { 0, 0 };
 	task->mtime = zero_time;
 
+	task->num_processed = 0;
 	return task;
 }
 
@@ -266,6 +262,7 @@ void tasks_assign(struct task_list *task_list,
 void task_deassign(struct task *task)
 {
 	task_result_list_clear(&task->result_list);
+	task->num_processed = 0;
 	task->status = TASK_UNASSIGNED;
 	task_update_mtime(task);
 	task->jtr_device = NULL;

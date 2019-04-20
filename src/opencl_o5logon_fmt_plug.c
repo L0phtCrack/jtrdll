@@ -45,7 +45,7 @@ john_register_one(&fmt_opencl_o5logon);
 #define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME          "SHA1 AES OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define PLAINTEXT_LENGTH        32
 #define CIPHERTEXT_LENGTH       48
 #define SALT_LENGTH             10
@@ -266,9 +266,12 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
+	size_t gws;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+
+	gws = GET_NEXT_MULTIPLE(count, local_work_size);
+
+	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu"\n", __FUNCTION__, count, local_work_size, global_work_size);
 
 	if (key_idx)
 		BENCH_CLERROR(

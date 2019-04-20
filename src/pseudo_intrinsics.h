@@ -47,7 +47,7 @@
 #endif
 
 /*************************** NEON (ARM) *******************************/
-#ifdef __ARM_NEON
+#if __ARM_NEON || __aarch64__
 #include <arm_neon.h>
 
 typedef uint8x16_t vtype8;

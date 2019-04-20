@@ -48,8 +48,8 @@
 
 struct status_main status;
 unsigned int status_restored_time = 0;
-static char* timeFmt = NULL;
-static char* timeFmt24 = NULL;
+static const char* timeFmt = NULL;
+static const char* timeFmt24 = NULL;
 static int showcand;
 double (*status_get_progress)(void) = NULL;
 
@@ -400,8 +400,8 @@ void status_print(void)
 		int n = 0;
 
 		for (i = 0; i < MAX_GPU_DEVICES &&
-			     gpu_device_list[i] != -1; i++) {
-			int dev = gpu_device_list[i];
+			     engaged_devices[i] != DEV_LIST_END; i++) {
+			int dev = engaged_devices[i];
 
 			if (dev_get_temp[dev]) {
 				int fan, temp, util, cl, ml;
@@ -414,16 +414,10 @@ void status_print(void)
 				    cfg_get_bool(SECTION_OPTIONS,
 				                 SUBSECTION_GPU,
 				                 "TempStatus", 1))) {
-					if (i == 0)
-						n += sprintf(s_gpu + n,
-						             " GPU:%u%sC",
-						             temp,
-						             gpu_degree_sign);
-					else
-						n += sprintf(s_gpu + n,
-						             " GPU%d:%u%sC",
-						             i, temp,
-						             gpu_degree_sign);
+					n += sprintf(s_gpu + n,
+					             " Dev#%d:%u%sC",
+					             dev + 1, temp,
+					             gpu_degree_sign);
 				}
 				if (util > 0 &&
 				    (options.verbosity > VERB_LEGACY ||

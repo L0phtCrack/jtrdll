@@ -1,21 +1,22 @@
 Please, read INSTALL for general information about installing John on your
-system.
+system.  Distro maintainers, please also read README-DISTROS for how to
+build CPU fall-back chains for any x86-64 CPU.
 
 == Preamble
 
-    Important: it's actually about a local to a user's home directory, not a
+    Important: This document is for a local build in user's home dir, not a
     system-wide installation. In fact, most likely you do not need to install
     John the Ripper system-wide.  Instead, after you compile the source code
     (see below), you may simply enter the "run" directory and invoke John from
     there, e.g., ./john --list=build-options.
 
-    Commands not explicitly prefixed by sudo must be run as a regular user
+    Commands not explicitly prefixed by sudo should be run as a regular user
     (the one that will use JtR) rather than as root.
 
 == How to install on Ubuntu (also works on Ubuntu for Windows)
 
-    The steps listed below might work unchanged on Debian and derivatives
-    (untested).
+    The steps listed below might also work unchanged on Debian and
+    derivatives (untested).
 
 === Preconditions and Required stuff
 
@@ -45,6 +46,7 @@ system.
         sudo apt-get -y install ocl-icd-opencl-dev opencl-headers fglrx-dev
 
 ==== If you want a CPU device for OpenCL (OpenCL support)
+
     sudo apt-get -y install ocl-icd-opencl-dev opencl-headers pocl-opencl-icd
 
 ==== Optional MPI support
@@ -60,13 +62,20 @@ system.
     as Open MPI (Message Passing Interface).  You do get OpenMP if your
     system supports it.
 
-==== Optional REXGEN support (additional cracking modes)
+==== Optional REXGEN support (experimental; additional cracking modes)
+
+    NOTE this support is experimental and may not build at all until tweaked.
+    The rexgen library is notorious for changing its API between versions,
+    breaking stuff.  Leave this step out unless you really know that you want
+    it and are capable of fixing issues.  Last known good version is 2.0.8.
 
     sudo apt-get -y install cmake bison flex libicu-dev
     cd ~/src
     git clone --recursive https://github.com/teeshop/rexgen.git
     cd rexgen
     ./install.sh
+
+    Then add "--enable-rexgen" to ./configure when building john.
 
 === Clone latest bleeding-edge Jumbo and build
 
@@ -78,16 +87,28 @@ system.
 ==== Build
 
     cd ~/src/john/src
-    # For MPI, use './configure --enable-mpi' below
     ./configure && make -s clean && make -sj4
+
+==== Alternative: OpenMP fall-back build (recommended)
+
+    cd ~/src/john/src
+    ./configure --disable-openmp && make -s clean && make -sj4
+    mv ../run/john ../run/john-non-omp
+    ./configure CPPFLAGS='-DOMP_FALLBACK -DOMP_FALLBACK_BINARY="\"john-non-omp\""'
+    make -s clean && make -sj4
+
+=== Install TAB-completion
+
+    sudo make shell-completion
 
 === Test your build
 
-    $ ../run/john --test=0
+    cd ~/src/john/run
+    ./john --test=0
 
-=== Benchmark your build
+=== Benchmark your build (this also performs self-tests)
 
-    $ ../run/john --test
+    ./john --test
 
 
 

@@ -37,11 +37,7 @@ john_register_one(&fmt_padlock);
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          "PBKDF2-SHA256 AES " SHA256_ALGORITHM_NAME
 #else
-#if ARCH_BITS >= 64
-#define ALGORITHM_NAME          "PBKDF2-SHA256 AES 64/" ARCH_BITS_STR " " SHA2_LIB
-#else
-#define ALGORITHM_NAME          "PBKDF2-SHA256 AES 32/" ARCH_BITS_STR " " SHA2_LIB
-#endif
+#define ALGORITHM_NAME          "PBKDF2-SHA256 AES 32/" ARCH_BITS_STR SHA2_LIB
 #endif
 #define PLAINTEXT_LENGTH        125
 #define SALT_SIZE               sizeof(struct custom_salt)
@@ -49,7 +45,7 @@ john_register_one(&fmt_padlock);
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define FORMAT_TAG              "$padlock$"
 #define FORMAT_TAG_LENGTH       (sizeof(FORMAT_TAG) - 1)
 

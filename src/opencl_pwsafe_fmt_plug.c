@@ -38,7 +38,7 @@ john_register_one(&fmt_opencl_pwsafe);
 #define FORMAT_LABEL            "pwsafe-opencl"
 #define ALGORITHM_NAME          "SHA256 OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define PLAINTEXT_LENGTH        87
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
@@ -244,11 +244,10 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t *lws = (local_work_size && !(count % local_work_size)) ?
-		&local_work_size : NULL;
 	int i = 0;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = count;
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	// Copy data to GPU memory
 	BENCH_CLERROR(clEnqueueWriteBuffer

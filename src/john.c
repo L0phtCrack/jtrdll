@@ -148,7 +148,9 @@ extern char CPU_req_name[];
 #endif
 
 extern struct fmt_main fmt_DES, fmt_BSDI, fmt_MD5, fmt_BF;
+#ifndef JTRDLL
 extern struct fmt_main fmt_scrypt;
+#endif
 extern struct fmt_main fmt_AFS, fmt_LM;
 #ifdef HAVE_CRYPT
 extern struct fmt_main fmt_crypt;
@@ -377,7 +379,9 @@ static void john_register_all(void)
 	john_register_one(&fmt_BSDI);
 	john_register_one(&fmt_MD5);
 	john_register_one(&fmt_BF);
+#ifndef JTRDLL
 	john_register_one(&fmt_scrypt);
+#endif
 	john_register_one(&fmt_LM);
 	john_register_one(&fmt_AFS);
 	john_register_one(&fmt_trip);
@@ -619,7 +623,7 @@ static void john_omp_show_info(void)
 	if (john_omp_threads_orig == 1)
 	if (options.verbosity >= VERB_DEFAULT)
 	if (john_main_process) {
-		char *format = database.format ?
+		const char *format = database.format ?
 			database.format->params.label : options.format;
 		if (format && strstr(format, "-opencl"))
 			fputs("Warning: OpenMP is disabled; "
@@ -899,7 +903,7 @@ static void john_load_conf(void)
 	/* EmulateBrokenEncoding feature */
 	options.replacement_character = 0;
 	if (cfg_get_bool(SECTION_OPTIONS, NULL, "EmulateBrokenEncoding", 0)) {
-		char *value;
+		const char *value;
 
 		value = cfg_get_param(SECTION_OPTIONS, NULL, "ReplacementCharacter");
 		if (value != NULL)
@@ -1000,7 +1004,8 @@ static void john_load_conf_db(void)
 
 	if (john_main_process)
 	if (!(options.flags & FLG_SHOW_CHK) && !options.loader.showuncracked) {
-		if (options.flags & (FLG_PASSWD | FLG_STDIN_CHK))
+		if (options.flags & (FLG_PASSWD | FLG_WORDLIST_CHK |
+		                     FLG_STDIN_CHK | FLG_PIPE_CHK))
 		if (options.default_enc && options.input_enc != ASCII)
 			fprintf(stderr, "Using default input encoding: %s\n",
 			        cp_id2name(options.input_enc));
@@ -1034,7 +1039,7 @@ static void load_extra_pots(struct db_main *db, void (*process_file)(struct db_m
 	if ((line = list->head))
 	do {
 		struct stat s;
-		char *name = path_expand(line->data);
+		char *name = (char*)path_expand(line->data);
 
 		if (!stat(name, &s) && s.st_mode & S_IFREG)
 			process_file(db, name);
@@ -1152,6 +1157,9 @@ static void john_load(void)
 			        "for stdout format\n", options.length);
 			error();
 		}
+		if (options.verbosity <= 1)
+			if (john_main_process)
+				fprintf(stderr, "Warning: Verbosity decreased to minimum, candidates will not be printed!\n");
 		john_load_conf_db();
 	}
 
@@ -1163,7 +1171,7 @@ static void john_load(void)
 			options.loader.flags |= DB_CRACKED;
 			ldr_init_database(&database, &options.loader);
 
-			if (!options.loader.showtypes) {
+			if (!options.loader.showformats) {
 				ldr_show_pot_file(&database, options.activepot);
 /*
  * Load optional extra (read-only) pot files. If an entry is a directory,
@@ -1185,7 +1193,7 @@ static void john_load(void)
 			        database.password_count,
 			        database.password_count != 1 ? "es" : "");
 			else
-			if (john_main_process && !options.loader.showtypes)
+			if (john_main_process && !options.loader.showformats)
 			printf("%s%d password hash%s cracked, %d left\n",
 				database.guess_count ? "\n" : "",
 				database.guess_count,
@@ -1193,7 +1201,8 @@ static void john_load(void)
 				database.password_count -
 				database.guess_count);
 
-			if (options.loader.showtypes_json)
+			if (options.loader.showformats &&
+			    !options.loader.showformats_old)
 				puts("]");
 
 			fmt_all_done();
@@ -1570,7 +1579,6 @@ static void john_init(char *name, int argc, char **argv)
 
 	if (!make_check) {
 		if (options.config) {
-			path_init_ex(options.config);
 			cfg_init(options.config, 0);
 #if JOHN_SYSTEMWIDE
 			cfg_init(CFG_PRIVATE_FULL_NAME, 1);
@@ -1587,10 +1595,8 @@ static void john_init(char *name, int argc, char **argv)
 	}
 
 #if HAVE_OPENCL
-	gpu_id = -1;
-#endif
-#if HAVE_OPENCL
-	gpu_device_list[0] = gpu_device_list[1] = -1;
+	gpu_id = NO_GPU;
+	engaged_devices[0] = engaged_devices[1] = DEV_LIST_END;
 #endif
 	/* Process configuration options that depend on cfg_init() */
 	john_load_conf();
@@ -1902,6 +1908,9 @@ static void john_run(void)
 			mask_done();
 
 		status_print();
+
+		if (options.flags & FLG_MASK_CHK)
+			mask_destroy();
 
 #if OS_FORK
 		if (options.fork && john_main_process)

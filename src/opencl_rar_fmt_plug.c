@@ -86,12 +86,14 @@ john_register_one(&fmt_ocl_rar);
 #define FORMAT_LABEL		"rar-opencl"
 #define FORMAT_NAME		"RAR3"
 #define ALGORITHM_NAME		"SHA1 OpenCL AES"
-#ifdef DEBUG
-#define BENCHMARK_COMMENT	" (length 1-16)"
-#else
-#define BENCHMARK_COMMENT	" (length 4)"
-#endif
-#define BENCHMARK_LENGTH	-1
+
+/*
+ * This format's speed is *highly* dependant on pw length (longer = slower)
+ *
+ * cRARk and hashcat use 5-char passwords for GPU benchmark, so we do too
+ */
+#define BENCHMARK_COMMENT	" (length 5)"
+#define BENCHMARK_LENGTH	0x105
 
 #define PLAINTEXT_LENGTH	22 /* Max. currently supported is 22 */
 #define UNICODE_LENGTH		(2 * PLAINTEXT_LENGTH)
@@ -317,10 +319,9 @@ static void reset(struct db_main *db)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
 	int k;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	if (ocl_autotune_running || new_keys) {
 		BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], cl_saved_key, CL_FALSE, 0, UNICODE_LENGTH * gws, saved_key, 0, NULL, multi_profilingEvent[0]), "failed in clEnqueueWriteBuffer saved_key");

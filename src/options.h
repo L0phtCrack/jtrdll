@@ -223,7 +223,7 @@ struct options_main {
 	char *wordlist;
 
 /* Incremental mode name or charset file name */
-	char *charset;
+	const char *charset;
 
 /* External mode or word filter name */
 	char *external;
@@ -268,8 +268,11 @@ struct options_main {
 	char *fuzz_dump;
 #endif
 
-/* Mask mode's mask */
+/* Mask mode's requested mask (as given) */
 	char *mask;
+
+/* Mask mode's effective mask (as used, may be default from john.conf etc.) */
+	char *eff_mask;
 
 /* Can't use HAVE_WINDOWS_H here so the below need to be maintained */
 #if defined (_MSC_VER) || defined (__MINGW32__) || defined (__CYGWIN32__)
@@ -327,10 +330,10 @@ struct options_main {
 	char *activepot;
 
 /* the wordlist rules section (default if none entered is Wordlist) */
-	char *activewordlistrules;
+	const char *activewordlistrules;
 
 /* the 'single' rules section (default if none entered is Single) */
-	char *activesinglerules;
+	const char *activesinglerules;
 
 /* Stacked rules applied within cracker.c for any mode */
 	char *rule_stack;
@@ -348,10 +351,12 @@ struct options_main {
 /* Requested max_keys_per_crypt (for testing purposes) */
 	int force_maxkeys;
 
-/* Requested min/max plaintext_length */
+/* Requested min/max plaintext_length. if options weren't used, req_min == -1
+ * and/or req_maxlength == 0 */
 	int req_minlength, req_maxlength;
 
-/* Effective min/max plaintext_length */
+/* Effective min/max plaintext_length. Always set. If hybrid mask is used,
+ * mask_add_len is subtracted from them so parents should use these as-is */
 	int eff_minlength, eff_maxlength;
 
 /* Forced MaxLen (if set, we will reject longer candidates unless FMT_TRUNC) */
@@ -376,8 +381,8 @@ struct options_main {
 	int reload_at_crack;
 
 /* Pause/abort on trigger files */
-	char *pause_file;
-	char *abort_file;
+	const char *pause_file;
+	const char *abort_file;
 
 /* Force dynamic format to always treat bare hashes as valid. If not set
    then dynamic format only uses bare hashes if -form=dynamic_xxx is used.

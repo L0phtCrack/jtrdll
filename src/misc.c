@@ -34,7 +34,7 @@
 
 #include "john_mpi.h"
 
-void real_error(char *file, int line)
+void real_error(const char *file, int line)
 {
 #ifndef _JOHN_MISC_NO_LOG
 	log_event("Terminating on error, %s:%d", file, line);
@@ -46,7 +46,7 @@ void real_error(char *file, int line)
 	exit(1);
 }
 
-void real_error_msg(char *file, int line,  char *format, ...)
+void real_error_msg(const char *file, int line,  const char *format, ...)
 {
 	va_list args;
 
@@ -65,7 +65,7 @@ void real_error_msg(char *file, int line,  char *format, ...)
 	real_error(file, line);
 }
 
-void real_pexit(char *file, int line, char *format, ...)
+void real_pexit(const char *file, int line, const char *format, ...)
 {
 	va_list args;
 
@@ -445,7 +445,7 @@ char *strtokm(char *s1, const char *delims)
 	return s1;
 }
 
-unsigned atou(const char *src)
+unsigned int atou(const char *src)
 {
 	unsigned val;
 
@@ -577,4 +577,40 @@ char *human_prefix(uint64_t num)
 		snprintf(out, 16, "%u ", (uint32_t)num);
 
 	return out;
+}
+
+unsigned int lcm(unsigned int x, unsigned int y)
+{
+	unsigned int tmp, a, b;
+
+	a = MAX(x, y);
+	b = MIN(x, y);
+
+	while (b) {
+		tmp = b;
+		b = a % b;
+		a = tmp;
+	}
+	return x / a * y;
+}
+
+char *ltrim(char *str)
+{
+	char *out = str;
+
+	while (*out == ' ' || *out == '\t')
+		out++;
+
+	return out;
+}
+
+char *rtrim(char *str)
+{
+	char *out = str + strlen(str) - 1;
+
+	while (out >= str && (*out == ' ' || *out == '\t'))
+		out--;
+
+	*(out+1) = '\0';
+	return str;
 }

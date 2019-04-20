@@ -21,9 +21,6 @@ john_register_one(&fmt_putty);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           64
-#endif
 #endif
 
 #include "arch.h"
@@ -42,16 +39,20 @@ john_register_one(&fmt_putty);
 #define FORMAT_TAG_LEN      (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME      "SHA1/AES 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT   ""
-#define BENCHMARK_LENGTH    -1
+#define BENCHMARK_LENGTH    0x107
 #define PLAINTEXT_LENGTH    32
 #define BINARY_SIZE         0
 #define BINARY_ALIGN        1
 #define SALT_SIZE           sizeof(struct custom_salt)
 #define SALT_ALIGN          4
 #define MIN_KEYS_PER_CRYPT  1
-#define MAX_KEYS_PER_CRYPT  1
+#define MAX_KEYS_PER_CRYPT  64
 
-#define PUT_32BIT_MSB_FIRST(cp, value) ( \
+#ifndef OMP_SCALE
+#define OMP_SCALE           128
+#endif
+
+#define PUT_32BIT_MSB_FIRST(cp, value) (	  \
 		(cp)[0] = (unsigned char)((value) >> 24), \
 		(cp)[1] = (unsigned char)((value) >> 16), \
 		(cp)[2] = (unsigned char)((value) >> 8), \
@@ -87,9 +88,8 @@ static struct fmt_tests putty_tests[] = {
 
 static void init(struct fmt_main *self)
 {
-#if defined (_OPENMP)
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	any_cracked = 0;

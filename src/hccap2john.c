@@ -35,13 +35,6 @@
 #include "common.h"
 #include "hccap.h"
 
-// Duplicated here to overcome linking problems. This file can't link with misc.o file easily.
-unsigned atou(const char *src) {
-	unsigned val;
-	sscanf(src, "%u", &val);
-	return val;
-}
-
 static void code_block(unsigned char *in, unsigned char b)
 {
 	putchar(itoa64[in[0] >> 2]);
@@ -58,7 +51,7 @@ void to_dashed(char ssid[18], unsigned char *p)
 	sprintf(ssid, "%02x-%02x-%02x-%02x-%02x-%02x",p[0],p[1],p[2],p[3],p[4],p[5]);
 }
 
-void to_compact(char ssid[13], unsigned char *p)
+void to_hex(char ssid[13], unsigned char *p)
 {
 	sprintf(ssid, "%02x%02x%02x%02x%02x%02x",p[0],p[1],p[2],p[3],p[4],p[5]);
 }
@@ -70,9 +63,9 @@ static void print_hccap(hccap_t *cap, const char *filename)
 	char sta_mac[18], ap_mac[18], gecos[13];
 	char *base;
 
-	to_compact(gecos, cap->mac1);
-	to_dashed(ap_mac, cap->mac1);
-	to_dashed(sta_mac, cap->mac2);
+	to_hex(gecos, cap->mac1);
+	to_hex(ap_mac, cap->mac1);
+	to_hex(sta_mac, cap->mac2);
 
 	if ((base = strrchr(filename, '/')))
 		filename = ++base;

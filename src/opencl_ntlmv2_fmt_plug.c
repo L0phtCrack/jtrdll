@@ -62,7 +62,7 @@ john_register_one(&FMT_STRUCT);
 #define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME          "MD4 HMAC-MD5 OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define SALT_MAX_LENGTH         59 /* Username + Domainname len in characters */
 #define BINARY_SIZE             16 /* octets */
 #define BINARY_ALIGN            4
@@ -593,6 +593,7 @@ static void *get_salt(char *ciphertext)
 static void clear_keys(void)
 {
 	key_idx = 0;
+	set_new_keys = 1;
 }
 
 static void set_key(char *_key, int index)
@@ -877,9 +878,11 @@ static void prepare_table(struct db_main *db)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
+
+	size_t *lws = local_work_size ? &local_work_size : NULL;
+	size_t gws = GET_NEXT_MULTIPLE(count, local_work_size);
+
+	//fprintf(stderr, "%s(%d) lws "Zu" gws "Zu" idx %u int_cand %d\n", __FUNCTION__, count, local_work_size, gws, key_idx, mask_int_cand.num_int_cand);
 
 	// copy keys to the device
 	if (set_new_keys || ocl_autotune_running) {

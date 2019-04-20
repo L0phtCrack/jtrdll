@@ -1,14 +1,21 @@
-The following changes have been made between John 1.8.0 and 1.8.0.13:
+The following changes have been made between John 1.8.0 and 1.9.0:
 
-* 3x interleaving for bcrypt on x86-64, except in AVX-enabled builds.
-Provides significant speedup on Core 2 CPUs.
+* Increased the interleaving for bcrypt on x86-64 from 2x to 3x for a major
+speedup on CPUs without SMT.  Unfortunately, this sometimes results in a minor
+performance regression when running multiple threads on CPUs with SMT.
 * Recognize the $2b$ bcrypt prefix.
 * In the generic crypt(3) format, detect descrypt with valid vs. invalid salts
 as separate id's for our heuristics on supported hash types.
 * Introduced a number of optimizations for faster handling of large password
 hash files, including loading, cracking, and "--show".  Some of these use more
 memory than before, yet in a more efficient manner.
+* Benchmark using all-different candidate passwords of length 7 by default.
 * Dropped undocumented special handling of "Mc" in 'c' and 'C' rule commands.
+* Dropped undocumented limitation of the 'M' and 'Q' rule commands where they
+would sometimes memorize/check only up to the current hash type's length limit
+yet this optimization wouldn't necessarily be transparent (e.g., if a later
+command would extract a substring from above the hash type's length limit and
+bring it to within the limit).
 * Implemented special-case handling of repeated rule commands '$', '^', '[',
 ']', '{', and '}', as well as faster handling of the 'D' command.
 * When built with "--fork" support, disallow session names with all-digit
@@ -18,10 +25,14 @@ suffixes since these clash with those produced by "--fork".
 for "--stdout", "--show", and auxiliary programs such as "unshadow".
 * On Windows, restore normal processing of Ctrl-C in case our parent (such as
 Johnny the GUI) had disabled it.
+* Added linux-x86*-avx512 and linux-x86*-avx2 make targets, which use
+respectively AVX-512 and AVX2 for bitslice DES.
 * Added linux-mic make target for Intel MIC (first generation Xeon Phi, aka
-Knights Corner), along with use of 512-bit SIMD intrinsics for bitslice DES.
-* Added linux-arm32le and linux-arm32le-neon make targets (the latter makes use
-of NEON for bitslice DES).
+Knights Corner), which uses its 512-bit SIMD intrinsics for bitslice DES.
+(For second generation Xeon Phi, aka Knights Landing, use linux-x86-64-avx512.)
+* Added linux-arm64le, linux-arm32le-neon, and linux-arm32le make targets.
+(The first two of these make use of ASIMD or NEON for bitslice DES.)
+* Added linux-sparc64 make target.
 * Made a minor optimization to MMX and SSE2 assembly code for LM hash.
 * Dropped Ultrix and SCO support.
 * Don't probe for alternate config file names (like john.ini when on Unix).

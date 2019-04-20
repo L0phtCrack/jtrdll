@@ -85,7 +85,7 @@ char *jtr_device_id(struct jtr_device *dev)
 	if (!dev)
 		return "";
 	sprintf(device_id, "%s #%d", dev->device->ztex_device->snString,
-		dev->fpga_num);
+		dev->fpga_num + 1);
 	return device_id;
 }
 
@@ -106,10 +106,8 @@ int PKT_DEBUG = 1;
 
 struct jtr_device_list *jtr_device_list_init()
 {
-	int result;
-
 	if (!libusb_initialized) {
-		result = libusb_init(NULL);
+		int result = libusb_init(NULL);
 		if (result < 0) {
 			fprintf(stderr, "libusb_init() returns %d: %s\n",
 					result, libusb_error_name(result));
@@ -128,13 +126,7 @@ PKT_DEBUG = 1; // print erroneous packets recieved from devices
 		device_list = device_init_scan(jtr_bitstream);
 
 		int device_count = device_list_count(device_list);
-
-		if (device_count) {
-			//fprintf(stderr, "%d device(s) ZTEX 1.15y ready\n", device_count);
-			//ztex_dev_list_print(device_list->ztex_dev_list);
-
-			device_list_print(device_list);
-		} else {
+		if (!device_count) {
 			fprintf(stderr, "no valid ZTEX devices found\n");
 			return NULL;
 		}
@@ -145,7 +137,6 @@ PKT_DEBUG = 1; // print erroneous packets recieved from devices
 	} else {
 		device_list_init(device_list, jtr_bitstream);
 
-		device_list_print(device_list);
 		int device_count = device_list_count(device_list);
 		if (!device_count) {
 			fprintf(stderr, "no valid ZTEX devices found\n");
@@ -157,6 +148,19 @@ PKT_DEBUG = 1; // print erroneous packets recieved from devices
 	// TODO: remove old jtr_device's if any
 	jtr_device_list = jtr_device_list_new(device_list);
 	return jtr_device_list;
+}
+
+
+void jtr_device_list_print()
+{
+	device_list_print(device_list);
+}
+
+
+void jtr_device_list_print_count()
+{
+	int device_count = device_list_count(device_list);
+	fprintf(stderr, "%d device(s) ZTEX 1.15y ready\n", device_count);
 }
 
 
@@ -251,6 +255,12 @@ int jtr_device_list_check()
 		free(device_list_1);
 	}
 	return found_devices_num;
+}
+
+
+int jtr_device_list_set_app_mode(unsigned char mode)
+{
+	return device_list_set_app_mode(device_list, mode);
 }
 
 
@@ -404,8 +414,54 @@ struct jtr_device *jtr_device_list_process_inpkt(
 				break;
 			}
 
+			// Computed result received
+			if (inpkt->type == PKT_TYPE_RESULT1) {
+
+				struct pkt_result *pkt_result = pkt_result_new(inpkt);
+
+				if (PKT_DEBUG >= 2)
+					fprintf(stderr,"%s RESULT1 id=%d: w:%d g:%u\n",
+						jtr_device_id(dev), pkt_result->id,
+						pkt_result->word_id, pkt_result->gen_id);
+
+				if (!inpkt_check_cmp(dev, inpkt, task, pkt_result->word_id,
+						pkt_result->gen_id, -1)) {
+					pkt_result_delete(pkt_result);
+					bad_input = 1;
+					break;
+				}
+
+				struct task_result *task_result = task_result_new(
+					task, task->keys
+					+ pkt_result->word_id * jtr_fmt_params->plaintext_length,
+					!task->range_info ? NULL :
+					task->range_info + pkt_result->word_id * MASK_FMT_INT_PLHDR,
+					pkt_result->gen_id, NULL
+				);
+
+				task_result->binary = mem_alloc(pkt_result->result_len);
+				memcpy(task_result->binary, pkt_result->result,
+						pkt_result->result_len);
+
+				pkt_result_delete(pkt_result);
+
+				int expected_total = task->num_keys * mask_num_cand();
+				task->num_processed ++;
+				if (task->num_processed > expected_total) {
+					fprintf(stderr, "%s RESULT1: keys=%d, "
+						"mask=%d, processed=%u (must be %u)\n",
+						jtr_device_id(dev), task->num_keys, mask_num_cand(),
+						task->num_processed, expected_total);
+					bad_input = 1;
+					break;
+				}
+				else if (task->num_processed == expected_total) {
+					task->status = TASK_COMPLETE;
+				}
+				task_update_mtime(task);
+
 			// Comparator found equality & it sends computed result
-			if (inpkt->type == PKT_TYPE_CMP_RESULT) {
+			} else if (inpkt->type == PKT_TYPE_CMP_RESULT) {
 
 				struct pkt_cmp_result *pkt_cmp_result
 						= pkt_cmp_result_new(inpkt);
@@ -474,23 +530,33 @@ struct jtr_device *jtr_device_list_process_inpkt(
 
 				struct pkt_done *pkt_done = pkt_done_new(inpkt);
 
+				// In a design with several onboard generators/arbiters,
+				// each one sends PKT_DONE
+				int expected_total = task->num_keys * mask_num_cand();
+
 				if (PKT_DEBUG >= 2)
-					fprintf(stderr, "%s PROCESSING_DONE id=%d: %u/%d of %d\n",
+					fprintf(stderr, "%s PROCESSING_DONE id=%d: %u(+%d) of %d\n",
 						jtr_device_id(dev), pkt_done->id,
-						pkt_done->num_processed, pkt_done->num_processed,//task->num_processed,
-						task->num_keys * mask_num_cand());
+						pkt_done->num_processed, task->num_processed,
+						expected_total);
 
-				if (pkt_done->num_processed
-						!= task->num_keys * mask_num_cand()) {
-					fprintf(stderr, "PROCESSING_DONE: keys=%d, %u/%u\n",
-							task->num_keys, pkt_done->num_processed,
-							task->num_keys * mask_num_cand());
-				}
-				task->status = TASK_COMPLETE;
-				task_update_mtime(task);
-
+				task->num_processed += pkt_done->num_processed;
 				free(pkt_done);
 
+				if (task->num_processed > expected_total) {
+					fprintf(stderr, "%s PROCESSING_DONE: keys=%d, "
+						"mask=%d, processed=%u (must be %u)\n",
+						jtr_device_id(dev), task->num_keys, mask_num_cand(),
+						task->num_processed, expected_total);
+					bad_input = 1;
+					break;
+				}
+				else if (task->num_processed == expected_total) {
+					task->status = TASK_COMPLETE;
+					task_update_mtime(task);
+				}
+
+			// Unknown packet type
 			} else {
 				if (PKT_DEBUG >= 1)
 					fprintf(stderr, "%s %s type=0x%02x id=%d: len=%d\n",

@@ -42,7 +42,7 @@ john_register_one(&fmt_nsec3);
 #define FORMAT_NAME                     "DNSSEC NSEC3"
 #define ALGORITHM_NAME                  "32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT               ""
-#define BENCHMARK_LENGTH                0
+#define BENCHMARK_LENGTH                7
 #define PLAINTEXT_LENGTH                125
 #define MIN_KEYS_PER_CRYPT              1
 #define MAX_KEYS_PER_CRYPT              1
@@ -258,16 +258,17 @@ static int salt_hash(void *salt)
 {
 	unsigned int hash = 0;
 	int i;
+
 	for (i = 0; i < SALT_SIZE; ++i) {
 		hash <<= 1;
-		hash += (unsigned char)((unsigned char *)salt)[i];
-		if (hash >> 10) {
-			hash ^= hash >> 10;
-			hash &= 0x3FF;
+		hash += ((unsigned char *)salt)[i];
+		if (hash >> SALT_HASH_LOG) {
+			hash ^= hash >> SALT_HASH_LOG;
+			hash &= (SALT_HASH_SIZE - 1);
 		}
 	}
-	hash ^= hash >> 10;
-	hash &= 0x3FF;
+	hash ^= hash >> SALT_HASH_LOG;
+	hash &= (SALT_HASH_SIZE - 1);
 
 	return hash;
 }

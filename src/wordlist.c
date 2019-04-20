@@ -397,9 +397,6 @@ static double get_progress(void)
 	int64_t pos;
 	uint64_t size;
 	uint64_t mask_mult = mask_tot_cand ? mask_tot_cand : 1;
-	uint64_t tot_rules = rule_count * crk_stacked_rule_count;
-	uint64_t tot_rule_number =
-		rule_number * crk_stacked_rule_count + rules_stacked_number;
 
 	emms();
 
@@ -437,8 +434,8 @@ static double get_progress(void)
 		}
 	}
 
-	return (100.0 * ((tot_rule_number * size * mask_mult) + pos * mask_mult) /
-	        (tot_rules * size * mask_mult));
+	return (100.0 * ((rule_number * size * mask_mult) + pos * mask_mult) /
+	        (rule_count * size * mask_mult));
 }
 
 static char *dummy_rules_apply(char *word, char *rule, int split, char *last)
@@ -591,7 +588,7 @@ static MAYBE_INLINE int wbuf_unique(char *line)
 	return 1;
 }
 
-void do_wordlist_crack(struct db_main *db, char *name, int rules)
+void do_wordlist_crack(struct db_main *db, const char *name, int rules)
 {
 	union {
 		char buffer[2][LINE_BUFFER_SIZE + CACHE_BANK_SHIFT];
@@ -639,9 +636,7 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 	regex = prepare_regex(options.regex, &regex_case, &regex_alpha);
 #endif
 
-	length = options.eff_maxlength - mask_add_len;
-	if (mask_num_qw > 1)
-		length /= mask_num_qw;
+	length = options.eff_maxlength;
 
 	/* If we did not give a name for loopback mode,
 	   we use the active pot file */
@@ -672,8 +667,8 @@ void do_wordlist_crack(struct db_main *db, char *name, int rules)
 			else
 				fprintf(stderr, ", rules:%s", options.activewordlistrules);
 		}
-		if (options.mask)
-			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.flags & FLG_MASK_CHK)
+			fprintf(stderr, ", hybrid mask:%s", options.eff_mask);
 		if (!options.activewordlistrules && options.rule_stack)
 			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
 		if (options.req_minlength >= 0 || options.req_maxlength)
@@ -1029,7 +1024,7 @@ GRAB_NEXT_PIPE_LOAD:
 			{
 				char *cpi, *cpe;
 
-				if (options.verbosity == VERB_MAX)
+				if (options.verbosity >= VERB_MAX)
 				log_event("- Reading next block of candidate passwords from stdin pipe");
 
 				rules = rules_keep;
@@ -1077,7 +1072,7 @@ GRAB_NEXT_PIPE_LOAD:
 						}
 					}
 				}
-				if (options.verbosity == VERB_MAX) {
+				if (options.verbosity >= VERB_MAX) {
 					sprintf(msg_buf, "- Read block of %"PRId64" "
 					        "candidate passwords from pipe",
 					        (int64_t)nWordFileLines);
@@ -1089,7 +1084,7 @@ GRAB_NEXT_PIPE_LOAD:
 MEM_MAP_LOAD:
 			rules = rules_keep;
 			nWordFileLines = 0;
-			if (options.verbosity == VERB_MAX)
+			if (options.verbosity >= VERB_MAX)
 				log_event("- Reading next block of candidate from the memory mapped file");
 			release_sharedmem_object(pIPC);
 			pIPC = next_sharedmem_object();
@@ -1299,7 +1294,7 @@ REDO_AFTER_LMLOOP:
 					}
 					wordlist_hybrid_fix_state();
 				} else
-				if (options.mask) {
+				if (options.flags & FLG_MASK_CHK) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
 						rules = 0;
@@ -1366,7 +1361,7 @@ REDO_AFTER_LMLOOP:
 					}
 					wordlist_hybrid_fix_state();
 				} else
-				if (options.mask) {
+				if (options.flags & FLG_MASK_CHK) {
 					if (do_mask_crack(word)) {
 						rule = NULL;
 						rules = 0;
@@ -1445,7 +1440,7 @@ process_word:
 						}
 						wordlist_hybrid_fix_state();
 					} else
-					if (options.mask) {
+					if (options.flags & FLG_MASK_CHK) {
 						if (do_mask_crack(word)) {
 							rule = NULL;
 							rules = 0;

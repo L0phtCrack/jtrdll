@@ -182,7 +182,7 @@ static void ext_rewind(void)
 	ext_pos = 0;
 }
 
-int ext_has_function(char *mode, char *function)
+int ext_has_function(const char *mode, const char *function)
 {
 	if (!(ext_source = cfg_get_list(SECTION_EXT, mode))) {
 		if (john_main_process)
@@ -722,7 +722,7 @@ int do_external_hybrid_crack(struct db_main *db, const char *base_word) {
 			*internal = 0;
 		}
 
-		if (options.mask) {
+		if (options.flags & FLG_MASK_CHK) {
 			if (do_mask_crack(int_word)) {
 				retval = 1;
 				goto out;

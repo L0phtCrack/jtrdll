@@ -966,7 +966,7 @@ char *cp_id2macro(int encoding)
 }
 
 /* Convert encoding name to numerical ID */
-int cp_name2id(char *encoding)
+int cp_name2id(const char *encoding)
 {
 	char enc[16] = "";
 	char *d = enc;
@@ -1111,7 +1111,7 @@ void initUnicode(int type)
 	if (UnicodeType == type && UnicodeInited == options.unicode_cp)
 		return;
 
-	if (options.verbosity == VERB_MAX) {
+	if (options.verbosity >= VERB_MAX) {
 		fprintf(stderr, "%s(%s, %s/%s)\n", __FUNCTION__,
 		        type == 1 ? "MS_OLD" :
 		        type == 2 ? "MS_NEW" : "UNICODE",

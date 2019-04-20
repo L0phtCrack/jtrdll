@@ -20,15 +20,6 @@ john_register_one(&fmt_sip);
 
 #ifdef _OPENMP
 #include <omp.h>
-// Tuned on core i7 quad HT
-//   1   4963K
-//  16   8486K
-//  32   8730K  ** this was chosen.
-//  64   8791k
-// 128   8908k
-#ifndef OMP_SCALE
-#define OMP_SCALE   32
-#endif
 #endif
 
 #include "arch.h"
@@ -55,7 +46,7 @@ static sip_salt *pSalt;
 #define FORMAT_TAG_LEN          (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME          "MD5 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        7
 #define PLAINTEXT_LENGTH        32
 #define BINARY_SIZE             16
 #define SALT_SIZE               sizeof(sip_salt)
@@ -63,6 +54,10 @@ static sip_salt *pSalt;
 #define SALT_ALIGN              sizeof(int)
 #define MIN_KEYS_PER_CRYPT      1
 #define MAX_KEYS_PER_CRYPT      64
+
+#ifndef OMP_SCALE
+#define OMP_SCALE   512 // MKPC & scale tuned for i7
+#endif
 
 static struct fmt_tests sip_tests[] = {
 	{"$sip$*192.168.1.111*192.168.1.104*200*asterisk*REGISTER*sip*192.168.1.104**46cce857****MD5*4dfc7515936a667565228dbaa0293dfc", "123456"},
@@ -74,6 +69,7 @@ static struct fmt_tests sip_tests[] = {
 	{"$sip$*192.168.196.105*192.168.196.192*81670*asterisk*REGISTER*sip*192.168.196.192**747f072a****MD5*d15c84b1bdc2155db12b721d7fb9445b", "password"},
 	{"$sip$*192.168.119.6*192.168.119.154*65790*asterisk*REGISTER*sip*192.168.119.154**8d4e1a4b****MD5*dcc0d8a4c105dbf3ecf5b281f4c57356", "happy123"},
 	{"$sip$*192.168.113.63*192.168.113.78*59810*asterisk*REGISTER*sip*192.168.113.78**b778256e****MD5*cb13933a5986df471265231d08206509", "aobdataeteag"},
+	{"$sip$*192.168.44.162*192.168.44.11*12315*asterisk*REGISTER*sip*192.168.44.11**825f321ad9886ef434788ebfb8dbf150*b78b5a31*00000001*auth*MD5*23802bb930873797f0c7a1f0e595a94e", "abc"},
 	{NULL}
 };
 
@@ -83,9 +79,8 @@ static char bin2hex_table[256][2]; /* table for bin<->hex mapping */
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	/* Init bin 2 hex table for faster conversions later */
 	init_bin2hex(bin2hex_table);
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -249,7 +244,7 @@ static void *get_salt(char *ciphertext)
 	//snprintf(salt.dynamic_hash_data, DYNAMIC_HASH_SIZE, "%s:%s:", login.user, login.realm);
 	//salt.dynamic_hash_data_len = strlen(salt.dynamic_hash_data);
 
-	/* Construct last part of final hash data: ':NONCE(:CNONCE:NONCE_COUNT:QOP):<static_hash>' */
+	/* Construct last part of final hash data: ':NONCE(:NONCE_COUNT:CNONCE:QOP):<static_hash>' */
 	/* no qop */
 	if (!strlen(login.qop))
 		snprintf(salt.static_hash_data, STATIC_HASH_SIZE, ":%s:%s", login.nonce, static_hash);

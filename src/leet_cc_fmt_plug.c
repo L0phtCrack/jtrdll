@@ -36,6 +36,10 @@ john_register_one(&fmt_leet);
 #include "sph_whirlpool.h"
 #endif
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "sha2.h"
 #include "misc.h"
 #include "common.h"
@@ -43,30 +47,13 @@ john_register_one(&fmt_leet);
 #include "params.h"
 #include "options.h"
 #include "johnswap.h"
-
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               256
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               128 // tuned on Core i7-6600U
-#endif
-#endif
-#include <omp.h>
-#endif
-
 #include "simd-intrinsics.h"
 
 #ifdef SIMD_COEF_64
 #define SHA512_TYPE          SHA512_ALGORITHM_NAME
 #define NBKEYS					(SIMD_COEF_64*SIMD_PARA_SHA512)
 #else
-#define SHA512_TYPE          "32/" ARCH_BITS_STR " " SHA2_LIB
+#define SHA512_TYPE          "32/" ARCH_BITS_STR SHA2_LIB
 #define NBKEYS					1
 #endif
 
@@ -82,13 +69,18 @@ john_register_one(&fmt_leet);
 #define FORMAT_NAME             ""
 #define ALGORITHM_NAME          "SHA-512(" SHA512_TYPE ") + Whirlpool(" WP_TYPE "/" ARCH_BITS_STR ")"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define BINARY_SIZE             64
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define BINARY_ALIGN            sizeof(uint64_t)
 #define SALT_ALIGN              sizeof(int)
+
+#ifndef OMP_SCALE
+#define OMP_SCALE               128
+#endif
+
 #define MIN_KEYS_PER_CRYPT      NBKEYS
-#define MAX_KEYS_PER_CRYPT      NBKEYS
+#define MAX_KEYS_PER_CRYPT      (64 * NBKEYS)
 
 static struct fmt_tests leet_tests[] = {
 	{"salt$f86036a85e3ff84e73bf10769011ecdbccbf5aaed9df0240310776b42f5bb8776e612ab15a78bbfc39e867448a08337d97427e182e72922bbaa903ee75b2bfd4", "password"},
@@ -111,9 +103,8 @@ static void init(struct fmt_main *self)
 {
 	int keys;
 
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	keys = self->params.max_keys_per_crypt;
 	saved_key = mem_calloc(sizeof(*saved_key), keys);
 	saved_len = mem_calloc(keys, sizeof(*saved_len));
@@ -242,12 +233,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #ifdef SIMD_COEF_64
 		// Not sure why JTR_ALIGN(MEM_ALIGN_SIMD) does n ot work here
 		// but if used, it cores travis-ci, so we use mem_align instead
-		unsigned char _in[8*16*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
-		unsigned char _out[8*8*MAX_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
+		unsigned char _in[8*16*MIN_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
+		unsigned char _out[8*8*MIN_KEYS_PER_CRYPT+MEM_ALIGN_SIMD];
 		uint64_t *in = (uint64_t*)mem_align(_in, MEM_ALIGN_SIMD);
 		uint64_t *out = (uint64_t*)mem_align(_out, MEM_ALIGN_SIMD);
 
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 			int x80_off = saved_len[index+i]+cur_salt->saltlen;
 			unsigned char *cp = (unsigned char*)&(in[16*i]);
 			memcpy(cp, saved_key[index+i], saved_len[index+i]);
@@ -257,7 +248,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 			in[i*16+15] = x80_off<<3;
 		}
 		SIMDSHA512body(in, out, NULL, SSEi_FLAT_IN);
-		for (i = 0; i < MAX_KEYS_PER_CRYPT; ++i) {
+		for (i = 0; i < MIN_KEYS_PER_CRYPT; ++i) {
 #if ARCH_LITTLE_ENDIAN==1
 			output1[i].p64[0] = JOHNSWAP64(out[((i/SIMD_COEF_64)*8*SIMD_COEF_64+i%SIMD_COEF_64)]);
 #else

@@ -46,6 +46,7 @@ john_register_one(&fmt_NETNTLMv2);
 
 #include <stdint.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -64,13 +65,17 @@ john_register_one(&fmt_NETNTLMv2);
 #define uchar unsigned char
 #endif
 
+#ifndef OMP_SCALE
+#define OMP_SCALE			16	// MKPC and OMP_SCALE tuned for core i7
+#endif
+
 #define FORMAT_LABEL		"netntlmv2"
 #define FORMAT_NAME		"NTLMv2 C/R"
 #define FORMAT_TAG           "$NETNTLMv2$"
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"MD4 HMAC-MD5 32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
+#define BENCHMARK_LENGTH	7
 #define PLAINTEXT_LENGTH	125 /* lmcons.h - PWLEN (256) ? 127 ? */
 #define USERNAME_LENGTH		60 /* lmcons.h - UNLEN (256) / LM20_UNLEN (20) */
 #define DOMAIN_LENGTH		45 /* lmcons.h - CNLEN / DNLEN */
@@ -85,10 +90,7 @@ john_register_one(&fmt_NETNTLMv2);
 
 // these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
-#ifndef OMP_SCALE
-#define OMP_SCALE		3072
-#endif
+#define MAX_KEYS_PER_CRYPT	32
 
 static struct fmt_tests tests[] = {
   {"", "password",                  {"USER1",                 "", "Domain",        "1122334455667788","5E4AB1BF243DCA304A00ADEF78DC38DF","0101000000000000BB50305495AACA01338BC7B090A62856000000000200120057004F0052004B00470052004F00550050000000000000000000"} },
@@ -118,9 +120,8 @@ static int keys_prepared;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,

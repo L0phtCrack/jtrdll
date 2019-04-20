@@ -85,6 +85,12 @@ struct jtr_device *jtr_device_by_device(
 // Uses global device_list
 struct jtr_device_list *jtr_device_list_init();
 
+// Print a line for every connected board
+void jtr_device_list_print();
+
+// Print a line with total number of boards
+void jtr_device_list_print_count();
+
 // Devices from the 2nd list go to the 1st list. jtr_device_list_1 deleted.
 void jtr_device_list_merge(
 		struct jtr_device_list *jtr_device_list,
@@ -93,6 +99,8 @@ void jtr_device_list_merge(
 // Performs timely scan for new devices, merges into global device list
 // Returns number of devices found
 int jtr_device_list_check();
+
+int jtr_device_list_set_app_mode(unsigned char mode);
 
 // Perform I/O operations on underlying physical devices
 // Uses global jtr_device_list

@@ -138,18 +138,21 @@ struct fmt_tests {
 struct fmt_params {
 /* Label to refer to this format (any alphabetical characters in it must be
  * lowercase). */
-	char *label;
+	const char *label;
 
 /* Ciphertext format name */
-	char *format_name;
+	const char *format_name;
 
 /* Cracking algorithm name */
-	char *algorithm_name;
+	const char *algorithm_name;
 
 /* Comment about the benchmark (can be empty) */
-	char *benchmark_comment;
+	const char *benchmark_comment;
 
-/* Benchmark for short/long passwords instead of for one/many salts */
+/* Benchmark for this password length.  Can also add one of:
+ * + 0x100 Force "Raw" benchmark even for a salted format
+ * + 0x200 Benchmark for short/long passwords instead of for one/many salts
+ * + 0x500 Make "Raw" behave like "Only one salt", not "Many salts" */
 	int benchmark_length;
 
 /* Minimum length of a plaintext password */

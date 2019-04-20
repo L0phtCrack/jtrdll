@@ -3,14 +3,17 @@ PRELUDE:
 ====================
 
 You can use OpenCL if your video card - from now GPU - supports it.
-ATI/AMD and Nvidia support it through their SDK available at
-nvidia and ATI/AMD website.
+ATI/AMD, Intel and Nvidia support it through their SDK available at
+nvidia, Intel and ATI/AMD website.
 
 Some recent distros have all (proprietry) stuff available as normal
 packages.  N.B.  DON'T use X11 opensource drivers provided by your
 distribution, only the vendor-supplied drivers support OpenCL.  Either
-install fglrx (for AMD) or nvidia dkms package or go directly with the
-ones provided by nvidia and ATI.
+install fglrx (for old AMD cards) or nvidia dkms package or go directly
+with the ones provided by nvidia and ATI.
+
+Notice: Beignet, Mesa, and POCL are not officially supported, but may
+be usable in some OpenCL formats.
 
 You can also use OpenCL with CPU, mostly useful if you have several
 (or loads of) cores.  This sometimes outperforms the CPU-only formats
@@ -131,8 +134,8 @@ in the meantime (and especially if running slow kernels on weak devices) you
 might need to disable this watchdog.  For nvidia cards, you can check this
 setting using "--list=OpenCL-devices".  Example output:
 
-    Platform version: OpenCL 1.1 CUDA 4.2.1
-        Device #0 name:         GeForce GT 650M
+    Platform #0 name: NVIDIA CUDA, version: OpenCL 1.1 CUDA 4.2.1
+        Device #0 (1) name:     GeForce GT 650M
         Device vendor:          NVIDIA Corporation
         Device type:            GPU (LE)
         Device version:         OpenCL 1.1 CUDA
@@ -181,7 +184,7 @@ The above will fork to four processes and each process will use a different
 GPU or Accelerator device.  The "-dev" option (--device) is likely needed
 because it defaults to 'all' which may include unwanted devices.  Instead
 of -dev=gpu,acc (use all/any GPUs and accelerators) you could specify them
-explicitly if needed, e.g. -dev=0,1,5,6.
+explicitly if needed, e.g. -dev=1,2,6,7.
 
 Or maybe you have two cards in a remote host called alpha and one card in
 a host called bravo.  Build with MPI support and use this variant of the above:
@@ -190,7 +193,7 @@ $ mpirun -host alpha,alpha,bravo ./john -dev=gpu,acc -format=(...)
 
 The above will start two processes on alpha, using different GPUs, as well
 as one process on bravo.  In this case, the "-dev=gpu" option will be
-enumerated on each host so if GPUs are devices 1 & 3 on alpha but device 0 on
+enumerated on each host so if GPUs are devices 2 & 4 on alpha but device 1 on
 bravo, that is not a problem.
 
 If for some reason you want to run e.g.  two processes on each GPU, just double

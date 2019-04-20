@@ -52,9 +52,9 @@ john_register_one(&fmt_bitcoin);
 #define ALGORITHM_NAME          "SHA512 AES " SHA512_ALGORITHM_NAME
 #else
 #if ARCH_BITS >= 64
-#define ALGORITHM_NAME          "SHA512 AES 64/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME          "SHA512 AES 64/" ARCH_BITS_STR SHA2_LIB
 #else
-#define ALGORITHM_NAME          "SHA512 AES 32/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME          "SHA512 AES 32/" ARCH_BITS_STR SHA2_LIB
 #endif
 #endif
 
@@ -63,7 +63,7 @@ john_register_one(&fmt_bitcoin);
 #endif
 
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        7
 #define PLAINTEXT_LENGTH        125
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1

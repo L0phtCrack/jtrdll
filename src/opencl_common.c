@@ -106,6 +106,7 @@ static char* get_device_capability(int sequential_id);
 // Used by auto-tuning to decide how GWS should changed between trials.
 extern int autotune_get_next_gws_size(size_t num, int step, int startup,
                                       int default_value);
+extern int autotune_get_prev_gws_size(size_t num, int step);
 
 // Settings to use for auto-tuning.
 static int buffer_size;
@@ -206,7 +207,7 @@ int get_number_of_devices_in_use()
 {
 	int i = 0;
 
-	while (gpu_device_list[i] != -1)
+	while (engaged_devices[i] != DEV_LIST_END)
 		i++;
 
 	return i;
@@ -220,7 +221,7 @@ int get_number_of_requested_devices()
 {
 	int i = 0;
 
-	while (requested_devices[i] != -1)
+	while (requested_devices[i] != DEV_LIST_END)
 		i++;
 
 	return i;
@@ -457,7 +458,7 @@ static int get_if_device_is_in_use(int sequential_id)
 	num_devices = get_number_of_devices_in_use();
 
 	for (i = 0; i < num_devices && !found; i++) {
-		if (sequential_id == gpu_device_list[i])
+		if (sequential_id == engaged_devices[i])
 			found = 1;
 	}
 	return found;
@@ -713,25 +714,38 @@ static void add_device_to_list(int sequential_id)
 	found = get_if_device_is_in_use(sequential_id);
 
 	if (found < 0) {
-		fprintf(stderr, "Invalid OpenCL device id %d\n", sequential_id);
+#if HAVE_MPI
+		if (mpi_p > 1)
+			fprintf(stderr, "%u@%s: ", mpi_id + 1, mpi_name);
+#elif OS_FORK
+		if (options.fork)
+			fprintf(stderr, "%u: ", options.node_min);
+#endif
+		fprintf(stderr, "Error: --device must be between 1 and %d "
+		        "(the number of devices available).\n",
+		        get_number_of_available_devices());
 		error();
 	}
 
 	if (found == 0) {
 		// Only requested and working devices should be started.
-		if (john_main_process) {
-			if (! start_opencl_device(sequential_id, &i)) {
-				fprintf(stderr, "Device id %d not working correctly,"
-					" skipping.\n", sequential_id);
-				return;
-			}
+		if (! start_opencl_device(sequential_id, &i)) {
+#if HAVE_MPI
+			if (mpi_p > 1)
+				fprintf(stderr, "%u@%s: ", mpi_id + 1, mpi_name);
+#elif OS_FORK
+			if (options.fork)
+				fprintf(stderr, "%u: ", options.node_min);
+#endif
+			fprintf(stderr, "Device id %d not working correctly,"
+			        " skipping.\n", sequential_id + 1);
+			return;
 		}
-		gpu_device_list[get_number_of_devices_in_use() + 1] = -1;
-		gpu_device_list[get_number_of_devices_in_use()] = sequential_id;
-
+		engaged_devices[get_number_of_devices_in_use() + 1] = DEV_LIST_END;
+		engaged_devices[get_number_of_devices_in_use()] = sequential_id;
 	}
 	// The full list of requested devices.
-	requested_devices[get_number_of_requested_devices() + 1] = -1;
+	requested_devices[get_number_of_requested_devices() + 1] = DEV_LIST_END;
 	requested_devices[get_number_of_requested_devices()] = sequential_id;
 }
 
@@ -768,7 +782,8 @@ static void add_device_type(cl_ulong device_type, int top)
 		if (clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
 				MAX_GPU_DEVICES, devices, &device_num) == CL_SUCCESS) {
 			// Sort devices by speed
-			for (j = 0; j < device_num; j++, sequence_nr++) {
+			for (j = 0; j < device_num && sequence_nr < MAX_GPU_DEVICES;
+			     j++, sequence_nr++) {
 				load_device_info(sequence_nr);
 				dev[sequence_nr].index = sequence_nr;
 				dev[sequence_nr].ID = devices[j];
@@ -803,7 +818,7 @@ static void add_device_type(cl_ulong device_type, int top)
 }
 
 /* Build a list of the requested OpenCL devices */
-static void build_device_list(char *device_list[MAX_GPU_DEVICES])
+static void build_device_list(const char *device_list[MAX_GPU_DEVICES])
 {
 	int n = 0;
 
@@ -842,8 +857,13 @@ static void build_device_list(char *device_list[MAX_GPU_DEVICES])
 			        "or one of \"all\", \"cpu\", \"gpu\" and\n"
 			        "\"acc[elerator]\".\n");
 			error();
+		} else if (device_list[n][0] == '0') {
+			fprintf(stderr, "Error: --device must be between 1 and %d "
+			          "(the number of devices available).\n",
+			          get_number_of_available_devices());
+			error();
 		} else
-			add_device_to_list(atoi(device_list[n]));
+			add_device_to_list(atoi(device_list[n]) - 1);
 		n++;
 	}
 }
@@ -875,7 +895,7 @@ void opencl_preinit_no_devices(void)
 /*
  * Load the OpenCL environment
  * - fill in the "existing" devices list (devices[] variable) and;
- * - fill in the "in use" devices list (gpu_device_list[] variable);
+ * - fill in the "in use" devices list (engaged_devices[] variable);
  *   - device was initialized;
  *   - do not count duplicates;
  *     --device=2,2 result that "one" device is really in use;
@@ -889,8 +909,6 @@ void opencl_preinit_no_devices(void)
  */
 void opencl_load_environment(void)
 {
-	char *device_list[MAX_GPU_DEVICES];
-	int n = 0, i;
 	char *env;
 
 	// Prefer COMPUTE over DISPLAY and lacking both, assume :0
@@ -906,22 +924,27 @@ void opencl_load_environment(void)
 	}
 
 	if (!opencl_initialized) {
+		int i;
+		const char *cmdline_devices[MAX_GPU_DEVICES];
+
 		nvidia_probe();
 		amd_probe();
-		device_list[0] = NULL;
 
-		gpu_device_list[0] = -1;
-		gpu_device_list[1] = -1;
-		requested_devices[0] = -1;
-		requested_devices[1] = -1;
-
-		gpu_temp_limit = cfg_get_int(SECTION_OPTIONS, SUBSECTION_GPU,
-		                             "AbortTemperature");
+		// Initialize OpenCL global control variables
+		cmdline_devices[0] = NULL;
+		engaged_devices[0] = DEV_LIST_END;
+		requested_devices[0] = DEV_LIST_END;
 
 		for (i = 0; i < MAX_GPU_DEVICES; i++) {
 			context[i] = NULL;
 			queue[i] = NULL;
 		}
+
+		// Read the GPU temperature setting to abort
+		gpu_temp_limit = cfg_get_int(SECTION_OPTIONS, SUBSECTION_GPU,
+		             "AbortTemperature");
+		cool_gpu_down = cfg_get_int(SECTION_OPTIONS, SUBSECTION_GPU,
+		             "SleepOnTemperature");
 
 		// Load information about available platforms and devices
 		load_opencl_environment();
@@ -931,37 +954,43 @@ void opencl_load_environment(void)
 			fprintf(stderr, "No OpenCL devices found\n");
 			error();
 		}
+
+		// Get the "--device" list requested by the user
 		{
+			int n = 0;
 			struct list_entry *current;
 
-			/* New syntax, sequential --device */
 			if ((current = options.acc_devices->head)) {
 				do {
-					device_list[n++] = current->data;
-				} while ((current = current->next));
+					cmdline_devices[n++] = current->data;
+				} while ((current = current->next) && n < MAX_GPU_DEVICES);
 
-				device_list[n] = NULL;
+				cmdline_devices[n] = NULL;
 			} else
-				gpu_id = -1;
+				gpu_id = NO_GPU;
 		}
 
-		if (!options.acc_devices->head && gpu_id < 0) {
-			char *devcfg;
+		// If none selected, read the "--device" from the configuration file
+		if (!options.acc_devices->head && gpu_id <= NO_GPU) {
+			const char *devcfg;
 
-			if ((devcfg = cfg_get_param(SECTION_OPTIONS,
-			                            SUBSECTION_OPENCL, "Device"))) {
-				gpu_id = atoi(devcfg);
-				gpu_device_list[0] = gpu_id;
+			if ((devcfg = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
+			                            "Device")) && *devcfg) {
+				cmdline_devices[0] = devcfg;
+				cmdline_devices[1] = NULL;
 			}
 		}
 
-		if (!device_list[0]) {
-			device_list[0] = "best";
-			device_list[1] = NULL;
+		// No "--device" requested. Pick the most powerful GPU as the default one.
+		if (!cmdline_devices[0]) {
+			cmdline_devices[0] = "best";
+			cmdline_devices[1] = NULL;
 		}
 
-		build_device_list(device_list);
+		// Build the list of requested (and working) OpenCL devices
+		build_device_list(cmdline_devices);
 
+		// No working OpenCL device was found
 		if (get_number_of_devices_in_use() == 0) {
 			fprintf(stderr, "No OpenCL devices found\n");
 			error();
@@ -974,8 +1003,8 @@ void opencl_load_environment(void)
 			    get_number_of_requested_devices()];
 
 			// Hide any other devices from list
-			gpu_device_list[0] = gpu_id;
-			gpu_device_list[1] = -1;
+			engaged_devices[0] = gpu_id;
+			engaged_devices[1] = DEV_LIST_END;
 		} else
 #endif
 
@@ -983,14 +1012,14 @@ void opencl_load_environment(void)
 		// Poor man's multi-device support.
 		if (mpi_p > 1 && mpi_p_local > 1) {
 			// Pick device to use for this node
-			gpu_id = gpu_device_list[mpi_id % get_number_of_devices_in_use()];
+			gpu_id = engaged_devices[mpi_id % get_number_of_devices_in_use()];
 
 			// Hide any other devices from list
-			gpu_device_list[0] = gpu_id;
-			gpu_device_list[1] = -1;
+			engaged_devices[0] = gpu_id;
+			engaged_devices[1] = DEV_LIST_END;
 		} else
 #endif
-			gpu_id = gpu_device_list[0];
+			gpu_id = engaged_devices[0];
 		platform_id = get_platform_id(gpu_id);
 
 		opencl_initialized = 1;
@@ -1062,15 +1091,15 @@ void opencl_done()
 	num_devices = get_number_of_devices_in_use();
 
 	for (i = 0; i < num_devices; i++) {
-		if (queue[gpu_device_list[i]])
-			HANDLE_CLERROR(clReleaseCommandQueue(queue[gpu_device_list[i]]),
+		if (queue[engaged_devices[i]])
+			HANDLE_CLERROR(clReleaseCommandQueue(queue[engaged_devices[i]]),
 			               "clReleaseCommandQueue");
-		queue[gpu_device_list[i]] = NULL;
-		if (context[gpu_device_list[i]])
-			HANDLE_CLERROR(clReleaseContext(context[gpu_device_list[i]]),
+		queue[engaged_devices[i]] = NULL;
+		if (context[engaged_devices[i]])
+			HANDLE_CLERROR(clReleaseContext(context[engaged_devices[i]]),
 			               "clReleaseContext");
-		context[gpu_device_list[i]] = NULL;
-		program[gpu_device_list[i]] = NULL;
+		context[engaged_devices[i]] = NULL;
+		program[engaged_devices[i]] = NULL;
 	}
 
 	/* Reset in case we load another format after this */
@@ -1081,10 +1110,10 @@ void opencl_done()
 	opencl_initialized = 0;
 	crypt_kernel = NULL;
 
-	gpu_device_list[0] = gpu_device_list[1] = -1;
+	engaged_devices[0] = engaged_devices[1] = DEV_LIST_END;
 }
 
-static char *opencl_get_config_name(char *format, char *config_name)
+static char *opencl_get_config_name(const char *format, const char *config_name)
 {
 	static char config_item[256];
 
@@ -1092,19 +1121,19 @@ static char *opencl_get_config_name(char *format, char *config_name)
 	return config_item;
 }
 
-void opencl_get_user_preferences(char *format)
+void opencl_get_user_preferences(const char *format)
 {
 	char *tmp_value;
 
 	if (format) {
 		snprintf(fmt_base_name, sizeof(fmt_base_name), "%s", format);
 		if ((tmp_value = strrchr(fmt_base_name, (int)'-')))
-			* tmp_value = 0;
+			*tmp_value = 0;
 		strlwr(fmt_base_name);
 	} else
 		fmt_base_name[0] = 0;
 
-	if (format && (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
+	if (format && (tmp_value = (char*)cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
 			opencl_get_config_name(fmt_base_name, LWS_CONFIG_NAME))))
 		local_work_size = atoi(tmp_value);
 
@@ -1113,7 +1142,7 @@ void opencl_get_user_preferences(char *format)
 	else if ((tmp_value = getenv("LWS")))
 		local_work_size = atoi(tmp_value);
 
-	if (format && (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
+	if (format && (tmp_value = (char*)cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
 			opencl_get_config_name(fmt_base_name, GWS_CONFIG_NAME))))
 		global_work_size = atoi(tmp_value);
 
@@ -1127,11 +1156,12 @@ void opencl_get_user_preferences(char *format)
 		global_work_size = GET_MULTIPLE_OR_ZERO(global_work_size,
 		                                        local_work_size);
 
-	if (format && (tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
-			opencl_get_config_name(fmt_base_name, DUR_CONFIG_NAME))))
+	if (format && (tmp_value = (char*)cfg_get_param(SECTION_OPTIONS,
+		SUBSECTION_OPENCL, opencl_get_config_name(fmt_base_name,
+		DUR_CONFIG_NAME))) && *tmp_value)
 		duration_time = atoi(tmp_value);
-	else if ((tmp_value = cfg_get_param(SECTION_OPTIONS, SUBSECTION_OPENCL,
-	                                    "Global" DUR_CONFIG_NAME)))
+	else if ((tmp_value = (char*)cfg_get_param(SECTION_OPTIONS,
+		SUBSECTION_OPENCL, "Global" DUR_CONFIG_NAME)) && *tmp_value)
 		duration_time = atoi(tmp_value);
 }
 
@@ -1166,8 +1196,8 @@ static void print_device_info(int sequential_id)
 {
 	static int printed[MAX_GPU_DEVICES];
 	char device_name[MAX_OCLINFO_STRING_LEN];
+	char board_name[LOG_SIZE] = "";
 	cl_int ret_code;
-	int len;
 
 	HANDLE_CLERROR(clGetDeviceInfo(devices[sequential_id], CL_DEVICE_NAME,
 	                               sizeof(device_name), device_name, NULL),
@@ -1176,38 +1206,23 @@ static void print_device_info(int sequential_id)
 	ret_code = clGetDeviceInfo(devices[sequential_id],
 		CL_DEVICE_BOARD_NAME_AMD, sizeof(opencl_log), opencl_log, NULL);
 
-	if (ret_code == CL_SUCCESS && (len = strlen(opencl_log))) {
-		while (len > 0 && isspace(ARCH_INDEX(opencl_log[len - 1])))
-			len--;
-		opencl_log[len] = '\0';
+	if (ret_code == CL_SUCCESS) {
+		char *p = ltrim(rtrim(opencl_log));
 
-		if (options.verbosity > 1 && !printed[sequential_id]++)
-			fprintf(stderr, "Device %d%s%s: %s [%s]\n",
-			        sequential_id,
-#if HAVE_MPI
-			        "@", mpi_name,
-#else
-			        "", "",
-#endif
-			        device_name, opencl_log);
-		log_event("Device %d: %s [%s]", sequential_id, device_name, opencl_log);
-	} else {
-		char *dname = device_name;
-
-		/* Skip leading whitespace seen on Intel */
-		while (*dname == ' ')
-			dname++;
-
-		if (options.verbosity > 1 && !printed[sequential_id]++)
-			fprintf(stderr, "Device %d%s%s: %s\n", sequential_id,
-#if HAVE_MPI
-			        "@", mpi_name,
-#else
-			        "", "",
-#endif
-			        dname);
-		log_event("Device %d: %s", sequential_id, dname);
+		if  (strlen(p))
+			sprintf(board_name, " [%s]", p);
 	}
+
+	if (options.verbosity > 1 && !printed[sequential_id]++)
+		fprintf(stderr, "Device %d%s%s: %s%s\n",
+		        sequential_id + 1,
+#if HAVE_MPI
+		        "@", mpi_name,
+#else
+		        "", "",
+#endif
+		        device_name, board_name);
+	log_event("Device %d: %s%s", sequential_id + 1, device_name, board_name);
 }
 
 /*
@@ -1301,14 +1316,13 @@ static char *realpath(const char *path, char *fullpath)
 }
 #endif
 
-static char *include_source(char *pathname, int sequential_id, char *opts)
+static char *include_source(const char *pathname, int sequential_id, const char *opts)
 {
 	char *include, *full_path;
-	char *global_opts;
+	const char *global_opts;
 
 #if I_REALPATH
-
-	char *pex = path_expand_safe(pathname);
+	char *pex = (char*)path_expand_safe(pathname);
 
 	if (!(full_path = realpath(pex, NULL)))
 		pexit("realpath()");
@@ -1316,7 +1330,7 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	MEM_FREE(pex);
 
 #else
-	full_path = path_expand_safe(pathname);
+	full_path = (char*)path_expand_safe(pathname);
 #if defined(__CYGWIN__) || defined(__MINGW32__)
 	full_path = mingw_try_relative_path(full_path);
 #endif
@@ -1332,33 +1346,40 @@ static char *include_source(char *pathname, int sequential_id, char *opts)
 	if (strchr(full_path, ' ')) {
 		full_path = quote_str(full_path);
 	}
-
-
+	
 	snprintf(include, LINE_BUFFER_SIZE,
-	         "-I %s %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
+	         "-I %s %s %s%s%s%s%d %s%d %s -D_OPENCL_COMPILER %s %s",
 	        full_path,
 	        global_opts,
-			/*gpu_amd(device_info[sequential_id]) ? "-frontend=edg " :*/ "",
-			get_platform_vendor_id(get_platform_id(sequential_id)) == DEV_MESA ?
-	            "-D__MESA__ " : get_device_capability(sequential_id),
-	        (options.verbosity == VERB_MAX &&
+	        get_platform_vendor_id(get_platform_id(sequential_id)) ==
+	         PLATFORM_MESA ? "-D__MESA__ " :
+	        get_platform_vendor_id(get_platform_id(sequential_id)) ==
+	         PLATFORM_POCL ? "-D__POCL__ " :
+	        get_platform_vendor_id(get_platform_id(sequential_id)) ==
+	         PLATFORM_BEIGNET ?
+	         "-D__BEIGNET__ " :
+	        get_device_capability(sequential_id),
+#ifdef __APPLE__
+	        "-D__OS_X__ ",
+#else
+	        (options.verbosity >= VERB_MAX &&
 	         gpu_nvidia(device_info[sequential_id])) ?
 	         "-cl-nv-verbose " : "",
+#endif
 	        get_device_type(sequential_id) == CL_DEVICE_TYPE_CPU ? "-D__CPU__ "
 	        : get_device_type(sequential_id) == CL_DEVICE_TYPE_GPU ? "-D__GPU__ " : "",
 	        "-DDEVICE_INFO=", device_info[sequential_id],
-	        "-DSIZEOF_SIZE_T=", (int)sizeof(size_t),
+	        "-D__SIZEOF_HOST_SIZE_T__=", (int)sizeof(size_t),
 	        opencl_driver_ver(sequential_id),
 	        opts ? opts : "",
-			extra_opencl_kernel_args
-);
+			extra_opencl_kernel_args);
 
 	MEM_FREE(full_path);
 
 	return include;
 }
 
-void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_program *program, char *kernel_source_file, char *kernel_source)
+void opencl_build(int sequential_id, const char *opts, int save, const char *file_name, cl_program *program, const char *kernel_source_file, const char *kernel_source)
 {
 	cl_int build_code, err_code;
 	char *build_log, *build_opts;
@@ -1471,7 +1492,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 		                                sizeof(size_t), &source_size, NULL),
 		               "clGetProgramInfo for CL_PROGRAM_BINARY_SIZES");
 
-		if (options.verbosity == VERB_MAX)
+		if (options.verbosity >= VERB_MAX)
 			fprintf(stderr, "binary size "Zu"\n", source_size);
 
 		source = mem_calloc(1, source_size);
@@ -1481,7 +1502,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 		                                sizeof(char *), &source, NULL),
 		               "clGetProgramInfo for CL_PROGRAM_BINARIES");
 
-		file = fopen(full_path = path_expand_safe(file_name), "wb");
+		file = fopen(full_path = (char*)path_expand_safe(file_name), "wb");
 		MEM_FREE(full_path);
 
 		if (file == NULL)
@@ -1535,7 +1556,7 @@ void opencl_build(int sequential_id, char *opts, int save, char *file_name, cl_p
 #endif /* HAVE_MPI && (OS_FLOCK || FCNTL_LOCKS) */
 }
 
-void opencl_build_from_binary(int sequential_id, cl_program *program, char *kernel_source, size_t program_size)
+void opencl_build_from_binary(int sequential_id, cl_program *program, const char *kernel_source, size_t program_size)
 {
 	cl_int build_code, err_code;
 	char *build_log;
@@ -1593,46 +1614,45 @@ static void clear_profiling_events()
 	}
 }
 
-// Do the proper test using different global work sizes.
-static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
+// Fill [set_salt(), set_key()] the OpenCL device with data. Returns
+// salt, and fills binary pointer.
+static void* fill_opencl_device(size_t gws, void **binary)
 {
-	cl_ulong startTime, endTime, runtime = 0, looptime = 0;
-	int i, count, total = 0;
+	int i;
 	size_t kpc = gws * ocl_v_width;
-	cl_event benchEvent[MAX_EVENTS];
-	int number_of_events = 0;
 	void *salt;
-	int amd_bug;
 
-	for (i = 0; i < MAX_EVENTS; i++)
-		benchEvent[i] = NULL;
-
-	// Ensure format knows its GWS
-	global_work_size = gws;
-
-	// Prepare buffers.
-	create_clobj(gws, self);
-
-
-	// Set keys - unique printable length-8 keys
+	// Set keys - unique printable length-7 keys
 	self->methods.clear_keys();
 	{
-		union {
-			char c[PLAINTEXT_BUFFER_SIZE];
-			uint64_t w;
-		} key;
-		int len = MAX(MIN(self->params.plaintext_length, 8),
-		              self->params.plaintext_min_length);
+		char key[PLAINTEXT_BUFFER_SIZE];
+		int len = mask_add_len;
 
-		key.w = 0x6161616161616161ULL;
+		if (mask_add_len == 0 ||
+		    options.req_minlength != -1 || options.req_maxlength != 0) {
+			len = (self->params.benchmark_length & 0x7f);
+
+			if (len < options.req_minlength)
+				len = options.req_minlength;
+			if (options.req_maxlength && len > options.req_maxlength)
+				len = options.req_maxlength;
+		}
+		// Obey format's min and max length
+		len = MAX(len, self->params.plaintext_min_length);
+		len = MIN(len, self->params.plaintext_length);
+
+		if (options.verbosity == VERB_DEBUG)
+			fprintf(stderr, "Tuning to length %d\n", len);
+
+		memset(key, 0x41, sizeof(key));
+		key[len] = 0;
 
 		for (i = 0; i < kpc; i++) {
-			int l = 0;
+			int l = len - 1;
 
-			key.c[len] = 0;
-			self->methods.set_key(key.c, i);
-			while (++key.c[l] > 0x7a)
-				key.c[l++] = 0x20;
+			self->methods.set_key(key, i);
+			while (l >= 0 && ++key[l] > 0x60)
+				key[l--] = 0x21;
 		}
 	}
 
@@ -1645,6 +1665,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		while (s->next && s->cost[0] < db->max_cost[0])
 			s = s->next;
 		salt = s->salt;
+		*binary = s->list->binary;
 	} else {
 		char *ciphertext;
 
@@ -1653,10 +1674,38 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
 		ciphertext = self->methods.split(ciphertext, 0, self);
 		salt = self->methods.salt(ciphertext);
+		*binary = self->methods.binary(ciphertext);
 		if (salt)
 			dyna_salt_create(salt);
 	}
 	self->methods.set_salt(salt);
+
+	return salt;
+}
+
+// Do a test run with a specific global work size, return total duration
+// (or return zero for error or limits exceeded)
+static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
+{
+	cl_ulong startTime, endTime, runtime = 0, looptime = 0;
+	int i, count, total = 0;
+	size_t kpc = gws * ocl_v_width;
+	cl_event benchEvent[MAX_EVENTS];
+	int result, number_of_events = 0;
+	void *salt, *binary;
+	int amd_bug;
+
+	for (i = 0; i < MAX_EVENTS; i++)
+		benchEvent[i] = NULL;
+
+	// Ensure format knows its GWS
+	global_work_size = gws;
+
+	// Prepare buffers.
+	create_clobj(gws, self);
+
+	// Transfer data to the OpenCL device
+	salt = fill_opencl_device(gws, &binary);
 
 	// Activate events. Then clear them later.
 	for (i = 0; i < MAX_EVENTS; i++)
@@ -1664,7 +1713,8 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 
 	// Timing run
 	count = kpc;
-	if (self->methods.crypt_all(&count, autotune_salts) < 0) {
+	result = self->methods.crypt_all(&count, autotune_salts);
+	if (result < 0) {
 		runtime = looptime = 0;
 
 		if (options.verbosity > VERB_LEGACY)
@@ -1675,6 +1725,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 			dyna_salt_remove(salt);
 		return 0;
 	}
+	self->methods.cmp_all(binary, result);
 
 	for (i = 0; (*multi_profilingEvent[i]); i++)
 		number_of_events++;
@@ -1724,7 +1775,7 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		} else
 			runtime += (endTime - startTime);
 
-		if (options.verbosity == VERB_MAX)
+		if (options.verbosity >= VERB_MAX)
 			fprintf(stderr, "%s%s%s%s", warnings[i], mult,
 			        ns2string(endTime - startTime), (amd_bug) ? "*" : "");
 
@@ -1733,12 +1784,12 @@ static cl_ulong gws_test(size_t gws, unsigned int rounds, int sequential_id)
 		    (endTime - startTime) > 1000000ULL * duration_time) {
 			runtime = looptime = 0;
 
-			if (options.verbosity == VERB_MAX)
+			if (options.verbosity >= VERB_MAX)
 				fprintf(stderr, " (exceeds %s)", ms2string(duration_time));
 			break;
 		}
 	}
-	if (options.verbosity == VERB_MAX)
+	if (options.verbosity >= VERB_MAX)
 		fprintf(stderr, "\n");
 
 	if (total)
@@ -1792,12 +1843,12 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 {
 	size_t gws;
 	cl_int ret_code;
-	int i, j, numloops, count;
+	int i, j, numloops, count, result;
 	size_t my_work_group, optimal_work_group;
 	size_t max_group_size, wg_multiple, sumStartTime, sumEndTime;
 	cl_ulong startTime, endTime, kernelExecTimeNs = CL_ULONG_MAX;
 	cl_event benchEvent[MAX_EVENTS];
-	void *salt;
+	void *salt, *binary;
 
 	for (i = 0; i < MAX_EVENTS; i++)
 		benchEvent[i] = NULL;
@@ -1843,54 +1894,15 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	                         devices[sequential_id], CL_QUEUE_PROFILING_ENABLE, &ret_code);
 	HANDLE_CLERROR(ret_code, "clCreateCommandQueue");
 
-	// Set keys - unique printable length-8 keys
-	self->methods.clear_keys();
-	{
-		union {
-			char c[PLAINTEXT_BUFFER_SIZE];
-			uint64_t w;
-		} key;
-		int len = MAX(MIN(self->params.plaintext_length, 8),
-		              self->params.plaintext_min_length);
-
-		key.w = 0x6161616161616161ULL;
-
-		for (i = 0; i < global_work_size; i++) {
-			int l = 0;
-
-			key.c[len] = 0;
-			self->methods.set_key(key.c, i);
-			while (++key.c[l] > 0x7a)
-				key.c[l++] = 0x20;
-		}
-	}
-
-	// Set salt
-	dyna_salt_init(self);
-	if (self->methods.tunable_cost_value[0] && autotune_db->real) {
-		struct db_main *db = autotune_db->real;
-		struct db_salt *s = db->salts;
-
-		while (s->next && s->cost[0] < db->max_cost[0])
-			s = s->next;
-		salt = s->salt;
-	} else {
-		char *ciphertext;
-
-		if (!self->params.tests[0].fields[1])
-			self->params.tests[0].fields[1] = self->params.tests[0].ciphertext;
-		ciphertext = self->methods.prepare(self->params.tests[0].fields, self);
-		ciphertext = self->methods.split(ciphertext, 0, self);
-		salt = self->methods.salt(ciphertext);
-		if (salt)
-			dyna_salt_create(salt);
-	}
-	self->methods.set_salt(salt);
+	// Transfer data to the OpenCL device
+	salt = fill_opencl_device(gws, &binary);
 
 	// Warm-up run
 	local_work_size = wg_multiple;
 	count = global_work_size * ocl_v_width;
-	self->methods.crypt_all(&count, autotune_salts);
+	result = self->methods.crypt_all(&count, autotune_salts);
+	if (result > 0)
+		self->methods.cmp_all(binary, result);
 
 	// Activate events. Then clear them later.
 	for (i = 0; i < MAX_EVENTS; i++)
@@ -1898,7 +1910,9 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 
 	// Timing run
 	count = global_work_size * ocl_v_width;
-	self->methods.crypt_all(&count, autotune_salts);
+	result = self->methods.crypt_all(&count, autotune_salts);
+	if (result > 0)
+		self->methods.cmp_all(binary, result);
 
 	HANDLE_CLERROR(clWaitForEvents(1, &benchEvent[main_opencl_event]),
 	               "clWaitForEvents");
@@ -1913,14 +1927,13 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 	                                       CL_PROFILING_COMMAND_END,
 	                                       sizeof(cl_ulong), &endTime, NULL),
 	               "clGetEventProfilingInfo end");
-	numloops = (int)(size_t)(200000000ULL / (endTime - startTime));
+	cl_ulong roundup = endTime - startTime - 1;
+	numloops = (int)(size_t)((200000000ULL + roundup) / (endTime - startTime));
 
 	clear_profiling_events();
 
 	if (numloops < 1)
 		numloops = 1;
-	else if (numloops > 5)
-		numloops = 5;
 
 	// Find minimum time
 	for (optimal_work_group = my_work_group = wg_multiple;
@@ -1951,10 +1964,12 @@ void opencl_find_best_lws(size_t group_size_limit, int sequential_id,
 				multi_profilingEvent[j] = &benchEvent[j];
 
 			count = global_work_size * ocl_v_width;
-			if (self->methods.crypt_all(&count, autotune_salts) < 0) {
+			result = self->methods.crypt_all(&count, autotune_salts);
+			if (result < 0) {
 				startTime = endTime = 0;
 				break;
 			}
+			self->methods.cmp_all(binary, result);
 
 			HANDLE_CLERROR(clWaitForEvents(1, &benchEvent[main_opencl_event]),
 			               "clWaitForEvents");
@@ -2076,28 +2091,13 @@ uint32_t get_bitmap_size_bits(uint32_t num_elements, int sequential_id)
 	return size;
 }
 
-unsigned int lcm(unsigned int x, unsigned int y)
-{
-	unsigned int tmp, a, b;
-
-	a = MAX(x, y);
-	b = MIN(x, y);
-
-	while (b) {
-		tmp = b;
-		b = a % b;
-		a = tmp;
-	}
-	return x / a * y;
-}
-
 void opencl_find_best_gws(int step, int max_duration,
                           int sequential_id, unsigned int rounds, int have_lws)
 {
 	size_t num = 0;
 	size_t optimal_gws = local_work_size, soft_limit = 0;
 	unsigned long long speed, best_speed = 0, raw_speed;
-	cl_ulong run_time, min_time = CL_ULONG_MAX;
+	cl_ulong run_time;
 	int save_duration_time = duration_time;
 	cl_uint core_count = get_processors_count(sequential_id);
 
@@ -2127,7 +2127,7 @@ void opencl_find_best_gws(int step, int max_duration,
 		        local_work_size, ms2string(duration_time));
 	}
 
-	if (options.verbosity == VERB_MAX)
+	if (options.verbosity >= VERB_MAX)
 		fprintf(stderr, "Raw speed figures including buffer transfers:\n");
 
 	// Change command queue to be used by crypt_all (profile needed)
@@ -2151,7 +2151,7 @@ void opencl_find_best_gws(int step, int max_duration,
 			if (!optimal_gws)
 				optimal_gws = num;
 
-			if (options.verbosity == VERB_MAX)
+			if (options.verbosity >= VERB_MAX)
 				fprintf(stderr, "Hardware resources exhausted\n");
 			break;
 		}
@@ -2164,9 +2164,6 @@ void opencl_find_best_gws(int step, int max_duration,
 
 		raw_speed = (kpc / (run_time / 1E9)) * mask_int_cand.num_int_cand;
 		speed = rounds * raw_speed;
-
-		if (run_time < min_time)
-			min_time = run_time;
 
 		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, "gws: "Zu_N(9)"\t%10s"LLu_N(12)" "
@@ -2187,6 +2184,37 @@ void opencl_find_best_gws(int step, int max_duration,
 		}
 		if (options.verbosity > VERB_LEGACY)
 			fprintf(stderr, "\n");
+	}
+
+	/* Backward run */
+	for (num = autotune_get_prev_gws_size(optimal_gws, step);;
+	     num = autotune_get_prev_gws_size(num, step)) {
+		size_t kpc = num * ocl_v_width;
+
+		if (!(run_time = gws_test(num, rounds, sequential_id)))
+			break;
+
+		if (options.verbosity <= VERB_LEGACY)
+			advance_cursor();
+
+		raw_speed = (kpc / (run_time / 1E9)) * mask_int_cand.num_int_cand;
+		speed = rounds * raw_speed;
+
+		if (options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "gws: %9zu\t%10s%12llu "
+			        "rounds/s%10s per crypt_all()",
+			        num, human_speed(raw_speed), speed, ns2string(run_time));
+
+		if (speed < best_speed) {
+			if (options.verbosity > VERB_LEGACY)
+				fprintf(stderr, "-\n");
+			break;
+		}
+		best_speed = speed;
+		global_speed = raw_speed;
+		optimal_gws = num;
+		if (options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "!!\n");
 	}
 
 	/* Erase the 'spinning wheel' cursor */
@@ -2260,13 +2288,13 @@ static void load_device_info(int sequential_id)
 	}
 }
 
-size_t opencl_read_source(char *kernel_filename, char **kernel_source)
+size_t opencl_read_source(const char *kernel_filename, char **kernel_source)
 {
 	FILE *fp;
 	char *full_path;
 	size_t source_size, read_size;
 
-	fp = fopen(full_path = path_expand_safe(kernel_filename), "rb");
+	fp = fopen(full_path = (char*)path_expand_safe(kernel_filename), "rb");
 	MEM_FREE(full_path);
 
 	if (!fp)
@@ -2319,7 +2347,7 @@ size_t opencl_read_source(char *kernel_filename, char **kernel_source)
 }
 
 #if JOHN_SYSTEMWIDE
-static char *replace_str(char *string, char *from, char *to)
+static const char *replace_str(const char *string, char *from, char *to)
 {
 	static char buffer[512];
 	char *p;
@@ -2339,8 +2367,8 @@ static char *replace_str(char *string, char *from, char *to)
 #endif
 
 
-void opencl_build_kernel_opt(char *kernel_filename, int sequential_id,
-                             char *opts)
+void opencl_build_kernel_opt(const char *kernel_filename, int sequential_id,
+                             const char *opts)
 {
 	char *kernel_source = NULL;
 	opencl_read_source(kernel_filename, &kernel_source);
@@ -2350,7 +2378,7 @@ void opencl_build_kernel_opt(char *kernel_filename, int sequential_id,
 
 #define md5add(string) MD5_Update(&ctx, (string), strlen(string))
 
-void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
+void opencl_build_kernel(const char *kernel_filename, int sequential_id, const char *opts,
                          int warn)
 {
 #if HAVE_MPI
@@ -2368,14 +2396,15 @@ void opencl_build_kernel(char *kernel_filename, int sequential_id, char *opts,
 		opencl_build_kernel_opt(kernel_filename, sequential_id, opts);
 	} else {
 		struct stat source_stat, bin_stat;
-		char dev_name[512], bin_name[512], *tmp_name;
+		char dev_name[512], bin_name[512];
+		const char *tmp_name;
 		unsigned char hash[16];
 		char hash_str[33];
 		uint64_t startTime, runtime;
 		int i;
 		MD5_CTX ctx;
 		char *kernel_source = NULL;
-		char *global_opts;
+		const char *global_opts;
 
 		if (!(global_opts = getenv("OPENCLBUILDOPTIONS")))
 			if (!(global_opts = cfg_get_param(SECTION_OPTIONS,
@@ -2511,7 +2540,7 @@ int opencl_prepare_dev(int sequential_id)
 	return sequential_id;
 }
 
-void opencl_init(char *kernel_filename, int sequential_id, char *opts)
+void opencl_init(const char *kernel_filename, int sequential_id, const char *opts)
 {
 	sequential_id = opencl_prepare_dev(sequential_id);
 	opencl_build_kernel(kernel_filename, sequential_id, opts, 0);
@@ -2856,14 +2885,24 @@ int get_platform_vendor_id(int platform_id)
 		return DEV_AMD;
 
 	if ((strstr(dname, "MESA")) || (strstr(dname, "Mesa")))
-		return DEV_MESA;
+		return PLATFORM_MESA;
 
+	if (strstr(dname, "beignet"))
+		return PLATFORM_BEIGNET;
+
+	if (strstr(dname, "Portable Computing Language") || strstr(dname, "pocl"))
+		return PLATFORM_POCL;
+
+	/*
+	 * If we found nothing recognized in the device name, look at
+	 * device version string as well
+	 */
 	HANDLE_CLERROR(clGetPlatformInfo(platform[platform_id], CL_PLATFORM_VERSION,
 	                                 sizeof(dname), dname, NULL),
 	               "clGetPlatformInfo for CL_PLATFORM_VERSION");
 
 	if ((strstr(dname, "MESA")) || (strstr(dname, "Mesa")))
-		return DEV_MESA;
+		return PLATFORM_MESA;
 
 	return DEV_UNKNOWN;
 }
@@ -2998,315 +3037,313 @@ void opencl_list_devices(void)
 		}
 #endif
 #endif
-		/* Obtain a list of available platforms */
-		ret = clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
 
-		if (!num_platforms)
-			fprintf(stderr, "Error: No OpenCL-capable platforms were detected"
-			" by the installed OpenCL driver.\n");
+	/* Obtain a list of available platforms */
+	ret = clGetPlatformIDs(MAX_PLATFORMS, platform_list, &num_platforms);
 
-		if (ret != CL_SUCCESS && options.verbosity > VERB_LEGACY)
-			fprintf(stderr, "Throw clError: clGetPlatformIDs() = %s\n",
-			get_error_name(ret));
+	if (!num_platforms)
+		fprintf(stderr, "Error: No OpenCL-capable platforms were detected"
+		        " by the installed OpenCL driver.\n");
 
-		for (i = 0; i < num_platforms; i++) {
-			platforms[i].platform = platform_list[i];
-			ret = clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
-				MAX_GPU_DEVICES, &devices[available_devices],
-				&num_devices);
+	if (ret != CL_SUCCESS && options.verbosity > VERB_LEGACY)
+		fprintf(stderr, "Throw clError: clGetPlatformIDs() = %s\n",
+		        get_error_name(ret));
 
-			if ((ret != CL_SUCCESS || num_devices < 1) &&
-				options.verbosity > VERB_LEGACY)
-				fprintf(stderr, "No OpenCL devices was found on platform #%d"
-				", clGetDeviceIDs() = %s\n",
-				i, get_error_name(ret));
+	for (i = 0; i < num_platforms; i++) {
+		platforms[i].platform = platform_list[i];
+		ret = clGetDeviceIDs(platforms[i].platform, CL_DEVICE_TYPE_ALL,
+		                     MAX_GPU_DEVICES, &devices[available_devices],
+		                     &num_devices);
 
-			available_devices += num_devices;
-			platforms[i].num_devices = num_devices;
-		}
+		if ((ret != CL_SUCCESS || num_devices < 1) &&
+		     options.verbosity > VERB_LEGACY)
+			fprintf(stderr, "No OpenCL devices was found on platform #%d"
+			                 ", clGetDeviceIDs() = %s\n",
+			        i, get_error_name(ret));
 
-		if (!available_devices) {
-			fprintf(stderr, "Error: No OpenCL-capable devices were detected"
-				" by the installed OpenCL driver.\n\n");
-			return;
-		}
+		available_devices += num_devices;
+		platforms[i].num_devices = num_devices;
+	}
 
-#ifndef JTRDLL
-		/* Initialize OpenCL environment */
-		if (!getenv("_SKIP_OCL_INITIALIZATION"))
-			opencl_load_environment();
-#endif
-
-		for (i = 0; platforms[i].platform; i++) {
-
-			/* Query devices for information */
-			for (j = 0; j < platforms[i].num_devices; j++, sequence_nr++) {
-				cl_device_local_mem_type memtype;
-				cl_bool boolean;
-				char *p;
-				int ret, cpu;
-				int fan, temp, util, cl, ml;
+	if (!available_devices) {
+		fprintf(stderr, "Error: No OpenCL-capable devices were detected"
+		        " by the installed OpenCL driver.\n\n");
+		return;
+	}
 
 #ifndef JTRDLL
-				if (!getenv("_SKIP_OCL_INITIALIZATION") &&
-					(!default_gpu_selected && !get_if_device_is_in_use(sequence_nr)))
-					/* Nothing to do, skipping */
-					continue;
+	/* Initialize OpenCL environment */
+	if (!getenv("_SKIP_OCL_INITIALIZATION"))
+		opencl_load_environment();
 #endif
 
-				if (platform_in_use != i) {
-					/* Now, dealing with different platform. */
-					/* Obtain information about platform */
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_NAME, sizeof(dname), dname, NULL);
-					printf("Platform #%d name: %s, ", i, dname);
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_VERSION, sizeof(dname), dname, NULL);
-					printf("version: %s\n", dname);
+	for (i = 0; platforms[i].platform; i++) {
 
-					clGetPlatformInfo(platforms[i].platform,
-						CL_PLATFORM_EXTENSIONS, sizeof(dname), dname, NULL);
-					if (options.verbosity > VERB_LEGACY)
-						printf("    Platform extensions:    %s\n", dname);
-
-					/* Obtain a list of devices available */
-					if (!platforms[i].num_devices)
-						printf("%d devices found\n", platforms[i].num_devices);
-
-					platform_in_use = i;
-				}
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_NAME,
-					sizeof(dname), dname, NULL);
-				p = dname;
-				while (isspace(ARCH_INDEX(*p))) /* Intel quirk */
-					p++;
-				printf("    Device #%d (%d) name:     %s\n", j, sequence_nr, p);
+		/* Query devices for information */
+		for (j = 0; j < platforms[i].num_devices; j++, sequence_nr++) {
+			cl_device_local_mem_type memtype;
+			cl_bool boolean;
+			char *p;
+			int ret, cpu;
+			int fan, temp, util, cl, ml;
 
 #ifndef JTRDLL
-				// Check if device seems to be working.
-				if (!start_opencl_device(sequence_nr, &err_type)) {
-
-					if (err_type == 1)
-						printf("    Status:                 %s (%s)\n",
-						"Context creation error", get_error_name(ret_code));
-					else
-						printf("    Status:                 %s (%s)\n",
-						"Queue creation error", get_error_name(ret_code));
-				}
+			if (!getenv("_SKIP_OCL_INITIALIZATION") &&
+			   (!default_gpu_selected && !get_if_device_is_in_use(sequence_nr)))
+				/* Nothing to do, skipping */
+				continue;
 #endif
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_BOARD_NAME_AMD, sizeof(dname), dname, NULL);
-				if (ret == CL_SUCCESS && strlen(dname))
-					printf("    Board name:             %s\n", dname);
+			if (platform_in_use != i) {
+				/* Now, dealing with different platform. */
+				/* Obtain information about platform */
+				clGetPlatformInfo(platforms[i].platform,
+				                  CL_PLATFORM_NAME, sizeof(dname), dname, NULL);
+				printf("Platform #%d name: %s, ", i, dname);
+				clGetPlatformInfo(platforms[i].platform,
+				                  CL_PLATFORM_VERSION, sizeof(dname), dname, NULL);
+				printf("version: %s\n", dname);
 
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VENDOR,
-					sizeof(dname), dname, NULL);
-				printf("    Device vendor:          %s\n", dname);
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_TYPE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				printf("    Device type:            ");
-				cpu = (long_entries & CL_DEVICE_TYPE_CPU);
-				if (cpu)
-					printf("CPU ");
-				if (long_entries & CL_DEVICE_TYPE_GPU)
-					printf("GPU ");
-				if (long_entries & CL_DEVICE_TYPE_ACCELERATOR)
-					printf("Accelerator ");
-				if (long_entries & CL_DEVICE_TYPE_DEFAULT)
-					printf("Default ");
-				if (long_entries & ~(CL_DEVICE_TYPE_DEFAULT |
-					CL_DEVICE_TYPE_ACCELERATOR |
-					CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU))
-					printf("Unknown ");
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_ENDIAN_LITTLE, sizeof(cl_bool), &boolean, NULL);
-				printf("(%s)\n", boolean == CL_TRUE ? "LE" : "BE");
-				clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VERSION,
-					sizeof(dname), dname, NULL);
-				printf("    Device version:         %s\n", dname);
-				printf("    Driver version:         %s\n",
-					opencl_driver_info(sequence_nr));
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR,
-					sizeof(cl_uint), &entries, NULL);
-				printf("    Native vector widths:   char %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_SHORT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("short %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_INT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("int %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_NATIVE_VECTOR_WIDTH_LONG,
-					sizeof(cl_uint), &entries, NULL);
-				printf("long %d\n", entries);
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR,
-					sizeof(cl_uint), &entries, NULL);
-				printf("    Preferred vector width: char %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("short %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT,
-					sizeof(cl_uint), &entries, NULL);
-				printf("int %d, ", entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG,
-					sizeof(cl_uint), &entries, NULL);
-				printf("long %d\n", entries);
-
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_GLOBAL_MEM_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_ERROR_CORRECTION_SUPPORT,
-					sizeof(cl_bool), &boolean, NULL);
-				printf("    Global Memory:          %sB%s\n",
-					human_prefix(long_entries),
-					boolean == CL_TRUE ? " (ECC)" : "");
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_EXTENSIONS, sizeof(dname), dname, NULL);
+				clGetPlatformInfo(platforms[i].platform,
+				                  CL_PLATFORM_EXTENSIONS, sizeof(dname), dname, NULL);
 				if (options.verbosity > VERB_LEGACY)
-					printf("    Device extensions:      %s\n", dname);
+					printf("    Platform extensions:    %s\n", dname);
 
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				if (long_entries)
-					printf("    Global Memory Cache:    %sB\n",
-					human_prefix(long_entries)
-					);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_LOCAL_MEM_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_LOCAL_MEM_TYPE,
-					sizeof(cl_device_local_mem_type), &memtype, NULL);
-				printf("    Local Memory:           %sB (%s)\n",
-					human_prefix(long_entries),
-					memtype == CL_LOCAL ? "Local" : "Global");
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE,
-					sizeof(cl_ulong), &long_entries, NULL);
-				if (long_entries)
-					printf("    Constant Buffer size:   %sB\n",
-					human_prefix(long_entries)
-					);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_MEM_ALLOC_SIZE,
-					sizeof(long_entries), &long_entries, NULL);
-				printf("    Max memory alloc. size: %sB\n",
-					human_prefix(long_entries));
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(cl_int), &entries, NULL);
-				if (ret == CL_SUCCESS && entries)
-					printf("    Max clock (MHz):        %u\n", entries);
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_PROFILING_TIMER_RESOLUTION,
-					sizeof(size_t), &z_entries, NULL);
-				if (ret == CL_SUCCESS && z_entries)
-					printf("    Profiling timer res.:   "Zu" ns\n", z_entries);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &p_size, NULL);
-				printf("    Max Work Group Size:    %d\n", (int)p_size);
-				clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &entries, NULL);
-				printf("    Parallel compute cores: %d\n", entries);
+				/* Obtain a list of devices available */
+				if (!platforms[i].num_devices)
+					printf("%d devices found\n", platforms[i].num_devices);
 
-				long_entries = get_processors_count(sequence_nr);
-				if (!cpu && ocl_device_list[sequence_nr].cores_per_MP > 1)
-					printf("    %s      "LLu" "
-					" (%d x %d)\n",
-					gpu_nvidia(device_info[sequence_nr]) ? "CUDA cores:       " : "Stream processors:",
-					(unsigned long long)long_entries,
-					entries, ocl_device_list[sequence_nr].cores_per_MP);
-				printf("    Speed index:            %u\n",
-					opencl_speed_index(sequence_nr));
-
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_SIMD_WIDTH_AMD, sizeof(cl_uint),
-					&long_entries, NULL);
-				if (ret == CL_SUCCESS)
-					printf("    SIMD width:             "LLu"\n",
-					(unsigned long long)long_entries);
-
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_WAVEFRONT_WIDTH_AMD,
-					sizeof(cl_uint), &long_entries, NULL);
-				if (ret == CL_SUCCESS)
-					printf("    Wavefront width:        "LLu"\n",
-					(unsigned long long)long_entries);
-
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_WARP_SIZE_NV, sizeof(cl_uint),
-					&long_entries, NULL);
-				if (ret == CL_SUCCESS)
-					printf("    Warp size:              "LLu"\n",
-					(unsigned long long)long_entries);
-
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_REGISTERS_PER_BLOCK_NV,
-					sizeof(cl_uint), &long_entries, NULL);
-				if (ret == CL_SUCCESS)
-					printf("    Max. GPRs/work-group:   "LLu"\n",
-					(unsigned long long)long_entries);
-
-				if (gpu_nvidia(device_info[sequence_nr])) {
-					unsigned int major = 0, minor = 0;
-
-					get_compute_capability(sequence_nr, &major, &minor);
-					if (major && minor)
-						printf("    Compute capability:     %u.%u "
-						"(sm_%u%u)\n", major, minor, major, minor);
-				}
-				ret = clGetDeviceInfo(devices[sequence_nr],
-					CL_DEVICE_KERNEL_EXEC_TIMEOUT_NV,
-					sizeof(cl_bool), &boolean, NULL);
-				if (ret == CL_SUCCESS)
-					printf("    Kernel exec. timeout:   %s\n",
-					boolean ? "yes" : "no");
-
-				fan = temp = util = cl = ml = -1;
-#if HAVE_LIBDL
-				if (nvml_lib && gpu_nvidia(device_info[sequence_nr]) &&
-					id2nvml(ocl_device_list[sequence_nr].pci_info) >= 0) {
-					printf("    NVML id:                %d\n",
-						id2nvml(ocl_device_list[sequence_nr].pci_info));
-					nvidia_get_temp(id2nvml(ocl_device_list[sequence_nr].pci_info),
-						&temp, &fan, &util, &cl, &ml);
-				}
-				else if (adl_lib && gpu_amd(device_info[sequence_nr])) {
-					printf("    ADL:                    Overdrive%d, device id %d\n",
-						adl2od[id2adl(ocl_device_list[sequence_nr].pci_info)],
-						id2adl(ocl_device_list[sequence_nr].pci_info));
-					amd_get_temp(id2adl(ocl_device_list[sequence_nr].pci_info),
-						&temp, &fan, &util, &cl, &ml);
-				}
-#endif
-				if (ocl_device_list[sequence_nr].pci_info.bus >= 0) {
-					printf("    PCI device topology:    %s\n",
-						ocl_device_list[sequence_nr].pci_info.busId);
-				}
-				if (cl >= 0)
-					printf("    PCI lanes:              %d/%d\n", cl, ml);
-				if (fan >= 0)
-					printf("    Fan speed:              %u%%\n", fan);
-				if (temp >= 0)
-					printf("    Temperature:            %u%sC\n",
-					temp, gpu_degree_sign);
-				if (util >= 0)
-					printf("    Utilization:            %u%%\n", util);
-				else if (temp >= 0)
-					printf("    Utilization:            n/a\n");
-				puts("");
+				platform_in_use = i;
 			}
+			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_NAME,
+			                sizeof(dname), dname, NULL);
+			p = ltrim(dname);
+			printf("    Device #%d (%d) name:     %s\n", j, sequence_nr + 1, p);
+
+#ifndef JTRDLL
+			// Check if device seems to be working.
+			if (!start_opencl_device(sequence_nr, &err_type)) {
+
+				if (err_type == 1)
+					printf("    Status:                 %s (%s)\n",
+					       "Context creation error", get_error_name(ret_code));
+				else
+					printf("    Status:                 %s (%s)\n",
+					       "Queue creation error", get_error_name(ret_code));
+			}
+#endif
+
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_BOARD_NAME_AMD, sizeof(dname), dname, NULL);
+			if (ret == CL_SUCCESS && strlen(dname))
+				printf("    Board name:             %s\n", dname);
+
+			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VENDOR,
+			                sizeof(dname), dname, NULL);
+			printf("    Device vendor:          %s\n", dname);
+			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_TYPE,
+			                sizeof(cl_ulong), &long_entries, NULL);
+			printf("    Device type:            ");
+			cpu = (long_entries & CL_DEVICE_TYPE_CPU);
+			if (cpu)
+				printf("CPU ");
+			if (long_entries & CL_DEVICE_TYPE_GPU)
+				printf("GPU ");
+			if (long_entries & CL_DEVICE_TYPE_ACCELERATOR)
+				printf("Accelerator ");
+			if (long_entries & CL_DEVICE_TYPE_DEFAULT)
+				printf("Default ");
+			if (long_entries & ~(CL_DEVICE_TYPE_DEFAULT |
+			                     CL_DEVICE_TYPE_ACCELERATOR |
+			                     CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_CPU))
+				printf("Unknown ");
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_ENDIAN_LITTLE, sizeof(cl_bool), &boolean, NULL);
+			printf("(%s)\n", boolean == CL_TRUE ? "LE" : "BE");
+			clGetDeviceInfo(devices[sequence_nr], CL_DEVICE_VERSION,
+			                sizeof(dname), dname, NULL);
+			printf("    Device version:         %s\n", dname);
+			printf("    Driver version:         %s\n",
+			       opencl_driver_info(sequence_nr));
+
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("    Native vector widths:   char %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_NATIVE_VECTOR_WIDTH_SHORT,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("short %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_NATIVE_VECTOR_WIDTH_INT,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("int %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_NATIVE_VECTOR_WIDTH_LONG,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("long %d\n", entries);
+
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("    Preferred vector width: char %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("short %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("int %d, ", entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG,
+			                sizeof(cl_uint), &entries, NULL);
+			printf("long %d\n", entries);
+
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_GLOBAL_MEM_SIZE,
+			                sizeof(cl_ulong), &long_entries, NULL);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_ERROR_CORRECTION_SUPPORT,
+			                sizeof(cl_bool), &boolean, NULL);
+			printf("    Global Memory:          %sB%s\n",
+			       human_prefix(long_entries),
+			       boolean == CL_TRUE ? " (ECC)" : "");
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_EXTENSIONS, sizeof(dname), dname, NULL);
+			if (options.verbosity > VERB_LEGACY)
+				printf("    Device extensions:      %s\n", dname);
+
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,
+			                sizeof(cl_ulong), &long_entries, NULL);
+			if (long_entries)
+				printf("    Global Memory Cache:    %sB\n",
+				       human_prefix(long_entries)
+				      );
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_LOCAL_MEM_SIZE,
+			                sizeof(cl_ulong), &long_entries, NULL);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_LOCAL_MEM_TYPE,
+			                sizeof(cl_device_local_mem_type), &memtype, NULL);
+			printf("    Local Memory:           %sB (%s)\n",
+			       human_prefix(long_entries),
+			       memtype == CL_LOCAL ? "Local" : "Global");
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE,
+			                sizeof(cl_ulong), &long_entries, NULL);
+			if (long_entries)
+				printf("    Constant Buffer size:   %sB\n",
+				       human_prefix(long_entries)
+				      );
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_MAX_MEM_ALLOC_SIZE,
+			                sizeof(long_entries), &long_entries, NULL);
+			printf("    Max memory alloc. size: %sB\n",
+			       human_prefix(long_entries));
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(cl_int), &entries, NULL);
+			if (ret == CL_SUCCESS && entries)
+				printf("    Max clock (MHz):        %u\n", entries);
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_PROFILING_TIMER_RESOLUTION,
+			                      sizeof(size_t), &z_entries, NULL);
+			if (ret == CL_SUCCESS && z_entries)
+				printf("    Profiling timer res.:   "Zu" ns\n", z_entries);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &p_size, NULL);
+			printf("    Max Work Group Size:    %d\n", (int)p_size);
+			clGetDeviceInfo(devices[sequence_nr],
+			                CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &entries, NULL);
+			printf("    Parallel compute cores: %d\n", entries);
+
+			long_entries = get_processors_count(sequence_nr);
+			if (!cpu && ocl_device_list[sequence_nr].cores_per_MP > 1)
+				printf("    %s      "LLu" "
+				       " (%d x %d)\n",
+					gpu_nvidia(device_info[sequence_nr]) ? "CUDA cores:       " : "Stream processors:",
+				       (unsigned long long)long_entries,
+				       entries, ocl_device_list[sequence_nr].cores_per_MP);
+			printf("    Speed index:            %u\n",
+			       opencl_speed_index(sequence_nr));
+
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_SIMD_WIDTH_AMD, sizeof(cl_uint),
+			                      &long_entries, NULL);
+			if (ret == CL_SUCCESS)
+				printf("    SIMD width:             "LLu"\n",
+				       (unsigned long long)long_entries);
+
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_WAVEFRONT_WIDTH_AMD,
+			                      sizeof(cl_uint), &long_entries, NULL);
+			if (ret == CL_SUCCESS)
+				printf("    Wavefront width:        "LLu"\n",
+				       (unsigned long long)long_entries);
+
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_WARP_SIZE_NV, sizeof(cl_uint),
+			                      &long_entries, NULL);
+			if (ret == CL_SUCCESS)
+				printf("    Warp size:              "LLu"\n",
+				       (unsigned long long)long_entries);
+
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_REGISTERS_PER_BLOCK_NV,
+			                      sizeof(cl_uint), &long_entries, NULL);
+			if (ret == CL_SUCCESS)
+				printf("    Max. GPRs/work-group:   "LLu"\n",
+				       (unsigned long long)long_entries);
+
+			if (gpu_nvidia(device_info[sequence_nr])) {
+				unsigned int major = 0, minor = 0;
+
+				get_compute_capability(sequence_nr, &major, &minor);
+				if (major && minor)
+					printf("    Compute capability:     %u.%u "
+					       "(sm_%u%u)\n", major, minor, major, minor);
+			}
+			ret = clGetDeviceInfo(devices[sequence_nr],
+			                      CL_DEVICE_KERNEL_EXEC_TIMEOUT_NV,
+			                      sizeof(cl_bool), &boolean, NULL);
+			if (ret == CL_SUCCESS)
+				printf("    Kernel exec. timeout:   %s\n",
+				       boolean ? "yes" : "no");
+
+			fan = temp = util = cl = ml = -1;
+#if HAVE_LIBDL
+			if (nvml_lib && gpu_nvidia(device_info[sequence_nr]) &&
+			    id2nvml(ocl_device_list[sequence_nr].pci_info) >= 0) {
+				printf("    NVML id:                %d\n",
+				       id2nvml(ocl_device_list[sequence_nr].pci_info));
+				nvidia_get_temp(id2nvml(ocl_device_list[sequence_nr].pci_info),
+				                &temp, &fan, &util, &cl, &ml);
+			} else if (adl_lib && gpu_amd(device_info[sequence_nr])) {
+				printf("    ADL:                    Overdrive%d, device id %d\n",
+				       adl2od[id2adl(ocl_device_list[sequence_nr].pci_info)],
+				       id2adl(ocl_device_list[sequence_nr].pci_info));
+				amd_get_temp(id2adl(ocl_device_list[sequence_nr].pci_info),
+				             &temp, &fan, &util, &cl, &ml);
+			}
+#endif
+			if (ocl_device_list[sequence_nr].pci_info.bus >= 0) {
+				printf("    PCI device topology:    %s\n",
+				       ocl_device_list[sequence_nr].pci_info.busId);
+			}
+			if (cl >= 0)
+				printf("    PCI lanes:              %d/%d\n", cl, ml);
+			if (fan >= 0)
+				printf("    Fan speed:              %u%%\n", fan);
+			if (temp >= 0)
+				printf("    Temperature:            %u%sC\n",
+				       temp, gpu_degree_sign);
+			if (util >= 0)
+				printf("    Utilization:            %u%%\n", util);
+			else if (temp >= 0)
+				printf("    Utilization:            n/a\n");
+			puts("");
 		}
+	}
 #ifdef JTRDLL
 #ifdef _WIN32
 	}

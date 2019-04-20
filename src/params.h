@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2018 by Solar Designer
+ * Copyright (c) 1996-2019 by Solar Designer
  *
  * ...with changes in the jumbo patch, by various authors
  *
@@ -26,21 +26,27 @@
 /*
  * John's version number.
  */
-#define JOHN_VERSION			"1.8.0.13"
+#define JOHN_VERSION			"1.9.0"
+
+/*
+ * Define this for release tarballs. It affects the version reporting (will
+ * be the string above and below and never a Git hash) as well as some other
+ * details. Eg. it mutes output of OpenCL run-time build log unless the build
+ * failed.
+ */
+//#define JTR_RELEASE_BUILD 1
 
 /*
  * Jumbo's version number. Note that we must uncomment JTR_RELEASE_BUILD
- * below, in any release tar-balls (and only then).
+ * above, in any release tar-balls (and only then, never ever in Git).
  */
-#define JUMBO_VERSION			JOHN_VERSION "-jumbo-1-bleeding"
+#define JUMBO_POSTFIX			"-jumbo-1"
 
-/*
- * Define this for release tarballs after updating the string above.
- * It affects the version reporting (will be the string above and never
- * a Git hash) as well as some other details. Eg. it mutes output of
- * OpenCL run-time build log unless the build failed.
- */
-//#define JTR_RELEASE_BUILD 1
+#if JTR_RELEASE_BUILD
+#define JUMBO_VERSION			JOHN_VERSION JUMBO_POSTFIX
+#else
+#define JUMBO_VERSION			JOHN_VERSION JUMBO_POSTFIX "-bleeding"
+#endif
 
 /*
  * Notes to packagers of John for *BSD "ports", Linux distributions, etc.:
@@ -190,6 +196,7 @@
 #define SUBSECTION_WORDLIST		"Wordlist"
 #define SECTION_INC			"Incremental:"
 #define SECTION_EXT			"List.External:"
+#define SECTION_DEBUG			"Debug"
 #define SECTION_MARKOV			"Markov:"
 #define SECTION_PRINCE			"PRINCE"
 #define SECTION_DISABLED		"Disabled:"
@@ -338,6 +345,7 @@ extern unsigned int password_hash_thresholds[PASSWORD_HASH_SIZES];
 #define UNIQUE_BUFFER_SIZE		0x40000000
 #endif
 #define UNIQUE_HASH_SIZE		(1 << UNIQUE_HASH_LOG)
+#define UNIQUE_AVG_LEN			64
 
 /*
  * Maximum number of GECOS words per password to load.

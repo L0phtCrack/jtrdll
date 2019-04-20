@@ -56,7 +56,7 @@ john_register_one(&fmt_sevenzip);
 #define FORMAT_TAG              "$7z$"
 #define TAG_LENGTH              (sizeof(FORMAT_TAG)-1)
 #define BENCHMARK_COMMENT       " (512K iterations)"
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        7
 #define BINARY_SIZE             0
 #define BINARY_ALIGN            1
 #define SALT_SIZE               sizeof(struct custom_salt*)
@@ -319,7 +319,10 @@ static void *get_salt(char *ciphertext)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtokm(NULL, "$"); /* crc */
-	cs.crc = atou(p); /* unsigned function */
+	if (p[0] == '-')
+		cs.crc = (unsigned int)atoi(p); /* signed function, cast to unsigned */
+	else
+		cs.crc = atou(p); /* unsigned function */
 	p = strtokm(NULL, "$");
 	cs.length = atoll(p);
 	psalt = malloc(sizeof(struct custom_salt) + cs.length - 1);
@@ -700,10 +703,9 @@ static void sevenzip_set_key(char *key, int index)
 	/* Convert key to utf-16-le format (--encoding aware) */
 	int len;
 	len = enc_to_utf16(saved_key[index], PLAINTEXT_LENGTH, (UTF8*)key, strlen(key));
-	if (len <= 0) {
-		key[-len] = 0; // match truncation
+
+	if (len <= 0)
 		len = strlen16(saved_key[index]);
-	}
 	len *= 2;
 	saved_len[index] = len;
 

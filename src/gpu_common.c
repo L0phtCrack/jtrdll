@@ -40,11 +40,11 @@
 #include "signals.h"
 
 int gpu_id;
-int gpu_device_list[MAX_GPU_DEVICES];
-int requested_devices[MAX_GPU_DEVICES];
+int engaged_devices[MAX_GPU_DEVICES + 1];
+int requested_devices[MAX_GPU_DEVICES + 1];
 hw_bus gpu_device_bus[MAX_GPU_DEVICES];
 
-int gpu_temp_limit;
+int gpu_temp_limit, cool_gpu_down;
 char gpu_degree_sign[8] = "";
 
 void *nvml_lib;
@@ -480,25 +480,25 @@ void gpu_check_temp(void)
 {
 #if __linux__ && HAVE_LIBDL
 	static int warned;
-	int i;
+	int i, hot_gpu = 0;
 
 	if (gpu_temp_limit < 0)
 		return;
 
-	for (i = 0; i < MAX_GPU_DEVICES && gpu_device_list[i] != -1; i++)
-	if (dev_get_temp[gpu_device_list[i]]) {
+	for (i = 0; i < MAX_GPU_DEVICES && engaged_devices[i] != DEV_LIST_END; i++)
+	if (dev_get_temp[engaged_devices[i]]) {
 		int fan, temp, util, cl, ml;
-		int dev = gpu_device_list[i];
+		int dev = engaged_devices[i];
 
 		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util, &cl, &ml);
 
 		if (temp > 125 || temp < 10) {
 			if (!warned++) {
-				log_event("GPU %d probably invalid temp reading (%d%sC).",
-				          dev, temp, gpu_degree_sign);
+				log_event("Device %d probably invalid temp reading (%d%sC).",
+				          dev + 1, temp, gpu_degree_sign);
 				fprintf(stderr,
-				        "GPU %d probably invalid temp reading (%d%sC).\n",
-				        dev, temp, gpu_degree_sign);
+				        "Device %d probably invalid temp reading (%d%sC).\n",
+				        dev + 1, temp, gpu_degree_sign);
 			}
 			return;
 		}
@@ -507,15 +507,38 @@ void gpu_check_temp(void)
 			char s_fan[16] = "n/a";
 			if (fan >= 0)
 				sprintf(s_fan, "%u%%", fan);
-			if (!event_abort) {
-				log_event("GPU %d overheat (%d%sC, fan %s), aborting job.",
-				          dev, temp, gpu_degree_sign, s_fan);
+			if (!hot_gpu++ && !event_abort) {
+				log_event("Device %d overheat (%d%sC, fan %s), %s.",
+				          dev + 1, temp, gpu_degree_sign, s_fan,
+				          (cool_gpu_down > 0) ? "sleeping" : "aborting job");
 				fprintf(stderr,
-				        "GPU %d overheat (%d%sC, fan %s), aborting job.\n",
-				        dev, temp, gpu_degree_sign, s_fan);
+				        "Device %d overheat (%d%sC, fan %s), %s.\n",
+				        dev + 1, temp, gpu_degree_sign, s_fan,
+				        (cool_gpu_down > 0) ? "sleeping" : "aborting job");
 			}
-			event_abort++;
-		}
+			/***
+			 * Graceful handling of GPU overheating
+			 * - sleep for a while before re-checking the temperature.
+			 ***/
+			if (cool_gpu_down > 0) {
+				int t = cool_gpu_down;
+				while ((t = sleep(t)) && !event_abort);
+
+				// Warn again in case things don't calm down
+				if (hot_gpu > 5)
+					hot_gpu = 0;
+
+				/***
+				 * Re-check the temperature of the same GPU.
+				 * And loop indefinidely:
+				 * - if the GPU doesn't cool down enough during the sleep time
+				 ***/
+				i--;
+				continue;
+			} else
+				event_abort++;
+		} else
+			hot_gpu = 0;
 	}
 #endif
 }
@@ -525,15 +548,15 @@ void gpu_log_temp(void)
 #if __linux__ && HAVE_LIBDL
 	int i;
 
-	for (i = 0; i < MAX_GPU_DEVICES && gpu_device_list[i] != -1; i++)
-	if (dev_get_temp[gpu_device_list[i]]) {
+	for (i = 0; i < MAX_GPU_DEVICES && engaged_devices[i] != DEV_LIST_END; i++)
+	if (dev_get_temp[engaged_devices[i]]) {
 		char s_gpu[256] = "";
 		int n, fan, temp, util, cl, ml;
-		int dev = gpu_device_list[i];
+		int dev = engaged_devices[i];
 
 		fan = temp = util = -1;
 		dev_get_temp[dev](temp_dev_id[dev], &temp, &fan, &util, &cl, &ml);
-		n = sprintf(s_gpu, "GPU %d:", dev);
+		n = sprintf(s_gpu, "Device %d:", dev + 1);
 		if (temp >= 0)
 			n += sprintf(s_gpu + n, " temp: %u%sC", temp, gpu_degree_sign);
 		if (util > 0)

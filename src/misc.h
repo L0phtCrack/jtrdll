@@ -41,7 +41,7 @@
  * Exit on error. Logs the event, closes john.pot and the log file, and
  * terminates the process with non-zero exit status.
  */
-extern void real_error(char *file, int line)
+extern void real_error(const char *file, int line)
 #ifdef __GNUC__
 	__attribute__ ((__noreturn__));
 #else
@@ -54,7 +54,7 @@ extern void real_error(char *file, int line)
  * Exit on error with message.  Will call real_error to do
  * the final exiting, after printing error message.
  */
-extern void real_error_msg(char *file, int line, char *format, ...)
+extern void real_error_msg(const char *file, int line, const char *format, ...)
 #ifdef __GNUC__
 	__attribute__ ((__noreturn__))
 	__attribute__ ((format (printf, 3, 4)));
@@ -67,7 +67,7 @@ extern void real_error_msg(char *file, int line, char *format, ...)
 /*
  * Similar to perror(), but supports formatted output, and calls error().
  */
-extern void real_pexit(char *file, int line, char *format, ...)
+extern void real_pexit(const char *file, int line, const char *format, ...)
 #ifdef __GNUC__
 	__attribute__ ((__noreturn__))
 	__attribute__ ((format (printf, 3, 4)));
@@ -147,7 +147,7 @@ extern char *strnzcatn(char *dst, int size, const char *src, int max_src);
  * Similar to atoi(), but properly handles unsigned int.  Do not use
  * atoi() for unsigned data if the data can EVER be over MAX_INT.
  */
-extern unsigned atou(const char *src);
+extern unsigned int atou(const char *src);
 
 /*
  * Similar to strtok(), but properly handles adjacent delimiters as
@@ -194,5 +194,22 @@ const char *jtr_ulltoa(uint64_t num, char *result, int result_len, int base);
  * eg. 437281954 -> "417 M"
  */
 extern char *human_prefix(uint64_t num);
+
+/*
+ * Compute the least common multiple, lowest common multiple, or smallest
+ * common multiple of two integers x and y, usually denoted by LCM(x, y),
+ * is the smallest positive integer that is divisible by both x and y.
+ */
+unsigned int lcm(unsigned int x, unsigned int y);
+
+/*
+ * Remove leading spaces from a string.
+ */
+char *ltrim(char *str);
+
+/*
+ * Remove trailing spaces from a string.
+ */
+char *rtrim(char *str);
 
 #endif

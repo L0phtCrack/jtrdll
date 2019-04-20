@@ -625,7 +625,7 @@ out:
 	MEM_FREE(ratios);
 }
 
-static void charset_generate_all(struct list_main **lists, char *charset)
+static void charset_generate_all(struct list_main **lists, const char *charset)
 {
 	FILE *file;
 	int was_error;
@@ -665,7 +665,7 @@ static void charset_generate_all(struct list_main **lists, char *charset)
 
 	fflush(file);
 	if (!ferror(file) && !fseek(file, 0, SEEK_SET)) {
-		memcpy(header->version, CHARSET_V, strlen(CHARSET_V));
+		memcpy(header->version, CHARSET_V, sizeof(header->version));
 		header->min = CHARSET_MIN;
 		header->max = CHARSET_MAX;
 		header->length = CHARSET_LENGTH;
@@ -690,7 +690,7 @@ static void charset_generate_all(struct list_main **lists, char *charset)
 	MEM_FREE(header);
 }
 
-void do_makechars(struct db_main *db, char *charset)
+void do_makechars(struct db_main *db, const char *charset)
 {
 	struct list_main *lists[CHARSET_LENGTH + 1];
 	unsigned long total, remaining;

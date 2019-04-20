@@ -1,6 +1,6 @@
 /*
  * This file is part of John the Ripper password cracker,
- * Copyright (c) 1996-2018 by Solar Designer
+ * Copyright (c) 1996-2019 by Solar Designer
  *
  * ...with changes in the jumbo patch, by JimF and magnum (and various others?)
  *
@@ -234,7 +234,8 @@ static struct opt_entry opt_list[] = {
 		OPT_FMT_STR_ALLOC, &field_sep_char_str},
 	{"config", FLG_ZERO, 0, 0, OPT_REQ_PARAM,
 		OPT_FMT_STR_ALLOC, &options.config},
-	{"nolog", FLG_NOLOG, FLG_NOLOG},
+	{"nolog", FLG_NOLOG, FLG_NOLOG}, // Deprecated!
+	{"no-log", FLG_NOLOG, FLG_NOLOG},
 	{"log-stderr", FLG_LOG_STDERR, FLG_LOG_STDERR},
 	{"crack-status", FLG_CRKSTAT, FLG_CRKSTAT},
 	{"mkpc", FLG_ZERO, 0, FLG_CRACKING_CHK, OPT_REQ_PARAM,
@@ -314,7 +315,7 @@ static struct opt_entry opt_list[] = {
 
 #define JOHN_USAGE	  \
 "John the Ripper " JTR_GIT_VERSION _MP_VERSION DEBUG_STRING ASAN_STRING UBSAN_STRING " [" JOHN_BLD "]\n" \
-"Copyright (c) 1996-2018 by " JOHN_COPYRIGHT "\n" \
+"Copyright (c) 1996-2019 by " JOHN_COPYRIGHT "\n" \
 "Homepage: http://www.openwall.com/john/\n" \
 "\n" \
 "Usage: %s [OPTIONS] [PASSWORD-FILES]\n" \
@@ -412,7 +413,7 @@ void opt_print_hidden_usage(void)
 	puts("--max-length=N             request a maximum candidate length in bytes");
 	puts("--field-separator-char=C   use 'C' instead of the ':' in input and pot files");
 	puts("--fix-state-delay=N        performance tweak, see doc/OPTIONS");
-	puts("--nolog                    disables creation and writing to john.log file");
+	puts("--no-log                   disables creation and writing to john.log file");
 	puts("--log-stderr               log to screen instead of file");
 	puts("--bare-always-valid=C      if C is 'Y' or 'y', then the dynamic format will");
 	puts("                           always treat bare hashes as valid");
@@ -429,9 +430,9 @@ void opt_print_hidden_usage(void)
 	puts("--reject-printable         reject printable binaries");
 	printf("--verbosity=N              change verbosity (1-%u or %u for debug, default %u)\n",
 	       VERB_MAX, VERB_DEBUG, VERB_DEFAULT);
-	puts("--show=types               show some information about hashes in file (machine");
-	puts("                           readable)");
-	puts("--show=types-json          show some information about hashes in file (JSON)");
+	puts("--show=formats             show some information about hashes in file (JSON)");
+	puts("--show=types               show some information about hashes in file (custom");
+	puts("                           machine readable format; deprecated)");
 	puts("--show=invalid             show any lines from input that are not valid for");
 	puts("                           selected format(s)");
 	puts("--skip-self-tests          skip self tests");
@@ -520,8 +521,11 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 	} else
 #endif
 	if (options.flags & FLG_MASK_CHK) {
+		options.eff_mask = options.mask;
 		if (options.flags & FLG_TEST_CHK) {
 			options.flags &= ~FLG_PWD_SUP;
+			if (john_main_process && !(options.flags & FLG_NOTESTS))
+				fprintf(stderr, "Note: Self-tests currently not performed when using -mask with -test\n");
 			options.flags |= FLG_NOTESTS;
 
 			if (options.mask && strcasestr(options.mask, "?w"))
@@ -1014,19 +1018,19 @@ void opt_init(char *name, int argc, char **argv, int show_usage)
 			// instead of normal loading if we are in 'normal' show mode)
 			options.flags &= ~FLG_SHOW_CHK;
 		}
-		else if (!strcasecmp(show_uncracked_str, "types")) {
-			options.loader.showtypes = 1;
+		else if (!strcasecmp(show_uncracked_str, "formats")) {
+			options.loader.showformats = 1;
 		}
-		else if (!strcasecmp(show_uncracked_str, "types-json")) {
-			options.loader.showtypes = 1;
-			options.loader.showtypes_json = 1;
+		else if (!strcasecmp(show_uncracked_str, "types")) {
+			options.loader.showformats = 1;
+			options.loader.showformats_old = 1;
 		}
 		else if (!strcasecmp(show_uncracked_str, "invalid")) {
 			options.loader.showinvalid = 1;
 		}
 		else {
 			fprintf(stderr, "Invalid option in --show switch. Valid options:\n"
-			        "--show, --show=left, --show=types, --show=types-json, --show=invalid\n");
+			        "--show, --show=left, --show=formats, --show=types, --show=invalid\n");
 			error();
 		}
 	}

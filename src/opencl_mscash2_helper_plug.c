@@ -108,15 +108,15 @@ void releaseAll()
 	int 	i;
 
 	for (i = 0; i < get_number_of_devices_in_use(); i++) {
-	releaseDevObjGws(gpu_device_list[i]);
-	releaseDevObj(gpu_device_list[i]);
-	if (devParam[gpu_device_list[i]].devKernel[0]) {
-		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[0]), "Error releasing kernel pbkdf2_preprocess_short");
-		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[1]), "Error releasing kernel pbkdf2_preprocess_long");
-		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[2]), "Error releasing kernel pbkdf2_iter");
-		HANDLE_CLERROR(clReleaseKernel(devParam[gpu_device_list[i]].devKernel[3]), "Error releasing kernel pbkdf2_postprocess");
-		HANDLE_CLERROR(clReleaseProgram(program[gpu_device_list[i]]), "Error releasing Program");
-		devParam[gpu_device_list[i]].devKernel[0] = 0;
+	releaseDevObjGws(engaged_devices[i]);
+	releaseDevObj(engaged_devices[i]);
+	if (devParam[engaged_devices[i]].devKernel[0]) {
+		HANDLE_CLERROR(clReleaseKernel(devParam[engaged_devices[i]].devKernel[0]), "Error releasing kernel pbkdf2_preprocess_short");
+		HANDLE_CLERROR(clReleaseKernel(devParam[engaged_devices[i]].devKernel[1]), "Error releasing kernel pbkdf2_preprocess_long");
+		HANDLE_CLERROR(clReleaseKernel(devParam[engaged_devices[i]].devKernel[2]), "Error releasing kernel pbkdf2_iter");
+		HANDLE_CLERROR(clReleaseKernel(devParam[engaged_devices[i]].devKernel[3]), "Error releasing kernel pbkdf2_postprocess");
+		HANDLE_CLERROR(clReleaseProgram(program[engaged_devices[i]]), "Error releasing Program");
+		devParam[engaged_devices[i]].devKernel[0] = 0;
 		}
 	 }
 
@@ -486,19 +486,19 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 		if (i == maxActiveDevices - 1)
 			workPart = numKeys - workOffset;
 		else
-			workPart = devParam[gpu_device_list[i]].devGws;
+			workPart = devParam[engaged_devices[i]].devGws;
 
 		if ((int)workPart <= 0)
-			workPart = devParam[gpu_device_list[i]].devLws;
+			workPart = devParam[engaged_devices[i]].devLws;
 #ifdef  _DEBUG
 		gettimeofday(&startc, NULL) ;
 		
-		if (workPart != devParam[gpu_device_list[i]].devGws)
-			fprintf(stderr, "Deficit: %d "Zu"\n",  gpu_device_list[i], devParam[gpu_device_list[i]].devGws - workPart);
+		if (workPart != devParam[engaged_devices[i]].devGws)
+			fprintf(stderr, "Deficit: %d "Zu"\n",  engaged_devices[i], devParam[engaged_devices[i]].devGws - workPart);
 #endif
 
 		///call to execKernel()
-		execKernel(hostDccHashes + 4 * workOffset, hostSha1Hashes + 5 * workOffset, hostSalt, saltlen, iterCount, hostDcc2Hashes + 4 * workOffset, workPart, gpu_device_list[i], queue[gpu_device_list[i]]);
+		execKernel(hostDccHashes + 4 * workOffset, hostSha1Hashes + 5 * workOffset, hostSalt, saltlen, iterCount, hostDcc2Hashes + 4 * workOffset, workPart, engaged_devices[i], queue[engaged_devices[i]]);
 		workOffset += workPart;
 
 #ifdef  _DEBUG
@@ -509,7 +509,7 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 
 	///Synchronize all kernels
 	for (i = maxActiveDevices - 1; i >= 0; --i)
-		HANDLE_CLERROR(clFlush(queue[gpu_device_list[i]]), "Flush Error");
+		HANDLE_CLERROR(clFlush(queue[engaged_devices[i]]), "Flush Error");
 
 	for (i = 0; i < maxActiveDevices; ++i) {
 		while (1) {
@@ -530,10 +530,10 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 			workPart = numKeys - workOffset;
 
 		else
-			workPart = devParam[gpu_device_list[i]].devGws;
+			workPart = devParam[engaged_devices[i]].devGws;
 
 		if ((int)workPart <= 0)
-			workPart = devParam[gpu_device_list[i]].devLws;
+			workPart = devParam[engaged_devices[i]].devLws;
 
 #ifdef  _DEBUG
 		gettimeofday(&startc, NULL) ;
@@ -541,8 +541,8 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 #endif
 
 		///Read results back from device
-		HANDLE_CLERROR(clEnqueueReadBuffer(queue[gpu_device_list[i]],
-					devBuffer[gpu_device_list[i]].bufferDcc2Hashes,
+		HANDLE_CLERROR(clEnqueueReadBuffer(queue[engaged_devices[i]],
+					devBuffer[engaged_devices[i]].bufferDcc2Hashes,
 						CL_FALSE, 0,
 						4 * workPart * sizeof(cl_uint),
 						hostDcc2Hashes + 4 * workOffset,
@@ -559,7 +559,7 @@ void dcc2Execute(cl_uint *hostDccHashes, cl_uint *hostSha1Hashes, cl_uint *hostS
 		}
 
 	for (i = 0; i < maxActiveDevices; ++i)
-		HANDLE_CLERROR(clFinish(queue[gpu_device_list[i]]), "Finish Error");
+		HANDLE_CLERROR(clFinish(queue[engaged_devices[i]]), "Finish Error");
 
 }
 

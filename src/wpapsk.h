@@ -32,18 +32,21 @@
 #ifdef WPAPMK
 #define PLAINTEXT_MIN_LEN   64
 #define PLAINTEXT_LENGTH    64
+#define BENCHMARK_LENGTH    64
 #else
-#define PLAINTEXT_LENGTH	63 /* We can do 64 but spec. says 63 */
+#define PLAINTEXT_MIN_LEN   8
+#define PLAINTEXT_LENGTH    63 /* We can do 64 but spec. says 63 */
+#define BENCHMARK_LENGTH    8
 #endif
 #define SALT_SIZE		(sizeof(hccap_t) - sizeof(mic_t))
 #define SALT_ALIGN		MEM_ALIGN_NONE
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
 #define FORMAT_TAG           "$WPAPSK$"
 #define FORMAT_TAG_LEN       (sizeof(FORMAT_TAG)-1)
 
-typedef struct {
+typedef union {
 	unsigned char keymic[16];
+	uint32_t u32;
 } mic_t;
 
 typedef struct {
@@ -561,11 +564,15 @@ static void wpapsk_postprocess(int keys)
 #pragma omp parallel for default(none) private(i) shared(keys, outbuffer, data, hccap, mic)
 #endif
 		for (i = 0; i < keys; i++) {
-			uint32_t prf[20/4];
+			union {
+				uint32_t u32[20/4];
+				unsigned char uc[20];
+				uint64_t dummy; /* alignment for hmac_md5_init_K16() */
+			} prf;
 			HMACMD5Context ctx;
 
-			prf_512(outbuffer[i].v, data, prf); // PTK
-			hmac_md5_init_K16((unsigned char*)prf, &ctx);
+			prf_512(outbuffer[i].v, data, prf.u32); // PTK
+			hmac_md5_init_K16(prf.uc, &ctx);
 			hmac_md5_update(hccap.eapol, hccap.eapol_size, &ctx);
 			hmac_md5_final(mic[i].keymic, &ctx);
 		}
@@ -608,44 +615,37 @@ static void wpapsk_postprocess(int keys)
 
 static int get_hash_0(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_0;
+	return mic[index].u32 & PH_MASK_0;
 }
 
 static int get_hash_1(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_1;
+	return mic[index].u32 & PH_MASK_1;
 }
 
 static int get_hash_2(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_2;
+	return mic[index].u32 & PH_MASK_2;
 }
 
 static int get_hash_3(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_3;
+	return mic[index].u32 & PH_MASK_3;
 }
 
 static int get_hash_4(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_4;
+	return mic[index].u32 & PH_MASK_4;
 }
 
 static int get_hash_5(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_5;
+	return mic[index].u32 & PH_MASK_5;
 }
 
 static int get_hash_6(int index)
 {
-	uint32_t *h = (uint32_t *) mic[index].keymic;
-	return h[0] & PH_MASK_6;
+	return mic[index].u32 & PH_MASK_6;
 }
 
 static int cmp_all(void *binary, int count)
@@ -684,7 +684,7 @@ static int salt_hash(void *salt)
 	memcpy(&mac1, &s->mac1[2], 4);
 	memcpy(&mac2, &s->mac2[2], 4);
 
-	return (mac1 ^ mac2) & (SALT_HASH_SIZE - 1);
+	return (mac1 + mac2) & (SALT_HASH_SIZE - 1);
 }
 
 static int salt_compare(const void *x, const void *y)

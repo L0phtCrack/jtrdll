@@ -21,7 +21,7 @@
 #define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
 
 #define BENCHMARK_COMMENT		" (x16385)"
-#define BENCHMARK_LENGTH		-1
+#define BENCHMARK_LENGTH		0x107
 
 #define CIPHERTEXT_LENGTH		55
 
@@ -116,7 +116,7 @@ static void * get_salt(char *ciphertext)
 
 static int salt_hash(void *salt)
 {
-	return *((uint32_t *)salt) & 0x3FF;
+	return *((uint32_t *)salt) & (SALT_HASH_SIZE - 1);
 }
 
 
@@ -124,4 +124,3 @@ static unsigned int iteration_count(void *salt)
 {
 	return (unsigned int) 1 << (atoi64[ARCH_INDEX(((char*)salt)[8])]);
 }
-

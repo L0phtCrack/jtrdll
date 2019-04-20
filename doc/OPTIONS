@@ -176,9 +176,11 @@ If --show=left then all uncracked hashes are listed (in a John 'input'
 file format way).  =left is just that literal string "=left".  When
 using --show=left you normally need to supply the --format option too.
 
---show=type			show the types found in the input file
+--show=formats			parse hashes and show meta-information in JSON
+--show=types				or in old custom format
 
-Shows the types of input hashes contained in the input file.
+Shows the formats/types of input hashes contained in the input file.
+See doc/SHOW_FORMATS.md
 
 --show=invalid			show lines in the input file that fail valid()
 
@@ -445,15 +447,12 @@ side effect is that if John is aborted and later restarted it may redo more
 tests.  Thus, the use of this option is only sensible desirable for very fast
 hash types.
 
---nolog				turns off john.log file
+--no-log			disable log file
 
-This will turn off creation, or updating to the john.log file (which may
-have a different name if the --session=NAME flag was used.)  Often the
-logging is not needed, and this log file can often become very large
-(such as working with many 'fast' rules on a fast format).  The log file
-is often used to check what work has been done, but if this will not be
-needed, and the log file is simply going to be deleted when done, then
-running in --nolog mode may be used.
+This will turn off logging to file (default john.log) in case you are sure
+you wont need it.  The log can sometimes become huge (such as when working
+with many 'fast' rules on a fast format).  The older name --nolog is
+deprecated but will continue to work until next release.
 
 --log-stderr
 

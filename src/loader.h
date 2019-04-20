@@ -207,11 +207,11 @@ struct db_options {
 /* if --show=left is used, john dumps the non-cracked hashes */
 	int showuncracked;
 
-/* if --show=types is used, john shows all hashes in machine readable form */
-	int showtypes;
+/* if --show=formats is used, show all hashes in JSON form */
+	int showformats;
 
-/* if --show=types-json is used, show all hashes in JSON form */
-	int showtypes_json;
+/* if --show=types is used, john shows all hashes in machine readable form */
+	int showformats_old;
 
 /* if --show=invalid is used, john shows all hashes which fail valid() */
 	int showinvalid;
@@ -341,5 +341,10 @@ extern int ldr_isa_pot_source(const char *ciphertext);
 
 /* Common code for determining valid when loading a chopped .pot line */
 extern int ldr_trunc_valid(char *ciphertext, struct fmt_main *format);
+
+/*
+ * This function is for ldr_split_line(), and shared for showformats_regular()
+ */
+extern void ldr_set_encoding(struct fmt_main *format);
 
 #endif

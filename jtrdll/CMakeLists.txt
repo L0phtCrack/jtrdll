@@ -119,7 +119,7 @@ FILE(GLOB jtrdll_HEADERS
     "../src/aes/*.h"
     "../src/aes/openssl/*.h"
 #    "../src/aes/aesni/*.h"
-    "../src/escrypt/*.h"
+#		"../src/escrypt/*.h"
     "../src/secp256k1/*.h"
     "../src/lzma/*.h"
 #	"../src/ztex/*.h"
@@ -131,7 +131,7 @@ FILE(GLOB jtrdll_SOURCES
     "../src/aes/*.c"
     "../src/aes/openssl/*.c"
 #    "../src/aes/aesni/*.c"
-    "../src/escrypt/*.c"
+#    "../src/escrypt/*.c"
 #	"../src/ztex/*.c"
     "../src/secp256k1/*.c"
     "../src/lzma/*.c"
@@ -308,7 +308,6 @@ ENDIF()
 ## JTRDLL
 ##
 
-
 # remove non-working formats
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/stribog_fmt_plug.c)
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/gpg_fmt_plug.c)
@@ -316,7 +315,11 @@ LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl_gpg_fmt_p
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/tezos_fmt_plug.c)
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl_tezos_fmt_plug.c)
 LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/tiger_fmt_plug.c)
-
+LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/django_scrypt_fmt_plug.c)
+LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/ethereum_fmt_plug.c)
+LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/multibit_fmt_plug.c)
+LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/eigrp_fmt_plug.c)
+LIST(REMOVE_ITEM FMT_PLUGINS ${CMAKE_CURRENT_SOURCE_DIR}/../src/scrypt_fmt.c)
 
 # remove non-working files
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/KeccakF-1600-reference32BI.c)
@@ -333,12 +336,17 @@ LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/gpg_fmt_plug.
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl_gpg_fmt_plug.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/tezos_fmt_plug.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/tiger_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/django_scrypt_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/ethereum_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/multibit_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/eigrp_fmt_plug.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/scrypt_fmt.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl_tezos_fmt_plug.c)
 
 # remove #included programs
-LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/unicode_range.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/haval_helper.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/sboxes-s.c)
+LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/sboxes-t.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/sboxes.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/nonstd.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/md_helper.c)
@@ -346,8 +354,6 @@ LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/mmap-windows.
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/uaf_hash.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/rar_common.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/aes/openssl/ossl_aes_crypto.c)
-LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt/crypto_scrypt-nosse.c)
-LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt/crypto_scrypt-ref.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt/crypto_scrypt-sse.c)
 LIST(REMOVE_ITEM jtrdll_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt/scrypt_platform.c)
 
@@ -416,7 +422,7 @@ FILE(APPEND ${CMAKE_BINARY_DIR}/fmt_registers.h "#undef FMT_REGISTERS_H\n")
 # Set up includes and definitions
 
 INCLUDE_DIRECTORIES( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_BINARY_DIR} 
-	${CMAKE_CURRENT_SOURCE_DIR}/../src ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt 
+	${CMAKE_CURRENT_SOURCE_DIR}/../src # ${CMAKE_CURRENT_SOURCE_DIR}/../src/escrypt 
 	${OPENSSL_INCLUDE_DIR} ${PLATFORM_INCLUDE_DIRS} 
 	${ZLIB_INCLUDE_DIRS} 
 	${OPENCL_INCLUDE_DIRS}

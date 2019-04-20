@@ -15,7 +15,8 @@
 
 /* Allow the developer to select configurable step size for gws. */
 int autotune_get_next_gws_size(size_t num, int step, int startup,
-                             int default_value) {
+                               int default_value)
+{
 	if (startup) {
 		if (step == 0)
 			return GET_EXACT_MULTIPLE(default_value, local_work_size);
@@ -27,6 +28,21 @@ int autotune_get_next_gws_size(size_t num, int step, int startup,
 		return num * 2;
 
 	return num + step;
+}
+
+int autotune_get_prev_gws_size(size_t num, int step)
+{
+	int value;
+
+	if (step < 1)
+		value = MAX(1, num >> 1);
+	else
+		value = MAX(1, num - step);
+
+	if (value < local_work_size)
+		local_work_size = value;
+
+	return value;
 }
 
 /* Can be used to select a 'good' default lws size */

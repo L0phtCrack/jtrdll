@@ -30,7 +30,7 @@ john_register_one(&fmt_opencl_1otus5);
 #define FORMAT_NAME                    "Lotus Notes/Domino 5"
 #define ALGORITHM_NAME                 "OpenCL"
 #define BENCHMARK_COMMENT              ""
-#define BENCHMARK_LENGTH               -1
+#define BENCHMARK_LENGTH               0x107
 #define CIPHERTEXT_LENGTH              32
 #define SALT_SIZE                      0
 #define BINARY_ALIGN                   MEM_ALIGN_WORD
@@ -233,10 +233,8 @@ static int cmp_exact (char *source, int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
 	size_t mem_cpy_sz;
+	size_t N, *M;
 
 	mem_cpy_sz = count * KEY_SIZE_IN_BYTES;
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id],
@@ -245,9 +243,12 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 					    0, NULL, multi_profilingEvent[0]),
 					    "Failed to write buffer cl_tx_keys.");
 
+	M = local_work_size ? &local_work_size : NULL;
+	N = GET_NEXT_MULTIPLE(count, local_work_size);
+
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 					      crypt_kernel, 1,
-					      NULL, &gws, lws, 0, NULL, multi_profilingEvent[1]),
+					      NULL, &N, M, 0, NULL, multi_profilingEvent[1]),
 					      "Failed to enqueue kernel lotus5.");
 
 	mem_cpy_sz = count * BINARY_SIZE;

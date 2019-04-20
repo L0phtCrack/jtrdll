@@ -35,14 +35,18 @@ typedef struct {
 	char busId[100];
 } hw_bus;
 
+#define DEV_LIST_END             -1
+#define NO_GPU                   -1
+
 #define MAX_GPU_DEVICES         128
 extern int gpu_id;
-extern int gpu_device_list[MAX_GPU_DEVICES];
-extern int requested_devices[MAX_GPU_DEVICES];
+extern int engaged_devices[MAX_GPU_DEVICES + 1];
+extern int requested_devices[MAX_GPU_DEVICES + 1];
 
 extern hw_bus gpu_device_bus[MAX_GPU_DEVICES];
 
 extern int gpu_temp_limit;
+extern int cool_gpu_down;
 #define DEGREE_SIGN L"\xb0" // Degree sign as wchar_t
 
 extern char gpu_degree_sign[8];

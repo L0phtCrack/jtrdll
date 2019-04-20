@@ -31,7 +31,7 @@
 #define FORMAT_NAME			"crypt(3) $1$"
 
 #define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		-1
+#define BENCHMARK_LENGTH		0x107
 
 #define PLAINTEXT_LENGTH		15
 #define CIPHERTEXT_LENGTH		22
@@ -50,6 +50,7 @@
 
 static struct fmt_tests tests[] = {
 	{"$1$12345678$aIccj83HRDBo6ux1bVx7D1", "0123456789ABCDE"},
+	{"$1$7Uu2iTBB$Y4hQl2WvrOA3LBbLDxbAf0", "12345"},
 	{"$apr1$Q6ZYh...$RV6ft2bZ8j.NGrxLYaJt9.", "test"},
 	{"$1$12345678$f8QoJuo0DpBRfQSD0vglc1", "12345678"},
 	{"$1$$qRPK7m23GJusamGpoGLby/", ""},

@@ -43,14 +43,10 @@ john_register_one(&fmt_rar5);
 #ifdef SIMD_COEF_32
 #define ALGORITHM_NAME          "PBKDF2-SHA256 " SHA256_ALGORITHM_NAME
 #else
-#if ARCH_BITS >= 64
-#define ALGORITHM_NAME          "PBKDF2-SHA256 64/" ARCH_BITS_STR " " SHA2_LIB
-#else
-#define ALGORITHM_NAME          "PBKDF2-SHA256 32/" ARCH_BITS_STR " " SHA2_LIB
-#endif
+#define ALGORITHM_NAME          "PBKDF2-SHA256 32/" ARCH_BITS_STR SHA2_LIB
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define PLAINTEXT_LENGTH        32
 #define SALT_SIZE               sizeof(struct custom_salt)
 #define BINARY_ALIGN            sizeof(uint32_t)

@@ -35,12 +35,12 @@ john_register_one(&fmt_dragonfly3_64);
 #define FORMAT_LABEL_64			"dragonfly3-64"
 #define FORMAT_NAME_32			"DragonFly BSD $3$ w/ bug, 32-bit"
 #define FORMAT_NAME_64			"DragonFly BSD $3$ w/ bug, 64-bit"
-#define ALGORITHM_NAME			"SHA256 32/" ARCH_BITS_STR " " SHA2_LIB
+#define ALGORITHM_NAME			"SHA256 32/" ARCH_BITS_STR SHA2_LIB
 #define FORMAT_TAG				"$3$"
 #define FORMAT_TAG_LEN			(sizeof(FORMAT_TAG)-1)
 
 #define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		0
+#define BENCHMARK_LENGTH		7
 
 #define PLAINTEXT_LENGTH		125
 #define CIPHERTEXT_LENGTH		44
@@ -52,10 +52,10 @@ john_register_one(&fmt_dragonfly3_64);
 #define SALT_ALIGN			1
 
 #define MIN_KEYS_PER_CRYPT		1
-#define MAX_KEYS_PER_CRYPT		1024
+#define MAX_KEYS_PER_CRYPT		64
 
 #ifndef OMP_SCALE
-#define OMP_SCALE			2  // Tuned w/ MKPC for core i7
+#define OMP_SCALE			4  // Tuned w/ MKPC for core i7
 #endif
 
 static struct fmt_tests tests_32[] = {
@@ -89,9 +89,8 @@ static int salt_len;
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_len));
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,

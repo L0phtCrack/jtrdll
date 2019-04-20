@@ -45,7 +45,7 @@ john_register_one(&fmt_opencl_sevenzip);
 #define TAG_LENGTH		(sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"SHA256 AES OpenCL"
 #define BENCHMARK_COMMENT	" (512K iterations)"
-#define BENCHMARK_LENGTH	0
+#define BENCHMARK_LENGTH	7
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
 #define PLAINTEXT_LENGTH	((55-8)/2) // 23, rar3 uses 22
@@ -442,7 +442,10 @@ static void *get_salt(char *ciphertext)
 		cs.iv[i] = atoi16[ARCH_INDEX(p[i * 2])] * 16
 			+ atoi16[ARCH_INDEX(p[i * 2 + 1])];
 	p = strtokm(NULL, "$"); /* crc */
-	cs.crc = atou(p); /* unsigned function */
+	if (p[0] == '-')
+		cs.crc = (unsigned int)atoi(p); /* signed function, cast to unsigned */
+	else
+		cs.crc = atou(p); /* unsigned function */
 	p = strtokm(NULL, "$");
 	cs.length = atoll(p);
 	psalt = malloc(sizeof(struct custom_salt) + cs.length - 1);
@@ -646,11 +649,10 @@ exit_good:
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t *lws = (local_work_size && !(count % local_work_size)) ?
-		&local_work_size : NULL;
 	int index;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 
-	global_work_size = count;
+	//fprintf(stderr, "%s(%d) lws %zu gws %zu\n", __FUNCTION__, count, local_work_size, global_work_size);
 
 	if (any_cracked) {
 		memset(cracked, 0, cracked_size);

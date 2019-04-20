@@ -52,7 +52,9 @@ struct db_main *mask_db;
 static int mask_bench_index;
 static int parent_fix_state_pending;
 static unsigned int int_mask_sum, format_cannot_reset;
-int mask_add_len, mask_num_qw, mask_cur_len, mask_iter_warn, mask_increments_len;
+
+int mask_add_len, mask_num_qw, mask_cur_len, mask_iter_warn;
+int mask_increments_len;
 
 /*
  * This keeps track of whether we have any 8-bit in our non-hybrid mask.
@@ -93,14 +95,14 @@ uint64_t mask_parent_keys;
  * This function must pass escaped characters on, as-is (still escaped),
  * including "\\" which may escape "\\xHH" from being parsed as \xHH.
  */
-static void parse_hex(char *string)
+static char* parse_hex(char *string)
 {
 	static int warned;
 	unsigned char *s = (unsigned char*)string;
 	unsigned char *d = s;
 
 	if (!string || !*string)
-		return;
+		return string;
 
 	while (*s)
 	if (*s == '\\' && s[1] != 'x') {
@@ -119,6 +121,8 @@ static void parse_hex(char *string)
 		*d++ = *s++;
 
 	*d = 0;
+
+	return string;
 }
 
 /*
@@ -1018,10 +1022,10 @@ static char* drop1range(char *mask)
  * abc?l[0-9abcdef] -> 5
  * abc?w -> 3 (the parent-mode word placeholder does not count)
  */
-static int mask_len(char *mask)
+static int mask_len(const char *mask)
 {
 	int len = 0;
-	char *p = mask;
+	const char *p = mask;
 
 	while (*p) {
 		if (*p == '?') {
@@ -1040,7 +1044,7 @@ static int mask_len(char *mask)
 				p++;
 		} else if (*p == '[') {
 			char *q = strchr(++p, ']');
-			char *m = p;
+			const char *m = p;
 
 			while (q && q > m && q[-1] == '\\') {
 				m = q;
@@ -1182,6 +1186,7 @@ static int calc_pos_in_key(const char *mask, mask_parsed_ctx *parsed_mask,
 	i = ret_pos = 0;
 	while (i < mask_loc) {
 		int t;
+
 		if (mask[i] == '\\') {
 			i++;
 			if (i < mask_loc && mask[i] == '\\') {
@@ -1191,6 +1196,9 @@ static int calc_pos_in_key(const char *mask, mask_parsed_ctx *parsed_mask,
 			continue;
 		}
 		t = search_stack(parsed_mask, i);
+#ifdef MASK_DEBUG
+		fprintf(stderr, "t=%d\n", t);
+#endif
 		i = t ? t + 1 : i + 1;
 		ret_pos++;
 	}
@@ -1246,7 +1254,7 @@ static void init_cpu_mask(const char *mask, mask_parsed_ctx *parsed_mask,
 	int fmt_case = (mask_fmt->params.flags & FMT_CASE);
 
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s(%s, %d)\n", __FUNCTION__, mask, len);
+	fprintf(stderr, "%s(%s, %d) real_max = %dx%d+%d = %d\n", __FUNCTION__, mask, len, options.eff_maxlength, mask_num_qw, mask_add_len, options.eff_maxlength * mask_num_qw + mask_add_len);
 #endif
 
 	for (i = 0; i < MAX_NUM_MASK_PLHDR; i++) {
@@ -1272,7 +1280,12 @@ static void init_cpu_mask(const char *mask, mask_parsed_ctx *parsed_mask,
 			int j;
 
 			pos = calc_pos_in_key(mask, parsed_mask, load_op(op_ctr));
-			if (pos >= len && !format_cannot_reset)
+#ifdef MASK_DEBUG
+			fprintf(stderr, "load_op(%d) = %u\n", op_ctr, load_op(op_ctr));
+			fprintf(stderr, "calc_pos_in_key(%s, %d) = %d\n", mask, load_op(op_ctr), pos);
+#endif
+			if (!(options.flags & FLG_MASK_STACKED) &&
+			    pos >= len && !format_cannot_reset)
 				break;
 			cpu_mask_ctx->ranges[i].pos = pos;
 
@@ -1281,7 +1294,8 @@ static void init_cpu_mask(const char *mask, mask_parsed_ctx *parsed_mask,
 
 				if (mask[j] == '\\') {
 					j++;
-					if (j >= load_cl(cl_ctr)) break;
+					if (j >= load_cl(cl_ctr))
+						break;
 					check_n_insert;
 				}
 				else if (mask[j] == '-' &&
@@ -1342,7 +1356,12 @@ static void init_cpu_mask(const char *mask, mask_parsed_ctx *parsed_mask,
 			int j;
 
 			pos = calc_pos_in_key(mask, parsed_mask, load_qtn(qtn_ctr));
-			if (pos >= len && !format_cannot_reset)
+#ifdef MASK_DEBUG
+			fprintf(stderr, "load_qtn(%d) = %u\n", qtn_ctr, load_qtn(qtn_ctr));
+			fprintf(stderr, "calc_pos_in_key(%s, %d) = %d\n", mask, load_qtn(qtn_ctr), pos);
+#endif
+			if (!(options.flags & FLG_MASK_STACKED) &&
+			    pos >= len && !format_cannot_reset)
 				break;
 			cpu_mask_ctx->ranges[i].pos = pos;
 
@@ -1377,12 +1396,15 @@ static void init_cpu_mask(const char *mask, mask_parsed_ctx *parsed_mask,
 #undef swap
 #undef fill_range
 
+#define SAVE 0
+#define RESTORE 1
+
 static void save_restore(mask_cpu_context *cpu_mask_ctx, int range_idx, int ch)
 {
 	static int bckp_range_idx, bckp_next, toggle;
 
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s(%s)\n", __FUNCTION__, ch ? toggle ? "restoring" : "no-op" : "saving");
+	fprintf(stderr, "%s(%d, %s)\n", __FUNCTION__, range_idx, ch ? toggle ? "restore" : "no-op restore" : "save");
 #endif
 
 	if (range_idx == -1)
@@ -1462,7 +1484,7 @@ static char* generate_template_key(char *mask, const char *key, int key_len,
 	int i, k, t, j, l, offset;
 
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s(%s) ext key %s ext key_len %d (max %d)\n", __FUNCTION__, mask, key, key_len, template_len);
+	fprintf(stderr, "%s(%s) ext key \"%s\" ext key_len %d tlen %d\n", __FUNCTION__, mask, key, key_len, template_len);
 #endif
 
 	i = 0, k = 0, j = 0, l = 0, offset = 0;
@@ -1484,15 +1506,18 @@ static char* generate_template_key(char *mask, const char *key, int key_len,
 		} else if (key != NULL && (mask[i + 1] == 'w' ||
 			mask[i + 1] == 'W') && mask[i] == '?') {
 			template_key_offsets[l++] = ((unsigned char)mask[i + 1] << 16) | k;
-			/* Subtract 2 to account for '?w' in mask.*/
+			/* Subtract 2 to account for '?w' in mask */
 			offset += (key_len - 2);
+#ifdef MASK_DEBUG
+			memset(&template_key[k], 'w', key_len);
+#endif
 			k += key_len;
 			i += 2;
 		} else
 			template_key[k++] = mask[i++];
 
 		if (k >= (unsigned int)template_len) {
-			save_restore(cpu_mask_ctx, j - 1, 0); // save
+			save_restore(cpu_mask_ctx, j - 1, SAVE);
 			truncate_mask(cpu_mask_ctx, j - 1);
 			k = template_len;
 			break;
@@ -1519,7 +1544,7 @@ static char* generate_template_key(char *mask, const char *key, int key_len,
 		}
 	}
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s(): Mask '%s' has%s 8-bit\n", __FUNCTION__, template_key, mask_has_8bit ? "" : " no");
+	fprintf(stderr, "%s(): Template key: '%s'%s\n", __FUNCTION__, template_key, mask_has_8bit && !(options.flags & FLG_MASK_STACKED) ? " has 8-bit" : "");
 #endif
 
 	return template_key;
@@ -1532,7 +1557,7 @@ static MAYBE_INLINE char* mask_cp_to_utf8(char *in)
 
 	if (mask_has_8bit &&
 	    (options.internal_cp != UTF_8 && options.target_enc == UTF_8))
-		return cp_to_utf8_r(in, out, max_keylen);
+		return cp_to_utf8_r(in, out, sizeof(out) - 1);
 
 	return in;
 }
@@ -1583,6 +1608,10 @@ static int generate_keys(mask_cpu_context *cpu_mask_ctx,
 	    ps3 = MAX_NUM_MASK_PLHDR, ps4 = MAX_NUM_MASK_PLHDR, ps ;
 	int start1, start2, start3, start4;
 
+#ifdef MASK_DEBUG
+	fprintf(stderr, "%s(\"%s\")\n", __FUNCTION__, template_key);
+#endif
+
 #define process_key(key_i)	  \
 	do { \
 		key = key_i; \
@@ -1608,6 +1637,9 @@ static int generate_keys(mask_cpu_context *cpu_mask_ctx,
 			    !(*my_candidates)--)
 				goto done;
 
+#ifdef MASK_DEBUG
+			fprintf(stderr, "process_key(\"%s\")\n", template_key);
+#endif
 			process_key(template_key);
 			ps = ps1;
 			next_state(ps);
@@ -2083,7 +2115,6 @@ static void finalize_mask(int len);
  */
 void mask_init(struct db_main *db, char *unprocessed_mask)
 {
-	static char test_mask[] = "?a?a?l?u?d?d?s?s";
 	int using_default_mask = 0;
 	int i;
 
@@ -2102,9 +2133,6 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 
 	max_keylen = options.rule_stack ? 125 : options.eff_maxlength;
 
-	if (options.flags & FLG_TEST_CHK && !(options.flags & FLG_MASK_STACKED))
-		max_keylen = strlen(mask_fmt->params.tests[0].plaintext);
-
 	if ((options.flags & FLG_MASK_STACKED) && max_keylen < 2) {
 		if (john_main_process)
 			fprintf(stderr,
@@ -2116,50 +2144,71 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 	fprintf(stderr, "%s(%s) maxlen %d\n", __FUNCTION__, unprocessed_mask,
 	        max_keylen);
 #endif
+
 	/* Load defaults from john.conf */
-	if (!options.mask) {
-		if (options.flags & FLG_TEST_CHK)
-			options.mask = test_mask;
+	if (!unprocessed_mask) {
+		if (options.flags & FLG_TEST_CHK) {
+			static char test_mask[PLAINTEXT_BUFFER_SIZE + 8];
+			int bl = mask_fmt->params.benchmark_length & 0xff;
+
+			strcpy(test_mask, "?a?a?l?u?d?d?s?s" "xxxxxxxxxxxxxxxxxxxxx"
+			                  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+			                  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+			                  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"); // l = 125
+
+			if (bl <= 8)
+				test_mask[2 * bl] = 0;
+			else if (bl < (strlen(test_mask) - 8))
+				test_mask[bl + 8] = 0;
+			else
+				fprintf(stderr,
+				        "Warning: Format wanted length %d benchmark", bl);
+
+			unprocessed_mask = test_mask;
+		}
 		else if (options.flags & FLG_MASK_STACKED)
-			options.mask = cfg_get_param("Mask", NULL, "DefaultHybridMask");
+			unprocessed_mask = (char*)cfg_get_param("Mask", NULL, "DefaultHybridMask");
 		else
-			options.mask = cfg_get_param("Mask", NULL, "DefaultMask");
+			unprocessed_mask = (char*)cfg_get_param("Mask", NULL, "DefaultMask");
 
-		if (!options.mask)
-			options.mask = "";
+		if (!unprocessed_mask)
+			unprocessed_mask = "";
 
-		if (2 * options.eff_maxlength < strlen(options.mask))
-			options.mask[2 * options.eff_maxlength] = 0;
+		if (2 * options.eff_maxlength < strlen(unprocessed_mask))
+			unprocessed_mask[2 * options.eff_maxlength] = 0;
 
 		using_default_mask = 1;
 	}
+
+	if ((options.flags & FLG_TEST_CHK) && options.verbosity >= VERB_MAX)
+		fprintf(stderr, "\nTest mask: %s\n", unprocessed_mask);
 
 	if (!(options.flags & FLG_MASK_STACKED)) {
 		log_event("Proceeding with mask mode");
 
 		if (rec_restored && john_main_process) {
-			fprintf(stderr, "Proceeding with mask mode:%s", options.mask);
+			fprintf(stderr, "Proceeding with mask mode:%s", unprocessed_mask);
 			if (options.rule_stack)
 				fprintf(stderr, ", rules-stack:%s", options.rule_stack);
 			if (options.req_minlength >= 0 || options.req_maxlength)
 				fprintf(stderr, ", lengths: %d-%d",
-				        options.eff_minlength + mask_add_len,
-				        options.eff_maxlength + mask_add_len);
+				        options.eff_minlength, options.eff_maxlength);
 			fprintf(stderr, "\n");
 		}
 	}
+
+	if (using_default_mask && !(options.flags & FLG_TEST_CHK) &&
+	    john_main_process)
+		fprintf(stderr, "Using default mask: %s\n", unprocessed_mask);
 
 	/* Load defaults for custom placeholders ?1..?9 from john.conf */
 	for (i = 0; i < MAX_NUM_CUST_PLHDR; i++) {
 		char pl[2] = { '1' + i, 0 };
 
 		if (!options.custom_mask[i] &&
-		    !(options.custom_mask[i] = cfg_get_param("Mask", NULL, pl)))
+		    !(options.custom_mask[i] = (char*)cfg_get_param("Mask", NULL, pl)))
 			options.custom_mask[i] = "";
 	}
-
-	if (!unprocessed_mask)
-		unprocessed_mask = options.mask;
 
 	mask = unprocessed_mask;
 	template_key = mem_alloc(0x400);
@@ -2203,7 +2252,7 @@ void mask_init(struct db_main *db, char *unprocessed_mask)
 			parse_hex(options.custom_mask[i]);
 
 	/* Drop braces around a single-character [z] -> z */
-	mask = drop1range(mask);
+	options.eff_mask = mask = drop1range(mask);
 
 	if (mask_increments_len && !using_default_mask) {
 		int orig_len = mask_len(mask);
@@ -2324,23 +2373,20 @@ static void finalize_mask(int len)
 	}
 
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s() qw %d minlen %d maxlen %d fmt_len %d mask_add_len %d mask len %d\n", __FUNCTION__, mask_num_qw, options.eff_minlength, max_keylen, len, mask_add_len, mask_len(mask));
+	fprintf(stderr, "%s() qw %d minlen %d maxlen %d max_key_len %d mask_add_len %d mask len %d\n", __FUNCTION__, mask_num_qw, options.eff_minlength, max_keylen, len, mask_add_len, mask_len(mask));
 #endif
 	/* We decrease these here instead of changing parent modes. */
 	if (options.flags & FLG_MASK_STACKED) {
-		if (options.eff_minlength - mask_add_len >= 0)
-			options.eff_minlength -= mask_add_len;
-		if (options.req_maxlength)
-			options.eff_maxlength -= mask_add_len;
+		options.eff_minlength = MAX(0, options.eff_minlength - mask_add_len);
+		options.eff_maxlength = MAX(0, options.eff_maxlength - mask_add_len);
 		if (mask_num_qw) {
 			options.eff_minlength /= mask_num_qw;
 			options.eff_maxlength /= mask_num_qw;
 		}
 #ifdef MASK_DEBUG
-		fprintf(stderr, "%s(): effective minlen %d maxlen %d fmt_len %d\n",
+		fprintf(stderr, "%s(): effective minlen %d maxlen %d x %d + mask_add_len %d == %d\n",
 		        __FUNCTION__,
-		        options.eff_minlength, options.eff_maxlength,
-		        options.eff_maxlength - mask_add_len);
+		        options.eff_minlength, options.eff_maxlength, mask_num_qw, mask_add_len, options.eff_maxlength * mask_num_qw + mask_add_len);
 #endif
 	}
 
@@ -2386,8 +2432,9 @@ static void finalize_mask(int len)
 	}
 	mask_tot_cand = cand * mask_int_cand.num_int_cand;
 
-	log_event("- Requested internal mask factor: %d, actual now %d",
-	          mask_int_cand_target, mask_int_cand.num_int_cand);
+	if (mask_int_cand_target)
+		log_event("- Requested internal mask factor: %d, actual now %d",
+		          mask_int_cand_target, mask_int_cand.num_int_cand);
 }
 
 void mask_crk_init(struct db_main *db)
@@ -2422,6 +2469,14 @@ void mask_done()
 			rec_done(event_abort);
 		}
 	}
+}
+
+// Mask unload objects event. To be call after mask_done()
+void mask_destroy()
+{
+#ifdef MASK_DEBUG
+	fprintf(stderr, "%s()\n", __FUNCTION__);
+#endif
 
 	MEM_FREE(template_key);
 	MEM_FREE(template_key_offsets);
@@ -2437,7 +2492,7 @@ int do_mask_crack(const char *extern_key)
 	int i;
 
 #ifdef MASK_DEBUG
-	fprintf(stderr, "%s(%s) (format %s internal mask)\n", __FUNCTION__, extern_key, mask_fmt->params.flags & FMT_MASK ? "has" : "doesn't have");
+	fprintf(stderr, "%s(\"%s\") (format %s internal mask)\n", __FUNCTION__, extern_key, mask_fmt->params.flags & FMT_MASK ? "has" : "doesn't have");
 #endif
 
 	mask_parent_keys++;
@@ -2458,7 +2513,8 @@ int do_mask_crack(const char *extern_key)
 
 		if (mask_cur_len == 0) {
 			if (john_main_process) {
-				if (!format_cannot_reset && mask_fmt->params.flags & FMT_MASK) {
+				if (!format_cannot_reset &&
+				    (mask_fmt->params.flags & FMT_MASK)) {
 					finalize_mask(0);
 					generate_template_key(mask, NULL, 0, &parsed_mask,
 					                      &cpu_mask_ctx, 0);
@@ -2481,7 +2537,7 @@ int do_mask_crack(const char *extern_key)
 			rec_cl = 0;
 
 			/* Process remaining keys of last length, if needed */
-			if (!format_cannot_reset && mask_fmt->params.flags & FMT_MASK) {
+			if (!format_cannot_reset && (mask_fmt->params.flags & FMT_MASK)) {
 #ifdef MASK_DEBUG
 				fprintf(stderr, "%s() calling crk_process_buffer() for remaining candidates of last length\n", __FUNCTION__);
 #endif
@@ -2492,7 +2548,7 @@ int do_mask_crack(const char *extern_key)
 			mask_cur_len = i;
 
 			if (format_cannot_reset)
-				save_restore(&cpu_mask_ctx, 0, 1); // restore
+				save_restore(&cpu_mask_ctx, 0, RESTORE);
 			else
 				finalize_mask(mask_cur_len);
 
@@ -2507,7 +2563,7 @@ int do_mask_crack(const char *extern_key)
 			mask_tot_cand = cand * mask_int_cand.num_int_cand;
 
 			/* Update internal masks if needed. */
-			if (!format_cannot_reset && mask_fmt->params.flags & FMT_MASK &&
+			if (!format_cannot_reset && (mask_fmt->params.flags & FMT_MASK) &&
 			    last_mask_sum != int_mask_sum) {
 #ifdef MASK_DEBUG
 				fprintf(stderr, "%s() calling format reset()\n", __FUNCTION__);
@@ -2534,7 +2590,7 @@ int do_mask_crack(const char *extern_key)
 		static int old_keylen = -1;
 
 		if (old_keylen != key_len) {
-			save_restore(&cpu_mask_ctx, 0, 1); // restore
+			save_restore(&cpu_mask_ctx, 0, RESTORE);
 			generate_template_key(mask, extern_key, key_len, &parsed_mask,
 			                      &cpu_mask_ctx, max_keylen);
 			old_keylen = key_len;
@@ -2544,13 +2600,13 @@ int do_mask_crack(const char *extern_key)
 		while(template_key_offsets[i] != -1) {
 			int offset = template_key_offsets[i] & 0xffff;
 			unsigned char toggle =  (template_key_offsets[i++] >> 16) == 'W';
-			int cpy_len = max_keylen - offset;
+			int cpy_len = MIN(max_keylen - offset, key_len);
 
-			cpy_len = cpy_len > key_len ? key_len : cpy_len;
 			if (!toggle)
 				memcpy(template_key + offset, extern_key, cpy_len);
 			else {
 				int z;
+
 				for (z = 0; z < cpy_len; ++z) {
 					if (enc_islower(extern_key[z]))
 						template_key[offset + z] =
@@ -2587,4 +2643,11 @@ int do_mask_crack(const char *extern_key)
 	}
 
 	return event_abort;
+}
+
+int mask_calc_len(const char *mask_in)
+{
+	char *mask = str_alloc_copy(mask_in);
+
+	return mask_len(parse_hex(mask));
 }

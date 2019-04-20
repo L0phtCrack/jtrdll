@@ -38,9 +38,11 @@ john_register_one(&fmt_DOMINOSEC8);
 
 #include <ctype.h>
 #include <string.h>
-
 #ifdef DOMINOSEC_32BIT
 #include <stdint.h>
+#endif
+#ifdef _OPENMP
+#include <omp.h>
 #endif
 
 #include "misc.h"
@@ -48,11 +50,9 @@ john_register_one(&fmt_DOMINOSEC8);
 #include "common.h"
 #undef SIMD_COEF_32
 #include "pbkdf2_hmac_sha1.h"
-#ifdef _OPENMP
-#include <omp.h>
+
 #ifndef OMP_SCALE
-#define OMP_SCALE               128
-#endif
+#define OMP_SCALE           1	// MKPC and OMP_SCALE tuned for core i7
 #endif
 
 #define FORMAT_LABEL		"dominosec8"
@@ -60,7 +60,7 @@ john_register_one(&fmt_DOMINOSEC8);
 #define ALGORITHM_NAME		"8/" ARCH_BITS_STR
 
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	0
+#define BENCHMARK_LENGTH	7
 
 #define PLAINTEXT_LENGTH	64
 #define CIPHERTEXT_LENGTH	51
@@ -174,9 +174,8 @@ static struct fmt_tests tests[] = {
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	saved_key = mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out));
 	crypt_out_real = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out_real));

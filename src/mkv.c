@@ -110,21 +110,19 @@ static int show_pwd_rnbs(struct db_main *db, struct s_pwd *pwd)
 			}
 			else
 #endif
-				if (f_new) {
-					if (do_external_hybrid_crack(db, pass))
-						return 1;
-					mkv_hybrid_fix_state();
-				}
-				else
-					if (options.mask) {
-						if (do_mask_crack(pass))
-							return 1;
-					}
-					else
-						if (!f_filter ||
-							ext_filter_body((char *)pwd->password, pass = pass_filtered))
-							if (crk_process_key(pass))
-								return 1;
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
+			if (options.flags & FLG_MASK_CHK) {
+				if (do_mask_crack(pass))
+					return 1;
+			} else
+			if (!f_filter ||
+			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
+				if (crk_process_key(pass))
+					return 1;
 		}
 		gidx++;
 		k++;
@@ -179,21 +177,19 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 			}
 			else
 #endif
-				if (f_new) {
-					if (do_external_hybrid_crack(db, pass))
-						return 1;
-					mkv_hybrid_fix_state();
-				}
-				else
-					if (options.mask) {
-						if (do_mask_crack(pass))
-							return 1;
-					}
-					else
-						if (!f_filter ||
-							ext_filter_body((char *)pwd->password, pass = pass_filtered))
-							if (crk_process_key(pass))
-								return 1;
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
+			if (options.flags & FLG_MASK_CHK) {
+				if (do_mask_crack(pass))
+					return 1;
+			} else
+			if (!f_filter ||
+			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
+				if (crk_process_key(pass))
+					return 1;
 		}
 		gidx++;
 		k++;
@@ -222,21 +218,19 @@ static int show_pwd_r(struct db_main *db, struct s_pwd *pwd, unsigned int bs)
 			}
 			else
 #endif
-				if (f_new) {
-					if (do_external_hybrid_crack(db, pass))
-						return 1;
-					mkv_hybrid_fix_state();
-				}
-				else
-					if (options.mask) {
-						if (do_mask_crack(pass))
-							return 1;
-					}
-					else
-						if (!f_filter ||
-							ext_filter_body((char *)pwd->password, pass = pass_filtered))
-							if (crk_process_key(pass))
-								return 1;
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
+			if (options.flags & FLG_MASK_CHK) {
+				if (do_mask_crack(pass))
+					return 1;
+			} else
+			if (!f_filter ||
+			    ext_filter_body((char *)pwd->password, pass = pass_filtered))
+				if (crk_process_key(pass))
+					return 1;
 		}
 		gidx++;
 		k++;
@@ -281,21 +275,19 @@ static int show_pwd(struct db_main *db, uint64_t start)
 				}
 				else
 #endif
-					if (f_new) {
-						if (do_external_hybrid_crack(db, pass))
-							return 1;
-						mkv_hybrid_fix_state();
-					}
-					else
-						if (options.mask) {
-							if (do_mask_crack(pass))
-								return 1;
-						}
-						else
-							if (!f_filter ||
-								ext_filter_body((char *)pwd.password, pass = pass_filtered))
-								if (crk_process_key(pass))
-									return 1;
+				if (f_new) {
+					if (do_external_hybrid_crack(db, pass))
+						return 1;
+					mkv_hybrid_fix_state();
+				} else
+				if (options.flags & FLG_MASK_CHK) {
+					if (do_mask_crack(pass))
+						return 1;
+				} else
+				if (!f_filter ||
+				    ext_filter_body((char *)pwd.password, pass = pass_filtered))
+					if (crk_process_key(pass))
+						return 1;
 			}
 		}
 		gidx++;
@@ -321,21 +313,19 @@ static int show_pwd(struct db_main *db, uint64_t start)
 			}
 			else
 #endif
-				if (f_new) {
-					if (do_external_hybrid_crack(db, pass))
-						return 1;
-					mkv_hybrid_fix_state();
-				}
-				else
-					if (options.mask) {
-						if (do_mask_crack(pass))
-							return 1;
-					}
-					else
-						if (!f_filter ||
-							ext_filter_body((char *)pwd.password, pass = pass_filtered))
-							if (crk_process_key(pass))
-								return 1;
+			if (f_new) {
+				if (do_external_hybrid_crack(db, pass))
+					return 1;
+				mkv_hybrid_fix_state();
+			} else
+			if (options.flags & FLG_MASK_CHK) {
+				if (do_mask_crack(pass))
+					return 1;
+			} else
+			if (!f_filter ||
+			    ext_filter_body((char *)pwd.password, pass = pass_filtered))
+				if (crk_process_key(pass))
+					return 1;
 		}
 		gidx++;
 		i++;
@@ -375,7 +365,7 @@ void get_markov_options(struct db_main *db,
 	char *dummy_token = NULL;
 
 	int minlevel, level, minlen, maxlen;
-	int our_fmt_len = db->format->params.plaintext_length;
+	int our_fmt_len = options.eff_maxlength;
 
 	*start_token = NULL;
 	*end_token = NULL;
@@ -430,7 +420,7 @@ void get_markov_options(struct db_main *db,
 	}
 
 	if (options.mkv_stats == NULL)
-		*statfile = cfg_get_param(SECTION_MARKOV, mode, "Statsfile");
+		*statfile = (char*)cfg_get_param(SECTION_MARKOV, mode, "Statsfile");
 	else
 		*statfile = options.mkv_stats;
 
@@ -524,9 +514,6 @@ void get_markov_options(struct db_main *db,
 				maxlen /= mask_num_qw;
 		}
 	}
-
-	if (mask_num_qw > 1)
-		our_fmt_len /= mask_num_qw;
 
 	if (our_fmt_len <= MAX_MKV_LEN && maxlen > our_fmt_len) {
 		log_event("! MaxLen = %d is too large for this hash type", maxlen);
@@ -770,8 +757,8 @@ void do_markov_crack(struct db_main *db, char *mkv_param)
 	if (rec_restored && john_main_process) {
 		fprintf(stderr, "Proceeding with Markov%s%s",
 		        param ? " " : "", param ? param : "");
-		if (options.mask)
-			fprintf(stderr, ", hybrid mask:%s", options.mask);
+		if (options.flags & FLG_MASK_CHK)
+			fprintf(stderr, ", hybrid mask:%s", options.eff_mask);
 		if (options.rule_stack)
 			fprintf(stderr, ", rules-stack:%s", options.rule_stack);
 		if (options.req_minlength >= 0 || options.req_maxlength)

@@ -19,29 +19,13 @@ john_register_one(&fmt_haval_128_4);
 
 #include <string.h>
 
+#include "arch.h"
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
 
 #ifdef _OPENMP
 #include <omp.h>
-// Tuned on core i7 quad HT
-//       256-3  128-4
-//   1   227k   228k
-//  64  6359k  5489k
-// 128  7953k  6654k
-// 256  8923k  7618k
-// 512  9804k  8223k
-// 1k  10307k  8569k  ** set to this value
-// 2k  10081k  8427k
-// 4k  10551k  8893k
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE  64
-#else
-#define OMP_SCALE  1024
-#endif // __MIC__
-#endif // OMP_SCALE
 #endif // _OPENMP
 
 #include "arch.h"
@@ -56,7 +40,7 @@ john_register_one(&fmt_haval_128_4);
 #define TAG_LENGTH		(sizeof(FORMAT_TAG)-1)
 #define ALGORITHM_NAME		"32/" ARCH_BITS_STR
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
+#define BENCHMARK_LENGTH	0x107
 #define PLAINTEXT_LENGTH	125
 #define BINARY_SIZE256		32
 #define BINARY_SIZE128		16
@@ -64,7 +48,15 @@ john_register_one(&fmt_haval_128_4);
 #define BINARY_ALIGN		4
 #define SALT_ALIGN		1
 #define MIN_KEYS_PER_CRYPT	1
-#define MAX_KEYS_PER_CRYPT	1
+#define MAX_KEYS_PER_CRYPT	64
+
+#ifndef OMP_SCALE
+#ifdef __MIC__
+#define OMP_SCALE  4
+#else
+#define OMP_SCALE  16
+#endif // __MIC__
+#endif // OMP_SCALE
 
 static struct fmt_tests haval_256_3_tests[] = {
 	{"91850C6487C9829E791FC5B58E98E372F3063256BB7D313A93F1F83B426AEDCC", "HAVAL"},
@@ -97,9 +89,8 @@ static uint32_t (*crypt_out)[BINARY_SIZE256 / sizeof(uint32_t)];
 
 static void init(struct fmt_main *self)
 {
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
 	if (!saved_key) {
 		saved_key = mem_calloc(self->params.max_keys_per_crypt,
 		                       sizeof(*saved_key));

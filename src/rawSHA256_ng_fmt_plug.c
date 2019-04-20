@@ -16,22 +16,21 @@ extern struct fmt_main fmt_rawSHA256_ng;
 john_register_one(&fmt_rawSHA256_ng);
 #else
 
+#include <string.h>
+#include <stdint.h>
+
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
 
 #if _OPENMP
 #include <omp.h>
-#if __XOP__
-#ifndef OMP_SCALE
-#define OMP_SCALE                 512 /* AMD */
 #endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE                 512 /* Intel */
-#endif
-#endif
-#endif
+
+#include "pseudo_intrinsics.h"
+#include "common.h"
+#include "formats.h"
+#include "aligned.h"
 
 #include "misc.h"
 #if !defined(DEBUG) && !defined(WITH_ASAN)
@@ -41,14 +40,6 @@ john_register_one(&fmt_rawSHA256_ng);
 #endif
 #endif
 
-#include <string.h>
-#include <stdint.h>
-
-#include "pseudo_intrinsics.h"
-#include "common.h"
-#include "formats.h"
-#include "aligned.h"
-
 #if __MIC__
 #define SIMD_TYPE                 "512/512 MIC 16x"
 #elif __AVX512F__
@@ -57,6 +48,8 @@ john_register_one(&fmt_rawSHA256_ng);
 #define SIMD_TYPE                 "256/256 AVX2 8x"
 #elif __ALTIVEC__
 #define SIMD_TYPE                 "128/128 AltiVec 4x"
+#elif __aarch64__
+#define SIMD_TYPE                 "128/128 ASIMD 4x"
 #elif __ARM_NEON
 #define SIMD_TYPE                 "128/128 NEON 4x"
 #elif __XOP__
@@ -89,7 +82,11 @@ john_register_one(&fmt_rawSHA256_ng);
 #define SALT_SIZE                 0
 #define SALT_ALIGN                1
 #define MIN_KEYS_PER_CRYPT        VWIDTH
-#define MAX_KEYS_PER_CRYPT        VWIDTH
+#define MAX_KEYS_PER_CRYPT        (2 * VWIDTH)
+
+#ifndef OMP_SCALE
+#define OMP_SCALE                 512 // MKPC and scale tuned for i7
+#endif
 
 #if __SSE4_1__ && !__AVX2__
 #undef GATHER
@@ -181,9 +178,8 @@ static void init(struct fmt_main *self)
 {
     int i;
 
-#ifdef _OPENMP
 	omp_autotune(self, OMP_SCALE);
-#endif
+
     saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
                                  sizeof(*saved_key), VWIDTH * 4);
     for (i = 0; i < 8; i++)

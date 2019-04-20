@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2018 Denis Burykin
+ * This software is Copyright (c) 2018-2019 Denis Burykin
  * [denis_burykin yahoo com], [denis-burykin2014 yandex ru]
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
@@ -43,7 +43,7 @@
 #define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
 
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
+#define BENCHMARK_LENGTH	0x107
 
 #define CIPHERTEXT_LENGTH		22
 
@@ -66,11 +66,12 @@ static struct device_bitstream bitstream = {
 	{ 2, 14336, 4094 },
 	// computing performance estimation (in candidates per interval)
 	// (keys * mask_num_cand)/crypt_all_interval per jtr_device.
-	147456,		// keys/fpga for crypt_all()
-	16384,		// keys/fpga for self-test
-	460800,		// Would be ~15 MB of USB traffic on 32-byte keys
+	32*12*640,	// keys/fpga for crypt_all()
+	8192,		// keys/fpga for self-test
+	600*1024,	// Would be ~20 MB of USB traffic on 32-byte keys
 	512,		// Max. number of entries in onboard comparator.
-	384,		// Min. number of keys for effective device utilization
+	32*12,		// Min. number of keys for effective device utilization
+	0,
 	1, { 180 },	// Programmable clocks
 	"md5crypt",	// label for configuration file
 	"\x00", 1	// Initialization data
@@ -89,9 +90,10 @@ static struct fmt_tests tests[] = {
 	{"$1$boire$gf.YM2y3InYEu9.NbVr.v0", "manger"},
 	{"$1$bas$qvkmmWnVHRCSv/6LQ1doH/", "haut"},
 	{"$1$gauche$EPvd6LZlrgb0MMFPxUrJN1", "droite"},
+	{"$1$qxBtihlm$YDZLjH2jPh5FsbPoo7D5j/", "\xc0\xc1\xc2\xc3"},
 
-	// key_len > 15 (slows self-test)
-	/*
+	// key_len > 15
+	{"$1$fG07tEwk$0vSr/Hg/.l01NgYWr8aSB.", "1234567890ABCDEF"},
 	{"$1$fkEasaUI$G7CelOWHkol2nVHN8XQP40", "aaaaaaaaaaaaaaaaaaaaaaaaa"},
 	{"$1$12345678$/Y8HRXkjaI0wpCjIOG1xv1", "key_len=31..................../"},
 	{"$1$12345678$YwDJjafnp9d0vGAuGWwaK/", "key_len=32...................../"},
@@ -99,10 +101,40 @@ static struct fmt_tests tests[] = {
 	{"$1$rSZfNcKX$N4XPvGrfhKsyoEcRSaqmG0", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 	{"$1$abcd0000$nNTpR9XboutDDILjNSXMC/",
 		"key_len=64.....567890123456789012345678901234567890123456789abcd"},
-	*/
 	{NULL}
 };
 
+
+static int cryptmd5_common_valid_salt0(char *ciphertext, struct fmt_main *self)
+{
+	char *pos, *start;
+	char *salt_pos, *salt_end_pos;
+
+	if (!strncmp(ciphertext, md5_salt_prefix, md5_salt_prefix_len))
+		ciphertext += md5_salt_prefix_len;
+	else if (!strncmp(ciphertext, apr1_salt_prefix, apr1_salt_prefix_len))
+		ciphertext += apr1_salt_prefix_len;
+	else if (!strncmp(ciphertext, smd5_salt_prefix, smd5_salt_prefix_len))
+		ciphertext += smd5_salt_prefix_len;
+	else
+		return 0;
+
+	salt_pos = ciphertext;
+	for (pos = ciphertext; *pos && *pos != '$'; pos++);
+	if (!*pos || pos < ciphertext || pos > &ciphertext[11]) return 0;
+	salt_end_pos = pos;
+
+	start = ++pos;
+	while (atoi64[ARCH_INDEX(*pos)] != 0x7F) pos++;
+	if (*pos || pos - start != 22) return 0;
+
+	if (atoi64[ARCH_INDEX(*(pos - 1))] & 0x3C) return 0;
+	if (salt_end_pos == salt_pos) {
+		printf("Warning: ZTEX: md5crypt hash with salt_length=0 skipped.\n");
+		return 0;
+	}
+	return 1;
+}
 
 static void init(struct fmt_main *fmt_main)
 {
@@ -206,7 +238,7 @@ struct fmt_main fmt_ztex_md5crypt = {
 		device_format_done,
 		device_format_reset,
 		fmt_default_prepare,
-		cryptmd5_common_valid,
+		cryptmd5_common_valid_salt0,
 		fmt_default_split,
 		get_binary,
 		get_salt,

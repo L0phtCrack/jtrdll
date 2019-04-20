@@ -35,7 +35,7 @@ john_register_one(&FORMAT_STRUCT);
 #define FORMAT_NAME		"MS Office <= 2003"
 #define ALGORITHM_NAME		"MD5/SHA1 RC4 OpenCL"
 #define BENCHMARK_COMMENT	""
-#define BENCHMARK_LENGTH	-1
+#define BENCHMARK_LENGTH	0x107
 #define PLAINTEXT_LENGTH	19 //* 19 is leanest, 24, 28, 31, max. 51 */
 #define BINARY_SIZE		0
 #define BINARY_ALIGN		MEM_ALIGN_NONE
@@ -491,18 +491,18 @@ static void set_salt(void *salt)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
+	size_t lws, gws;
 
 	*pcount *= mask_int_cand.num_int_cand;
 
 	/* kernel is made for lws 64, using local memory */
-	if (local_work_size > 64)
-		local_work_size = 64;
+	lws = local_work_size ? local_work_size : 64;
 
-	/* Needs to be updated for kludge in get_key() */
-	global_work_size = gws;
+	/* Don't do more than requested */
+	global_work_size = //count;
+	gws = (count + lws - 1) / lws * lws;
+
+	//printf("%s(%d) lws "Zu" gws "Zu" kidx %u k %d mult %u\n", __FUNCTION__, count, lws, gws, key_idx, new_keys, mask_int_cand.num_int_cand);
 
 	if (new_keys || ocl_autotune_running) {
 		/* Self-test kludge */
@@ -517,13 +517,13 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 		new_keys = 0;
 	}
 
-	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, lws, 0, NULL, multi_profilingEvent[2]), "Failed running crypt kernel");
+	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id], crypt_kernel, 1, NULL, &gws, &lws, 0, NULL, multi_profilingEvent[2]), "Failed running crypt kernel");
 
 	BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_salt, CL_TRUE, 0, sizeof(cs), cur_salt, 0, NULL, multi_profilingEvent[3]), "Failed transferring salt");
 
 	if ((any_cracked = cur_salt->cracked)) {
-		BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * gws, cracked, 0, NULL, NULL), "failed reading results back");
-		return gws;
+		BENCH_CLERROR(clEnqueueReadBuffer(queue[gpu_id], cl_result, CL_TRUE, 0, sizeof(unsigned int) * *pcount, cracked, 0, NULL, NULL), "failed reading results back");
+		return *pcount;
 	}
 
 	return 0;

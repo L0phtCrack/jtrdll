@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2016-2018 Denis Burykin
+ * This software is Copyright (c) 2016-2019 Denis Burykin
  * [denis_burykin yahoo com], [denis-burykin2014 yandex ru]
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
@@ -14,7 +14,7 @@
 #include "gettimeofday.h"
 #else
 #include <sys/time.h>
-#endif
+#include <ctype.h>
 
 #include "../loader.h"
 #include "../formats.h"
@@ -28,12 +28,8 @@
 #include "jtr_mask.h"
 #include "device_bitstream.h"
 #include "device_format.h"
+#include "ztex_sn.h"
 
-// Problem: Inclusion of ztex.h results in inclusion of libusb-1.0.h
-// which includes more stuff, on Cygwin that results in redefinition
-// of MEM_FREE macro. Using forward declaration instead.
-//#include "ztex.h"
-extern int ztex_sn_is_valid(char *sn);
 
 // If some task is not completed in this many seconds,
 // then it counts the device as not functioning one.
@@ -69,6 +65,11 @@ char *output_key;
 struct task_list *task_list;
 
 /*
+ * State of device initialization and information output.
+ */
+int jtr_device_list_printed = 0;
+
+/*
  * Saved by device_format_init()
  */
 struct fmt_params *jtr_fmt_params;
@@ -85,21 +86,30 @@ void device_format_init(struct fmt_main *fmt_main,
 	jtr_devices_allow = devices_allow;
 	jtr_verbosity = verbosity;
 
-	struct list_entry *entry;
-	int found_bad_sn = 0;
-	for (entry = devices_allow->head; entry; entry = entry->next)
-		if (!ztex_sn_is_valid(entry->data))
-		{
-			fprintf(stderr, "Error: bad Serial Number '%s'\n", entry->data);
-			found_bad_sn = 1;
-		}
-	if (found_bad_sn)
-		error();
 
-	// Initialize hardware.
-	// Uses globals: jtr_device_list, device_list, jtr_bitstream.
-	if (!jtr_device_list_init())
-		error();
+	static int init_conf_devices = 0;
+	if (!init_conf_devices) {
+		// Initialize [List.ZTEX:Devices] configuration section.
+		ztex_sn_init_conf_devices();
+
+		// Check -dev command-line option.
+		struct list_entry *entry;
+		int found_error = 0;
+		for (entry = devices_allow->head; entry; entry = entry->next) {
+			if (ztex_sn_alias_is_valid(entry->data)) {
+				if (!ztex_sn_check_alias(entry->data))
+					found_error = 1;
+			}
+			else if (!ztex_sn_is_valid(entry->data)) {
+				fprintf(stderr, "Error: bad Serial Number '%s'\n", entry->data);
+				found_error = 1;
+			}
+		}
+		if (found_error)
+			error();
+
+		init_conf_devices = 1;
+	}
 
 	// Mask issues. 1 mask per JtR run can be specified. Global variables.
 
@@ -115,16 +125,21 @@ void device_format_init(struct fmt_main *fmt_main,
 	// Mask can create too many candidates. That would result in problems
 	// with slow response or timeout.
 	// crypt_all() must finish in some reasonable 'response time'
-	// such as 0.1-0.2s.
+	// such as 0.5-1.0s.
 
 	// Reduce mask (request to unroll some ranges on CPU if necessary)
 	// by setting mask_int_cand_target.
 	// Unroll all ranges on CPU if format is slow enough.
 	//
-	if (jtr_bitstream->candidates_per_crypt > 50 * jtr_bitstream->min_keys || !jtr_bitstream->min_keys)
-	{
+	int template_keys = jtr_bitstream->min_template_keys;
+	if (template_keys < 1)
+		template_keys = 1;
 
-		mask_int_cand_target = jtr_bitstream->candidates_per_crypt;
+	if (!jtr_bitstream->min_keys || jtr_bitstream->candidates_per_crypt
+			> (50 * jtr_bitstream->min_keys / template_keys) ) {
+
+		mask_int_cand_target = jtr_bitstream->candidates_per_crypt
+			/ template_keys;
 	}
 	// It requires actual mask size (number of candidates in mask)
 	// to calculate max_keys_per_crypt.
@@ -140,22 +155,42 @@ void device_format_done()
 
 void device_format_reset()
 {
-	// Mask data is ready, calculate and set keys_per_crypt
-	unsigned int keys_per_crypt;
+	// Initialize hardware and libusb
+	// Uses globals: jtr_device_list, device_list, jtr_bitstream.
+	if (!jtr_device_list_init())
+		error();
 
-	if (self_test_running)
+	if (!jtr_device_list_printed) {
+		if (jtr_verbosity >= VERB_DEFAULT)
+			jtr_device_list_print();
+		jtr_device_list_print_count();
+		jtr_device_list_printed = 1;
+	}
+
+	// Mask data is ready, calculate and set keys_per_crypt
+	uint64_t keys_per_crypt;
+
+	int min_template_keys = jtr_bitstream->min_template_keys;
+	if (min_template_keys < 1)
+		min_template_keys = 1;
+
+	if (self_test_running) {
 		// Self-test runs too long, using different keys_per_crypt
 		keys_per_crypt = jtr_bitstream->test_keys_per_crypt;
-	else
+	} else {
 		keys_per_crypt = jtr_bitstream->candidates_per_crypt
-			 / mask_num_cand();
-
-	if (!keys_per_crypt)
-		keys_per_crypt = 1;
+			 / mask_num_cand() / min_template_keys;
+		if (!keys_per_crypt)
+			keys_per_crypt = 1;
+		keys_per_crypt *= min_template_keys;
+	}
 
 	keys_per_crypt *= jtr_device_list_count();
-	if (keys_per_crypt > jtr_bitstream->abs_max_keys_per_crypt)
-	{
+	// Ensure updated *pcount < (1ULL << 31)
+	while (keys_per_crypt * mask_num_cand() >= 1ULL << 31)
+		keys_per_crypt /= 2;
+
+	if (keys_per_crypt > jtr_bitstream->abs_max_keys_per_crypt) {
 		keys_per_crypt = jtr_bitstream->abs_max_keys_per_crypt;
 
 		// Don't print on self-test, print on benchmark.
@@ -398,6 +433,10 @@ struct db_password *device_format_get_password(int index)
 
 char *device_format_get_key(int index)
 {
+	if (index < 0 || index >= (mask_num_cand() ? mask_num_cand() : 1)
+			* jtr_fmt_params->max_keys_per_crypt)
+		return "-----";
+
 	// It happens status reporting is requested and there's
 	// a task_result at same index.
 	if (task_list)
@@ -414,15 +453,14 @@ char *device_format_get_key(int index)
 	{
 		int key_num = index / mask_num_cand();
 		int gen_id = index % mask_num_cand();
-		memcpy(output_key, keys_buffer + key_num * plaintext_len, plaintext_len);
-		mask_reconstruct_plaintext(output_key, range_info_buffer + key_num * MASK_FMT_INT_PLHDR, gen_id);
-	}
-	else
-	{
-		if (index < jtr_fmt_params->max_keys_per_crypt)
-			memcpy(output_key, keys_buffer + index * plaintext_len, plaintext_len);
-		else
-			return "-----";
+		memcpy(output_key, keys_buffer
+				+ key_num * plaintext_len, plaintext_len);
+		mask_reconstruct_plaintext(output_key, range_info_buffer
+				+ key_num * MASK_FMT_INT_PLHDR, gen_id);
+
+	} else {
+		memcpy(output_key, keys_buffer + index * plaintext_len,
+				plaintext_len);
 	}
 
 	return output_key;

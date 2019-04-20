@@ -77,7 +77,7 @@ dnl We define "--disable-FEATURE" when default is "auto".
 dnl MPI is not "auto" because its network usage might scare people:
 AC_ARG_ENABLE([openmp-for-fast-formats], [AC_HELP_STRING([--enable-openmp-for-fast-formats], [Enable OpenMP for fast formats (usually a bad idea - use fork instead)])], [ompfast=$enableval], [ompfast=no])
 AC_ARG_ENABLE([mpi], [AC_HELP_STRING([--enable-mpi], [Use OpenMPI])], [enable_mpi=$enableval], [enable_mpi=no])
-AC_ARG_ENABLE([rexgen], [AC_HELP_STRING([--disable-rexgen], [Disable use of rexgen library])], [enable_rexgen=$enableval], [enable_rexgen=auto])
+AC_ARG_ENABLE([rexgen], [AC_HELP_STRING([--enable-rexgen], [Enable use of rexgen library (experimental)])], [enable_rexgen=$enableval], [enable_rexgen=no])
 AC_ARG_ENABLE([pcap], [AC_HELP_STRING([--disable-pcap], [Do not build helpers depending on PCAP])], [enable_pcap=$enableval], [enable_pcap=auto])
 AC_ARG_ENABLE([native-tests], [AC_HELP_STRING([--disable-native-tests], [Do not test build system for target features.])], [enable_native_tests=$enableval], [enable_native_tests=auto])
 AC_ARG_ENABLE([native-march], [AC_HELP_STRING([--enable-native-march], [Use things like -march=native if valid compiler option(s).])], [enable_native_march=$enableval], [enable_native_march=no])
@@ -235,13 +235,15 @@ fi
    dnl now fill out CFLAGS
    CFLAGS_EX=""
    JTR_FLAG_CHECK([-Wall], 1)
-   JTR_FLAG_CHECK([-Wdeclaration-after-statement], 1)
 
    dnl False positives from gcc 8
    if (test "x$asan" != xyes); then
       JTR_NOWARN_CHECK([stringop-truncation], 1)
       JTR_NOWARN_CHECK([format-overflow], 1)
    fi
+
+   dnl Really silly clang warnings stopping us from doing sanity checks
+   JTR_NOWARN_CHECK([tautological-constant-out-of-range-compare], 1)
 
    AS_IF([test "x$werror" = xyes],
       JTR_FLAG_CHECK([-Werror], 1)
@@ -272,7 +274,7 @@ fi
    JTR_LIST_ADD(CFLAGS_EXTRA, ["$CFLAGS_EX"])
 ],
    AC_MSG_NOTICE([Unable to validate $CC command line arguments. Using standard values.])
-   CFLAGS_EXTRA="-Wall -Wdeclaration-after-statement -O2 -fomit-frame-pointer"
+   CFLAGS_EXTRA="-Wall -O2 -fomit-frame-pointer"
 )
 
 dnl early check of 64 bit systems.
@@ -407,12 +409,19 @@ case "$simd" in
   neon)
     AS_CASE([$host_cpu],
       [arm*],
-        JTR_FLAG_CHECK_LINK([-mfpu=neon], 2),
+        JTR_FLAG_CHECK_LINK([-mfpu=neon], 2)
+        SIMD_NAME="NEON",
       [aarch64],
-        JTR_FLAG_CHECK_LINK([-march=armv8-a+simd], 2),
-      AC_ERROR([NEON only applicable for ARM CPU's])
+        JTR_FLAG_CHECK_LINK([-march=armv8-a+simd], 2)
+        SIMD_NAME="ASIMD",
+      AC_ERROR([NEON/ASIMD only applicable for ARM CPU's])
     )
-    SIMD_NAME="NEON"
+    JTR_ARM_SIMD_LOGIC
+    ;;
+  asimd)
+    JTR_FLAG_CHECK_LINK([-march=armv8-a+simd], 2)
+    SIMD_NAME="ASIMD"
+    JTR_ARM_SIMD_LOGIC
     ;;
   altivec1)
     JTR_FLAG_CHECK_LINK([-maltivec], 2)
@@ -461,16 +470,18 @@ case "$host_cpu" in
   alpha*) ARCH_LINK=alpha.h endian=little ;;
   armeb) ARCH_LINK=arm32le.h endian=big ;;
   aarch64) ARCH_LINK=arm64le.h endian=little
+    AC_MSG_CHECKING([special compiler flags])
+    AC_MSG_RESULT([ARM64])
     AS_IF([test $simd != no],
-        [AC_MSG_CHECKING([special compiler flags])]
-        [AC_MSG_RESULT([aarch64])]
-        [SIMD_NAME="NEON"]
+        [SIMD_NAME="ASIMD"]
+        JTR_ARM_SIMD_LOGIC
       )
     ;;
   arm*) ARCH_LINK=arm32le.h endian=little
     AC_MSG_CHECKING([special compiler flags])
     AC_MSG_RESULT([ARM])
     JTR_ARM_SPECIAL_LOGIC
+    JTR_ARM_SIMD_LOGIC
     ;;
   ia64) ARCH_LINK=ia64.h endian=little cpu_family=intel ;;
   i?86) ARCH_LINK=x86-any.h endian=little cpu_family=intel ;;
@@ -1092,8 +1103,7 @@ AC_CONFIG_FILES([Makefile
                  aes/aesni/Makefile
                  aes/openssl/Makefile
                  secp256k1/Makefile
-                 ed25519-donna/Makefile
-                 escrypt/Makefile])
+                 ed25519-donna/Makefile])
 
 dnl Escaping the '#' in things like "-Wno-error=#warnings" is required in
 dnl Makefile but forbidden when *not* in Makefile so we need to back-up
@@ -1268,7 +1278,7 @@ libgmp (PRINCE mode and faster SRP formats)  ${ac_cv_lib_gmp___gmpz_init}
 libz (pkzip and some other formats) ........ ${using_zlib}
 libbz2 (gpg2john extra decompression logic)  ${using_bz2}
 libpcap (vncpcap2john and SIPdump) ......... ${using_pcap}
-librexgen (regex cracking mode) ............ ${using_rexgen}
+librexgen (experimental regex mode) ........ ${using_rexgen}
 OpenMPI support (default disabled) ......... ${using_mpi}
 ZTEX USB-FPGA module 1.15y support ......... ${ztex}
 

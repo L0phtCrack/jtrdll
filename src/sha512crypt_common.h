@@ -23,7 +23,7 @@
 
 #define FORMAT_NAME		"crypt(3) $6$"
 #define BENCHMARK_COMMENT	" (rounds=5000)"
-#define BENCHMARK_LENGTH	-1
+#define BENCHMARK_LENGTH	0x107
 #define FORMAT_TAG			"$6$"
 #define FORMAT_TAG_LEN		(sizeof(FORMAT_TAG)-1)
 
@@ -67,7 +67,7 @@ static int valid(char * ciphertext, struct fmt_main * self) {
 	out[b3] = value;
 
 static void * get_binary(char * ciphertext) {
-	static uint32_t outbuf[BINARY_SIZE/4];
+	static uint32_t outbuf[64/4];
 	uint32_t value;
 	char *pos = strrchr(ciphertext, '$') + 1;
 	unsigned char *out = (unsigned char*)outbuf;

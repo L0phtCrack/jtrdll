@@ -1,5 +1,5 @@
 /*
- * This software is Copyright (c) 2016-2017 Denis Burykin
+ * This software is Copyright (c) 2016-2017,2019 Denis Burykin
  * [denis_burykin yahoo com], [denis-burykin2014 yandex ru]
  * and it is hereby released to the general public under the following terms:
  * Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,7 @@
 #include "ztex/device_format.h"
 #include "ztex/task.h"
 #include "ztex/pkt_comm/cmp_config.h"
+#include "ztex/jtr_device.h"
 
 
 #define FORMAT_LABEL			"bcrypt-ztex"
@@ -36,7 +37,7 @@
 #define ALGORITHM_NAME			"Blowfish ZTEX"
 
 #define BENCHMARK_COMMENT		""
-#define BENCHMARK_LENGTH		0
+#define BENCHMARK_LENGTH		7
 
 #define PLAINTEXT_LENGTH		72
 
@@ -44,7 +45,7 @@
 #define BINARY_SIZE				4
 #define BINARY_ALIGN			4
 #define SALT_SIZE				sizeof(BF_salt)
-#define SALT_ALIGN				1
+#define SALT_ALIGN				4
 
 
 static struct device_bitstream bitstream = {
@@ -55,31 +56,32 @@ static struct device_bitstream bitstream = {
 	{ 2, 6144, 8190 },
 	// computing performance estimation (in candidates per interval)
 	// (keys * mask_num_cand)/crypt_all_interval per jtr_device.
-	1,	// set by init()
-	4096,	// 4K keys per FPGA for self-test.
+	1,			// set by init()
+	2048,		// 2K keys per FPGA for self-test.
 	// Absolute max. keys/crypt_all_interval for all devices.
 	512 * 1024,	// Would be 36MB of USB traffic on 72-byte keys
-	3,		// Max. number of entries in onboard comparator.
-	124,	// Min. number of keys for effective device utilization
-	1, { 141 },	// Programmable clocks
+	512,		// Max. number of entries in onboard comparator.
+	124,		// Min. number of keys for effective device utilization
+	0,
+	1, { 150 },	// Programmable clocks
 	"bcrypt",	// label for configuration file
 	NULL, 0		// Initialization data
 };
 
 
-//
-// ztex-bcrypt has limited number of entries in onboard comparator(3) -
-// tests from BF_common.c have more hashes/salt - they don't pass self-test
-//
 static struct fmt_tests tests[] = {
 
 	{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzA784oUp/Z0DY336zx7pLYAy0lwK",
 		"U*U*"},
-	// 32 lower bits of hash are equal to the above hash - self-test fails
+	// 32 lower bits of hash are equal to the above hash - self-test fails.
+	// In formats.c:is_key_right() it takes the first index for which
+	// cmp_one() returns true, and expects cmp_exact() also to return true
+	// for that index which is the case in CPU version.
+	// Here results arrive in the reverse order and it fails.
 	//{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzAxtE4OUcU.5p75hOF2yn2i1ocvO",
 	//	"1E!dpr"},
-	//{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.7uG0VCzI2bS7j6ymqJi9CdcdxiRTWNy",
-	//	""},
+	{"$2a$05$CCCCCCCCCCCCCCCCCCCCC.7uG0VCzI2bS7j6ymqJi9CdcdxiRTWNy",
+		""},
 	{"$2b$05$XXXXXXXXXXXXXXXXXXXXXOAcXxm9kjPGEMsLznoKqmqw7tc8WCx4a",
 		"U*U*U"},
 	{"$2a$08$CCCCCCCCCCCCCCCCCCCCC.LuntE/dBezheibpSOXBeR3W7q5mt2NW",
@@ -110,6 +112,12 @@ static struct fmt_tests tests[] = {
 	{"$2x$05$6bNw2HLQYeqHYyBfLMsv/O9LIGgn8OMzuDoHfof8AQimSGfcSWxnS",
 		"\xd0\xc1\xd2\xcf\xcc\xd8"},
 
+	{"$2a$04$pIqNJ/d3.iUtNb........1ynmOuHkBNwBW8zbBj6wTB8XX4/HPiy",
+		"01234567"},
+	{"$2a$04$pIqNJ/d3.iUtNb........12LxxKuTok3B2V5Qedwkj.KlH.1uvye",
+		"012345678"},
+	{"$2a$04$pIqNJ/d3.iUtNb........UNDUi60rNJGFKeSG7vI091NbSOdQNfa",
+		"0123456789"},
 	{NULL}
 };
 
@@ -131,20 +139,20 @@ static void init(struct fmt_main *fmt_main)
 	if (!target_setting)
 		target_setting = 8;
 
-	if (target_setting < 5 || target_setting > 18) {
+	if (target_setting < 5 || target_setting > 19) {
 		fprintf(stderr, "Warning: invalid TargetSetting=%d in john.conf."
-			" Valid values are 5-18\n", target_setting);
+			" Valid values are 5-19\n", target_setting);
 		if (target_setting < 5)
 			target_setting = 5;
-		else if (target_setting > 18)
-			target_setting = 18;
+		else if (target_setting > 19)
+			target_setting = 19;
 	}
 
 	bitstream.candidates_per_crypt = bitstream.min_keys;
 
-	// It computes a hash with setting 12 in ~0.6s
-	if (target_setting < 12)
-		bitstream.candidates_per_crypt *= (1 << (12 - target_setting));
+	// It computes a hash with setting 13 in ~1s
+	if (target_setting < 13)
+		bitstream.candidates_per_crypt *= (1 << (13 - target_setting));
 
 	//fprintf(stderr, "bitstream.candidates_per_crypt=%d\n",
 	//		bitstream.candidates_per_crypt);
@@ -178,7 +186,7 @@ static void init(struct fmt_main *fmt_main)
  * - then it sends 4-byte tunable cost(s) if any
  * - then it sends 2 bytes - number of hashes
  * - then partial hashes ("binaries") sorted in ascending order. (bcrypt-ztex
- *   accepts up to 3 32-bit hashes, only 31 bit is used, order doesn't matter).
+ *   accepts up to 'cmp_entries_max' 32-bit hashes, order doesn't matter).
  *
  */
 
@@ -192,6 +200,8 @@ static int get_setting_by_cost(int cost)
 }
 
 
+extern int device_nocompar_mode;
+
 // TODO: handle BE systems
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
@@ -202,20 +212,37 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	static unsigned char salt_buf[17]; // salt to send to device
 	BF_salt *BF_salt = salt->salt;
 
+	if (salt->count > bitstream.cmp_entries_max && !device_nocompar_mode) {
+		fprintf(stderr, "Warning: salt with %d hashes, onboard comparators "
+			"support up to %d hashes/salt, turned off\n",
+			salt->count, bitstream.cmp_entries_max);
+		jtr_device_list_set_app_mode(0x40);
+		device_nocompar_mode = 1;
+	}
+
 	// It requires 16 bytes salt and 1 char subtype in network byte order
 	for (i = 0; i < 4; i++)
 		((uint32_t *)(salt_buf))[i] = BF_salt->salt[i];
 	salt_buf[16] = BF_salt->subtype;
 
-	cmp_config_new(salt, salt_buf, 17);
+	if (device_nocompar_mode)
+		cmp_config_nocompar_new(salt, salt_buf, 17);
+	else
+		cmp_config_new(salt, salt_buf, 17);
 
 	curr_setting = get_setting_by_cost(salt->cost[0]);
 
 	if (!warning_curr_setting16 && curr_setting >= 16) {
 		fprintf(stderr, "Warning: hash with setting=%d, computation"
-			" is going to be very too slow, timeout is possible,"
+			" is going to be very slow, timeout is possible,"
 			" consider to increase"
 			" device_format.c:DEVICE_TASK_TIMEOUT\n", curr_setting);
+		fprintf(stderr, "Recommended DEVICE_TASK_TIMEOUT value for"
+			" setting %d: %d\n", curr_setting,
+			curr_setting == 16 ? 10 :
+			curr_setting == 17 ? 20 :
+			curr_setting == 18 ? 35 :
+			70);
 		warning_curr_setting16 = 1;
 	}
 
@@ -269,8 +296,8 @@ struct fmt_main fmt_ztex_bcrypt = {
 		BINARY_ALIGN,
 		SALT_SIZE,
 		SALT_ALIGN,
-		1, //MIN_KEYS_PER_CRYPT,
-		1, //MAX_KEYS_PER_CRYPT,
+		1,
+		1,
 		FMT_CASE | FMT_8_BIT | FMT_TRUNC | FMT_MASK,
 		{
 			"iteration count",

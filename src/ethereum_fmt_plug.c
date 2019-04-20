@@ -29,7 +29,7 @@ john_register_one(&fmt_ethereum);
 #define PBKDF2_HMAC_SHA256_VARYING_SALT 1
 #include "pbkdf2_hmac_sha256.h"
 #include "ethereum_common.h"
-#include "escrypt/crypto_scrypt.h"
+#include "yescrypt/yescrypt.h"
 #include "KeccakHash.h"
 #include "aes.h"
 #include "jumbo.h"
@@ -42,7 +42,7 @@ john_register_one(&fmt_ethereum);
 #define ALGORITHM_NAME          "PBKDF2-SHA256/scrypt Keccak 32/" ARCH_BITS_STR
 #endif
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        0
+#define BENCHMARK_LENGTH        7
 #define BINARY_SIZE             16
 #define PLAINTEXT_LENGTH        125
 #define SALT_SIZE               sizeof(*cur_salt)

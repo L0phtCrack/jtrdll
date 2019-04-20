@@ -39,7 +39,7 @@ john_register_one(&fmt_opencl_sspr);
 #define FORMAT_LABEL            "sspr-opencl"
 #define ALGORITHM_NAME          "MD5/SHA1/SHA2 OpenCL"
 #define BENCHMARK_COMMENT       ""
-#define BENCHMARK_LENGTH        -1
+#define BENCHMARK_LENGTH        0x107
 #define PLAINTEXT_LENGTH        64
 #define BINARY_ALIGN            MEM_ALIGN_WORD
 #define SALT_SIZE               sizeof(struct custom_salt)
@@ -294,11 +294,11 @@ static char *get_key(int index)
 static int crypt_all(int *pcount, struct db_salt *salt)
 {
 	const int count = *pcount;
-	size_t gws = count;
-	size_t *lws = (local_work_size && !(gws % local_work_size)) ?
-		&local_work_size : NULL;
 	int i;
+	size_t *lws = local_work_size ? &local_work_size : NULL;
 	int krnl = cur_salt->fmt;
+
+	global_work_size = GET_NEXT_MULTIPLE(count, local_work_size);
 
 	// Copy data to gpu
 	BENCH_CLERROR(clEnqueueWriteBuffer(queue[gpu_id], mem_in, CL_FALSE, 0,
@@ -308,14 +308,14 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	// Run 1st kernel
 	BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 		sspr_kernel[krnl], 1, NULL,
-		&gws, lws, 0, NULL,
+		&global_work_size, lws, 0, NULL,
 		multi_profilingEvent[1]), "Run init kernel");
 
 	// Run loop kernel
 	for (i = 0; i < (ocl_autotune_running ? 1 : LOOP_COUNT); i++) {
 		BENCH_CLERROR(clEnqueueNDRangeKernel(queue[gpu_id],
 			loop_kernel[krnl], 1, NULL,
-			&gws, lws, 0, NULL,
+			&global_work_size, lws, 0, NULL,
 			multi_profilingEvent[2]), "Run loop kernel");
 		BENCH_CLERROR(clFinish(queue[gpu_id]), "Error running loop kernel");
 		opencl_process_event();

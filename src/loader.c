@@ -46,6 +46,7 @@
 #include "base64_convert.h"
 #include "md5.h"
 #include "single.h"
+#include "showformats.h"
 
 #ifdef HAVE_CRYPT
 extern struct fmt_main fmt_crypt;
@@ -292,10 +293,8 @@ void ldr_init_database(struct db_main *db, struct db_options *db_options)
 		db->cracked_hash = mem_calloc(
 			CRACKED_HASH_SIZE, sizeof(struct db_cracked *));
 	} else {
-		db->salt_hash = mem_alloc(
-			SALT_HASH_SIZE * sizeof(struct db_salt *));
-		memset(db->salt_hash, 0,
-			SALT_HASH_SIZE * sizeof(struct db_salt *));
+		db->salt_hash = mem_calloc(
+			SALT_HASH_SIZE, sizeof(struct db_salt *));
 
 		db->cracked_hash = NULL;
 	}
@@ -401,7 +400,7 @@ static MAYBE_INLINE int ldr_check_shells(struct list_main *list, char *shell)
 	return 0;
 }
 
-static void ldr_set_encoding(struct fmt_main *format)
+void ldr_set_encoding(struct fmt_main *format)
 {
 	if ((!options.target_enc || options.default_target_enc) &&
 	    !options.internal_cp) {
@@ -457,47 +456,6 @@ static void ldr_set_encoding(struct fmt_main *format)
 	initUnicode(UNICODE_UNICODE);
 }
 
-static char *escape_json(char *in)
-{
-	char *ret;
-	size_t num = 0;
-	uint8_t c;
-	uint8_t *p = (uint8_t*)in;
-
-	while ((c = *p++)) {
-		if (c == '\\' || c == '"')
-			num++;
-		else if (c < ' ')
-			num += 5;
-	}
-	if (!num)
-		return in;
-
-	num += (p - (uint8_t*)in);
-	ret = mem_alloc_tiny(num, MEM_ALIGN_NONE);
-
-	p = (uint8_t*)ret - 1;
-	while ((*++p = *in++)) {
-		if (*p == '\\')
-			*++p = '\\';
-		else if (*p == '"') {
-			*p = '\\';
-			*++p = '"';
-		} else if (*p < ' ') {
-			const char* const hex = "0123456789abcdef";
-			uint8_t c = *p;
-
-			*p = '\\';
-			*++p = 'u';
-			*++p = '0';
-			*++p = '0';
-			*++p = hex[ARCH_INDEX(c >> 4)];
-			*++p = hex[ARCH_INDEX(c & 0xf)];
-		}
-	}
-	return ret;
-}
-
 static int ldr_split_line(char **login, char **ciphertext,
 	char **gecos, char **home, char **uid,
 	char *source, struct fmt_main **format,
@@ -516,25 +474,11 @@ static int ldr_split_line(char **login, char **ciphertext,
 
 /* Check for NIS stuff */
 	if (((*login)[0] == '+' && (!(*login)[1] || (*login)[1] == '@')) &&
-	    (*ciphertext)[0] != '$' && strnlen(*ciphertext, 10) < 10 &&
-	    strncmp(*ciphertext, "$dummy$", 7)) {
-		if (db_opts->showtypes) {
-			int fs = db_opts->field_sep_char;
-
-			if (db_opts->showtypes_json) {
-				printf("%s{\"lineNo\":%d,",
-				       line_no == 1 ? "[" : ",\n",
-				       line_no);
-				if (**login)
-					printf("\"login\":\"%s\",",
-					       escape_json(*login));
-				if (**ciphertext)
-					printf("\"ciphertext\":\"%s\",",
-					       escape_json(*ciphertext));
-				printf("\"consistencyMark\":2}");
-			} else
-				printf("%s%c%s%c2%c\n",
-				       *login, fs, *ciphertext, fs,/* 2, */fs);
+	    strnlen(*ciphertext, 10) < 10 && strncmp(*ciphertext, "$dummy$", 7) &&
+	    strncmp(*ciphertext, "$0$", 3)) {
+		if (db_opts->showformats) {
+			showformats_skipped("NIS", login, ciphertext,
+			                    db_opts, line_no);
 		}
 		return 0;
 	}
@@ -562,23 +506,12 @@ static int ldr_split_line(char **login, char **ciphertext,
 			if (p - *ciphertext == 12 && *ciphertext - *login == 1)
 				(*ciphertext)--;
 			if (p - *ciphertext < 13) {
-				if (db_opts->showtypes) {
-					int fs = db_opts->field_sep_char;
-
-					if (db_opts->showtypes_json) {
-						printf("%s{\"lineNo\":%d,",
-						       line_no == 1 ? "[" : ",\n",
-						       line_no);
-						if (**ciphertext)
-							printf("\"ciphertext\":\"%s\",",
-							       escape_json(*ciphertext));
-						printf("\"consistencyMark\":3}");
-					} else
-						printf("%c%s%c3%c\n",
-						       /* empty, */
-						       fs, *ciphertext,
-						       fs, /* 3, */
-						       fs);
+				if (db_opts->showformats) {
+/* login is not set at this point, so we pass NULL. */
+					showformats_skipped("lonely",
+					                    NULL,
+					                    ciphertext,
+					                    db_opts, line_no);
 				}
 				return 0;
 			}
@@ -623,7 +556,7 @@ static int ldr_split_line(char **login, char **ciphertext,
 	*gecos = fields[4];
 	*home = fields[5];
 
-	if (fields[0] == no_username && !db_opts->showtypes)
+	if (fields[0] == no_username && !db_opts->showformats)
 		goto find_format;
 
 	gid = fields[3];
@@ -674,208 +607,12 @@ static int ldr_split_line(char **login, char **ciphertext,
 	if (ldr_check_list(db_opts->groups, gid, gid)) return 0;
 	if (ldr_check_shells(db_opts->shells, shell)) return 0;
 
-	if (db_opts->showtypes) {
-		int fs = db_opts->field_sep_char;
-		/* Flag: the format is not the first valid format. The
-		 * first format should not print the first field
-		 * separator. */
-		int not_first_format = 0;
-		/* \0 and \n are not possible in any field. */
-		/* field_sep_char should not be possible in any field too.
-		 * But it is possible with --field-separator-char=/ due to
-		 * default value "/" for home field. Also ? may come from
-		 * empty login. */
-		/* Flag: no fields contain \n or field separator. */
-		int bad_char = 0;
-#ifndef DYNAMIC_DISABLED
-		int bare_always_valid = 0;
-		if ((options.dynamic_bare_hashes_always_valid == 'Y')
-		    || (options.dynamic_bare_hashes_always_valid != 'N'
-			&& cfg_get_bool(SECTION_OPTIONS, NULL, "DynamicAlwaysUseBareHashes", 1)))
-			bare_always_valid = 1;
-#endif
-		/* We output 1 or 0, so 0 and 1 are bad field separators. */
-		if (fs == '0' || fs == '1')
-			bad_char = 1;
-#define check_field_separator(str) bad_char |= strchr((str), fs) || strchr((str), '\n')
-		/* To suppress warnings, particularly from
-		 * generic crypt's valid() (c3_fmt.c). */
-		ldr_in_pot = 1;
-		/* The format:
-		 * Once for each hash even if it can't be loaded (7 fields):
-		 *   login,
-		 *   ciphertext,
-		 *   uid,
-		 *   gid,
-		 *   gecos,
-		 *   home,
-		 *   shell.
-		 * For each valid format (may be nothing):
-		 *   label,
-		 *   is format disabled? (1/0),
-		 *   is format dynamic? (1/0),
-		 *   does format use the ciphertext field as is? (1/0),
-		 *   canonical hash or hashes (if there are several parts).
-		 * All fields above are separated by field_sep_char.
-		 * Formats are separated by empty field.
-		 * Additionally on the end:
-		 *   separator,
-		 *   line consistency mark (0/1/2/3):
-		 *     0 - the line is consistent and can be parsed easily,
-		 *     1 - field separator char occurs in fields, line can't
-		 *         be parsed easily,
-		 *     2 - the line was skipped as bad NIS stuff, only login
-		 *         and ciphertext are shown,
-		 *     3 - the line was skipped parsing descrypt with
-		 *         invalid salt, only ciphertext is shown (together
-		 *         with empty login); empty lines fall here,
-		 *   separator.
-		 * The additional field_sep_char at the end of line does not
-		 * break numeration of fields but allows parser to get
-		 * field_sep_char from the line.
-		 * A parser have to check the last 3 chars.
-		 * If the format does not use the ciphertext field as is,
-		 * then a parser have to match input line with output line
-		 * by number of line.
-		 */
-		if (db_opts->showtypes_json) {
-			printf("%s{\"lineNo\":%d,",
-			       line_no == 1 ? "[" : ",\n",
-			       line_no);
-			if (strcmp(*login, "?"))
-				printf("\"login\":\"%s\",",
-				       escape_json(*login));
-			if (**ciphertext)
-				printf("\"ciphertext\":\"%s\",",
-				       escape_json(*ciphertext));
-			if (**uid)
-				printf("\"uid\":\"%s\",",
-				       escape_json(*uid));
-			if (*gid)
-				printf("\"gid\":\"%s\",",
-				       escape_json(gid));
-			if (**gecos && strcmp(*gecos, "/"))
-				printf("\"gecos\":\"%s\",",
-				       escape_json(*gecos));
-			if (**home && strcmp(*home, "/"))
-				printf("\"home\":\"%s\",",
-				       escape_json(*home));
-			if (*shell && strcmp(shell, "/"))
-				printf("\"shell\":\"%s\",",
-				       escape_json(shell));
-			printf("\"rowFormats\":[");
-		} else
-			printf("%s%c%s%c%s%c%s%c%s%c%s%c%s",
-			       *login,
-			       fs, *ciphertext,
-			       fs, *uid,
-			       fs, gid,
-			       fs, *gecos,
-			       fs, *home,
-			       fs, shell);
-
-		check_field_separator(*login);
-		check_field_separator(*ciphertext);
-		check_field_separator(*uid);
-		check_field_separator(gid);
-		check_field_separator(*gecos);
-		check_field_separator(*home);
-		check_field_separator(shell);
-		/* Fields above may be empty. */
-		/* Empty fields are separators after this point. */
-		alt = fmt_list;
-		do {
-			char *prepared;
-			int disabled = 0;
-			int prepared_eq_ciphertext;
-			int valid;
-			int part;
-			int is_dynamic = ((alt->params.flags & FMT_DYNAMIC) == FMT_DYNAMIC);
-
-			if (huge_line && !(alt->params.flags & FMT_HUGE_INPUT))
-				continue;
-/* We enforce DynamicAlwaysUseBareHashes for each format. By default
- * dynamics do that only if a bare hash occurs on the first line. */
-#ifndef DYNAMIC_DISABLED
-			if (bare_always_valid)
-				dynamic_allow_rawhash_fixup = 1;
-#endif
-			prepared = alt->methods.prepare(fields, alt);
-			if (!prepared)
-				continue;
-			prepared_eq_ciphertext = (*ciphertext == prepared || !strcmp(*ciphertext, prepared));
-			valid = alt->methods.valid(prepared, alt);
-			if (!valid)
-				continue;
-			ldr_set_encoding(alt);
-			/* Empty field between valid formats */
-			if (not_first_format) {
-				if (db_opts->showtypes_json)
-					printf(",{");
-				else
-					printf("%c", fs);
-			} else if (db_opts->showtypes_json)
-				printf("{");
-			not_first_format = 1;
-			if (db_opts->showtypes_json) {
-				printf("\"label\":\"%s\",",
-				       alt->params.label);
-				if (disabled)
-					printf("\"disabled\":true,");
-				if (is_dynamic)
-					printf("\"dynamic\":true,");
-				if (huge_line)
-					printf("\"truncated\":true,");
-				if (prepared_eq_ciphertext)
-					printf("\"prepareEqCiphertext\":true,");
-				printf("\"canonHash\":[");
-			} else
-				printf("%c%s%c%d%c%d%c%d",
-				       fs, alt->params.label,
-				       fs, disabled,
-				       fs, is_dynamic,
-				       fs, prepared_eq_ciphertext);
-			check_field_separator(alt->params.label);
-			/* Canonical hash or hashes (like halves of LM) */
-			for (part = 0; part < valid; part++) {
-				char *split = alt->methods.split(prepared,
-				                                 part, alt);
-
-				if (db_opts->showtypes_json)
-					printf("%s\"%s\"",
-					       part ? "," : "",
-					       escape_json(split));
-				else
-					printf("%c%s", fs, split);
-				check_field_separator(split);
-			}
-			if (db_opts->showtypes_json) {
-				printf("]");
-				if (huge_line) {
-					printf(",\"truncHash\":[");
-					for (part = 0; part < valid; part++) {
-						char *split = alt->methods.split(prepared, part, alt);
-						char tr[LINE_BUFFER_SIZE + 1];
-
-						ldr_pot_source(split, tr);
-						printf("%s\"%s\"",
-						       part ? "," : "",
-						       escape_json(tr));
-					}
-					printf("]");
-				}
-				printf("}");
-			}
-		} while ((alt = alt->next));
-		if (db_opts->showtypes_json) {
-			if (bad_char)
-				printf("],\"consistencyMark\":%d}", bad_char);
-			else
-				printf("]}");
-		} else
-			printf("%c%d%c\n", fs, bad_char, fs);
+	if (db_opts->showformats) {
+		showformats_regular(login, ciphertext,
+				    gecos, home, uid,
+				    source, db_opts, line_no,
+				    fields, gid, shell, huge_line);
 		return 0;
-#undef check_field_separator
 	}
 
 find_format:
@@ -1371,7 +1108,7 @@ void ldr_load_pw_file(struct db_main *db, char *name)
 
 		if (options.seed_file) {
 			FILE *file;
-			char *name = path_expand(options.seed_file);
+			const char *name = path_expand(options.seed_file);
 			char line[LINE_BUFFER_SIZE];
 
 			if (!(file = fopen(name, "r")))
@@ -1524,7 +1261,7 @@ struct db_main *ldr_init_test_db(struct fmt_main *format, struct db_main *real)
 	ldr_fix_database(testdb);
 	ldr_loading_testdb = 0;
 
-	if (options.verbosity == VERB_MAX && john_main_process)
+	if (options.verbosity >= VERB_MAX && john_main_process)
 		fprintf(stderr,
 		        "Loaded %d hashes with %d different salts to test db from test vectors\n",
 		        testdb->password_count, testdb->salt_count);
