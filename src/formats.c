@@ -833,7 +833,7 @@ static char *fmt_self_test_body(struct fmt_main *format,
 					else
 					sprintf(s_size, "max. length in index "
 					        "%d: wrote %d, got %d back", i,
-					        ml, (int)strlen(getkey));
+					        ml, (int)strlen(getkey)); 
 					fprintf(stderr, "\ngetkey = %s\nsetkey = %s\n", getkey, setkey);
 
 					return s_size;
