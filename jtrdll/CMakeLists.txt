@@ -498,6 +498,11 @@ FOREACH(source ${jtrdll_SOURCES})
 ENDFOREACH()
 
 
+# Turn off optimization for some files
+IF(MSVC)
+	SET_PROPERTY(SOURCE	"${CMAKE_CURRENT_SOURCE_DIR}/../src/simd-intrinsics.c" APPEND_STRING PROPERTY COMPILE_FLAGS " /Od")
+ENDIF()
+
 # build jtrexe
 FILE(GLOB EXTRA_KERNEL_FILES
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/opencl/*.cl"
